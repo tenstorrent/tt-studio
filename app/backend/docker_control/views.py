@@ -1704,7 +1704,9 @@ class DockerServiceLogsView(APIView):
             try:
                 # Check if fastapi.log exists in multiple possible locations using relative paths
                 possible_fastapi_logs = [
-                    "fastapi.log",  # Current directory
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"),  # Consolidated logs/ dir (current location)
+                    "logs/fastapi.log",  # Relative to current directory
+                    "fastapi.log",  # Current directory (legacy)
                     os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
                     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
                     os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory

@@ -90,15 +90,21 @@ INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inferenc
 # These will be read from .env file or environment variables
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
-FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
-FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+# All host-side runtime logs and PID files live under a single logs/ directory so
+# they don't clutter the repo root. Created eagerly because StartupLogger opens
+# startup.log at import time (below).
+LOGS_DIR = os.path.join(TT_STUDIO_ROOT, "logs")
+os.makedirs(LOGS_DIR, exist_ok=True)
+FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
+FASTAPI_LOG_FILE = os.path.join(LOGS_DIR, "fastapi.log")
+FASTAPI_DEPLOYMENT_LOGS_DIR = os.path.join(LOGS_DIR, "fastapi_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
-DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
-DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
+DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
+DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
 LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
-STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
+STARTUP_LOG_FILE = os.path.join(LOGS_DIR, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
 # Container names vary by mode: tt_studio_backend_api_prod, tt_studio_frontend_dev, etc.
@@ -2061,7 +2067,7 @@ def cleanup_resources(args):
         ("📜", FASTAPI_PID_FILE, "FastAPI server PID file"),
         ("📜", DOCKER_CONTROL_LOG_FILE, "Docker Control Service log"),
         ("📜", DOCKER_CONTROL_PID_FILE, "Docker Control Service PID file"),
-        ("📜", os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
+        ("📜", FASTAPI_DEPLOYMENT_LOGS_DIR,
          "per-deployment FastAPI logs"),
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
         ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
@@ -5007,7 +5013,7 @@ def main():
         # inference-api writes per-deployment log files into it. If a prior
         # sudo'd process created this dir, writes from the non-root uvicorn
         # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
-        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
+        fastapi_logs_dir = FASTAPI_DEPLOYMENT_LOGS_DIR
         if not os.path.exists(fastapi_logs_dir):
             try:
                 os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)

@@ -143,12 +143,12 @@ ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
 def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to fastapi.log at TT Studio root"""
+    """Set up file logging for FastAPI - writes to logs/fastapi.log under TT Studio root"""
     try:
-        # Put the log file at TT Studio root:
-        # <tt_studio_root>/fastapi.log
+        # Put the log file under the consolidated logs/ directory:
+        # <tt_studio_root>/logs/fastapi.log
         tt_studio_root = Path(__file__).parent.parent.resolve()
-        root_log_dir = tt_studio_root
+        root_log_dir = tt_studio_root / "logs"
         root_log_dir.mkdir(parents=True, exist_ok=True)
         root_log_file = root_log_dir / "fastapi.log"
 
@@ -1324,9 +1324,9 @@ def normalize_device_alias(device: str) -> str:
     return alias_map.get(device.strip().lower(), device)
 
 def get_fastapi_logs_dir():
-    """Get the FastAPI logs directory at TT Studio root"""
+    """Get the per-deployment FastAPI logs directory under TT Studio root's logs/"""
     tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "fastapi_logs"
+    fastapi_logs_dir = tt_studio_root / "logs" / "fastapi_logs"
     fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
     return fastapi_logs_dir
 

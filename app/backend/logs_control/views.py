@@ -34,7 +34,7 @@ BUG_REPORT_MANIFEST = [
     # ─────────────────────── ──────────────────────────────── ───────────────────────────────────────────
     ("backend_log",           "backend.log",                   "persistent volume: backend_volume/python_logs/"),
     ("fastapi_log",           "fastapi.log",                   "docker-control-service HTTP /api/v1/logs/fastapi"),
-    ("fastapi_deployment_logs","fastapi_logs/<name>.log (×5)", "volume mount: TT_STUDIO_ROOT/fastapi_logs/ (ro)"),
+    ("fastapi_deployment_logs","fastapi_logs/<name>.log (×5)", "volume mount: TT_STUDIO_ROOT/logs/fastapi_logs/ (ro)"),
     ("docker_control_log",    "docker-control-service.log",    "docker-control-service HTTP /api/v1/logs/service"),
     ("startup_log",           "startup.log",                   "docker-control-service HTTP /api/v1/logs/startup"),
     ("agent_log",             "agent.log",                     "docker-control-service HTTP /api/v1/containers/<id>/logs"),
@@ -125,7 +125,9 @@ class FastAPILogsView(APIView):
         
         # Check if fastapi.log exists in multiple possible locations using relative paths
         possible_fastapi_logs = [
-            "fastapi.log",  # Current directory
+            os.path.join(TT_STUDIO_ROOT, "logs", "fastapi.log"),  # Consolidated logs/ dir (current location)
+            "logs/fastapi.log",  # Relative to current directory
+            "fastapi.log",  # Current directory (legacy)
             os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/logs_control/views.py
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
@@ -434,8 +436,8 @@ def _collect_bug_report_data() -> dict:
     except Exception as _e0:
         data["fastapi_log"] = {"file": None, "content": f"fastapi.log not accessible: {_e0}"}
 
-    # 3. Per-deployment FastAPI logs (fastapi_logs/ directory, newest 5)
-    fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
+    # 3. Per-deployment FastAPI logs (logs/fastapi_logs/ directory, newest 5)
+    fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "logs", "fastapi_logs")
     if os.path.isdir(fastapi_logs_dir):
         dep_logs = sorted(
             [
