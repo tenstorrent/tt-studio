@@ -299,7 +299,7 @@ function PreparingRow({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span
-            className="flex items-center gap-1 font-mono text-xs text-stone-500 tabular-nums"
+            className="flex items-center gap-1 font-mono text-xs text-white tabular-nums"
             title="Time elapsed since warmup started"
           >
             <Clock className="w-3 h-3" />
