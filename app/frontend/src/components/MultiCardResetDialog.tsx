@@ -25,6 +25,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
+import { useRefresh } from "../hooks/useRefresh";
 import type { Model } from "../contexts/ModelsContext";
 import BoardBadge from "./BoardBadge";
 import StreamingLogPanel from "./StreamingLogPanel";
@@ -369,6 +370,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
 }) => {
   const { refreshModels } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
+  const { triggerResetAll } = useRefresh();
 
   const boardType = deviceState?.board_type ?? "unknown";
   const deviceStateName = deviceState?.state ?? "UNKNOWN";
@@ -506,13 +508,15 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
       setBoardStep("done");
 
       refreshDeviceState();
+      // The whole board was reset — let views drop stale "Died Unexpectedly" rows.
+      triggerResetAll();
       if (onReset) onReset();
     } catch (err) {
       setBoardError(err instanceof Error ? err.message : "An unknown error occurred.");
       setBoardStep("failed");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshModels, refreshDeviceState, onReset]);
+  }, [refreshModels, refreshDeviceState, onReset, triggerResetAll]);
 
   // ── Derived values ───────────────────────────────────────────────────────────
   const totalSlots = chipFetch.status === "success" ? chipFetch.data.total_slots : 4;

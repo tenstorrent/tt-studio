@@ -52,7 +52,7 @@ import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
+  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
 
   const [loading, setLoading] = useState(true);
@@ -248,6 +248,16 @@ export default function ModelsDeployedCard(): JSX.Element {
     }
   }, [liveContainerIds]);
 
+  // After a full board reset (Reset All), forget the dead containers seen this
+  // session so their "Died Unexpectedly" rows clear — the board no longer has
+  // them. A single model reset/delete does NOT bump resetAllNonce, so those
+  // rows stay until the user clicks that row's own Remove & Reset.
+  const lastResetAllNonce = useRef(resetAllNonce);
+  if (resetAllNonce !== lastResetAllNonce.current) {
+    lastResetAllNonce.current = resetAllNonce;
+    seenLiveIdsRef.current.clear();
+  }
+
   const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
     const next: Record<string, FailedDeploymentInfo> = {};
     for (const d of history) {
@@ -311,7 +321,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       });
     }
     return out;
-  }, [history, failedMap, liveContainerIds]);
+  }, [history, failedMap, liveContainerIds, resetAllNonce]);
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
