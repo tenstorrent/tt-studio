@@ -2522,41 +2522,46 @@ class StopStreamView(View):
         async def generate():
             yield "retry: 1000\n\n"
             truncated = container_id[:12]
-
-            # Step 1: stop and remove the container.
-            yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
             try:
-                async for msg in _astream_stop_remove_container(container_id, truncated):
-                    yield _sse_event({"type": "log", "step": "deleting", "message": msg})
-            except _StopFailed as e:
-                yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
-                return
+                # Step 1: stop and remove the container.
+                yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+                try:
+                    async for msg in _astream_stop_remove_container(container_id, truncated):
+                        yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+                except _StopFailed as e:
+                    yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
+                    return
 
-            # Stop-only: leave the chips for a later whole-board reset.
-            if skip_device_reset:
-                await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
-                return
+                # Stop-only: leave the chips for a later whole-board reset.
+                if skip_device_reset:
+                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                    yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                    return
 
-            # Step 2: reset the chips this model occupied.
-            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
-            if not device_ids:
-                yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
-                return
+                # Step 2: reset the chips this model occupied.
+                device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+                if not device_ids:
+                    yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                    yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                    return
 
-            label = ", ".join(str(d) for d in device_ids)
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=True,
-                success_msg=f"Model deleted and device(s) {label} reset successfully",
-                partial_msg=(
-                    f"Model deleted, but reset of device(s) {label} did not complete "
-                    "successfully. Manual intervention may be required."
-                ),
-            ):
-                yield event
+                label = ", ".join(str(d) for d in device_ids)
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=True,
+                    success_msg=f"Model deleted and device(s) {label} reset successfully",
+                    partial_msg=(
+                        f"Model deleted, but reset of device(s) {label} did not complete "
+                        "successfully. Manual intervention may be required."
+                    ),
+                ):
+                    yield event
+            except Exception as e:
+                # Never let the stream die without a terminal event; the client
+                # treats an abrupt close as "Connection to stream lost".
+                logger.error(f"Stop stream for {truncated} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Stop failed: {e}"})
 
         return _sse_response(generate())
 
@@ -2573,14 +2578,20 @@ class ResetStreamView(View):
 
         async def generate():
             yield "retry: 1000\n\n"
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=False,
-                success_msg=f"Reset of {label} completed successfully",
-                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-            ):
-                yield event
+            try:
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=False,
+                    success_msg=f"Reset of {label} completed successfully",
+                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                ):
+                    yield event
+            except Exception as e:
+                # Always emit a terminal event so the client never sees an abrupt
+                # close ("Connection to stream lost") on an unexpected failure.
+                logger.error(f"Reset stream for {label} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
 
         return _sse_response(generate())
 

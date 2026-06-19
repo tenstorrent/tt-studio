@@ -236,8 +236,10 @@ export interface SSEResult {
 /**
  * Consume a backend SSE stream until its `complete` event.
  * Calls onLog per `log` line and onStep per `step` change; resolves with the
- * final status and full output. Rejects on connection loss or a 3-minute timeout.
+ * final status and full output. Rejects on connection loss or if the whole stream exceeds STREAM_TIMEOUT_MS.
  */
+const STREAM_TIMEOUT_MS = 300_000; // 5 min — comfortably above the worst-case reset
+
 export const consumeSSE = (
   url: string,
   onLog?: (line: string) => void,
@@ -249,7 +251,7 @@ export const consumeSSE = (
     const timer = window.setTimeout(() => {
       es.close();
       reject(new Error("Stream timed out — the backend may still be processing."));
-    }, 180_000);
+    }, STREAM_TIMEOUT_MS);
     const done = (fn: () => void) => {
       window.clearTimeout(timer);
       es.close();
