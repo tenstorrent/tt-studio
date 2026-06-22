@@ -298,6 +298,33 @@ export const deleteModel = async (
   }
 };
 
+/** Progress snapshot for a whole-board "Reset All" background job. */
+export interface ResetAllStatus {
+  step: string; // "idle" | "deleting" | "resetting" | "done"
+  logs: string[];
+  done: boolean;
+  ok: boolean;
+  error: string | null;
+  deleted: string[];
+  remaining: string[];
+}
+
+/**
+ * Start a whole-board reset (stop all models, then reset the board) as a backend
+ * background job. Returns immediately; poll getResetAllStatus() for progress.
+ * Plain request/response — no EventSource, so it cannot fail with
+ * "Connection to stream lost."
+ */
+export const startResetAll = async (): Promise<void> => {
+  await axios.post(`${dockerAPIURL}reset_all/`);
+};
+
+/** Read the current whole-board reset progress. */
+export const getResetAllStatus = async (): Promise<ResetAllStatus> => {
+  const { data } = await axios.get<ResetAllStatus>(`${dockerAPIURL}reset_all/status/`);
+  return data;
+};
+
 export const handleRedeploy = (modelName: string): void => {
   customToast.success(`Model ${modelName} has been redeployed.`);
 };

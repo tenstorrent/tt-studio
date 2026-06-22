@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
+import { fetchModels, streamResetAction, startResetAll, getResetAllStatus } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import { useRefresh } from "../hooks/useRefresh";
@@ -492,19 +492,25 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     setShowBoardOutput(false);
 
     try {
-      // Stop every model (no per-model reset), then reset the whole board once.
-      const currentModels = await fetchModels();
-      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
+      // Drive the whole-board reset as a backend job and poll its status. No
+      // EventSource is involved, so "Connection to stream lost." cannot occur;
+      // the backend stops every model (verified gone) before resetting the board.
+      await startResetAll();
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await getResetAllStatus();
+        if (status.step === "deleting" || status.step === "resetting") {
+          setBoardStep(status.step);
+        }
+        if (status.logs.length) setBoardOutput(status.logs.join("\n"));
+        if (status.done) {
+          if (!status.ok) {
+            throw new Error(status.error || "Board reset failed. See output for details.");
+          }
+          break;
+        }
+      }
       await refreshModels();
-
-      setBoardStep("resetting");
-      let output = "";
-      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
-        output += `${line}\n`;
-        setBoardOutput(output);
-      });
-
-      if (status !== "success") throw new Error("Board reset failed. See command output for details.");
       setBoardStep("done");
 
       refreshDeviceState();

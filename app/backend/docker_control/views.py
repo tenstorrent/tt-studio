@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import os
 import asyncio
+import threading
 import concurrent.futures
 import requests
 import json
@@ -2594,6 +2595,158 @@ class ResetStreamView(View):
                 yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
 
         return _sse_response(generate())
+
+
+# --- Whole-board "Reset All" as a background job (no SSE) ----------------------
+#
+# A multi-model board reset used to run as N concurrent `stop/stream` EventSources
+# followed by a `reset_board/stream`; any one stream closing surfaced as
+# "Connection to stream lost." and aborted the reset before `tt-smi -r` ran.
+# Instead, the reset now runs as a detached task: the frontend starts it with one
+# POST and polls /reset_all/status/. No EventSource → that failure mode is gone.
+# Progress is persisted to a small JSON file on the shared backend volume so a
+# status poll served by any uvicorn worker observes the same state.
+
+_RESET_ALL_STATE_PATH = Path(backend_config.backend_cache_root) / "reset_all_status.json"
+_reset_all_write_lock = threading.Lock()
+_reset_all_task = None  # holds a reference so the detached task isn't garbage-collected
+
+
+def _reset_all_read_state():
+    try:
+        with open(_RESET_ALL_STATE_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _reset_all_write_state(state):
+    from django.utils import timezone
+    state["updated_at"] = timezone.now().isoformat()
+    tmp = _RESET_ALL_STATE_PATH.with_name(_RESET_ALL_STATE_PATH.name + ".tmp")
+    with _reset_all_write_lock:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _RESET_ALL_STATE_PATH)
+
+
+async def _run_reset_all_job():
+    """Stop every deployed model (verified), then reset the whole board.
+
+    Reuses the same building blocks the per-model SSE delete path uses, writing
+    progress to the shared state file after each step.
+    """
+    from django.utils import timezone
+    state = {
+        "step": "deleting",
+        "logs": [],
+        "done": False,
+        "ok": False,
+        "error": None,
+        "deleted": [],
+        "remaining": [],
+        "started_at": timezone.now().isoformat(),
+    }
+
+    def _log(message):
+        state["logs"].append(message)
+        _reset_all_write_state(state)
+
+    _reset_all_write_state(state)
+    try:
+        # Phase 1: stop & remove every deployed model, then verify and retry any
+        # survivors so a model is never left running.
+        targets = await asyncio.to_thread(get_container_status)
+        names = {cid: info.get("name", cid[:12]) for cid, info in targets.items()}
+        _log(f"Stopping {len(targets)} deployed model(s)…")
+        for cid in list(targets):
+            try:
+                async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                    _log(msg)
+            except _StopFailed as e:
+                _log(f"{names.get(cid, cid[:12])}: {e}")
+
+        MAX_ROUNDS = 3
+        remaining = await asyncio.to_thread(get_container_status)
+        for round_no in range(1, MAX_ROUNDS + 1):
+            if not remaining:
+                break
+            _log(f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…")
+            for cid in list(remaining):
+                names.setdefault(cid, remaining[cid].get("name", cid[:12]))
+                try:
+                    async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                        _log(msg)
+                except _StopFailed as e:
+                    _log(f"{names.get(cid, cid[:12])}: {e}")
+            remaining = await asyncio.to_thread(get_container_status)
+
+        state["remaining"] = [info.get("name", cid[:12]) for cid, info in remaining.items()]
+        state["deleted"] = [n for cid, n in names.items() if cid not in remaining]
+        if remaining:
+            state["step"] = "done"
+            state["done"] = True
+            state["ok"] = False
+            state["error"] = "Could not delete: " + ", ".join(state["remaining"])
+            _reset_all_write_state(state)
+            return
+
+        # Phase 2: reset the whole board (only once every model is gone).
+        state["step"] = "resetting"
+        _log("All models stopped — resetting board…")
+        reset_ok = False
+        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+            if kind == "log":
+                _log(payload)
+            else:
+                reset_ok = bool(payload)
+
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = reset_ok
+        if not reset_ok:
+            state["error"] = "Board reset did not complete successfully. Manual intervention may be required."
+        _reset_all_write_state(state)
+    except Exception as e:
+        logger.exception("reset_all job failed")
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = False
+        state["error"] = f"Reset failed: {e}"
+        _reset_all_write_state(state)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StartResetAllView(View):
+    """Start a whole-board reset (stop all models, then `tt-smi -r`) as a detached
+    background job. Returns immediately; progress is read via ResetAllStatusView."""
+
+    async def post(self, request, *args, **kwargs):
+        global _reset_all_task
+        # Idempotent: if a reset is already in flight (fresh, not-done state),
+        # don't launch a second `tt-smi -r`.
+        existing = await asyncio.to_thread(_reset_all_read_state)
+        if existing is not None and not existing.get("done"):
+            from django.utils import timezone
+            from django.utils.dateparse import parse_datetime
+            updated = parse_datetime(existing.get("updated_at") or "")
+            if updated is not None and (timezone.now() - updated).total_seconds() < 120:
+                return JsonResponse({"status": "already_running"}, status=202)
+        _reset_all_task = asyncio.create_task(_run_reset_all_job())
+        return JsonResponse({"status": "started"}, status=202)
+
+
+class ResetAllStatusView(View):
+    """Return the current whole-board reset progress snapshot."""
+
+    def get(self, request, *args, **kwargs):
+        state = _reset_all_read_state()
+        if state is None:
+            return JsonResponse({
+                "step": "idle", "logs": [], "done": True, "ok": True,
+                "error": None, "deleted": [], "remaining": [],
+            })
+        return JsonResponse(state)
 
 
 class AvailableDevicesView(APIView):
