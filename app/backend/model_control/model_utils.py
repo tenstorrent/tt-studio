@@ -30,7 +30,11 @@ AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
-    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+    limits=httpx.Limits(
+        max_connections=50,
+        max_keepalive_connections=20,
+        keepalive_expiry=3600.0,
+    ),
 )
 _cloud_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
@@ -348,6 +352,9 @@ async def stream_to_cloud_model(url: str, json_data: dict):
 async def stream_response_from_external_api(url: str, json_data: dict):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
+
+    from model_control.connection_warmer import note_inference_loop
+    note_inference_loop()
 
     # Coerce and forward parameters
     temperature = json_data.get("temperature")
