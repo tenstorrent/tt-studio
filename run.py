@@ -96,6 +96,7 @@ DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.p
 DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
+LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
 STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
@@ -2004,6 +2005,7 @@ def cleanup_resources(args):
          "per-deployment FastAPI logs"),
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
         ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
+        ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch output"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch output"),
         ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
