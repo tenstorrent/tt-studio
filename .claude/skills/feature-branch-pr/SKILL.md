@@ -54,9 +54,9 @@ Derive the branch prefix from git config:
 git config user.name; git config user.email
 ```
 
-Use the lowercased first name / email local-part (e.g. `jashansingh@...` →
-`jashan`). If it's ambiguous, ask the user which prefix to use. This repo's
-convention is `<username>/<feature>` (e.g. `jashan/ttft-fix`).
+Use the lowercased first name / email local-part (e.g. `johnsingh@...` →
+`john`). If it's ambiguous, ask the user which prefix to use. This repo's
+convention is `<username>/<feature>` (e.g. `john/ttft-fix`).
 
 ### 2. Branch off dev
 
