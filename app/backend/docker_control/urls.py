@@ -27,6 +27,7 @@ from .views import (
     DiscoverContainersView,
     RegisterExternalModelView,
     AvailableDevicesView,
+    HfDownloadConfigView,
 )
 
 urlpatterns = [
@@ -52,4 +53,5 @@ urlpatterns = [
     path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
     path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
     path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
+    path("hf-download-config/", views.HfDownloadConfigView.as_view(), name="hf-download-config"),
 ]

@@ -4,6 +4,7 @@
 import type { JSX } from "react";
 import { X, Zap, ScrollText, Download, Check } from "lucide-react";
 import { Button } from "../ui/button";
+import HfXetBadge from "../HfXetBadge";
 import type { ModelRow } from "../../types/models";
 import type { StartupPhase } from "../HealthBadge";
 
@@ -137,7 +138,7 @@ function DownloadDetails({ phase }: { phase: StartupPhase }) {
       {/* Source line: which repo, with a download icon */}
       <div className="flex items-center gap-2 text-amber-300 text-sm font-medium">
         <Download className="w-4 h-4 shrink-0" />
-        <span className="truncate">
+        <span className="truncate flex-1 min-w-0">
           {phase.weights_repo ? (
             <>
               Downloading{" "}
@@ -147,6 +148,7 @@ function DownloadDetails({ phase }: { phase: StartupPhase }) {
             "Downloading model weights"
           )}
         </span>
+        <HfXetBadge className="shrink-0" />
       </div>
 
       {/* Stats grid: 3 columns, labeled. Scannable at a glance. */}

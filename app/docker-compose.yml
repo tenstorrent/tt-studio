@@ -29,9 +29,14 @@ services:
     tty: true
     environment:
       # env vars are defined in .env file, use .env.default as template
-      # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
-      # be extremely slow/hang here and stall the embedding-model download on boot.
-      - HF_HUB_DISABLE_XET=1
+      # Hugging Face download path. HF's Xet CDN can be extremely slow / hang on
+      # some networks and stall HF downloads. Set HF_HUB_DISABLE_XET=1 in app/.env
+      # to force the legacy HTTPS CDN. Defaults to 1 here so the embedding-model
+      # download on boot stays on the fast path unless the user overrides it.
+      - HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-1}
+      # Raw user choice (empty unless set in app/.env), passed through so deployed
+      # model containers disable Xet only when the user explicitly opts in.
+      - TT_STUDIO_MODEL_HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-}
       - CHROMA_DB_HOST=tt_studio_chroma
       - CHROMA_DB_PORT=8111
       - TT_STUDIO_ROOT

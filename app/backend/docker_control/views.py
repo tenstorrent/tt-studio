@@ -2611,3 +2611,20 @@ class AvailableDevicesView(APIView):
             "devices": devices,
             "count": len(devices)
         }, status=status.HTTP_200_OK)
+
+
+class HfDownloadConfigView(APIView):
+    """Report the effective Hugging Face download settings for deployed model
+    containers so the UI can show whether HF's Xet CDN is in use during weight
+    downloads. Env-derived and static for the lifetime of the backend process.
+    """
+
+    def get(self, request, *args, **kwargs):
+        # Mirror the value model_config.py forwards into model containers.
+        raw = os.environ.get("TT_STUDIO_MODEL_HF_HUB_DISABLE_XET", "")
+        # Mirror huggingface_hub's truthiness (ENV_VARS_TRUE_VALUES).
+        disable_xet = str(raw).strip().upper() in {"1", "ON", "YES", "TRUE"}
+        return Response(
+            {"xet_enabled": not disable_xet, "disable_xet": disable_xet},
+            status=status.HTTP_200_OK,
+        )

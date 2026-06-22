@@ -76,7 +76,16 @@ class ModelImpl:
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
-        
+
+        # Let users steer the HF download path for model-weight downloads. When
+        # HF_HUB_DISABLE_XET is set in app/.env (surfaced here as the raw
+        # TT_STUDIO_MODEL_HF_HUB_DISABLE_XET passthrough), forward it so the
+        # container downloads over the legacy HTTPS CDN instead of HF's Xet CDN,
+        # which can be very slow on some networks. Unset => HF default (Xet on).
+        _disable_xet = os.environ.get("TT_STUDIO_MODEL_HF_HUB_DISABLE_XET")
+        if _disable_xet:
+            self.docker_config["environment"]["HF_HUB_DISABLE_XET"] = _disable_xet
+
         # Set environment variable if N150_WH_ARCH_YAML, N300_WH_ARCH_YAML, or N300x4_WH_ARCH_YAML is in the device configurations
         if (
             DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations

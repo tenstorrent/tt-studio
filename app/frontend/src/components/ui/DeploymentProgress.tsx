@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from './progress';
+import HfXetBadge from '../HfXetBadge';
 
 /** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
 function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
@@ -326,6 +327,10 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
                 </span>
               </div>
             )}
+
+            {/* HF Xet on/off — only meaningful for the actual weight download,
+                not the Docker image pull. */}
+            {!isImagePull && <HfXetBadge className="ml-auto" />}
           </div>
 
           <div className="space-y-1">

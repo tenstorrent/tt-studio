@@ -79,6 +79,36 @@ Check the logs in `fastapi.log` for specific errors. Common causes include:
 - Missing environment variables
 - Hardware access issues
 
+### Slow Hugging Face model downloads
+
+If deploying a model is slow because its weights download slowly from Hugging
+Face — while general internet speed is fine — the cause is often HF's **Xet
+CDN** (`cas-bridge.xethub.hf.co`), which `huggingface_hub` uses by default.
+On networks with a high-latency route to the Xet CDN it can be far slower than
+HF's legacy HTTPS CDN, or hang outright.
+
+**Confirm it's the Xet path** by running the bundled probe, which downloads the
+same file with Xet on vs off and prints a verdict:
+
+```bash
+bash scripts/hf-xet-check.sh
+# If your Python is in a venv: HF_PY=/path/to/venv/bin/python bash scripts/hf-xet-check.sh
+```
+
+Throughput is the reliable signal (run it 2–3× — it's noisy). Latency pings are
+only a rough sniff: `huggingface.co` is anycast/CloudFront and isn't even the
+host serving the legacy file bytes, so its ping can swing widely and shouldn't
+drive the decision on its own.
+
+**Fix:** set `HF_HUB_DISABLE_XET=1` in `app/.env`, then re-run `python run.py`.
+This forces the legacy HTTPS CDN for all Hugging Face downloads — the boot-time
+embedding model and the deployed model weights. Leave it empty (the default) to
+use HF's Xet CDN.
+
+> **Note:** This is network-path dependent. Disabling Xet helps on high-latency
+> routes to the Xet CDN, but on networks close to a Xet edge, Xet can be faster
+> (parallel chunked transfer + deduplication). Measure before changing it.
+
 ---
 
 ## Frontend Issues
