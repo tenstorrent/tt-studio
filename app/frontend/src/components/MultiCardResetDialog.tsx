@@ -29,6 +29,7 @@ import { useRefresh } from "../hooks/useRefresh";
 import type { Model } from "../contexts/ModelsContext";
 import BoardBadge from "./BoardBadge";
 import StreamingLogPanel from "./StreamingLogPanel";
+import ResetStepRow from "./ResetStepRow";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,63 +108,6 @@ function formatSlots(slots: number[]): string {
   if (slots.length === 1) return `${slots[0]}`;
   const contiguous = slots.every((s, i) => i === 0 || s === slots[i - 1] + 1);
   return contiguous ? `${slots[0]}–${slots[slots.length - 1]}` : slots.join(", ");
-}
-
-// ── Shared step-row ───────────────────────────────────────────────────────────
-function StepRow({
-  number,
-  icon,
-  label,
-  sublabel,
-  state,
-}: {
-  number: number;
-  icon: React.ReactNode;
-  label: string;
-  sublabel?: string;
-  state: "pending" | "active" | "done" | "skipped";
-}) {
-  return (
-    <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
-        ? "bg-blue-900/30 border-blue-500/40"
-        : state === "done"
-          ? "bg-green-900/20 border-green-600/30"
-          : state === "skipped"
-            ? "bg-stone-800/30 border-stone-700/30"
-            : "bg-stone-800/50 border-stone-700/40"
-        }`}
-    >
-      <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-        {state === "active" ? (
-          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-        ) : state === "done" ? (
-          <CheckCircle className="w-5 h-5 text-green-400" />
-        ) : state === "skipped" ? (
-          <CheckCircle className="w-5 h-5 text-stone-500" />
-        ) : (
-          <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
-            {number}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped" ? "text-stone-400" : "text-white"
-            }`}
-        >
-          {icon}
-          {label}
-        </div>
-        {sublabel && state === "active" && (
-          <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
-        )}
-        {state === "done" && (
-          <div className="text-xs text-green-400 mt-0.5">Completed</div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // ── Reset unit card ─────────────────────────────────────────────────────────────
@@ -309,7 +253,7 @@ function UnitCard({
       {(isActive || isDone || isFailed) && (
         <div className="space-y-2.5 mt-3">
           {isModel && (
-            <StepRow
+            <ResetStepRow
               number={1}
               icon={<Trash2 className="w-3 h-3" />}
               label={`Stop ${unit.model.name}`}
@@ -317,7 +261,7 @@ function UnitCard({
               state={stopState}
             />
           )}
-          <StepRow
+          <ResetStepRow
             number={isModel ? 2 : 1}
             icon={<RotateCcw className="w-3 h-3" />}
             label={`Reset device${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
@@ -655,7 +599,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           {/* ── Full-board reset progress ── */}
           {boardStep !== null && (
             <div className="space-y-2">
-              <StepRow
+              <ResetStepRow
                 number={1}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
                 label="Stop all deployed models"
@@ -668,7 +612,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                       : "pending"
                 }
               />
-              <StepRow
+              <ResetStepRow
                 number={2}
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
                 label="Reset all devices (tt-smi -r)"

@@ -305,6 +305,13 @@ class ChipStatusView(APIView):
 
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
+        # Block new deployments while a board/device reset is in progress — deploying
+        # mid-reset conflicts with the hardware re-init and model teardown.
+        if SystemResourceService.is_reset_in_progress():
+            return Response(
+                {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError

@@ -54,6 +54,14 @@ class SystemResourceService:
             return False
 
     @staticmethod
+    def is_reset_in_progress():
+        """True if any board/device reset is active — the single-device reset cache
+        flag or the whole-board reset job. Used to report RESETTING and to block
+        conflicting actions (e.g. new deployments)."""
+        return bool(cache.get(SystemResourceService.DEVICE_RESETTING_KEY)) or \
+            SystemResourceService._board_reset_job_active()
+
+    @staticmethod
     def get_tt_smi_data(timeout=30):
         """Get raw tt-smi data with caching to reduce expensive calls"""
         # Check cache first
@@ -548,7 +556,7 @@ class SystemResourceService:
         # (DEVICE_RESETTING_KEY cache flag) and the whole-board reset job, which is
         # tracked in a shared file so it's visible across workers and during its
         # model-stopping phase.
-        if cache.get(SystemResourceService.DEVICE_RESETTING_KEY) or SystemResourceService._board_reset_job_active():
+        if SystemResourceService.is_reset_in_progress():
             return {
                 "state": "RESETTING",
                 "board_type": "unknown",
