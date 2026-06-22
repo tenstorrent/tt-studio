@@ -146,7 +146,7 @@ Here's how the setup paths compare:
 | Feature | Default<br>`python run.py` | Full Config<br>`--configure-env` | Development<br>`--dev` |
 |---------|----------------------------|----------------------------------|------------------------|
 | **Primary Use** | First-time users, quick testing | Production deployments | Development work |
-| **Prompts Required** | HF_TOKEN only | All security credentials | All with suggested defaults |
+| **Prompts Required** | HF_TOKEN only | All security credentials | HF_TOKEN only (use `--dev --configure-env` for full interactive prompts) |
 | **Security** | ⚠️ Insecure defaults | ✅ User-provided secure values | ⚠️ Dev defaults available |
 | **AI Playground** | Disabled | User choice | User choice |
 | **RAG Admin** | Disabled | User choice | User choice |
