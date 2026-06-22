@@ -436,9 +436,22 @@ def _collect_bug_report_data() -> dict:
     except Exception as _e0:
         data["model_run_log"] = {"file": None, "content": f"model_run.log not accessible: {_e0}"}
 
-    # 3. Per-deployment model run logs (logs/model_run_logs/ directory, newest 5)
-    model_run_logs_dir = os.path.join(TT_STUDIO_ROOT, "logs", "model_run_logs")
-    if os.path.isdir(model_run_logs_dir):
+    # 3. Per-deployment model run logs (logs/model_run_logs/ directory, newest 5).
+    # Fall back to the legacy fastapi_logs/ locations so bundles captured before
+    # the consolidation + rename still surface their per-deployment logs.
+    model_run_logs_dir = next(
+        (
+            d
+            for d in (
+                os.path.join(TT_STUDIO_ROOT, "logs", "model_run_logs"),
+                os.path.join(TT_STUDIO_ROOT, "logs", "fastapi_logs"),
+                os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
+            )
+            if os.path.isdir(d)
+        ),
+        None,
+    )
+    if model_run_logs_dir:
         dep_logs = sorted(
             [
                 os.path.join(model_run_logs_dir, f)
