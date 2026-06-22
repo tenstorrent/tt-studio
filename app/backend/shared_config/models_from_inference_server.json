@@ -20,16 +20,11 @@
       ],
       "hf_model_id": "distil-whisper/distil-large-v3",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-2508216",
       "service_route": "/v1/audio/transcriptions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -48,16 +43,11 @@
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -76,16 +66,11 @@
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-schnell",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -113,16 +98,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-25305db-6e67d2d",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -145,16 +125,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.3-70B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e867533-8f36910",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -174,16 +149,11 @@
       ],
       "hf_model_id": "mistralai/Mistral-7B-Instruct-v0.3",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -203,16 +173,11 @@
       ],
       "hf_model_id": "mobilenetv2",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -231,16 +196,11 @@
       ],
       "hf_model_id": "genmo/mochi-1-preview",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
       "service_route": "/enqueue",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -259,16 +219,11 @@
       ],
       "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -290,16 +245,11 @@
       ],
       "hf_model_id": "Qwen/Qwen3-32B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.11.1-bac8b34-7c6685a",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -322,16 +272,11 @@
       ],
       "hf_model_id": "microsoft/speecht5_tts",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-2508216",
       "service_route": "/v1/audio/speech",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -350,16 +295,11 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-3.5-large",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -380,16 +320,11 @@
       ],
       "hf_model_id": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.5.0-fbbbd2da8cfab49ddf43d28dd9c0813a3c3ee2bd",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -410,16 +345,11 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-bac8b34",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -440,16 +370,11 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0-img-2-img",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-bac8b34",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -468,16 +393,11 @@
       ],
       "hf_model_id": "vit",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -496,16 +416,11 @@
       ],
       "hf_model_id": "vovnet",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -529,16 +444,11 @@
       ],
       "hf_model_id": "openai/whisper-large-v3",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-2508216",
       "service_route": "/v1/audio/transcriptions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -557,17 +467,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-11B-Vision",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -586,17 +490,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -616,16 +514,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-1B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.11.1-84b4c53-222ee06",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -646,16 +539,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-1B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.11.1-84b4c53-222ee06",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -676,16 +564,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-3B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.3.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-20edc39-03cb300",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -705,16 +588,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-3B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.3.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-20edc39-03cb300",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -732,17 +610,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-90B-Vision",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -761,17 +633,11 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -791,16 +657,11 @@
       ],
       "hf_model_id": "Qwen/Qwen-Image",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -820,16 +681,11 @@
       ],
       "hf_model_id": "Qwen/Qwen-Image-2512",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -850,16 +706,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-72B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -881,16 +732,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-72B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -910,17 +756,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-72B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -941,16 +781,11 @@
       ],
       "hf_model_id": "Qwen/QwQ-32B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -970,16 +805,11 @@
       ],
       "hf_model_id": "resnet-50",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -998,16 +828,11 @@
       ],
       "hf_model_id": "segformer",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "FUNCTIONAL",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1026,16 +851,11 @@
       ],
       "hf_model_id": "arcee-ai/AFM-4.5B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.3.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-ae65ee5-35f023f",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1056,16 +876,11 @@
       ],
       "hf_model_id": "BAAI/bge-large-en-v1.5",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1090,16 +905,11 @@
       ],
       "hf_model_id": "efficientnet",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1117,16 +927,11 @@
       ],
       "hf_model_id": "google/gemma-3-1b-it",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1146,17 +951,11 @@
       ],
       "hf_model_id": "google/gemma-3-27b-it",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-aecd1d7-0da90eb",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1175,17 +974,11 @@
       ],
       "hf_model_id": "google/gemma-3-4b-it",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-aecd1d7-0da90eb",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1204,16 +997,11 @@
       ],
       "hf_model_id": "openai/gpt-oss-120b",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.12.0-805f43d-a45c614",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1234,16 +1022,11 @@
       ],
       "hf_model_id": "openai/gpt-oss-20b",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e867533-8f36910",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1266,17 +1049,11 @@
       ],
       "hf_model_id": "google/medgemma-27b-it",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-aecd1d7-0da90eb",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1295,17 +1072,11 @@
       ],
       "hf_model_id": "google/medgemma-4b-it",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-aecd1d7-0da90eb",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1324,16 +1095,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-7B",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
       "service_route": "/v1/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1353,16 +1119,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-7B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1382,16 +1143,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-17a5973-aa4ae1e",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1410,17 +1166,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-32B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1440,17 +1190,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-3B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1469,17 +1213,11 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-7B-Instruct",
       "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1501,16 +1239,11 @@
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-4B",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1537,16 +1270,11 @@
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-8B",
       "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
@@ -1569,16 +1297,11 @@
       ],
       "hf_model_id": "unet",
       "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
       "status": "EXPERIMENTAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
         "VLLM_RPC_TIMEOUT": "900000",
