@@ -2060,6 +2060,25 @@ def cleanup_resources(args):
         os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
     artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
 
+    # All host-side runtime logs + PID files now live under logs/, so the whole
+    # directory is removed in one shot (it is always a proper subdir of the repo,
+    # never the repo root itself). The repo-root entries that follow clear logs
+    # left behind by TT Studio versions from before the logs/ consolidation +
+    # rename — and the degenerate case where logs/ couldn't be created and the
+    # files fell back to the repo root.
+    logs_dir = os.path.join(TT_STUDIO_ROOT, "logs")
+    log_items = [
+        ("📜", logs_dir, "host-side runtime logs & PID files (startup, model run, docker-control)"),
+    ]
+    log_items += [
+        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host-side log (pre-consolidation)")
+        for name in (
+            "model_run.log", "model_run_logs",
+            "fastapi.log", "fastapi.pid", "fastapi_logs",
+            "startup.log", "docker-control-service.log", "docker-control-service.pid",
+        )
+    ]
+
     items = [
         ("📁", host_persistent_volume,
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
@@ -2067,13 +2086,7 @@ def cleanup_resources(args):
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
-        ("📜", STARTUP_LOG_FILE, "startup log"),
-        ("📜", MODEL_RUN_LOG_FILE, "model run log"),
-        ("📜", FASTAPI_PID_FILE, "FastAPI server PID file"),
-        ("📜", DOCKER_CONTROL_LOG_FILE, "Docker Control Service log"),
-        ("📜", DOCKER_CONTROL_PID_FILE, "Docker Control Service PID file"),
-        ("📜", MODEL_RUN_LOGS_DIR,
-         "per-deployment model run logs"),
+        *log_items,
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
         ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
         ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
