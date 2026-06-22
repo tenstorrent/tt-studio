@@ -496,6 +496,9 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
       // EventSource is involved, so "Connection to stream lost." cannot occur;
       // the backend stops every model (verified gone) before resetting the board.
       await startResetAll();
+      // Flip the global RESETTING lock immediately for this session instead of
+      // waiting for the next device-state poll (other sessions catch up on their poll).
+      refreshDeviceState();
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const status = await getResetAllStatus();
@@ -620,9 +623,16 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
 
           {/* ── Already resetting banner -─ Only when the board is being reset *elsewhere* (another tab/user).*/}
           {isResettingContext && !isAnyResetting && boardStep === null && (
-            <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
-              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
-              <span>Board is already resetting…</span>
+            <div className="flex items-start gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
+              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-blue-100">Board reset in progress</p>
+                <p className="text-blue-200/90">
+                  Stopping all models and re-initializing the board — about a minute or
+                  two. Actions are paused; you can close this dialog and the reset will
+                  finish in the background.
+                </p>
+              </div>
             </div>
           )}
 

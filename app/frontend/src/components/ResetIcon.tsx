@@ -403,9 +403,18 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                 />
 
                 {isResettingContext && (
-                  <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-500/40 rounded-lg text-blue-900 dark:text-blue-200 text-sm">
-                    <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
-                    <span>Board is already resetting…</span>
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-500/40 rounded-lg text-blue-900 dark:text-blue-200 text-sm">
+                    <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-medium text-blue-900 dark:text-blue-100">
+                        Board reset in progress
+                      </p>
+                      <p className="text-blue-800/90 dark:text-blue-200/90">
+                        Stopping all models and re-initializing the board — about a
+                        minute or two. Actions are paused; you can close this dialog and
+                        the reset will finish in the background.
+                      </p>
+                    </div>
                   </div>
                 )}
 

@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Plus } from "lucide-react";
+import { AlertCircle, Plus, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
@@ -20,6 +20,7 @@ import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
+import { useIsResetting } from "../../hooks/useIsResetting";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
@@ -54,6 +55,8 @@ export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
   const { refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
+  // True while any board/device reset is in progress (global, backend-sourced).
+  const isResetting = useIsResetting();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -561,6 +564,8 @@ export default function ModelsDeployedCard(): JSX.Element {
               variant="outline"
               size="sm"
               onClick={() => setShowRegisterDialog(true)}
+              disabled={isResetting}
+              title={isResetting ? "Disabled while the board is resetting" : undefined}
             >
               <Plus className="w-4 h-4 mr-1" />
               Register Model
@@ -639,6 +644,16 @@ export default function ModelsDeployedCard(): JSX.Element {
               </CardContent>
             </ElevatedCard>
           </TooltipProvider>
+        )}
+
+        {/* Board reset in progress — make it obvious; destructive actions are paused. */}
+        {isResetting && (
+          <div className="mx-6 mb-4 flex items-center gap-3 rounded-lg border border-blue-500/40 bg-blue-900/30 px-5 py-3 text-blue-200">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+            <span className="text-sm font-medium">
+              Board reset in progress — model actions are paused until it completes.
+            </span>
+          </div>
         )}
 
         {/* Model preparing banner */}
