@@ -24,7 +24,7 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(run, "STARTUP_LOG_FILE", str(root / "startup.log")),
             patch.object(run, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
             patch.object(run, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
-            patch.object(run, "FASTAPI_LOG_FILE", str(root / "fastapi.log")),
+            patch.object(run, "MODEL_RUN_LOG_FILE", str(root / "model_run.log")),
             patch.object(run, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
             patch.object(run, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
             patch.object(run, "DOCKER_CONTROL_PID_FILE", str(docker_pid)),

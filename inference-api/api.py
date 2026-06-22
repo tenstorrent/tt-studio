@@ -142,15 +142,15 @@ logger.setLevel(logging.DEBUG)  # Set level on the logger itself
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
-def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to logs/fastapi.log under TT Studio root"""
+def setup_model_run_file_logging():
+    """Set up file logging for FastAPI - writes to logs/model_run.log under TT Studio root"""
     try:
         # Put the log file under the consolidated logs/ directory:
-        # <tt_studio_root>/logs/fastapi.log
+        # <tt_studio_root>/logs/model_run.log
         tt_studio_root = Path(__file__).parent.parent.resolve()
         root_log_dir = tt_studio_root / "logs"
         root_log_dir.mkdir(parents=True, exist_ok=True)
-        root_log_file = root_log_dir / "fastapi.log"
+        root_log_file = root_log_dir / "model_run.log"
 
         # Keep append mode here. run.py also streams uvicorn output to this file,
         # so truncate mode can create confusing interleaving/overwrite artifacts.
@@ -197,7 +197,7 @@ def setup_fastapi_file_logging():
 
         # Try to write error to a local fallback log
         try:
-            fallback_log = Path(__file__).parent / "fastapi_setup_error.log"
+            fallback_log = Path(__file__).parent / "model_run_setup_error.log"
             with open(fallback_log, "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
                 f.write(traceback.format_exc())
@@ -205,7 +205,7 @@ def setup_fastapi_file_logging():
             pass  # If even fallback fails, just continue
 
 # Initialize file logging
-setup_fastapi_file_logging()
+setup_model_run_file_logging()
 
 # Global progress store with thread-safe access
 progress_store: Dict[str, Dict[str, Any]] = {}
@@ -1120,7 +1120,7 @@ class ProgressHandler(logging.Handler):
             progress = 0
             status = "running"
         
-            # Based on the fastapi.log patterns, parse deployment stages
+            # Based on the model_run.log patterns, parse deployment stages
             if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
                 stage = "initialization"
                 progress = 5
@@ -1323,21 +1323,21 @@ def normalize_device_alias(device: str) -> str:
     }
     return alias_map.get(device.strip().lower(), device)
 
-def get_fastapi_logs_dir():
-    """Get the per-deployment FastAPI logs directory under TT Studio root's logs/"""
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
     tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "logs" / "fastapi_logs"
-    fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
-    return fastapi_logs_dir
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    fastapi_logs_dir = get_fastapi_logs_dir()
-    
-    # Create log file with pattern: fastapi_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
-    log_filename = f"fastapi_{timestamp}_{model}_{device}_server.log"
-    log_file_path = fastapi_logs_dir / log_filename
+    model_run_logs_dir = get_model_run_logs_dir()
+
+    # Create log file with pattern: model_run_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
+    log_filename = f"model_run_{timestamp}_{model}_{device}_server.log"
+    log_file_path = model_run_logs_dir / log_filename
     
     # Create file handler
     file_handler = logging.FileHandler(log_file_path, mode='w')
@@ -1411,7 +1411,7 @@ async def test_logging():
     logger.warning("Warning level test message")
     return {
         "message": "Logging test completed", 
-        "check": "fastapi.log file for log messages",
+        "check": "model_run.log file for log messages",
         "timestamp": time.time()
     }
 
