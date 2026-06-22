@@ -36,18 +36,6 @@ interface ContainerData {
   model_type?: string;
 }
 
-interface StopResponse {
-  status: string;
-  stop_response: {
-    status: string;
-    output?: string;
-  };
-  reset_response?: {
-    status: string;
-    output?: string;
-  };
-}
-
 export interface DeployedModelInfo {
   id: string;
   modelName: string;
