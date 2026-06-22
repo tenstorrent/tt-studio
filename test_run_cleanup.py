@@ -15,7 +15,7 @@ import run
 
 class CleanupAllTests(unittest.TestCase):
     def _patch_cleanup_paths(self, root, sentinel):
-        easy_config = root / ".tt_studio_easy_config.json"
+        setup_config = root / ".tt_studio_setup_config.json"
         docker_log = root / "docker-control-service.log"
         docker_pid = root / "docker-control-service.pid"
         return (
@@ -23,7 +23,7 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(run, "ENV_FILE_PATH", str(root / "app" / ".env")),
             patch.object(run, "STARTUP_LOG_FILE", str(root / "startup.log")),
             patch.object(run, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
-            patch.object(run, "EASY_CONFIG_FILE_PATH", str(easy_config)),
+            patch.object(run, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
             patch.object(run, "FASTAPI_LOG_FILE", str(root / "fastapi.log")),
             patch.object(run, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
             patch.object(run, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
@@ -422,8 +422,8 @@ class TermsAcceptanceGateTests(unittest.TestCase):
                 # No prefs file → treated as first run (terms asked).
                 self.assertTrue(run.is_first_time_setup())
 
-                # Accepting terms writes the prefs file (the fix: in easy mode
-                # this was previously never created, so terms re-fired every run).
+                # Accepting terms writes the prefs file (the fix: in the default
+                # quick setup this was previously never created, so terms re-fired every run).
                 run.save_preference("terms_accepted", True)
                 self.assertTrue(prefs.exists())
 
