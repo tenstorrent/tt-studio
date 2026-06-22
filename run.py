@@ -32,6 +32,7 @@ import platform
 import argparse
 import shutil
 import re
+import fnmatch
 import getpass
 import webbrowser
 import socket
@@ -1798,6 +1799,65 @@ _CLEANUP_IMAGE_REFS = (
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
 
 
+def _parse_size_to_bytes(s):
+    """Parse a docker-formatted size string (e.g. "39.42GB", "545kB", "32B") to bytes.
+
+    Docker reports sizes in SI units (base 1000) via go-units, so this is the
+    inverse of `_format_bytes` but decimal — used only to total the daemon's own
+    numbers, not for display. Returns 0 on anything unparseable.
+    """
+    if not s:
+        return 0
+    m = re.match(r"\s*([0-9]*\.?[0-9]+)\s*([kKMGTP]?B)\s*$", s)
+    if not m:
+        return 0
+    value, unit = float(m.group(1)), m.group(2).upper()
+    factor = {"B": 1, "KB": 10**3, "MB": 10**6,
+              "GB": 10**9, "TB": 10**12, "PB": 10**15}.get(unit, 1)
+    return int(value * factor)
+
+
+def _docker_reclaimable_bytes(has_docker_access):
+    """Best-effort size of the Docker objects --cleanup-all removes.
+
+    Reads `docker system df -v --format json` (the daemon already computes exact
+    sizes) and sums the images and volumes cleanup-all actually deletes:
+      - images whose Repository matches `_CLEANUP_IMAGE_REFS`
+        (same set `_remove_local_tt_studio_images` removes),
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+        plus dangling anonymous volumes (`_prune_anonymous_volumes`).
+    Build cache is intentionally excluded — cleanup-all does not prune it.
+    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
+    docker is unavailable, so the reclaim total degrades to the host-side paths
+    just like before.
+    """
+    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return zero
+
+    sizes = dict(zero)
+    for img in data.get("Images") or []:
+        repo = img.get("Repository", "")
+        if any(fnmatch.fnmatch(repo, ref) for ref in _CLEANUP_IMAGE_REFS):
+            sizes["images"] += _parse_size_to_bytes(img.get("Size", ""))
+
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+            sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
+            sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+
+    return sizes
+
+
 def _remove_local_tt_studio_images(has_docker_access):
     """Remove TT Studio + inference-server + chroma images. Returns count removed."""
     sudo_prefix = ["sudo"] if not has_docker_access else []
@@ -2018,7 +2078,14 @@ def cleanup_resources(args):
 
     existing = [(emoji, path, desc, _path_size(path))
                 for emoji, path, desc in items if os.path.exists(path) or os.path.islink(path)]
-    total_bytes = sum(sz for _, _, _, sz in existing)
+    host_bytes = sum(sz for _, _, _, sz in existing)
+
+    # Measure the Docker objects we are about to remove while they still exist,
+    # so both the estimate and the final "Reclaimed approximately X" reflect the
+    # model volumes + images (tens of GB), not just the host-side files.
+    has_docker_access = check_docker_access()
+    docker_sizes = _docker_reclaimable_bytes(has_docker_access)
+    total_bytes = host_bytes + sum(docker_sizes.values())
 
     print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
     print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
@@ -2034,11 +2101,16 @@ def cleanup_resources(args):
     else:
         print(f"  {C_CYAN}(no host-side state found){C_RESET}")
 
+    def _docker_size(key):
+        return f"  ({_format_bytes(docker_sizes[key])})" if docker_sizes[key] > 0 else ""
+
     print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
-    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)")
-    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)")
+    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)"
+          f"{_docker_size('model_volumes')}")
+    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)"
+          f"{_docker_size('anon_volumes')}")
     print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
-          f"tt-media-inference-server, chromadb/chroma")
+          f"tt-media-inference-server, chromadb/chroma{_docker_size('images')}")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
 
     if total_bytes > 0:
@@ -2059,7 +2131,6 @@ def cleanup_resources(args):
         print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
 
     print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
-    has_docker_access = check_docker_access()
     _cleanup_runtime(args, has_docker_access)
 
     # Volumes must come before images: removing a volume while its image is
