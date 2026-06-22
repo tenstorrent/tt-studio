@@ -80676,7 +80676,7 @@ git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python
 5. **Builds containers** - Sets up Docker environments for frontend and backend
 6. **Starts all services** - Launches the web interface and backend server
 
-> **⚠️ Security Note:** The default setup uses default values that are **NOT secure for production**. Use it only for development, testing, and quick evaluation. For production deployments, configure secure values with `python3 run.py --configure-env` or use development mode (`python3 run.py --dev`).
+> **⚠️ Security Note:** The default setup uses default values that are **NOT secure for production**. Use it only for development, testing, and quick evaluation. For production deployments, configure secure values with `python3 run.py --configure-env` (or `python3 run.py --reconfigure` to update existing values).
 
 📖 **More Details:** See the [Complete run.py Guide](docs/run-py-guide.md#quick-setup-default) for a full comparison of setup modes.
 
