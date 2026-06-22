@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 #
 # Metrics measurement approach adapted from the vLLM project (Apache-2.0):
 # https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/lib/endpoint_request_func.py

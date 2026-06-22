@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import {
   Cpu,
   CheckCircle,
@@ -25,11 +24,12 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
+import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
 import MultiCardResetDialog from "./MultiCardResetDialog";
+import StreamingLogPanel from "./StreamingLogPanel";
 import {
   Tooltip,
   TooltipContent,
@@ -222,51 +222,16 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
       await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
       await refreshModels();
 
-      // Run the global board reset.
+      // Run the global board reset (stream tt-smi output live).
       setResetStep("resetting");
-      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-        responseType: "blob",
+      let output = "";
+      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
+        output += `${line}\n`;
+        setCmdOutput(output);
       });
 
-      const reader = response.data.stream().getReader();
-      const decoder = new TextDecoder();
-      let output = "";
-      let success = true;
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        output += chunk;
-        if (
-          chunk.includes("Command failed") ||
-          chunk.includes("No Tenstorrent devices detected") ||
-          chunk.includes("Error")
-        ) {
-          success = false;
-        }
-      }
-      const tail = decoder.decode();
-      if (tail) {
-        output += tail;
-        if (
-          tail.includes("Command failed") ||
-          tail.includes("No Tenstorrent devices detected") ||
-          tail.includes("Error")
-        ) {
-          success = false;
-        }
-      }
-
-      setCmdOutput(output);
-
-      if (!success) {
-        throw new Error(
-          response.status === 501
-            ? "No Tenstorrent devices detected. Check hardware connection."
-            : "Board reset failed. See command output for details."
-        );
+      if (status !== "success") {
+        throw new Error("Board reset failed. See command output for details.");
       }
 
       setResetStep("done");
@@ -500,6 +465,9 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   sublabel="Running tt-smi -r, this may take 10–30 seconds…"
                   state={step2State}
                 />
+                {resetStep === "resetting" && cmdOutput && (
+                  <StreamingLogPanel output={cmdOutput} />
+                )}
               </>
             )}
 

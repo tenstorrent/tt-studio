@@ -13,6 +13,10 @@ from .apps import BUNDLED_DIR, MODELS_DIR, WAKEWORD_DEBUG_SCORES, WAKEWORD_MODEL
 logger = logging.getLogger(__name__)
 
 
+class WakeModelUnavailable(RuntimeError):
+    """No usable wake-word model (or its preprocessing models) is on disk."""
+
+
 def _resolve_wake_model_path():
     # Resolution order: repo-bundled → manually dropped in volume → downloaded.
     bundled = BUNDLED_DIR / f"{WAKEWORD_MODEL}.onnx"
@@ -21,17 +25,27 @@ def _resolve_wake_model_path():
     manual = MODELS_DIR / f"{WAKEWORD_MODEL}.onnx"
     if manual.is_file():
         return manual
-    return next(MODELS_DIR.glob(f"{WAKEWORD_MODEL}_*.onnx"))
+    return next(iter(sorted(MODELS_DIR.glob(f"{WAKEWORD_MODEL}_*.onnx"))), None)
 
 
 class WakeDetector:
     def __init__(self, threshold: float = WAKEWORD_THRESHOLD, debounce_seconds: float = 1.5):
         self.threshold = threshold
         self.debounce_seconds = debounce_seconds
+
+        wake_model_path = _resolve_wake_model_path()
+        melspec = MODELS_DIR / "melspectrogram.onnx"
+        embedding = MODELS_DIR / "embedding_model.onnx"
+        if wake_model_path is None or not melspec.is_file() or not embedding.is_file():
+            raise WakeModelUnavailable(
+                f"Wake-word detection unavailable: model '{WAKEWORD_MODEL}' and/or its "
+                f"preprocessing models are missing (looked in {BUNDLED_DIR} and {MODELS_DIR})."
+            )
+
         self._model = Model(
-            wakeword_models=[str(_resolve_wake_model_path())],
-            melspec_model_path=str(MODELS_DIR / "melspectrogram.onnx"),
-            embedding_model_path=str(MODELS_DIR / "embedding_model.onnx"),
+            wakeword_models=[str(wake_model_path)],
+            melspec_model_path=str(melspec),
+            embedding_model_path=str(embedding),
             inference_framework="onnx",
         )
         self._last_fire = 0.0

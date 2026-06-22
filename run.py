@@ -869,6 +869,46 @@ def write_env_var(var_name, var_value, quote_value=True):
     with open(ENV_FILE_PATH, 'w') as f:
         f.writelines(lines)
 
+def set_app_version_env():
+    """
+    Compute the running build's version from git and persist it to app/.env so
+    docker compose can inject it into the frontend as VITE_APP_VERSION /
+    VITE_APP_GIT_BRANCH.
+
+    Releases are plain git tags (e.g. v2.6.0) with no package.json bump, so git is
+    the source of truth for "what build is this":
+      - If HEAD sits exactly on a release tag, that tag is the official version and
+        VITE_APP_VERSION is set to it.
+      - Otherwise this is an unofficial build; VITE_APP_VERSION is cleared and the
+        frontend falls back to showing the branch name (VITE_APP_GIT_BRANCH).
+    """
+    def _git(git_args):
+        try:
+            result = subprocess.run(
+                ["git", "-C", TT_STUDIO_ROOT] + git_args,
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    # An exact tag match on the current commit => official release build.
+    version = _git(["describe", "--tags", "--exact-match"])
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    if branch == "HEAD":
+        # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
+        branch = _git(["rev-parse", "--short", "HEAD"])
+
+    write_env_var("VITE_APP_VERSION", version)
+    write_env_var("VITE_APP_GIT_BRANCH", branch)
+
+    if version:
+        print(f"{C_GREEN}✅ Build version: {version} (official release){C_RESET}")
+    elif branch:
+        print(f"{C_CYAN}ℹ️  Build version: {branch} branch (unofficial build){C_RESET}")
+
 def comment_out_env_var(var_name):
     """Comment out an environment variable in the .env file (VAR=val → # VAR=val)."""
     if not os.path.exists(ENV_FILE_PATH):
@@ -1019,6 +1059,7 @@ def display_first_time_welcome():
             sys.exit(0)
         elif response in ['y', 'yes']:
             print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            save_preference("terms_accepted", True)
             break
         else:
             print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
@@ -1843,6 +1884,16 @@ def _remove_tt_studio_network_containers(has_docker_access):
             capture_output=True, text=True, check=False,
         )
         ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        # Media (TTS/STT) containers don't always join tt_studio_network reliably —
+        # the post-deploy network-connect hook in inference-api/api.py is best-effort.
+        # Fall back to image-ancestor so cleanup catches them anyway. See issue #825.
+        for ref in _CLEANUP_IMAGE_REFS:
+            anc = subprocess.run(
+                sudo_prefix + ["docker", "ps", "-aq", "--filter", f"ancestor={ref}"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in anc.stdout.splitlines() if line.strip())
+        ids = list(dict.fromkeys(ids))
         if not ids:
             return 0
         subprocess.run(
@@ -2069,14 +2120,24 @@ def cleanup_resources(args):
 
 
 def _cleanup_runtime(args, has_docker_access):
-    """Tear down containers, the docker network, FastAPI and Docker Control Service."""
-    # Deployment containers (vLLM, etc.) live outside compose — kill them first
-    # so the subsequent network removal and weight-directory deletion aren't
-    # blocked by running processes holding bind mounts open.
-    sys.stdout.write(f"  Stopping deployments...    ")
-    sys.stdout.flush()
-    deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    """Tear down host services and compose containers. Deployment containers
+    (vLLM, TTS, STT, …) survive a plain ``--cleanup`` so loaded models keep
+    serving across a TT Studio restart; ``--cleanup-all`` still removes them
+    as part of the full reset."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+
+    if full_cleanup:
+        # Deployment containers (vLLM, etc.) live outside compose — kill them first
+        # so the subsequent network removal and weight-directory deletion aren't
+        # blocked by running processes holding bind mounts open.
+        sys.stdout.write(f"  Stopping deployments...    ")
+        sys.stdout.flush()
+        deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+        print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    else:
+        sys.stdout.write(f"  Preserving deployments...  ")
+        sys.stdout.flush()
+        print(f"{C_GREEN}done{C_RESET}  (use --cleanup-all to remove)")
 
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
@@ -2088,14 +2149,19 @@ def _cleanup_runtime(args, has_docker_access):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    try:
-        sys.stdout.write(f"  Removing network...        ")
-        sys.stdout.flush()
-        run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                            use_sudo=not has_docker_access, capture_output=True)
-        print(f"{C_GREEN}done{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}skipped{C_RESET}")
+    # Skip explicit network removal when deployments are preserved — they stay
+    # attached to ``tt_studio_network`` and need it for DNS resolution so the
+    # backend can reconnect after restart. ``compose down`` also tries to
+    # remove the network and fails silently when external containers hold it.
+    if full_cleanup:
+        try:
+            sys.stdout.write(f"  Removing network...        ")
+            sys.stdout.flush()
+            run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                use_sudo=not has_docker_access, capture_output=True)
+            print(f"{C_GREEN}done{C_RESET}")
+        except Exception:
+            print(f"{C_YELLOW}skipped{C_RESET}")
 
     sys.stdout.write(f"  Stopping FastAPI server... ")
     sys.stdout.flush()
@@ -4964,6 +5030,10 @@ def main():
             except PermissionError:
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
+
+        # Stamp the frontend build with the current git version (official tag or
+        # branch name) so the footer shows what's actually running.
+        set_app_version_env()
 
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")

@@ -1,6 +1,6 @@
 # Developer Tools
 
-> **Canonical dev workflow** lives in the [top-level README](../README.md#dev-workflow) and [docs/development.md](../docs/development.md). This file only documents tools in `dev-tools/`.
+> **Canonical dev workflow** lives in the [top-level README](../README.md#dev-workflow) and [dev-docs/development.md](../dev-docs/development.md). This file only documents tools in `dev-tools/`.
 
 This directory contains development tools and utilities for the TT-Studio project.
 
@@ -12,7 +12,7 @@ To run TT-Studio with minimal setup from the project root:
 python3 run.py --easy
 ```
 
-Easy mode only prompts for your Hugging Face token and uses defaults for everything else. See the [main README](../README.md) and [run.py guide](../docs/run-py-guide.md) for details.
+Easy mode only prompts for your Hugging Face token and uses defaults for everything else. See the [main README](../README.md) and [run.py guide](../dev-docs/run-py-guide.md) for details.
 
 ## SPDX Header Tool
 
@@ -103,9 +103,9 @@ Added SPDX header to: /path/to/project/app/frontend/src/main.tsx
 
 This tool is part of the TT-Studio development workflow. For comprehensive development setup instructions, see:
 
-- **[Development Setup](../docs/development.md)** - Initial development environment setup
+- **[Development Setup](../dev-docs/development.md)** - Initial development environment setup
 - **[Contributing Guide](../CONTRIBUTING.md)** - Full contribution workflow and standards
-- **[Pre-commit Hooks](../docs/development.md#pre-commit)** - Automated code quality checks
+- **[Pre-commit Hooks](../dev-docs/development.md#pre-commit)** - Automated code quality checks
 
 ### Pre-commit Integration
 
@@ -138,7 +138,7 @@ repos:
 2. **Directory Not Found**: Run from the project root directory
 3. **Encoding Errors**: Ensure files are UTF-8 encoded
 
-For more troubleshooting help, see the [project troubleshooting guide](../docs/troubleshooting.md).
+For more troubleshooting help, see the [project troubleshooting guide](../dev-docs/troubleshooting.md).
 
 ---
 

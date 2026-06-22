@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
@@ -20,31 +20,31 @@ from pathlib import Path
 
 import re
 import os
+import asyncio
 import concurrent.futures
 import requests
 import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
-    stop_container,
     get_container_status,
     get_canonical_deployments,
     serialize_canonical_entry_for_http,
-    perform_reset,
-    perform_device_reset,
-    perform_devices_reset,
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
+    infer_inference_server_device,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment
+from .tt_inference_client import start_chat_deployment, resolve_deploy_image
 from .docker_control_client import get_docker_client
+from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
+from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
-from .serializers import DeploymentSerializer, StopSerializer
+from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
 from shared_config.device_config import DeviceConfigurations
@@ -52,6 +52,19 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def _split_image_version(image_version: str):
+    """Split an 'name:tag' image ref into (name, tag), defaulting tag to 'latest'.
+
+    ghcr refs have no registry port, so a single rsplit on ':' is safe.
+    """
+    if not image_version:
+        return "", "latest"
+    if ":" in image_version:
+        name, tag = image_version.rsplit(":", 1)
+        return name, tag
+    return image_version, "latest"
 
 # Build model_name → status lookup from catalog JSON
 _CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
@@ -122,103 +135,6 @@ def _lookup_deployment_device_ids(container_id):
     except Exception as e:
         logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
         return []
-
-class StopView(APIView):
-    def post(self, request, *args, **kwargs):
-        serializer = StopSerializer(data=request.data)
-        if serializer.is_valid():
-            container_id = serializer.validated_data["container_id"]
-            skip_device_reset = serializer.validated_data.get("skip_device_reset", False)
-            logger.info(
-                f"Received request to stop container with ID: {container_id} "
-                f"(skip_device_reset={skip_device_reset})"
-            )
-
-            device_ids = _lookup_deployment_device_ids(container_id)
-            logger.info(f"Deployment {container_id} occupies device_ids={device_ids}")
-
-            # Mark deployment as stopped by user in database
-            try:
-                from docker_control.models import ModelDeployment
-                from django.utils import timezone
-
-                deployment = ModelDeployment.objects.filter(container_id=container_id).first()
-                if deployment:
-                    deployment.stopped_by_user = True
-                    deployment.status = "stopped"
-                    deployment.stopped_at = timezone.now()
-                    deployment.save()
-                    logger.info(f"Marked deployment {container_id} as stopped by user")
-            except Exception as e:
-                logger.error(f"Failed to update deployment record: {e}")
-                # Continue with stop even if database update fails
-
-            # Stop the main container
-            stop_response = stop_container(container_id)
-            logger.info(f"Stop response: {stop_response}")
-
-            # Perform reset if the stop was successful
-            reset_response = None
-            reset_status = "success"
-
-            if stop_response.get("status") == "success":
-                if skip_device_reset:
-                    logger.info(
-                        f"skip_device_reset=True for {container_id}; deferring chip reset."
-                    )
-                    reset_status = "skipped"
-                    try:
-                        SystemResourceService.force_refresh_tt_smi_cache()
-                    except Exception as e:
-                        logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
-                elif not device_ids:
-                    logger.warning(
-                        f"No device_ids found for container {container_id}; skipping device reset. "
-                        "Container is already stopped."
-                    )
-                else:
-                    reset_response = perform_devices_reset(device_ids)
-                    logger.info(f"Reset response: {reset_response}")
-
-                    if reset_response.get("status") == "error":
-                        error_message = reset_response.get(
-                            "message", "An error occurred during reset."
-                        )
-                        logger.warning(f"Reset failed: {error_message}")
-                        reset_status = "error"
-                    elif reset_response.get("status") == "partial":
-                        logger.warning(f"Reset partially failed: {reset_response.get('message')}")
-                        reset_status = "partial"
-                    else:
-                        try:
-                            SystemResourceService.force_refresh_tt_smi_cache()
-                        except Exception as e:
-                            logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
-
-            # Ensure that we always return a status field
-            combined_status = (
-                "success" if stop_response.get("status") == "success" else "error"
-            )
-
-            # Return the response, combining the stop and reset results
-            response_status = (
-                status.HTTP_200_OK
-                if combined_status == "success"
-                else status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            logger.info(f"Returning responses: {stop_response}, {reset_response}")
-            return Response(
-                {
-                    "status": combined_status,
-                    "stop_response": stop_response,
-                    "reset_response": reset_response,
-                    "reset_status": reset_status,
-                },
-                status=response_status,
-            )
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
@@ -529,7 +445,22 @@ class DeployView(APIView):
                     else:
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
-                logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
+                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                if should_force_full_board_llama:
+                    # Forced full-board Llama takes over every slot on the board.
+                    occupied_device_ids = list(range(allocator.total_slots))
+                elif chips_required > 1:
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
+                    occupied_device_ids = list(
+                        range(device_id, device_id + chips_required)
+                    )
+                else:
+                    # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
+                    occupied_device_ids = device_ids
+                logger.info(
+                    f"Allocated device_id={device_id} (request={device_ids_str}, "
+                    f"occupies={occupied_device_ids}) for {impl.model_name}"
+                )
 
             except MultiChipConflictError as e:
                 logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
@@ -597,11 +528,26 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+<<<<<<< HEAD
                 needs_dev_mode = bool(vllm_override_args)
                 override_docker_image = (
                     _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
                 )
                 result = start_chat_deployment(
+=======
+                # Some Llama models need a newer image than the inference server's model_spec default 
+                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
+                override_docker_image = None
+                if impl.model_name in {
+                    "Llama-3.1-8B",
+                    "Llama-3.1-8B-Instruct",
+                    "Llama-3.1-70B",
+                    "Llama-3.1-70B-Instruct",
+                    "Llama-3.3-70B-Instruct",
+                }:
+                    override_docker_image = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+                chat_deploy_kwargs = dict(
+>>>>>>> origin/dev
                     model_name=impl.model_name,
                     device=device,
                     device_id=inference_device_id,
@@ -610,9 +556,110 @@ class DeployView(APIView):
                     skip_system_sw_validation=True,
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
+<<<<<<< HEAD
                     dev_mode=needs_dev_mode,
                     override_docker_image=override_docker_image,
+=======
+                    override_docker_image=override_docker_image,
+                    dev_mode=False,
+>>>>>>> origin/dev
                 )
+
+                # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
+                # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
+                deploy_image = override_docker_image or resolve_deploy_image(impl.model_name, device) or impl.image_version
+                if deploy_image != impl.image_version:
+                    logger.info(
+                        f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
+                        f"(catalog had {impl.image_version})"
+                    )
+                image_name, image_tag = _split_image_version(deploy_image)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+                    # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
+                    try:
+                        from docker_control.models import ModelDeployment
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            device_id=device_id,
+                            device_ids=device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
+
+                    def _refresh_placeholder(_pull_id=pull_id):
+                        # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def deploy_fn(_pull_id=pull_id, _kwargs=chat_deploy_kwargs):
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        from docker_control.deployment_sync import start_deployment_sync
+                        result = start_chat_deployment(**_kwargs)
+                        if result.status != "success" or not result.job_id:
+                            # Free the chip slot: mark the placeholder stopped.
+                            try:
+                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                                if dep:
+                                    dep.status = "stopped"
+                                    dep.save()
+                            except Exception:
+                                pass
+                            return None, (result.message or "TT Inference Server did not return a job_id")
+                        # Repoint the placeholder record at the real inference job_id so the record is equivalent to a fresh non-pre-pull deploy from here on.
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep:
+                                dep.container_id = result.job_id
+                                dep.status = "starting"
+                                dep.deployed_at = datetime.now(timezone.utc)
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not repoint ModelDeployment {_pull_id} -> {result.job_id}: {e}")
+                        try:
+                            start_deployment_sync(result.job_id)
+                        except Exception as e:
+                            logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
+                        return result.job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=deploy_image,
+                        deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_placeholder,
+                    )
+                    return Response(
+                        {
+                            "status": "success",
+                            "job_id": pull_id,
+                            "message": "Pulling Docker Image…",
+                            "allocated_device_id": device_id,
+                        },
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached - deploy inline (fast path).
+                result = start_chat_deployment(**chat_deploy_kwargs)
                 if result.status != "success":
                     return Response(
                         {"status": "error", "message": result.message},
@@ -642,7 +689,7 @@ class DeployView(APIView):
                         model_name=impl.model_name,
                         device=device,
                         device_id=device_id,
-                        device_ids=device_ids,
+                        device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
                         tool_calling_enabled=bool(vllm_override_args),
@@ -670,7 +717,51 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
+<<<<<<< HEAD
                 response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, vllm_override_args=vllm_override_args)
+=======
+
+                # Pre-pull the media image first so the UI shows real progress.
+                media_device = infer_inference_server_device(impl)
+                deploy_image = resolve_deploy_image(impl.model_name, media_device) or impl.image_version
+                image_name, image_tag = _split_image_version(deploy_image)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+
+                    def deploy_fn(_host_port=host_port):
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
+                        if resp.get("status") == "error" or not job_id:
+                            return None, resp.get("message", "Deployment failed")
+                        try:
+                            SystemResourceService.force_refresh_tt_smi_cache()
+                        except Exception:
+                            pass
+                        return job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=deploy_image,
+                        deploy_fn=deploy_fn,
+                    )
+                    return Response(
+                        {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached → deploy inline (existing path, unchanged).
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+>>>>>>> origin/dev
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -815,6 +906,19 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
         if job_status == "completed":
             real_container_id = progress_data.get("container_id")
             real_container_name = progress_data.get("container_name")
+            # User stopped/deleted this deployment mid-startup: don't resurrect it.
+            # Remove the container FastAPI just created and keep the record stopped.
+            if getattr(dep, "stopped_by_user", False):
+                if real_container_id:
+                    try:
+                        from docker_control.docker_utils import stop_container
+                        stop_container(real_container_id)
+                    except Exception as e:
+                        logger.warning(f"Cleanup of user-stopped job {job_id} failed: {e}")
+                dep.status = "stopped"
+                dep.save()
+                logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
+                return
             if real_container_id:
                 dep.container_id = real_container_id
                 if real_container_name:
@@ -851,6 +955,56 @@ class DeploymentProgressView(APIView):
 
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
+
+            # Image pre-pull phase: if this job_id is a tracked image pull, report
+            # byte-level pull progress until the real deployment is dispatched, then
+            # hand off to the FastAPI proxy below using the real inference job_id.
+            pull_job = get_pull_job(job_id)
+            if pull_job is not None:
+                real_job_id = pull_job.get("real_job_id")
+                if real_job_id:
+                    # Pull finished and /run dispatched — track the real job from here on.
+                    job_id = real_job_id
+                elif pull_job.get("status") == "error":
+                    return Response(
+                        {
+                            "status": "error",
+                            "stage": "error",
+                            "progress": 0,
+                            "message": pull_job.get("message") or "Image pull failed",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    downloaded = pull_job.get("downloaded_bytes") or 0
+                    total = pull_job.get("total_bytes") or 0
+                    pct = int(round(downloaded / total * 100)) if total > 0 else 0
+                    pct = max(0, min(99, pct))  # reserve 100% for the actual deploy handoff
+                    # Docker reveals layers incrementally, so `total` grows mid-pull and the
+                    # raw ratio can dip. Clamp to the running peak so the % never regresses.
+                    pct = clamp_progress_pct(job_id, pct)
+                    if pull_job.get("status") == "success":
+                        msg = "Image ready — starting container…"
+                    else:
+                        layers_total = pull_job.get("layers_total") or 0
+                        layers_done = pull_job.get("layers_done") or 0
+                        msg = "Pulling Docker Image..."
+                        if layers_total:
+                            msg += f" ({layers_done}/{layers_total} layers)"
+                    return Response(
+                        {
+                            "status": "running",
+                            "stage": "pulling_image",
+                            "progress": pct,
+                            "message": msg,
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total or None,
+                            "speed_bps": pull_job.get("speed_bps"),
+                            "eta_seconds": pull_job.get("eta_seconds"),
+                            "weights_repo": pull_job.get("image_ref"),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
 
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
@@ -1291,73 +1445,6 @@ class RedeployView(APIView):
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class ResetBoardView(APIView):
-    def post(self, request, *args, **kwargs):
-        try:
-            # Perform the reset
-            reset_response = perform_reset()
-
-            # Determine the HTTP status based on the reset_response
-            if reset_response.get("status") == "error":
-                error_message = reset_response.get(
-                    "message", "An error occurred during reset."
-                )
-                http_status = reset_response.get(
-                    "http_status", status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-                return Response(
-                    {"status": "error", "message": error_message}, status=http_status
-                )
-
-            # If successful, return a 200 OK with the output
-            output = reset_response.get("output", "Board reset successfully.")
-            warnings = reset_response.get("warnings", [])
-            if warnings:
-                warning_block = "Warnings during device detection:\n" + "\n".join(warnings) + "\n\n"
-                output = warning_block + output
-            return StreamingHttpResponse(
-                output, content_type="text/plain", status=status.HTTP_200_OK
-            )
-
-        except Exception as e:
-            logger.exception("Exception occurred during reset operation.")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-class ResetDeviceView(APIView):
-    """Reset a single chip/device using tt-smi -r <device_id>."""
-
-    def post(self, request, device_id, *args, **kwargs):
-        try:
-            reset_response = perform_device_reset(device_id)
-
-            if reset_response.get("status") == "error":
-                error_message = reset_response.get(
-                    "message", f"An error occurred during device {device_id} reset."
-                )
-                http_status = reset_response.get(
-                    "http_status", status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-                return Response(
-                    {"status": "error", "message": error_message}, status=http_status
-                )
-
-            output = reset_response.get("output", f"Device {device_id} reset successfully.")
-            return StreamingHttpResponse(
-                output, content_type="text/plain", status=status.HTTP_200_OK
-            )
-
-        except Exception as e:
-            logger.exception(f"Exception occurred during device {device_id} reset operation.")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
 
 class ImageStatusView(APIView):
@@ -2282,200 +2369,265 @@ class WorkflowLogStreamView(View):
             )
 
 
+# --- Server-Sent Events helpers -------------------------------------------------
+#
+# StopStreamView and ResetStreamView share one SSE protocol:
+#   {"type": "step",     "step": <name>, "message": ...}   phase marker
+#   {"type": "log",      "step": <name>, "message": ...}   live output line
+#   {"type": "complete", "status": "success"|"partial"|"error", "message": ...}
+
+
+def _sse_event(data: dict) -> str:
+    """Frame a dict as an SSE `data:` line."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+def _sse_response(generator):
+    """Wrap an async SSE generator in a streaming response that is not buffered."""
+    response = StreamingHttpResponse(generator, content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache, no-transform"
+    response["X-Accel-Buffering"] = "no"
+    response["Content-Encoding"] = "identity"
+    return response
+
+
+class _StopFailed(Exception):
+    """Raised when a container cannot be stopped; the stream aborts with an error."""
+
+
+async def _astream_stop_remove_container(container_id, truncated):
+    """Stop and remove a model's container, yielding progress lines.
+
+    Raises _StopFailed if the container could not be stopped.
+    """
+    def _mark_stopped():
+        from docker_control.models import ModelDeployment
+        from django.utils import timezone
+        deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+        if not deployment:
+            return "No deployment record found — continuing"
+        # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
+        # The only reliable signal is whether the container is actually alive right now.
+        alive = False
+        try:
+            info = get_docker_client().get_container(container_id)
+            alive = (info or {}).get("status") in ("running", "restarting")
+        except Exception:
+            alive = False  # container gone / 404 → it died unexpectedly
+
+        # Acknowledge so the Models Deployed page hides the row
+        deployment.stopped_by_user = True
+        if alive:
+            # The user stopped a still-running model.
+            deployment.status = "stopped"
+        elif deployment.status not in ("exited", "dead", "failed"):
+            # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".
+            deployment.status = "dead"
+        if not deployment.stopped_at:
+            deployment.stopped_at = timezone.now()
+        deployment.save()
+        return f"Marked deployment {truncated} as stopped in database"
+
+    try:
+        yield await asyncio.to_thread(_mark_stopped)
+    except Exception as e:
+        yield f"Warning: failed to update deployment record: {e}"
+
+    yield f"Sending stop signal to container {truncated}…"
+    docker_client = get_docker_client()
+    container_gone = False
+    try:
+        stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
+    except Exception as e:
+        # 404 / "Not Found" means the container is already gone — not an error.
+        error_str = str(e)
+        if "404" in error_str or "Not Found" in error_str:
+            container_gone = True
+            yield "Container already stopped"
+        else:
+            yield f"Error stopping container: {error_str}"
+            raise _StopFailed(f"Failed to stop container {truncated}")
+    else:
+        stop_status = stop_result.get("status", "unknown")
+        yield f"Stop result: {stop_status}"
+        if stop_status != "success":
+            raise _StopFailed(
+                f"Failed to stop container: {stop_result.get('message', 'unknown error')}"
+            )
+
+    if not container_gone:
+        yield f"Cleaning up container {truncated}…"
+        try:
+            await asyncio.to_thread(docker_client.remove_container, container_id, True)
+            yield "Container removed"
+        except Exception:
+            yield "Container already removed"
+
+    try:
+        await asyncio.to_thread(update_deploy_cache)
+    except Exception:
+        pass
+
+    yield f"Container {truncated} stopped and removed successfully"
+
+
+async def _astream_tt_smi_reset(device_ids, *, force_refresh):
+    """Run `tt-smi -r [ids]` (whole board when empty), streaming its output.
+
+    A single batched invocation resets all of the given chips at once, which is
+    safer than resetting each chip in a loop. Yields ("log", line) per output
+    line, then ("ok", succeeded) once. Marks the resetting cache state before and
+    clears it after; refreshes the tt-smi cache on success only when force_refresh.
+    """
+    ansi_re = re.compile(r'\x1b\[[0-9;]*m|\|[0-9;]*m')
+    id_args = [str(d) for d in device_ids]
+    label = ", ".join(id_args) if id_args else "board"
+    command = " ".join(["tt-smi", "-r", *id_args])
+    line_timeout = max(90, 30 * len(device_ids))  # allow longer gaps on bigger boards
+
+    await asyncio.to_thread(SystemResourceService.set_resetting_state)
+
+    MAX_ATTEMPTS = 2
+    reset_ok = False
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        yield ("log", f"Running {command} (attempt {attempt}/{MAX_ATTEMPTS})…")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tt-smi", "-r", *id_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                while True:
+                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=line_timeout)
+                    if not raw:
+                        break
+                    line = ansi_re.sub("", raw.decode("utf-8", errors="replace")).strip()
+                    if line:
+                        yield ("log", line)
+                await asyncio.wait_for(proc.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                yield ("log", f"Reset of {label} timed out after {line_timeout}s")
+                try:
+                    proc.terminate()
+                    await asyncio.sleep(2)
+                    proc.kill()
+                except Exception:
+                    pass
+            returncode = proc.returncode if proc.returncode is not None else -1
+        except Exception as exc:
+            yield ("log", str(exc))
+            returncode = -1
+
+        if returncode == 0:
+            reset_ok = True
+            yield ("log", f"Device(s) {label} reset succeeded on attempt {attempt}")
+            break
+        yield ("log", f"Reset of {label} attempt {attempt} failed (exit code {returncode})")
+
+    await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
+    if reset_ok and force_refresh:
+        try:
+            await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+            yield ("log", "tt-smi cache refreshed")
+        except Exception as e:
+            yield ("log", f"Warning: tt-smi cache refresh failed: {e}")
+
+    yield ("ok", reset_ok)
+
+
+async def _astream_reset_phase(device_ids, *, force_refresh, success_msg, partial_msg):
+    """Stream a reset as SSE `resetting` logs followed by a `complete` event."""
+    reset_ok = False
+    async for kind, payload in _astream_tt_smi_reset(device_ids, force_refresh=force_refresh):
+        if kind == "log":
+            yield _sse_event({"type": "log", "step": "resetting", "message": payload})
+        else:
+            reset_ok = payload
+    yield _sse_event({
+        "type": "complete",
+        "status": "success" if reset_ok else "partial",
+        "message": success_msg if reset_ok else partial_msg,
+    })
+
+
 class StopStreamView(View):
-    """Stream model deletion progress as Server-Sent Events.
+    """Stream a model stop/delete as Server-Sent Events.
 
-    Performs stop → remove → board-reset sequentially, emitting real-time
-    log lines so the frontend dialog can mirror what the backend is doing.
-    Each ``log`` event carries a ``step`` field so the UI can slot it under
-    the correct progress row.
-
-    Uses an async generator so that yields flush immediately through
-    uvicorn's event loop instead of being batched by the sync threadpool.
+    Stops and removes the container, then resets the chips it occupied. Pass
+    ``?skip_device_reset=true`` to stop only (used when a whole-board reset runs
+    afterwards, e.g. "reset all"). Async so yields flush through uvicorn's event
+    loop instead of being batched.
     """
 
-    @staticmethod
-    def _sse(data: dict) -> str:
-        return f"data: {json.dumps(data)}\n\n"
-
     async def get(self, request, container_id, *args, **kwargs):
-        import asyncio
-        sse = self._sse
-        ansi_re = re.compile(r'\x1b\[[0-9;]*m|\|[0-9;]*m')
+        skip_device_reset = request.GET.get("skip_device_reset", "false").lower() == "true"
 
         async def generate():
             yield "retry: 1000\n\n"
-
             truncated = container_id[:12]
-            current_step = "deleting"
 
-            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
-
-            # --- Step 1: mark deployment stopped in DB ---
-            yield sse({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
-
-            def _mark_stopped():
-                from docker_control.models import ModelDeployment
-                from django.utils import timezone
-                deployment = ModelDeployment.objects.filter(container_id=container_id).first()
-                if deployment:
-                    deployment.stopped_by_user = True
-                    deployment.status = "stopped"
-                    deployment.stopped_at = timezone.now()
-                    deployment.save()
-                    return f"Marked deployment {truncated} as stopped in database"
-                return "No deployment record found — continuing"
-
+            # Step 1: stop and remove the container.
+            yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
             try:
-                msg = await asyncio.to_thread(_mark_stopped)
-                yield sse({"type": "log", "step": current_step, "message": msg})
-            except Exception as e:
-                yield sse({"type": "log", "step": current_step, "message": f"Warning: failed to update deployment record: {e}"})
-
-            # --- Step 2: stop container ---
-            yield sse({"type": "log", "step": current_step, "message": f"Sending stop signal to container {truncated}…"})
-            docker_client = get_docker_client()
-            container_gone = False
-            try:
-                stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
-                stop_status = stop_result.get("status", "unknown")
-                yield sse({"type": "log", "step": current_step, "message": f"Stop result: {stop_status}"})
-
-                if stop_status != "success":
-                    yield sse({"type": "complete", "status": "error", "message": f"Failed to stop container: {stop_result.get('message', 'unknown error')}"})
-                    return
-            except Exception as e:
-                error_str = str(e)
-                # 404 / "Not Found" means the container is already gone — not an error
-                if "404" in error_str or "Not Found" in error_str:
-                    container_gone = True
-                    yield sse({"type": "log", "step": current_step, "message": "Container already stopped"})
-                else:
-                    yield sse({"type": "log", "step": current_step, "message": f"Error stopping container: {error_str}"})
-                    yield sse({"type": "complete", "status": "error", "message": f"Failed to stop container {truncated}"})
-                    return
-
-            # --- Step 3: remove container (best-effort, container may already be gone) ---
-            if not container_gone:
-                yield sse({"type": "log", "step": current_step, "message": f"Cleaning up container {truncated}…"})
-                try:
-                    await asyncio.to_thread(docker_client.remove_container, container_id, True)
-                    yield sse({"type": "log", "step": current_step, "message": "Container removed"})
-                except Exception:
-                    yield sse({"type": "log", "step": current_step, "message": "Container already removed"})
-
-            try:
-                await asyncio.to_thread(update_deploy_cache)
-            except Exception:
-                pass
-
-            yield sse({"type": "log", "step": current_step, "message": f"Container {truncated} stopped and removed successfully"})
-
-            # --- Step 4: per-device reset (stream tt-smi output line-by-line) ---
-            current_step = "resetting"
-
-            if not device_ids:
-                yield sse({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                yield sse({"type": "log", "step": current_step, "message": f"Warning: no device_ids found for container {truncated}; skipping reset."})
-                yield sse({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                async for msg in _astream_stop_remove_container(container_id, truncated):
+                    yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+            except _StopFailed as e:
+                yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
                 return
 
-            device_label = ", ".join(str(d) for d in device_ids)
-            yield sse({"type": "step", "step": "resetting", "message": f"Resetting device(s) {device_label}…"})
+            # Stop-only: leave the chips for a later whole-board reset.
+            if skip_device_reset:
+                await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                return
 
-            await asyncio.to_thread(SystemResourceService.set_resetting_state)
+            # Step 2: reset the chips this model occupied.
+            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+            if not device_ids:
+                yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                return
 
-            MAX_ATTEMPTS = 2
-            success_devices = []
-            failed_devices = []
+            label = ", ".join(str(d) for d in device_ids)
+            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+            async for event in _astream_reset_phase(
+                device_ids,
+                force_refresh=True,
+                success_msg=f"Model deleted and device(s) {label} reset successfully",
+                partial_msg=(
+                    f"Model deleted, but reset of device(s) {label} did not complete "
+                    "successfully. Manual intervention may be required."
+                ),
+            ):
+                yield event
 
-            for device_id in device_ids:
-                device_ok = False
-                for attempt in range(1, MAX_ATTEMPTS + 1):
-                    yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r {device_id} (attempt {attempt}/{MAX_ATTEMPTS})…"})
+        return _sse_response(generate())
 
-                    try:
-                        proc = await asyncio.create_subprocess_exec(
-                            "tt-smi", "-r", str(device_id),
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.STDOUT,
-                            stdin=asyncio.subprocess.DEVNULL,
-                        )
 
-                        try:
-                            async def _read_with_timeout():
-                                while True:
-                                    raw_line = await asyncio.wait_for(
-                                        proc.stdout.readline(), timeout=90
-                                    )
-                                    if not raw_line:
-                                        break
-                                    cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
-                                    if cleaned:
-                                        yield cleaned
+class ResetStreamView(View):
+    """Stream a hardware reset (`tt-smi -r`) as Server-Sent Events.
 
-                            async for line in _read_with_timeout():
-                                yield sse({"type": "log", "step": current_step, "message": line})
+    Resets a single chip when ``device_id`` is given, otherwise the whole board.
+    """
 
-                            await asyncio.wait_for(proc.wait(), timeout=10)
+    async def get(self, request, device_id=None, *args, **kwargs):
+        device_ids = [device_id] if device_id is not None else []
+        label = ", ".join(str(d) for d in device_ids) if device_ids else "board"
 
-                        except asyncio.TimeoutError:
-                            yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset timed out after 90s"})
-                            try:
-                                proc.terminate()
-                                await asyncio.sleep(2)
-                                proc.kill()
-                            except Exception:
-                                pass
+        async def generate():
+            yield "retry: 1000\n\n"
+            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+            async for event in _astream_reset_phase(
+                device_ids,
+                force_refresh=False,
+                success_msg=f"Reset of {label} completed successfully",
+                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+            ):
+                yield event
 
-                        returncode = proc.returncode if proc.returncode is not None else -1
-
-                    except Exception as exc:
-                        yield sse({"type": "log", "step": current_step, "message": str(exc)})
-                        returncode = -1
-
-                    if returncode == 0:
-                        device_ok = True
-                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset succeeded on attempt {attempt}"})
-                        break
-                    else:
-                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} attempt {attempt} failed (exit code {returncode})"})
-
-                if device_ok:
-                    success_devices.append(device_id)
-                else:
-                    failed_devices.append(device_id)
-
-            await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
-
-            if success_devices and not failed_devices:
-                final_status = "success"
-            elif success_devices and failed_devices:
-                final_status = "partial"
-            else:
-                final_status = "partial"
-
-            if success_devices:
-                try:
-                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                    yield sse({"type": "log", "step": current_step, "message": "tt-smi cache refreshed"})
-                except Exception as e:
-                    yield sse({"type": "log", "step": current_step, "message": f"Warning: tt-smi cache refresh failed: {e}"})
-
-            if final_status == "success":
-                final_msg = f"Model deleted and device(s) {device_label} reset successfully"
-            else:
-                final_msg = (
-                    f"Model deleted; reset succeeded for {success_devices or 'none'}, "
-                    f"failed for {failed_devices}"
-                )
-            yield sse({"type": "complete", "status": final_status, "message": final_msg})
-
-        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
-        response["Cache-Control"] = "no-cache, no-transform"
-        response["X-Accel-Buffering"] = "no"
-        response["Content-Encoding"] = "identity"
-        return response
+        return _sse_response(generate())
 
 
 class AvailableDevicesView(APIView):

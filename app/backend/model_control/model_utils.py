@@ -30,7 +30,11 @@ AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
-    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+    limits=httpx.Limits(
+        max_connections=50,
+        max_keepalive_connections=20,
+        keepalive_expiry=3600.0,
+    ),
 )
 _cloud_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
@@ -357,6 +361,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
 
+    from model_control.connection_warmer import note_inference_loop
+    note_inference_loop()
+
     # Coerce and forward parameters
     temperature = json_data.get("temperature")
     top_k = json_data.get("top_k")
@@ -414,7 +421,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
                             )
                             if delta_reasoning:
                                 tracker.record_thinking_token()
-                            delta_content = delta.get("content", "")
+                            # chat completions: choices[0].delta.content
+                            # base/completions:  choices[0].text
+                            delta_content = delta.get("content") or choices[0].get("text") or ""
                             if delta_content:
                                 tracker.record_content_token()
                                 logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import contextlib
 import io
@@ -272,8 +272,18 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
         def fake_run(cmd, **kwargs):
             if "ps" in cmd:
-                self.assertIn("network=tt_studio_network", cmd)
-                return SimpleNamespace(stdout="abc\ndef\n", returncode=0)
+                # Two enumeration passes: by network membership, and by image
+                # ancestor for media containers that miss the post-deploy
+                # network connect (see _CLEANUP_IMAGE_REFS).
+                filter_arg = cmd[cmd.index("--filter") + 1]
+                self.assertTrue(
+                    filter_arg == "network=tt_studio_network"
+                    or filter_arg.startswith("ancestor="),
+                    f"unexpected --filter: {filter_arg}",
+                )
+                if filter_arg == "network=tt_studio_network":
+                    return SimpleNamespace(stdout="abc\ndef\n", returncode=0)
+                return SimpleNamespace(stdout="", returncode=0)
             recorded["rm"] = cmd
             return SimpleNamespace(stdout="", returncode=0)
 
@@ -298,33 +308,67 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         with patch("subprocess.run", side_effect=fake_run):
             run._remove_tt_studio_network_containers(has_docker_access=False)
 
-        self.assertEqual(seen_prefixes, ["sudo", "sudo"])
+        # 1 network-filter ps + N ancestor-filter ps (one per image ref) + 1 rm.
+        expected_calls = 2 + len(run._CLEANUP_IMAGE_REFS)
+        self.assertEqual(seen_prefixes, ["sudo"] * expected_calls)
 
-    def test_cleanup_runtime_stops_deployments_before_compose_down(self):
+    def _record_runtime_order(self, args):
         order = []
 
-        def record_deployments(*args, **kwargs):
+        def record_deployments(*a, **kwargs):
             order.append("deployments")
             return 2
 
         def record_run_docker(cmd, **kwargs):
-            # compose `down -v` must come after deployment teardown so the
-            # network exists when we enumerate containers attached to it.
             if "down" in cmd:
                 order.append("compose_down")
             elif "network" in cmd and "rm" in cmd:
                 order.append("network_rm")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        args = SimpleNamespace(dev=False, no_sudo=True)
         with patch.object(run, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
              patch.object(run, "run_docker_command", side_effect=record_run_docker), \
              patch.object(run, "cleanup_fastapi_server"), \
              patch.object(run, "cleanup_docker_control_service"), \
              contextlib.redirect_stdout(io.StringIO()):
             run._cleanup_runtime(args, has_docker_access=True)
+        return order
 
+    def test_cleanup_runtime_preserves_deployments_for_basic_cleanup(self):
+        # Plain `--cleanup` must not touch deployment containers — loaded
+        # models stay serving so a TT Studio restart doesn't pay the ~minutes
+        # cost of re-loading weights onto the device. The shared docker
+        # network also stays since deployments are attached to it.
+        args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=False)
+        order = self._record_runtime_order(args)
+        self.assertNotIn("deployments", order)
+        self.assertNotIn("network_rm", order)
+        self.assertIn("compose_down", order)
+
+    def test_cleanup_runtime_stops_deployments_first_for_full_cleanup(self):
+        # `--cleanup-all` is the full reset path; deployments must be torn
+        # down before `compose down -v` so the network is empty when we then
+        # remove it.
+        args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=True)
+        order = self._record_runtime_order(args)
         self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
+
+
+class TermsAcceptanceGateTests(unittest.TestCase):
+    def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = Path(tmp) / ".tt_studio_preferences.json"
+            with patch.object(run, "PREFS_FILE_PATH", str(prefs)):
+                # No prefs file → treated as first run (terms asked).
+                self.assertTrue(run.is_first_time_setup())
+
+                # Accepting terms writes the prefs file (the fix: in easy mode
+                # this was previously never created, so terms re-fired every run).
+                run.save_preference("terms_accepted", True)
+                self.assertTrue(prefs.exists())
+
+                # Prefs file now exists → no longer treated as first run.
+                self.assertFalse(run.is_first_time_setup())
 
 
 if __name__ == "__main__":

@@ -124,10 +124,10 @@ export default function StepperDemo() {
   // Once the user confirms hardware config, show a summary on the completed Step 1 node.
   const hardwareConfigSummary = chipMode
     ? chipMode === "multi"
-      ? "All chips"
+      ? "All devices"
       : selectedDeviceIds.length > 0
         ? `Single · Device${selectedDeviceIds.length > 1 ? "s" : ""} ${selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}`
-        : "Single chip"
+        : "Single device"
     : "Hardware Configuration";
 
   const steps = useHardwareConfigStep
@@ -250,14 +250,14 @@ export default function StepperDemo() {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
         customToast.error(
-          "Llama 3.1 8B on P300x2 needs both devices 0 and 1 free."
+          "Llama 3.1 8B Instruct on P300x2 needs both devices 0 and 1 free."
         );
         return { success: false };
       }
       resolvedDeviceId = pair.join(",");
     }
     if (shouldUseFullBoardLlamaFlow) {
-      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      // Simplified full-model flow runs Llama 3.1 8B Instruct as full-board p300x2.
       resolvedDeviceId = undefined;
     }
 
@@ -326,7 +326,7 @@ export default function StepperDemo() {
         if (errorType === 'multi_chip_conflict') {
           // Multi-chip conflict with detailed information
           const conflicts = errorData?.conflicts || [];
-          const message = errorData?.message || 'Multi-chip model requires all slots to be free';
+          const message = errorData?.message || 'Multi-device model requires all slots to be free';
 
           const conflictsSummary =
             conflicts.length > 0
@@ -334,13 +334,13 @@ export default function StepperDemo() {
                 .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
                 .join(", ")}.`
               : "";
-          customToast.error(`Multi-chip Deployment Conflict: ${message}.${conflictsSummary}`);
+          customToast.error(`Multi-device Deployment Conflict: ${message}.${conflictsSummary}`);
 
           return { success: false };
         } else if (errorType === 'allocation_failed') {
           // General allocation failure (all slots occupied)
           const message = errorData?.message || 'All devices are occupied';
-          customToast.error(`Chip Allocation Failed: ${message}`);
+          customToast.error(`Device Allocation Failed: ${message}`);
           return { success: false };
         }
       }
@@ -409,7 +409,7 @@ export default function StepperDemo() {
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   Deploy individual models one at a time. Supports hardware configuration
-                  for multi-chip boards.
+                  for multi-device boards.
                 </p>
                 <span className="text-xs font-medium text-muted-foreground mt-1">
                   Full control →
@@ -513,7 +513,7 @@ export default function StepperDemo() {
                   Advanced: Configure Hardware
                 </div>
                 <div className="text-xs text-muted-foreground leading-tight mt-0.5">
-                  Manually choose which chips this model deploys to
+                  Manually choose which devices this model deploys to
                 </div>
               </div>
             </div>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import { Skeleton } from "@/src/components/ui/skeleton";
 import { Card } from "@/src/components/ui/card";
 import { useTheme } from "@/src/hooks/useTheme";

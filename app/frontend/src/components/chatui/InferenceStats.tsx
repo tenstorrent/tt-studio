@@ -100,7 +100,7 @@ export default function Component({
   };
 
   const userTPS =
-    typeof stats.user_tpot === "number"
+    typeof stats.user_tpot === "number" && stats.user_tpot > 0
       ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(2)
       : "N/A";
 
@@ -775,7 +775,7 @@ export default function Component({
   // Return inline display if requested
   if (inline) {
     const tpsDisplay =
-      typeof stats.user_tpot === "number"
+      typeof stats.user_tpot === "number" && stats.user_tpot > 0
         ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(1)
         : null;
     const ttftDisplay =

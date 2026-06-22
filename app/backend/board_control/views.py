@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -278,9 +278,8 @@ class DeviceResetView(APIView):
     """
     POST /board-api/device-reset/
 
-    Dedicated board reset endpoint.  Separated from the Docker-coupled
-    /docker-api/reset_board/ for clarity; the old endpoint keeps working via
-    the same perform_reset() logic.
+    Dedicated board reset endpoint, separate from the Docker-coupled streaming
+    reset in docker_control. Uses perform_reset() directly.
     """
 
     def post(self, request, *args, **kwargs):

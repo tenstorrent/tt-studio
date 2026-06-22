@@ -59,7 +59,7 @@ TT Studio backend is a Django 5.0.4 REST API service that manages:
 **CRITICAL**: Every new Python file MUST include the SPDX header:
 ```python
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
 
 ## Development Guidelines
