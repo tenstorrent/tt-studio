@@ -286,9 +286,6 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-<<<<<<< HEAD
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, vllm_override_args=None):
-=======
 def infer_inference_server_device(impl, board_type=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
@@ -309,7 +306,6 @@ def infer_inference_server_device(impl, board_type=None):
 
 
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
->>>>>>> origin/dev
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -373,22 +369,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-<<<<<<< HEAD
-        # These models use v0.14.0 image (P300X2 compatible)
-        if impl.model_name in {
-            "Llama-3.1-8B",
-            "Llama-3.1-8B-Instruct",
-            "Llama-3.1-70B",
-            "Llama-3.1-70B-Instruct",
-            "Llama-3.3-70B-Instruct",
-        }:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
-
-        if vllm_override_args:
-            payload["vllm_override_args"] = vllm_override_args
-
-=======
->>>>>>> origin/dev
         logger.info(f"API payload: {payload}")
 
         # Make POST request to TT Inference Server API

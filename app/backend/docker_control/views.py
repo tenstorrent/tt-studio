@@ -528,26 +528,13 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
-<<<<<<< HEAD
                 needs_dev_mode = bool(vllm_override_args)
+                # Some Llama models need a newer image than the inference server's model_spec default
+                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = (
                     _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
                 )
-                result = start_chat_deployment(
-=======
-                # Some Llama models need a newer image than the inference server's model_spec default 
-                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
-                override_docker_image = None
-                if impl.model_name in {
-                    "Llama-3.1-8B",
-                    "Llama-3.1-8B-Instruct",
-                    "Llama-3.1-70B",
-                    "Llama-3.1-70B-Instruct",
-                    "Llama-3.3-70B-Instruct",
-                }:
-                    override_docker_image = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
                 chat_deploy_kwargs = dict(
->>>>>>> origin/dev
                     model_name=impl.model_name,
                     device=device,
                     device_id=inference_device_id,
@@ -556,13 +543,8 @@ class DeployView(APIView):
                     skip_system_sw_validation=True,
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
-<<<<<<< HEAD
+                    override_docker_image=override_docker_image,
                     dev_mode=needs_dev_mode,
-                    override_docker_image=override_docker_image,
-=======
-                    override_docker_image=override_docker_image,
-                    dev_mode=False,
->>>>>>> origin/dev
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -717,9 +699,6 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
-<<<<<<< HEAD
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, vllm_override_args=vllm_override_args)
-=======
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
@@ -761,7 +740,6 @@ class DeployView(APIView):
 
                 # Image already cached → deploy inline (existing path, unchanged).
                 response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
->>>>>>> origin/dev
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id

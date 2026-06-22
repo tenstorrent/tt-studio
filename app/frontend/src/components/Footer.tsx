@@ -246,19 +246,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     navigate("/models-deployed");
   };
 
-<<<<<<< HEAD
-  // Handle logs button click
-  const handleLogsClick = () => {
-    if (models.length > 0) {
-      const targetUrl = `/models-deployed?openLogs=${models[0].id}`;
-      navigate(targetUrl);
-    } else {
-      navigate("/models-deployed");
-    }
-  };
-
-=======
->>>>>>> origin/dev
   // Create deployed models display text using models from context
   const getDeployedModelsText = () => {
     if (models.length === 0) {

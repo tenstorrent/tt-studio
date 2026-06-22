@@ -36,7 +36,6 @@ interface ContainerData {
   model_type?: string;
 }
 
-<<<<<<< HEAD
 interface StopResponse {
   status: string;
   stop_response: {
@@ -50,9 +49,6 @@ interface StopResponse {
 }
 
 export interface DeployedModelInfo {
-=======
-interface DeployedModelInfo {
->>>>>>> origin/dev
   id: string;
   modelName: string;
   status: string;
