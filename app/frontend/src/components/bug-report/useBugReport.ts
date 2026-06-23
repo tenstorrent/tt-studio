@@ -19,10 +19,10 @@ const INITIAL_FORM: BugReportForm = {
 
 const INITIAL_SOURCES: LogSourceState[] = [
   { label: "Backend (Django) logs", key: "backend_log", status: "pending" },
-  { label: "FastAPI inference logs", key: "fastapi_log", status: "pending" },
+  { label: "Model run logs", key: "model_run_log", status: "pending" },
   {
-    label: "Per-deployment FastAPI logs",
-    key: "fastapi_deployment_logs",
+    label: "Per-deployment model run logs",
+    key: "model_run_deployment_logs",
     status: "pending",
   },
   {
@@ -152,13 +152,13 @@ ${JSON.stringify(data.current_models, null, 2)}
 ${data.backend_log.content}
 \`\`\`
 
-### FastAPI Log
+### Model Run Log
 \`\`\`
-${data.fastapi_log.content}
+${data.model_run_log.content}
 \`\`\`
 
-### Per-Deployment FastAPI Logs
-${renderEntries(data.fastapi_deployment_logs)}
+### Per-Deployment Model Run Logs
+${renderEntries(data.model_run_deployment_logs)}
 
 ### Docker Control Service Log
 \`\`\`

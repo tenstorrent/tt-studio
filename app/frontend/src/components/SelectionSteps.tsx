@@ -51,6 +51,10 @@ export default function StepperDemo() {
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
 
+  // Model catalog (with per-board compatibility) — used to decide whether the
+  // Voice Agent solution is even deployable on this hardware. null = not loaded yet.
+  const [models, setModels] = useState<Model[] | null>(null);
+
   // For QB2 boards, hide the hardware config step by default and show a toggle instead.
   const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
   const [showHardwareConfig, setShowHardwareConfig] = useState(false);
@@ -86,6 +90,14 @@ export default function StepperDemo() {
     fetchChipStatus();
     const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch the model catalog once to determine Voice Agent availability for this board.
+  useEffect(() => {
+    axios
+      .get(getModelsUrl)
+      .then((res) => setModels(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setModels([])); // on error, treat as no models → single-model only
   }, []);
 
   // showHardwareConfig drives the 3-step flow only for non-QB2 multi-chip boards by default,
@@ -356,8 +368,32 @@ export default function StepperDemo() {
     }
   };
 
+  // Wait until the model catalog is known before deciding what to offer — avoids
+  // flashing the Solutions card (or the single flow) before per-board compatibility
+  // is resolved.
+  if (models === null) {
+    return (
+      <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
+        <div className="p-8 text-sm text-gray-500 font-mono animate-pulse">
+          Detecting hardware...
+        </div>
+      </div>
+    );
+  }
+
+  // The Voice Agent solution needs a board-compatible LLM, STT and TTS model. On
+  // hardware that can't run all three (e.g. P100, where only the LLM is supported),
+  // hide the Solutions card and offer single-model deployment only.
+  const hasCompatType = (t: string) =>
+    models.some((m) => m.model_type === t && m.is_compatible === true);
+  const voiceAgentAvailable =
+    hasCompatType("chat") &&
+    hasCompatType("speech_recognition") &&
+    hasCompatType("tts");
+  const effectiveMode = voiceAgentAvailable ? deployMode : "single";
+
   // Mode selector — show when no mode chosen yet
-  if (deployMode === null) {
+  if (effectiveMode === null) {
     return (
       <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
         <ElevatedCard
@@ -419,7 +455,7 @@ export default function StepperDemo() {
   }
 
   // Solutions mode
-  if (deployMode === "solution") {
+  if (effectiveMode === "solution") {
     return (
       <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
         <ElevatedCard accent="neutral" depth="lg" hover className="h-auto py-4 px-8 md:px-12 lg:px-16">
@@ -527,12 +563,14 @@ export default function StepperDemo() {
           </button>
         )}
 
-        <button
-          onClick={() => setDeployMode(null)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
-        </button>
+        {voiceAgentAvailable && (
+          <button
+            onClick={() => setDeployMode(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
+          </button>
+        )}
         <Stepper
           variant="circle-alt"
           initialStep={0}
