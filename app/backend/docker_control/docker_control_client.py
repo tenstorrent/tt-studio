@@ -377,8 +377,8 @@ class DockerControlClient:
         response = self._request("GET", "/api/v1/logs/startup", params={"tail": tail})
         return response.json()
 
-    def get_fastapi_log(self, tail: int = 500) -> Dict:
-        """Fetch fastapi.log content from the host"""
+    def get_model_run_log(self, tail: int = 500) -> Dict:
+        """Fetch model_run.log content from the host"""
         response = self._request("GET", "/api/v1/logs/fastapi", params={"tail": tail})
         return response.json()
 
