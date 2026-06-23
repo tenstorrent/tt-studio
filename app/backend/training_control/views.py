@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import json
+import os
 
 import requests
 from django.http import JsonResponse, StreamingHttpResponse
@@ -9,13 +10,20 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from model_control.model_utils import encoded_jwt, get_deploy_cache
+from model_control.model_utils import get_deploy_cache
 from shared_config.logger_config import get_logger
 from shared_config.model_type_config import ModelTypes
 
 logger = get_logger(__name__)
 
 PROXY_TIMEOUT = 120
+
+# The training container runs the tt-media-server, which authenticates requests
+# with `Authorization: Bearer <API_KEY>` (defaults to "your-secret-key").
+# In TT Studio this key is configured via TTS_API_KEY, matching how the other
+# media-server endpoints in model_control/views.py authenticate. Note: this is
+# NOT the JWT used for the vLLM/LLM inference endpoints.
+TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 
 
 def _find_training_container(deploy_id=None):
@@ -64,7 +72,7 @@ def _base_url(entry):
 
 
 def _auth_headers():
-    return {"Authorization": f"Bearer {encoded_jwt}"}
+    return {"Authorization": f"Bearer {TTS_API_KEY}"}
 
 
 def _proxy_get(url, params=None, stream=False):
