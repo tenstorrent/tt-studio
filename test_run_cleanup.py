@@ -3,6 +3,7 @@
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ import run
 
 class CleanupAllTests(unittest.TestCase):
     def _patch_cleanup_paths(self, root, sentinel):
-        easy_config = root / ".tt_studio_easy_config.json"
+        setup_config = root / ".tt_studio_setup_config.json"
         docker_log = root / "docker-control-service.log"
         docker_pid = root / "docker-control-service.pid"
         return (
@@ -22,8 +23,8 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(run, "ENV_FILE_PATH", str(root / "app" / ".env")),
             patch.object(run, "STARTUP_LOG_FILE", str(root / "startup.log")),
             patch.object(run, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
-            patch.object(run, "EASY_CONFIG_FILE_PATH", str(easy_config)),
-            patch.object(run, "FASTAPI_LOG_FILE", str(root / "fastapi.log")),
+            patch.object(run, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
+            patch.object(run, "MODEL_RUN_LOG_FILE", str(root / "model_run.log")),
             patch.object(run, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
             patch.object(run, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
             patch.object(run, "DOCKER_CONTROL_PID_FILE", str(docker_pid)),
@@ -82,6 +83,8 @@ class CleanupAllTests(unittest.TestCase):
                 for patcher in self._patch_cleanup_paths(root, sentinel):
                     stack.enter_context(patcher)
                 stack.enter_context(patch.object(run, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(run, "_docker_reclaimable_bytes", return_value={
+                    "images": 0, "model_volumes": 0, "anon_volumes": 0}))
                 stack.enter_context(patch("builtins.input", return_value="n"))
                 stack.enter_context(patch.object(
                     run,
@@ -134,6 +137,8 @@ class CleanupAllTests(unittest.TestCase):
                     side_effect=lambda name, default="": default,
                 ))
                 stack.enter_context(patch.object(run, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(run, "_docker_reclaimable_bytes", return_value={
+                    "images": 0, "model_volumes": 0, "anon_volumes": 0}))
                 stack.enter_context(patch.object(run, "_cleanup_runtime"))
                 stack.enter_context(patch.object(run, "_remove_local_tt_studio_images", return_value=0))
                 stack.enter_context(patch.object(run, "_remove_tt_studio_model_volumes", return_value=0))
@@ -312,6 +317,61 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         expected_calls = 2 + len(run._CLEANUP_IMAGE_REFS)
         self.assertEqual(seen_prefixes, ["sudo"] * expected_calls)
 
+    def test_parse_size_to_bytes_handles_docker_si_units(self):
+        # Docker reports sizes as SI (base 1000) strings via go-units.
+        self.assertEqual(run._parse_size_to_bytes("32B"), 32)
+        self.assertEqual(run._parse_size_to_bytes("545kB"), 545_000)
+        self.assertEqual(run._parse_size_to_bytes("628.7MB"), 628_700_000)
+        self.assertEqual(run._parse_size_to_bytes("39.42GB"), 39_420_000_000)
+        # Degrades to 0 on empty / unparseable input.
+        self.assertEqual(run._parse_size_to_bytes(""), 0)
+        self.assertEqual(run._parse_size_to_bytes("N/A"), 0)
+
+    def test_docker_reclaimable_bytes_sums_only_removed_objects(self):
+        # Mirrors `docker system df -v --format json`: only images matching
+        # _CLEANUP_IMAGE_REFS, volume_id_* model volumes, and anonymous volumes
+        # count — unrelated images/volumes and build cache must be ignored.
+        payload = {
+            "Images": [
+                {"Repository": "ghcr.io/tenstorrent/tt-studio/backend-dev", "Size": "11.6GB"},
+                {"Repository": "ghcr.io/tenstorrent/tt-inference-server/vllm", "Size": "23.3GB"},
+                {"Repository": "chromadb/chroma", "Size": "699MB"},
+                {"Repository": "alpine", "Size": "13.1MB"},  # unrelated — excluded
+            ],
+            "Volumes": [
+                {"Name": "volume_id_tt_transformers-Llama-3.1-8B", "Size": "39.42GB",
+                 "Labels": ""},
+                {"Name": "bc66deadbeef", "Size": "628.7MB",
+                 "Labels": "com.docker.volume.anonymous="},  # anonymous — counted
+                {"Name": "app_hf_cache", "Size": "91.58MB", "Labels": ""},  # named, unrelated
+            ],
+            "BuildCache": [{"Size": "35.97GB"}],  # never pruned by cleanup-all — excluded
+        }
+
+        def fake_run(cmd, **kwargs):
+            self.assertEqual(cmd[:5], ["docker", "system", "df", "-v", "--format"])
+            return SimpleNamespace(stdout=json.dumps(payload), returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            sizes = run._docker_reclaimable_bytes(has_docker_access=True)
+
+        self.assertEqual(sizes["images"],
+                         run._parse_size_to_bytes("11.6GB")
+                         + run._parse_size_to_bytes("23.3GB")
+                         + run._parse_size_to_bytes("699MB"))
+        self.assertEqual(sizes["model_volumes"], run._parse_size_to_bytes("39.42GB"))
+        self.assertEqual(sizes["anon_volumes"], run._parse_size_to_bytes("628.7MB"))
+
+    def test_docker_reclaimable_bytes_zero_when_docker_unavailable(self):
+        def fake_run(cmd, **kwargs):
+            return SimpleNamespace(stdout="not json", returncode=1)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            self.assertEqual(
+                run._docker_reclaimable_bytes(has_docker_access=True),
+                {"images": 0, "model_volumes": 0, "anon_volumes": 0},
+            )
+
     def _record_runtime_order(self, args):
         order = []
 
@@ -362,8 +422,8 @@ class TermsAcceptanceGateTests(unittest.TestCase):
                 # No prefs file → treated as first run (terms asked).
                 self.assertTrue(run.is_first_time_setup())
 
-                # Accepting terms writes the prefs file (the fix: in easy mode
-                # this was previously never created, so terms re-fired every run).
+                # Accepting terms writes the prefs file (the fix: in the default
+                # quick setup this was previously never created, so terms re-fired every run).
                 run.save_preference("terms_accepted", True)
                 self.assertTrue(prefs.exists())
 
