@@ -1721,7 +1721,7 @@
       "param_count": null
     },
     {
-      "model_name": "gemma-1.1-2b-it-training",
+      "model_name": "gemma-1.1-2b-it",
       "model_type": "TRAINING",
       "display_model_type": "TRAINING",
       "device_configurations": [
@@ -1734,7 +1734,7 @@
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
+      "docker_image": "tt-media-server-forge:local",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",
