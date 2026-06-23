@@ -32,6 +32,7 @@ import platform
 import argparse
 import shutil
 import re
+import fnmatch
 import getpass
 import webbrowser
 import socket
@@ -89,15 +90,26 @@ INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inferenc
 # These will be read from .env file or environment variables
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
-FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
-FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+# All host-side runtime logs and PID files live under a single logs/ directory so
+# they don't clutter the repo root. Created eagerly because StartupLogger opens
+# startup.log at import time (below).
+LOGS_DIR = os.path.join(TT_STUDIO_ROOT, "logs")
+try:
+    os.makedirs(LOGS_DIR, exist_ok=True)
+except OSError:
+    # Keep run.py importable even if logs/ can't be created.
+    LOGS_DIR = TT_STUDIO_ROOT
+
+FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
+MODEL_RUN_LOG_FILE = os.path.join(LOGS_DIR, "model_run.log")
+MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
-DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
-DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
+DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
+DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
 LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
-STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
+STARTUP_LOG_FILE = os.path.join(LOGS_DIR, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
 # Container names vary by mode: tt_studio_backend_api_prod, tt_studio_frontend_dev, etc.
@@ -1798,6 +1810,65 @@ _CLEANUP_IMAGE_REFS = (
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
 
 
+def _parse_size_to_bytes(s):
+    """Parse a docker-formatted size string (e.g. "39.42GB", "545kB", "32B") to bytes.
+
+    Docker reports sizes in SI units (base 1000) via go-units, so this is the
+    inverse of `_format_bytes` but decimal — used only to total the daemon's own
+    numbers, not for display. Returns 0 on anything unparseable.
+    """
+    if not s:
+        return 0
+    m = re.match(r"\s*([0-9]*\.?[0-9]+)\s*([kKMGTP]?B)\s*$", s)
+    if not m:
+        return 0
+    value, unit = float(m.group(1)), m.group(2).upper()
+    factor = {"B": 1, "KB": 10**3, "MB": 10**6,
+              "GB": 10**9, "TB": 10**12, "PB": 10**15}.get(unit, 1)
+    return int(value * factor)
+
+
+def _docker_reclaimable_bytes(has_docker_access):
+    """Best-effort size of the Docker objects --cleanup-all removes.
+
+    Reads `docker system df -v --format json` (the daemon already computes exact
+    sizes) and sums the images and volumes cleanup-all actually deletes:
+      - images whose Repository matches `_CLEANUP_IMAGE_REFS`
+        (same set `_remove_local_tt_studio_images` removes),
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+        plus dangling anonymous volumes (`_prune_anonymous_volumes`).
+    Build cache is intentionally excluded — cleanup-all does not prune it.
+    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
+    docker is unavailable, so the reclaim total degrades to the host-side paths
+    just like before.
+    """
+    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return zero
+
+    sizes = dict(zero)
+    for img in data.get("Images") or []:
+        repo = img.get("Repository", "")
+        if any(fnmatch.fnmatch(repo, ref) for ref in _CLEANUP_IMAGE_REFS):
+            sizes["images"] += _parse_size_to_bytes(img.get("Size", ""))
+
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+            sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
+            sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+
+    return sizes
+
+
 def _remove_local_tt_studio_images(has_docker_access):
     """Remove TT Studio + inference-server + chroma images. Returns count removed."""
     sudo_prefix = ["sudo"] if not has_docker_access else []
@@ -1989,6 +2060,25 @@ def cleanup_resources(args):
         os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
     artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
 
+    # All host-side runtime logs + PID files now live under logs/, so the whole
+    # directory is removed in one shot (it is always a proper subdir of the repo,
+    # never the repo root itself). The repo-root entries that follow clear logs
+    # left behind by TT Studio versions from before the logs/ consolidation +
+    # rename — and the degenerate case where logs/ couldn't be created and the
+    # files fell back to the repo root.
+    logs_dir = os.path.join(TT_STUDIO_ROOT, "logs")
+    log_items = [
+        ("📜", logs_dir, "host-side runtime logs & PID files (startup, model run, docker-control)"),
+    ]
+    log_items += [
+        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host-side log (pre-consolidation)")
+        for name in (
+            "model_run.log", "model_run_logs",
+            "fastapi.log", "fastapi.pid", "fastapi_logs",
+            "startup.log", "docker-control-service.log", "docker-control-service.pid",
+        )
+    ]
+
     items = [
         ("📁", host_persistent_volume,
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
@@ -1996,13 +2086,7 @@ def cleanup_resources(args):
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
-        ("📜", STARTUP_LOG_FILE, "startup log"),
-        ("📜", FASTAPI_LOG_FILE, "FastAPI server log"),
-        ("📜", FASTAPI_PID_FILE, "FastAPI server PID file"),
-        ("📜", DOCKER_CONTROL_LOG_FILE, "Docker Control Service log"),
-        ("📜", DOCKER_CONTROL_PID_FILE, "Docker Control Service PID file"),
-        ("📜", os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
-         "per-deployment FastAPI logs"),
+        *log_items,
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
         ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
         ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
@@ -2018,7 +2102,14 @@ def cleanup_resources(args):
 
     existing = [(emoji, path, desc, _path_size(path))
                 for emoji, path, desc in items if os.path.exists(path) or os.path.islink(path)]
-    total_bytes = sum(sz for _, _, _, sz in existing)
+    host_bytes = sum(sz for _, _, _, sz in existing)
+
+    # Measure the Docker objects we are about to remove while they still exist,
+    # so both the estimate and the final "Reclaimed approximately X" reflect the
+    # model volumes + images (tens of GB), not just the host-side files.
+    has_docker_access = check_docker_access()
+    docker_sizes = _docker_reclaimable_bytes(has_docker_access)
+    total_bytes = host_bytes + sum(docker_sizes.values())
 
     print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
     print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
@@ -2034,11 +2125,16 @@ def cleanup_resources(args):
     else:
         print(f"  {C_CYAN}(no host-side state found){C_RESET}")
 
+    def _docker_size(key):
+        return f"  ({_format_bytes(docker_sizes[key])})" if docker_sizes[key] > 0 else ""
+
     print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
-    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)")
-    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)")
+    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)"
+          f"{_docker_size('model_volumes')}")
+    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)"
+          f"{_docker_size('anon_volumes')}")
     print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
-          f"tt-media-inference-server, chromadb/chroma")
+          f"tt-media-inference-server, chromadb/chroma{_docker_size('images')}")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
 
     if total_bytes > 0:
@@ -2059,7 +2155,6 @@ def cleanup_resources(args):
         print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
 
     print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
-    has_docker_access = check_docker_access()
     _cleanup_runtime(args, has_docker_access)
 
     # Volumes must come before images: removing a volume while its image is
@@ -2369,7 +2464,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "ChromaDB": "docker logs -f tt_studio_chroma",
             "Backend API": "docker logs -f tt_studio_backend",
             "Frontend": "docker logs -f tt_studio_frontend",
-            "FastAPI Server": f"tail -f {FASTAPI_LOG_FILE}",
+            "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
             "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
         }
         print(f"\n{C_CYAN}📋 Check logs:{C_RESET}")
@@ -3591,7 +3686,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
 
     # Create PID and log files
     
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             # Create files as regular user
             with open(file_path, 'w') as f:
@@ -3689,7 +3784,7 @@ cd "$1"
         os.chmod(temp_script_path, 0o755)
         
         # Start server
-        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
         process = subprocess.Popen(cmd, env=env)
         
         # Health check (silent — only prints on success or failure)
@@ -3700,14 +3795,14 @@ cd "$1"
             if process.poll() is not None:
                 print(f"{C_RED}⛔ FastAPI server process died{C_RESET}")
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
                 except:
                     pass
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         if "address already in use" in f.read():
                             print(f"{C_YELLOW}   Port 8001 still in use. Try: python run.py --cleanup && python run.py{C_RESET}")
                 except:
@@ -3734,7 +3829,7 @@ cd "$1"
 
             if i == health_check_retries:
                 print(f"{C_RED}⛔ FastAPI server failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                 return False
 
             time.sleep(health_check_delay)
@@ -3799,7 +3894,7 @@ def cleanup_fastapi_server(no_sudo=False):
     kill_process_on_port(8001, no_sudo=no_sudo, quiet=True)
 
     # Remove PID and log files
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -3905,7 +4000,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
     env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
     env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
-    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
+    env["MODEL_RUN_LOG_FILE"] = MODEL_RUN_LOG_FILE
 
     # Start the service using uvicorn
     try:
@@ -4932,27 +5027,27 @@ def main():
                         print()
                         sys.exit(1)
 
-        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # Ensure model_run_logs/ exists and is owned by the invoking user before
         # inference-api writes per-deployment log files into it. If a prior
         # sudo'd process created this dir, writes from the non-root uvicorn
-        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
-        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
-        if not os.path.exists(fastapi_logs_dir):
+        # process will fail with EACCES (see inference-api/api.py:get_model_run_logs_dir).
+        model_run_logs_dir = MODEL_RUN_LOGS_DIR
+        if not os.path.exists(model_run_logs_dir):
             try:
-                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+                os.makedirs(model_run_logs_dir, mode=0o755, exist_ok=True)
             except Exception as e:
-                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+                print(f"{C_YELLOW}⚠️  Could not create model_run_logs directory: {e}{C_RESET}")
         elif OS_NAME != "Windows":
             current_user_uid = os.getuid()
-            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
-                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+            if os.stat(model_run_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  model_run_logs directory is owned by another user, fixing permissions...{C_RESET}")
                 try:
-                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
-                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                    os.chown(model_run_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed model_run_logs directory ownership{C_RESET}")
                 except (OSError, PermissionError) as e:
-                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_RED}⛔ Could not fix model_run_logs permissions: {e}{C_RESET}")
                     print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
-                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {model_run_logs_dir}{C_RESET}")
                     input("Press Enter once you've run the command above to continue...")
 
         # Start Docker Control Service BEFORE starting Docker containers
@@ -5070,9 +5165,9 @@ def main():
                     sys.exit(1)
 
                 if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
-                    startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
+                    startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
-                    print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                    print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
@@ -5109,7 +5204,7 @@ def main():
         print(f"{C_CYAN}📋 Logs:{C_RESET}")
         print(f"  Docker containers: cd app && docker compose logs -f")
         if fastapi_enabled:
-            print(f"  FastAPI server:    tail -f {FASTAPI_LOG_FILE}")
+            print(f"  FastAPI server:    tail -f {MODEL_RUN_LOG_FILE}")
         if docker_control_enabled:
             print(f"  Docker Control:    tail -f {DOCKER_CONTROL_LOG_FILE}")
         print()
@@ -5165,10 +5260,10 @@ def main():
                 cwd=os.path.join(TT_STUDIO_ROOT, "app")
             )
             
-            # Also check for FastAPI server logs
-            fastapi_logs_process = None
-            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_LOG_FILE):
-                fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+            # Also check for model run logs
+            model_run_logs_process = None
+            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(MODEL_RUN_LOG_FILE):
+                model_run_logs_process = subprocess.Popen(["tail", "-f", MODEL_RUN_LOG_FILE])
             
             try:
                 # Wait for Ctrl+C
@@ -5180,8 +5275,8 @@ def main():
                 # Clean up processes
                 if docker_logs_process:
                     docker_logs_process.terminate()
-                if fastapi_logs_process:
-                    fastapi_logs_process.terminate()
+                if model_run_logs_process:
+                    model_run_logs_process.terminate()
 
     except KeyboardInterrupt:
         print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
