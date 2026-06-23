@@ -9,6 +9,7 @@ import shutil
 import re
 import getpass
 import json
+import subprocess
 try:
     import requests
     HAS_REQUESTS = True
@@ -99,26 +100,55 @@ def get_existing_env_vars():
     }
 
 
-def save_easy_config(config_dict):
-    """Save easy mode configuration to JSON file"""
+def set_app_version_env():
+    """
+    Compute the running build's version from git and persist it to app/.env so
+    docker compose can inject it into the frontend as VITE_APP_VERSION /
+    VITE_APP_GIT_BRANCH.
+
+    Releases are plain git tags (e.g. v2.6.0) with no package.json bump, so git is
+    the source of truth for "what build is this":
+      - If HEAD sits exactly on a release tag, that tag is the official version and
+        VITE_APP_VERSION is set to it.
+      - Otherwise this is an unofficial build; VITE_APP_VERSION is cleared and the
+        frontend falls back to showing the branch name (VITE_APP_GIT_BRANCH).
+    """
+    def _git(git_args):
+        try:
+            result = subprocess.run(
+                ["git", "-C", TT_STUDIO_ROOT] + git_args,
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    # An exact tag match on the current commit => official release build.
+    version = _git(["describe", "--tags", "--exact-match"])
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    if branch == "HEAD":
+        # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
+        branch = _git(["rev-parse", "--short", "HEAD"])
+
+    write_env_var("VITE_APP_VERSION", version)
+    write_env_var("VITE_APP_GIT_BRANCH", branch)
+
+    if version:
+        print(f"{C_GREEN}✅ Build version: {version} (official release){C_RESET}")
+    elif branch:
+        print(f"{C_CYAN}ℹ️  Build version: {branch} branch (unofficial build){C_RESET}")
+
+
+def save_setup_config(config_dict):
+    """Save the quick-setup configuration snapshot to JSON file"""
     try:
-        with open(EASY_CONFIG_FILE_PATH, 'w') as f:
+        with open(SETUP_CONFIG_FILE_PATH, 'w') as f:
             json.dump(config_dict, f, indent=2)
         # Silent — no need to show config file path to user
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not save easy mode configuration: {e}{C_RESET}")
-
-
-def load_easy_config():
-    """Load easy mode configuration from JSON file"""
-    if os.path.exists(EASY_CONFIG_FILE_PATH):
-        try:
-            with open(EASY_CONFIG_FILE_PATH, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"{C_YELLOW}⚠️  Warning: Could not load easy mode configuration: {e}{C_RESET}")
-            return None
-    return None
+        print(f"{C_YELLOW}⚠️  Warning: Could not save setup configuration: {e}{C_RESET}")
 
 
 def should_configure_var(var_name, current_value):
@@ -217,6 +247,7 @@ def display_first_time_welcome():
             sys.exit(0)
         elif response in ['y', 'yes']:
             print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            save_preference("terms_accepted", True)
             break
         else:
             print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
@@ -429,7 +460,7 @@ def check_hf_access(token):
         return (None, f"HF token access check:\n{summary}")
 
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=True, reconfigure_inference=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
@@ -437,7 +468,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
         force_reconfigure (bool): If True, force reconfiguration and clear preferences
-        easy_mode (bool): If True, use minimal prompts and defaults for quick setup
+        quick_setup (bool): If True, use minimal prompts and defaults for quick setup
         reconfigure_inference (bool): If True, force reconfiguration of inference server artifact only
     """
     global FORCE_OVERWRITE
@@ -462,7 +493,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
         print(f"{C_GREEN}⚙️  Configure Env Mode: Full interactive setup for all variables{C_RESET}")
         if dev_mode:
@@ -473,17 +504,17 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # Get existing variables
     existing_vars = get_existing_env_vars()
     
-    # Only ask about overwrite preference if .env file existed before (skip for easy mode)
-    if not easy_mode and env_file_exists and existing_vars:
+    # Only ask about overwrite preference if .env file existed before (skip for quick setup)
+    if not quick_setup and env_file_exists and existing_vars:
         FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, force_prompt=force_reconfigure)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
-            if not easy_mode:
+            if not quick_setup:
                 print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
             FORCE_OVERWRITE = True
-        elif easy_mode:
-            # In easy mode with existing .env, don't force overwrite - let individual checks handle it
+        elif quick_setup:
+            # In quick setup with existing .env, don't force overwrite - let individual checks handle it
             if env_file_exists and existing_vars:
                 FORCE_OVERWRITE = False
             else:
@@ -492,19 +523,19 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
             FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
 
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("JWT_SECRET", current_jwt):
             write_env_var("JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("JWT_SECRET", current_jwt):
@@ -523,12 +554,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ JWT_SECRET already configured (keeping existing value).")
 
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
             write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
@@ -551,7 +582,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # TTS_API_KEY
     current_tts_api_key = get_env_var("TTS_API_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("TTS_API_KEY", current_tts_api_key):
             write_env_var("TTS_API_KEY", "your-secret-key")
     elif should_configure_var("TTS_API_KEY", current_tts_api_key):
@@ -570,12 +601,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ TTS_API_KEY already configured (keeping existing value).")
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
             write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
@@ -589,12 +620,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
 
     # DOCKER_CONTROL_JWT_SECRET
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
             write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
@@ -613,12 +644,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
 
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("TAVILY_API_KEY", current_tavily):
             write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured", quote_value=False)
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
@@ -627,14 +658,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
         print("✅ TAVILY_API_KEY saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
 
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
     needs_token = should_configure_var("HF_TOKEN", current_hf)
 
-    if easy_mode and needs_token:
+    if quick_setup and needs_token:
         print(f"\n{C_CYAN}A Hugging Face token is required to download models like Llama.{C_RESET}")
         print(f"{C_CYAN}Get yours at: https://huggingface.co/settings/tokens{C_RESET}\n")
 
@@ -649,7 +680,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                     print(f"{C_YELLOW}⚠️  Continuing with existing token. Re-run once you have access.{C_RESET}")
                     break
             else:
-                prompt = "🤗 Enter HF_TOKEN: " if easy_mode else "🤗 Enter HF_TOKEN (Hugging Face token): "
+                prompt = "🤗 Enter HF_TOKEN: " if quick_setup else "🤗 Enter HF_TOKEN (Hugging Face token): "
                 val = getpass.getpass(prompt)
                 if not val or not val.strip():
                     print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -659,7 +690,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print("✅ HF_TOKEN saved.")
         else:
             val = current_hf
-            if not easy_mode:
+            if not quick_setup:
                 print(f"✅ HF_TOKEN already configured (keeping existing value).")
 
         ok, msg = check_hf_access(val)
@@ -680,12 +711,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             # choice == "2": continue with current token
         break
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
             write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
     elif should_configure_var("VITE_APP_TITLE", current_title):
@@ -694,15 +725,15 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("VITE_APP_TITLE", val)
         print("✅ VITE_APP_TITLE saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_APP_TITLE already configured: {current_title}")
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
 
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
             write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
@@ -717,16 +748,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
 
     is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
 
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
             write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
@@ -741,16 +772,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
 
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
 
-    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in easy mode)
+    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in quick setup)
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password", quote_value=False)
     elif is_rag_admin_enabled:
@@ -783,7 +814,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
     ]
     
-    if easy_mode:
+    if quick_setup:
         for var_name, _, _ in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
@@ -805,11 +836,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             else:
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
 
-    # Frontend configuration (always set in easy mode, optional otherwise)
-    if easy_mode:
+    # Frontend configuration (always set in quick setup, optional otherwise)
+    if quick_setup:
         current_frontend_host = get_env_var("FRONTEND_HOST")
         current_frontend_port = get_env_var("FRONTEND_PORT")
         current_frontend_timeout = get_env_var("FRONTEND_TIMEOUT")
@@ -822,8 +853,8 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
 
     # TT Inference Server Artifact Configuration
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
-    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure, reconfigure_inference)
+    configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 services:
   tt_studio_backend:
@@ -29,6 +29,9 @@ services:
     tty: true
     environment:
       # env vars are defined in .env file, use .env.default as template
+      # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
+      # be extremely slow/hang here and stall the embedding-model download on boot.
+      - HF_HUB_DISABLE_XET=1
       - CHROMA_DB_HOST=tt_studio_chroma
       - CHROMA_DB_PORT=8111
       - TT_STUDIO_ROOT
@@ -64,8 +67,11 @@ services:
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
-      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
-      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
+      # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs
+      - ${TT_STUDIO_ROOT}/logs/model_run_logs:${TT_STUDIO_ROOT}/logs/model_run_logs:ro
+      # Persist the Hugging Face cache so the embedding model (all-MiniLM-L6-v2)
+      # is downloaded once and survives container recreation on subsequent run.py.
+      - hf_cache:/root/.cache/huggingface
 
     healthcheck:
       # On first application load resources for transformers/etc
@@ -75,7 +81,9 @@ services:
       timeout: 120s
       interval: 10s
       retries: 5
-      start_period: 60s
+      # Cold first boot downloads the embedding model; allow time so the
+      # healthcheck doesn't mark the backend unhealthy mid-download.
+      start_period: 300s
     # Allow container to access host services (docker-control-service)
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -157,3 +165,7 @@ networks:
     # to avoid colliding existing docker networks
     external: true
     name: tt_studio_network
+
+volumes:
+  # Persistent Hugging Face cache for the backend embedding model.
+  hf_cache:

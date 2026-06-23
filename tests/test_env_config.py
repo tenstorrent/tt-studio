@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """Characterization tests for environment/preference configuration."""
+import json
 import os
 import tempfile
 import unittest
@@ -125,9 +126,9 @@ class TestPreferences(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.prefs = os.path.join(self.dir.name, "prefs.json")
-        self.easy = os.path.join(self.dir.name, "easy.json")
+        self.setup = os.path.join(self.dir.name, "setup.json")
         self.p1 = patch.object(M, "PREFS_FILE_PATH", self.prefs)
-        self.p2 = patch.object(M, "EASY_CONFIG_FILE_PATH", self.easy)
+        self.p2 = patch.object(M, "SETUP_CONFIG_FILE_PATH", self.setup)
         self.p1.start()
         self.p2.start()
 
@@ -152,9 +153,10 @@ class TestPreferences(unittest.TestCase):
         self.assertTrue(M.clear_preferences())
         self.assertTrue(M.is_first_time_setup())
 
-    def test_easy_config_round_trip(self):
-        M.save_easy_config({"mode": "easy"})
-        self.assertEqual(M.load_easy_config(), {"mode": "easy"})
+    def test_setup_config_snapshot_is_written(self):
+        M.save_setup_config({"mode": "quick"})
+        with open(self.setup) as f:
+            self.assertEqual(json.load(f), {"mode": "quick"})
 
 
 if __name__ == "__main__":

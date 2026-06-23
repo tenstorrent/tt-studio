@@ -20,21 +20,21 @@ from tt_setup.constants import *
 from tt_setup.env_config import comment_out_env_var, get_env_var, write_env_var
 
 
-def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False, reconfigure_inference=False):
+def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force_reconfigure=False, reconfigure_inference=False):
     """
     Configure TT Inference Server artifact source (release version or branch).
 
     Args:
         dev_mode: Development mode flag
-        easy_mode: Easy mode flag
+        quick_setup: Quick setup flag (minimal prompts, defaults)
         force_reconfigure: Force reconfiguration of all options
         reconfigure_inference: Force reconfiguration of inference server artifact only
     """
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
 
-    # In easy mode with no reconfigure request: silently default to 'latest' if not already set
-    if easy_mode and not (force_reconfigure or reconfigure_inference):
+    # In quick setup with no reconfigure request: silently default to 'latest' if not already set
+    if quick_setup and not (force_reconfigure or reconfigure_inference):
         if not (current_version or current_branch):
             write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "latest", quote_value=False)
         return
@@ -69,8 +69,8 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
     print(f"  1. Release version (stable, recommended for production)")
     print(f"  2. Branch (latest development code, may have new features)")
     
-    if easy_mode:
-        # In easy mode, default to latest release but still allow choice
+    if quick_setup:
+        # In quick setup, default to latest release but still allow choice
         while True:
             choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
             if choice in ["1", "2"]:

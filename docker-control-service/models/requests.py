@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Pydantic Request Models for Docker Control Service
@@ -48,6 +48,18 @@ class ImagePullRequest(BaseModel):
     image_name: str = Field(..., description="Image name")
     image_tag: str = Field("latest", description="Image tag")
     registry_auth: Optional[Dict] = Field(None, description="Registry credentials")
+
+
+class ImagePullStartRequest(BaseModel):
+    """Request model for starting a streamed (progress-tracked) image pull.
+
+    Unlike ImagePullRequest (which blocks), this kicks off a background pull keyed
+    by `pull_id`; the caller polls GET /images/pull/progress/{pull_id} for byte-level
+    progress aggregated from Docker's per-layer event stream.
+    """
+    image_name: str = Field(..., description="Image name")
+    image_tag: str = Field("latest", description="Image tag")
+    pull_id: str = Field(..., description="Caller-supplied id used to poll progress")
 
 
 class NetworkCreateRequest(BaseModel):

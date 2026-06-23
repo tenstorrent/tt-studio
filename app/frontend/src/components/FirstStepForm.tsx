@@ -456,7 +456,7 @@ export function FirstStepForm({
                   {/* If no models loaded yet */}
                   {filteredModels.length === 0 && !isLoading && (
                     <div className="px-2 py-4 text-center text-gray-500">
-                      {models.length === 0 ? "No models available" : "No models available for selected chip mode"}
+                      {models.length === 0 ? "No models available" : "No models available for selected device mode"}
                     </div>
                   )}
                 </SelectContent>
@@ -468,7 +468,7 @@ export function FirstStepForm({
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
                       {chipMode === "single" && displayBoard !== currentBoard
-                        ? "Target device (single chip):"
+                        ? "Target device:"
                         : "Detected Tenstorrent board:"}
                     </span>
                     <div className="px-2 py-2">

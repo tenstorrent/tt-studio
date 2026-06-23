@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -142,15 +142,15 @@ logger.setLevel(logging.DEBUG)  # Set level on the logger itself
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
-def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to fastapi.log at TT Studio root"""
+def setup_model_run_file_logging():
+    """Set up file logging for FastAPI - writes to logs/model_run.log under TT Studio root"""
     try:
-        # Put the log file at TT Studio root:
-        # <tt_studio_root>/fastapi.log
+        # Put the log file under the consolidated logs/ directory:
+        # <tt_studio_root>/logs/model_run.log
         tt_studio_root = Path(__file__).parent.parent.resolve()
-        root_log_dir = tt_studio_root
+        root_log_dir = tt_studio_root / "logs"
         root_log_dir.mkdir(parents=True, exist_ok=True)
-        root_log_file = root_log_dir / "fastapi.log"
+        root_log_file = root_log_dir / "model_run.log"
 
         # Keep append mode here. run.py also streams uvicorn output to this file,
         # so truncate mode can create confusing interleaving/overwrite artifacts.
@@ -197,7 +197,7 @@ def setup_fastapi_file_logging():
 
         # Try to write error to a local fallback log
         try:
-            fallback_log = Path(__file__).parent / "fastapi_setup_error.log"
+            fallback_log = Path(__file__).parent / "model_run_setup_error.log"
             with open(fallback_log, "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
                 f.write(traceback.format_exc())
@@ -205,7 +205,7 @@ def setup_fastapi_file_logging():
             pass  # If even fallback fails, just continue
 
 # Initialize file logging
-setup_fastapi_file_logging()
+setup_model_run_file_logging()
 
 # Global progress store with thread-safe access
 progress_store: Dict[str, Dict[str, Any]] = {}
@@ -479,6 +479,32 @@ def _resolve_preferred_host_volume(
 
 def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
+
+
+# ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
+def _stage_preloaded_version_symlink(model, device, impl, override_dir, root, job_id):
+    """Link volume_id_<impl>-<model>-v{model_spec.version} -> the preloaded
+    -vqb2_launch override dir, so `--host-volume <root>` reuse lands on the
+    preloaded data instead of re-downloading.
+
+    The version is resolved with the SAME get_runtime_model_spec(model, device,
+    impl) that run.py/setup_host use, so the symlink name matches what setup_host
+    requests for any model/impl/device (the dir version is the per-model
+    catalog-pinned model_spec.version, not the repo VERSION). Excise this fn +
+    its call when the preloaded data is re-staged under the release name.
+    """
+    if not override_dir:
+        return
+    try:
+        ms, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        target = Path(root) / f"volume_id_{ms.impl.impl_id}-{ms.model_name}-v{ms.version}"
+        if target.exists() or target.is_symlink():  # never clobber; idempotent
+            return
+        os.symlink(Path(override_dir).resolve(), target)  # resolve() avoids symlink-to-symlink
+        logger.info("Job %s: linked %s -> %s", job_id, target.name, Path(override_dir).name)
+    except Exception as exc:
+        logger.warning("Job %s: could not stage preloaded host-volume symlink: %s", job_id, exc)
+# ─── end TEMP (QB2 workaround) ────────────────────────────────────────────────
 
 
 def _strip_cli_option(argv: list[str], option: str) -> list[str]:
@@ -1094,16 +1120,20 @@ class ProgressHandler(logging.Handler):
             progress = 0
             status = "running"
         
-            # Based on the fastapi.log patterns, parse deployment stages
+            # Based on the model_run.log patterns, parse deployment stages
             if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
                 stage = "initialization"
                 progress = 5
             elif any(keyword in message.lower() for keyword in ["setup_host", "setting up python venv", "loaded environment"]):
                 stage = "setup"
                 progress = 15
-            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download", "setup already completed"]):
+            elif "setup already completed" in message.lower():
+                stage = "setup"
+                progress = 16
+                message = "Environment ready..."
+            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
                 stage = "model_preparation"
-                progress = 40
+                progress = 28
             # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
             elif "fetching" in message.lower() and "files" in message.lower():
                 stage = "model_preparation"
@@ -1126,23 +1156,34 @@ class ProgressHandler(logging.Handler):
                     self._pull_layers_complete += 1
                 if self._pull_layers_total > 0:
                     ratio = min(1.0, self._pull_layers_complete / self._pull_layers_total)
-                    progress = 30 + int(ratio * 30)  # ramp 30 -> 60 during pull
+                    progress = 20 + int(ratio * 12)  # ramp 20 -> 32 during pull
                     message = (
                         f"Pulling container image layers "
                         f"({self._pull_layers_complete}/{self._pull_layers_total})..."
                     )
                 else:
-                    progress = 30
+                    progress = 20
                     message = "Pulling container image layers..."
+            elif any(keyword in message.lower() for keyword in ["docker image pulled successfully", "docker image available locally"]):
+                stage = "image_ready"
+                progress = 34
+                message = "Container image ready."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
-                progress = 70
+                progress = 42
+                message = "Creating and starting the container..."
+            elif "created docker container id" in message.lower():
+                stage = "container_started"
+                progress = 60
+                message = "Container is running..."
             elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
-                stage = "finalizing"
-                progress = 85
+                stage = "container_started"
+                progress = 64
+                message = "Locating the container..."
             elif any(keyword in message.lower() for keyword in ["connected container", "tt_studio_network"]):
-                stage = "finalizing"
-                progress = 90
+                stage = "network_setup"
+                progress = 84
+                message = "Connecting to the network..."
             elif "renamed container" in message.lower():
                 # This is the KEY indicator that deployment is complete!
                 stage = "complete"
@@ -1282,21 +1323,21 @@ def normalize_device_alias(device: str) -> str:
     }
     return alias_map.get(device.strip().lower(), device)
 
-def get_fastapi_logs_dir():
-    """Get the FastAPI logs directory at TT Studio root"""
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
     tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "fastapi_logs"
-    fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
-    return fastapi_logs_dir
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    fastapi_logs_dir = get_fastapi_logs_dir()
-    
-    # Create log file with pattern: fastapi_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
-    log_filename = f"fastapi_{timestamp}_{model}_{device}_server.log"
-    log_file_path = fastapi_logs_dir / log_filename
+    model_run_logs_dir = get_model_run_logs_dir()
+
+    # Create log file with pattern: model_run_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
+    log_filename = f"model_run_{timestamp}_{model}_{device}_server.log"
+    log_file_path = model_run_logs_dir / log_filename
     
     # Create file handler
     file_handler = logging.FileHandler(log_file_path, mode='w')
@@ -1370,7 +1411,7 @@ async def test_logging():
     logger.warning("Warning level test message")
     return {
         "message": "Logging test completed", 
-        "check": "fastapi.log file for log messages",
+        "check": "model_run.log file for log messages",
         "timestamp": time.time()
     }
 
@@ -1712,6 +1753,16 @@ async def run_inference(request: RunRequest):
             )
         if preferred_host_volume:
             initial_argv.extend(["--host-volume", preferred_host_volume])
+            # ─── TEMP (QB2 workaround) — remove with _stage_preloaded_version_symlink ──
+            _stage_preloaded_version_symlink(
+                request.model,
+                normalized_device,
+                request.impl,
+                expected_host_volume_dir,
+                preferred_host_volume,
+                job_id,
+            )
+            # ─── end TEMP (QB2 workaround) ────────────────────────────────────────────
             logger.info(
                 "Job %s: Qwen preloaded host-volume directory accepted: %s; using --host-volume %s (%s)",
                 job_id,
@@ -1940,6 +1991,25 @@ async def run_inference(request: RunRequest):
                         "message": "Deployment completed successfully",
                     }
 
+                    # Advance the deploy-progress bar through the post-run milestones
+                    # (locate container → connect network → rename). Monotonic: never
+                    # lowers progress, never overrides a terminal status.
+                    def _advance(stage_name: str, pct: int, msg: str) -> None:
+                        with progress_lock:
+                            cur = progress_store.get(job_id)
+                            if not cur or cur.get("status") in ("completed", "failed", "cancelled", "error"):
+                                return
+                            cur.update({
+                                "status": "running",
+                                "stage": stage_name,
+                                "progress": max(cur.get("progress", 0), pct),
+                                "message": msg,
+                                "last_updated": time.time(),
+                            })
+
+                    # Container process is up; we're now locating it to wire up networking.
+                    _advance("container_started", 60, "Container started, locating it...")
+
                     # Best-effort: connect to tt_studio_network and rename container
                     try:
                         client = docker.from_env()
@@ -1981,11 +2051,13 @@ async def run_inference(request: RunRequest):
                             original_name = new_container.name
                             if new_container.id:
                                 response_data["container_id"] = new_container.id
+                            _advance("network_setup", 72, "Connecting to the network...")
                             try:
                                 network = client.networks.get("tt_studio_network")
                                 network.connect(new_container)
                             except Exception:
                                 pass
+                            _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
                             model_name = request.model.replace("/", "-")
                             if original_name != model_name:
@@ -1994,6 +2066,7 @@ async def run_inference(request: RunRequest):
                                     response_data["container_name"] = model_name
                                 except Exception:
                                     pass
+                            _advance("finalizing", 95, "Finalizing the deployment...")
                     except Exception as e:
                         logger.error(f"Job {job_id}: post-run docker ops failed: {e}")
 
@@ -2132,6 +2205,21 @@ async def run_inference(request: RunRequest):
         else:
             # If job_id wasn't created yet, raise HTTPException
             raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/resolve-image")
+async def resolve_image(model: str, device: str, impl: Optional[str] = None):
+    """Return the exact Docker image this server would deploy for (model, device).
+
+    The deployed image comes from the server's own model_spec (and may differ from
+    any image ref a client has cached), so callers that want to pre-pull the image
+    must resolve it here with the same device /run uses.
+    """
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        return {"status": "success", "model": model, "device": device, "docker_image": model_spec.docker_image}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Could not resolve image for model={model}, device={device}: {e}")
+
 
 @app.get("/models")
 async def get_available_models():

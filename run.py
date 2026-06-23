@@ -41,10 +41,13 @@ from tt_setup.constants import (  # noqa: F401
     BROWSER_CLEANUP_SENTINEL,
     TT_STUDIO_ROOT,
     ENV_FILE_PATH,
+    LOGS_DIR,
     STARTUP_LOG_FILE,
     PREFS_FILE_PATH,
-    EASY_CONFIG_FILE_PATH,
-    FASTAPI_LOG_FILE,
+    SETUP_CONFIG_FILE_PATH,
+    LEGACY_SETUP_CONFIG_FILE_PATH,
+    MODEL_RUN_LOG_FILE,
+    MODEL_RUN_LOGS_DIR,
     FASTAPI_PID_FILE,
     DOCKER_CONTROL_LOG_FILE,
     DOCKER_CONTROL_PID_FILE,
@@ -53,6 +56,8 @@ from tt_setup.constants import (  # noqa: F401
 )
 from tt_setup.env_config import (  # noqa: F401
     get_env_var,
+    save_setup_config,
+    set_app_version_env,
 )
 from tt_setup.docker import (  # noqa: F401
     check_docker_access,
@@ -65,6 +70,8 @@ from tt_setup.cleanup import (  # noqa: F401
     _remove_tt_studio_model_volumes,
     _remove_tt_studio_network_containers,
     _prune_anonymous_volumes,
+    _parse_size_to_bytes,
+    _docker_reclaimable_bytes,
     _format_bytes,
     _path_size,
     _remove_path,

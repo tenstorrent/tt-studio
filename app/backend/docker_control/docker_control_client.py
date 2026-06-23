@@ -302,6 +302,30 @@ class DockerControlClient:
         except requests.exceptions.HTTPError:
             return False
 
+    def start_image_pull(self, name: str, tag: str, pull_id: str) -> Dict:
+        """Start a background, progress-tracked image pull.
+
+        Returns immediately; poll get_image_pull_progress(pull_id) for byte-level
+        progress aggregated from Docker's per-layer event stream.
+        """
+        payload = {"image_name": name, "image_tag": tag, "pull_id": pull_id}
+        response = self._request("POST", "/api/v1/images/pull/start", json=payload)
+        return response.json()
+
+    def get_image_pull_progress(self, pull_id: str, timeout: float = 5.0) -> Optional[Dict]:
+        """Fetch the latest progress snapshot for a streamed pull.
+
+        Returns None if the pull is not tracked (404) or the service is unreachable,
+        so callers can degrade gracefully without raising.
+        """
+        try:
+            response = self._request(
+                "GET", f"/api/v1/images/pull/progress/{pull_id}", timeout=timeout
+            )
+            return response.json()
+        except requests.exceptions.RequestException:
+            return None
+
     # Network operations
 
     def list_networks(self, names: Optional[List[str]] = None) -> List[Dict]:
@@ -348,8 +372,8 @@ class DockerControlClient:
         response = self._request("GET", "/api/v1/logs/startup", params={"tail": tail})
         return response.json()
 
-    def get_fastapi_log(self, tail: int = 500) -> Dict:
-        """Fetch fastapi.log content from the host"""
+    def get_model_run_log(self, tail: int = 500) -> Dict:
+        """Fetch model_run.log content from the host"""
         response = self._request("GET", "/api/v1/logs/fastapi", params={"tail": tail})
         return response.json()
 

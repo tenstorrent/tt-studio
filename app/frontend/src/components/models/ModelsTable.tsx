@@ -214,7 +214,7 @@ export default function ModelsTable({
                 className="inline-block mr-2 text-TT-purple-accent"
                 size={16}
               />
-              Chip
+              Device
             </TableHead>
           )}
           {image && (

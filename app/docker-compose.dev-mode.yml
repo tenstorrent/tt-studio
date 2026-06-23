@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 # Development mode overrides
 services:
@@ -10,8 +10,8 @@ services:
     volumes:
       # Mount the local api directory for live code changes
       - ./backend:/backend
-      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
-      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
+      # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs
+      - ${TT_STUDIO_ROOT}/logs/model_run_logs:${TT_STUDIO_ROOT}/logs/model_run_logs:ro
     command: >
       uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --reload
     environment:
@@ -37,6 +37,8 @@ services:
       - VITE_ENABLE_DEPLOYED
       - VITE_APP_TITLE
       - VITE_ENABLE_RAG_ADMIN
+      - VITE_APP_VERSION
+      - VITE_APP_GIT_BRANCH
 
     # Mount source code for hot reload
     volumes:

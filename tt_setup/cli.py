@@ -17,7 +17,7 @@ from tt_setup.logging import startup_log
 from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
-from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_easy_config
+from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
 from tt_setup.cleanup import cleanup_resources
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
@@ -116,8 +116,8 @@ def _run(args):
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
-  {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
-  {C_CYAN}python run.py --easy{C_RESET}                 Easy setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
@@ -189,13 +189,13 @@ def _run(args):
         startup_log.step("docker_install_check", "OK")
 
         startup_log.step("configure_environment", "START")
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
-        # Save easy mode configuration to JSON if not in --configure-env mode
+        # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
         if not args.configure_env:
-            easy_config = {
-                "mode": "easy",
+            setup_config = {
+                "mode": "quick",
                 "setup_timestamp": datetime.now().isoformat(),
                 "jwt_secret_default": "test-secret-456",
                 "django_secret_key_default": "django-insecure-default",
@@ -206,7 +206,7 @@ def _run(args):
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
-            save_easy_config(easy_config)
+            save_setup_config(setup_config)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
@@ -292,7 +292,7 @@ def _run(args):
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=not args.configure_env)
+        ensure_frontend_dependencies(force_prompt=args.reconfigure, quick_setup=not args.configure_env)
 
         # Check if all required ports are available
 
@@ -369,27 +369,27 @@ def _run(args):
                         print()
                         sys.exit(1)
 
-        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # Ensure model_run_logs/ exists and is owned by the invoking user before
         # inference-api writes per-deployment log files into it. If a prior
         # sudo'd process created this dir, writes from the non-root uvicorn
-        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
-        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
-        if not os.path.exists(fastapi_logs_dir):
+        # process will fail with EACCES (see inference-api/api.py:get_model_run_logs_dir).
+        model_run_logs_dir = MODEL_RUN_LOGS_DIR
+        if not os.path.exists(model_run_logs_dir):
             try:
-                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+                os.makedirs(model_run_logs_dir, mode=0o755, exist_ok=True)
             except Exception as e:
-                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+                print(f"{C_YELLOW}⚠️  Could not create model_run_logs directory: {e}{C_RESET}")
         elif OS_NAME != "Windows":
             current_user_uid = os.getuid()
-            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
-                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+            if os.stat(model_run_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  model_run_logs directory is owned by another user, fixing permissions...{C_RESET}")
                 try:
-                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
-                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                    os.chown(model_run_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed model_run_logs directory ownership{C_RESET}")
                 except (OSError, PermissionError) as e:
-                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_RED}⛔ Could not fix model_run_logs permissions: {e}{C_RESET}")
                     print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
-                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {model_run_logs_dir}{C_RESET}")
                     input("Press Enter once you've run the command above to continue...")
 
         # Start Docker Control Service BEFORE starting Docker containers
@@ -463,6 +463,10 @@ def _run(args):
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
 
+        # Stamp the frontend build with the current git version (official tag or
+        # branch name) so the footer shows what's actually running.
+        set_app_version_env()
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
@@ -513,9 +517,9 @@ def _run(args):
                     if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
                         s.fail()
                 if s.failed:
-                    startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
+                    startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
-                    print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                    print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
@@ -552,7 +556,7 @@ def _run(args):
         print(f"{C_CYAN}📋 Logs:{C_RESET}")
         print(f"  Docker containers: cd app && docker compose logs -f")
         if fastapi_enabled:
-            print(f"  FastAPI server:    tail -f {FASTAPI_LOG_FILE}")
+            print(f"  FastAPI server:    tail -f {MODEL_RUN_LOG_FILE}")
         if docker_control_enabled:
             print(f"  Docker Control:    tail -f {DOCKER_CONTROL_LOG_FILE}")
         print()
@@ -610,10 +614,10 @@ def _run(args):
                 cwd=os.path.join(TT_STUDIO_ROOT, "app")
             )
             
-            # Also check for FastAPI server logs
-            fastapi_logs_process = None
-            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_LOG_FILE):
-                fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+            # Also check for model run logs
+            model_run_logs_process = None
+            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(MODEL_RUN_LOG_FILE):
+                model_run_logs_process = subprocess.Popen(["tail", "-f", MODEL_RUN_LOG_FILE])
             
             try:
                 # Wait for Ctrl+C
@@ -625,8 +629,8 @@ def _run(args):
                 # Clean up processes
                 if docker_logs_process:
                     docker_logs_process.terminate()
-                if fastapi_logs_process:
-                    fastapi_logs_process.terminate()
+                if model_run_logs_process:
+                    model_run_logs_process.terminate()
 
     except KeyboardInterrupt:
         print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")

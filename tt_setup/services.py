@@ -190,7 +190,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "ChromaDB": "docker logs -f tt_studio_chroma",
             "Backend API": "docker logs -f tt_studio_backend",
             "Frontend": "docker logs -f tt_studio_frontend",
-            "FastAPI Server": f"tail -f {FASTAPI_LOG_FILE}",
+            "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
             "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
         }
         print(f"\n{C_CYAN}📋 Check logs:{C_RESET}")
@@ -442,7 +442,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
 
     # Create PID and log files
     
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             # Create files as regular user
             with open(file_path, 'w') as f:
@@ -540,7 +540,7 @@ cd "$1"
         os.chmod(temp_script_path, 0o755)
         
         # Start server
-        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
         process = subprocess.Popen(cmd, env=env)
         
         # Health check (silent — only prints on success or failure)
@@ -551,14 +551,14 @@ cd "$1"
             if process.poll() is not None:
                 print(f"{C_RED}⛔ FastAPI server process died{C_RESET}")
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
                 except:
                     pass
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         if "address already in use" in f.read():
                             print(f"{C_YELLOW}   Port 8001 still in use. Try: python run.py --cleanup && python run.py{C_RESET}")
                 except:
@@ -585,7 +585,7 @@ cd "$1"
 
             if i == health_check_retries:
                 print(f"{C_RED}⛔ FastAPI server failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                 return False
 
             time.sleep(health_check_delay)
@@ -651,7 +651,7 @@ def cleanup_fastapi_server(no_sudo=False):
     kill_process_on_port(8001, no_sudo=no_sudo, quiet=True)
 
     # Remove PID and log files
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -758,7 +758,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
     env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
     env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
-    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
+    env["MODEL_RUN_LOG_FILE"] = MODEL_RUN_LOG_FILE
 
     # Start the service using uvicorn
     try:
@@ -898,7 +898,7 @@ def cleanup_docker_control_service(no_sudo=False):
             pass
 
 
-def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
+def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
@@ -907,7 +907,7 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
     
     Args:
         force_prompt (bool): If True, always prompt user even if preference exists
-        easy_mode (bool): If True, automatically skip npm installation without prompting
+        quick_setup (bool): If True, automatically skip npm installation without prompting (quick setup)
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -926,8 +926,8 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
 
     try:
         if has_local_npm:
-            # In easy mode, automatically skip npm installation
-            if easy_mode:
+            # In quick setup, automatically skip npm installation
+            if quick_setup:
                 save_preference("npm_install_locally", 'n')
                 return True
             
