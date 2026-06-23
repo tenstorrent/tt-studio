@@ -72,6 +72,7 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
+  TRAINING: { label: "Training", order: 9 },
 };
 
 const FirstFormSchema = z.object({

@@ -1586,6 +1586,31 @@
         "TORCHDYNAMO_DISABLE": "1"
       },
       "param_count": null
+    },
+    {
+      "model_name": "gemma-1.1-2b-it",
+      "model_type": "TRAINING",
+      "display_model_type": "TRAINING",
+      "device_configurations": [
+        "P150"
+      ],
+      "hf_model_id": "google/gemma-1.1-2b-it",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.0.1",
+      "docker_image": "tt-media-server-forge:local",
+      "service_route": "/v1/jobs",
+      "health_route": "/health",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "MODEL_RUNNER": "training-gemma-lora",
+        "TRAINING_MODEL": "gemma-1.1-2b-it"
+      },
+      "param_count": null
     }
   ]
 }

@@ -105,6 +105,8 @@ def map_model_type(raw_model_type: str, inference_engine: str) -> str:
     # CNN + forge = computer vision / object detection (resnet, vit, etc.)
     if raw_model_type == "CNN" and inference_engine == "forge":
         return "CNN"
+    if raw_model_type == "TRAINING":
+        return "TRAINING"
     return "CHAT"
 
 
@@ -143,6 +145,8 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # Other media models (video, embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
+        if raw_model_type == "TRAINING":
+            return "/v1/jobs"
         return "/v1/chat/completions"
     return "/v1/chat/completions"
 

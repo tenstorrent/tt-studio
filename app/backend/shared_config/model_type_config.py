@@ -16,3 +16,4 @@ class ModelTypes(Enum):
     VIDEO = "video_generation"
     EMBEDDING = "embedding"
     CNN = "cnn"
+    TRAINING = "training"
