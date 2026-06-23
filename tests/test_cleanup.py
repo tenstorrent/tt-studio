@@ -10,7 +10,23 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import run
+# After the refactor the cleanup helpers live in tt_setup.cleanup. Patch targets
+# must point at that module so intra-module calls (e.g. cleanup_resources ->
+# _cleanup_runtime) are intercepted; patching the run shim would not reach them.
+# Pre-refactor (no tt_setup package) this falls back to the monolithic run module.
+try:
+    import tt_setup.cleanup as run
+except ImportError:
+    import run
+
+# Preference helpers (save_preference / is_first_time_setup / PREFS_FILE_PATH) live
+# in tt_setup.env_config after the refactor. The terms-acceptance gate must patch
+# and call them on that module so save_preference writes to the patched path.
+# Pre-refactor they live in the monolithic run module.
+try:
+    import tt_setup.env_config as prefs_mod
+except ImportError:
+    prefs_mod = run
 
 
 class CleanupAllTests(unittest.TestCase):
@@ -418,17 +434,17 @@ class TermsAcceptanceGateTests(unittest.TestCase):
     def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             prefs = Path(tmp) / ".tt_studio_preferences.json"
-            with patch.object(run, "PREFS_FILE_PATH", str(prefs)):
+            with patch.object(prefs_mod, "PREFS_FILE_PATH", str(prefs)):
                 # No prefs file → treated as first run (terms asked).
-                self.assertTrue(run.is_first_time_setup())
+                self.assertTrue(prefs_mod.is_first_time_setup())
 
                 # Accepting terms writes the prefs file (the fix: in the default
                 # quick setup this was previously never created, so terms re-fired every run).
-                run.save_preference("terms_accepted", True)
+                prefs_mod.save_preference("terms_accepted", True)
                 self.assertTrue(prefs.exists())
 
                 # Prefs file now exists → no longer treated as first run.
-                self.assertFalse(run.is_first_time_setup())
+                self.assertFalse(prefs_mod.is_first_time_setup())
 
 
 if __name__ == "__main__":

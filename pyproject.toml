@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+[project]
+name = "tt-studio-setup"
+version = "0.1.0"
+description = "TT Studio setup / orchestration CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "rich>=13.7",
+    "typer>=0.12",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+]
+
+[project.scripts]
+tt-studio = "tt_setup.cli:app"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tt_setup"]
