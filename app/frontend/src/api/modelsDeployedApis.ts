@@ -115,6 +115,7 @@ export interface CanonicalDeployment {
   device_id: number | null;
   device_ids: number[] | null;
   model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  coding_agent_eligible?: boolean;  // Backend SSOT: usable via the coding-agent gateway.
   model_impl: {
     model_name?: string;
     hf_model_id?: string;
@@ -631,6 +632,29 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
     return Object.values(models) as CatalogModel[];
   }
   return [];
+};
+
+// Coding-agent gateway (LiteLLM)
+export interface CodingAgentModel {
+  name: string;
+  type: string;
+}
+
+export interface CodingAgentsInfo {
+  litellm_enabled: boolean;
+  health: "healthy" | "unreachable" | "disabled";
+  gateway_port: number;
+  openai_base_path: string;
+  master_key: string;
+  models: CodingAgentModel[];
+}
+
+export const fetchCodingAgentsInfo = async (): Promise<CodingAgentsInfo> => {
+  const response = await axios.get<CodingAgentsInfo>(`${modelAPIURL}coding-agents/`, {
+    timeout: 10000,
+    headers: { "Cache-Control": "no-cache" },
+  });
+  return response.data;
 };
 
 // Utility to extract short model name from container name
