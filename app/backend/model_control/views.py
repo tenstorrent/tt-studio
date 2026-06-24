@@ -1614,7 +1614,11 @@ class ModelAPIInfoView(APIView):
 
 # Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
 # is the SSOT in shared_config.coding_agent_config.
-from shared_config.coding_agent_config import is_coding_agent_eligible  # noqa: E402
+from shared_config.coding_agent_config import (  # noqa: E402
+    is_coding_agent_eligible,
+    get_gateway_model_names,
+    resolve_thinking_variant,
+)
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -1701,14 +1705,20 @@ class OpenAIChatCompletionsView(View):
         except json.JSONDecodeError:
             return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
 
-        requested_model = data.get("model")
-        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, requested_model)
+        # Reasoning models are exposed as both "<name>" and "<name>-thinking";
+        # both resolve to the same deployment but flip vLLM's enable_thinking flag.
+        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
+        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
         if deploy is None:
             return JsonResponse(
-                {"error": {"message": f"No running model named '{requested_model}'.",
+                {"error": {"message": f"No running model named '{base_model}'.",
                            "type": "model_not_found"}},
                 status=404,
             )
+        if enable_thinking is not None:
+            ctk = dict(data.get("chat_template_kwargs") or {})
+            ctk["enable_thinking"] = enable_thinking
+            data["chat_template_kwargs"] = ctk
 
         internal_url = "http://" + deploy["internal_url"]
         data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
@@ -1774,10 +1784,13 @@ class OpenAIModelsView(APIView):
         data = []
         for _, entry in _running_coding_agent_deploys():
             name = getattr(entry.get("model_impl"), "model_name", None)
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
-            data.append({"id": name, "object": "model", "owned_by": "tt-studio"})
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                data.append({"id": exposed, "object": "model", "owned_by": "tt-studio"})
         return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
 
 
@@ -1802,11 +1815,14 @@ class CodingAgentsView(APIView):
         for _, entry in _running_coding_agent_deploys():
             impl = entry.get("model_impl")
             name = getattr(impl, "model_name", None)
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
             mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
-            models.append({"name": name, "type": mtype})
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                models.append({"name": exposed, "type": mtype})
 
         return Response(
             {

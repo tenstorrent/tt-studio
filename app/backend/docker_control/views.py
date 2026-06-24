@@ -39,6 +39,7 @@ from .docker_utils import (
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -508,13 +509,19 @@ class DeployView(APIView):
                 # (/v1/completions) models and unknown families are left untouched.
                 vllm_override_args = None
                 if impl.service_route == "/v1/chat/completions":
+                    overrides = {}
                     tool_parser = tool_call_parser_for(
                         impl.model_name, getattr(impl, "hf_model_id", "")
                     )
                     if tool_parser:
-                        vllm_override_args = json.dumps(
-                            {"enable-auto-tool-choice": True, "tool-call-parser": tool_parser}
-                        )
+                        overrides["enable-auto-tool-choice"] = True
+                        overrides["tool-call-parser"] = tool_parser
+                    # Reasoning models: split thinking into reasoning_content.
+                    reasoning_parser = get_reasoning_parser(impl.model_name)
+                    if reasoning_parser:
+                        overrides["reasoning-parser"] = reasoning_parser
+                    if overrides:
+                        vllm_override_args = json.dumps(overrides)
                 # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None

@@ -196,7 +196,9 @@ claude`;
               <CardHeader>
                 <CardTitle>Available models</CardTitle>
                 <CardDescription>
-                  Use one of these names as the model in your coding agent.
+                  Use one of these names as the model in your coding agent.{" "}
+                  <span className="font-mono">-thinking</span> variants turn on
+                  step-by-step reasoning.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -209,7 +211,7 @@ claude`;
                       >
                         <CopyableText text={m.name} isInsideButton />
                         <Badge variant="outline" className="text-[10px]">
-                          {m.type}
+                          {m.name.endsWith("-thinking") ? "thinking" : m.type}
                         </Badge>
                       </span>
                     ))}
