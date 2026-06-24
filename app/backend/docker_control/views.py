@@ -38,7 +38,7 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, resolve_deploy_image
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -499,8 +499,23 @@ class DeployView(APIView):
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
-                
-                # Some Llama models need a newer image than the inference server's model_spec default 
+                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
+                if qwen32b_p300x2:
+                    override_tt_config = '{"trace_region_size": 53000000}'
+                # Enable vLLM tool calling for chat-completions models so coding
+                # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
+                # Only for /v1/chat/completions models with a known parser — base
+                # (/v1/completions) models and unknown families are left untouched.
+                vllm_override_args = None
+                if impl.service_route == "/v1/chat/completions":
+                    tool_parser = tool_call_parser_for(
+                        impl.model_name, getattr(impl, "hf_model_id", "")
+                    )
+                    if tool_parser:
+                        vllm_override_args = json.dumps(
+                            {"enable-auto-tool-choice": True, "tool-call-parser": tool_parser}
+                        )
+                # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None
                 if impl.model_name in {
@@ -521,6 +536,7 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     dev_mode=False,
+                    vllm_override_args=vllm_override_args,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -1068,19 +1084,19 @@ class DeploymentProgressView(APIView):
                         status=status.HTTP_200_OK
                     )
 
-                # Based on FastAPI logs - realistic timing for each stage
+                # Based on model run logs - realistic timing for each stage
                 if elapsed_time < 3:
                     progress = 5
                     stage = "initialization"
-                    message = "Loading environment files..."  # fastapi.log (13-14)
+                    message = "Loading environment files..."  # model_run.log (13-14)
                 elif elapsed_time < 8:
                     progress = 15
                     stage = "setup"
-                    message = "Running workflow configuration..."  # fastapi.log (19-27)
+                    message = "Running workflow configuration..."  # model_run.log (19-27)
                 elif elapsed_time < 15:
                     progress = 25
                     stage = "model_preparation"
-                    message = "Checking model setup and weights..."  # fastapi.log (83-91)
+                    message = "Checking model setup and weights..."  # model_run.log (83-91)
                 elif elapsed_time < 25:
                     progress = 40
                     stage = "model_preparation"
@@ -1088,7 +1104,7 @@ class DeploymentProgressView(APIView):
                 elif elapsed_time < 35:
                     progress = 55
                     stage = "container_setup"
-                    message = "Preparing Docker configuration..."  # fastapi.log (100-113)
+                    message = "Preparing Docker configuration..."  # model_run.log (100-113)
                 elif elapsed_time < 45:
                     progress = 70
                     stage = "container_setup"
@@ -1702,39 +1718,42 @@ class DockerServiceLogsView(APIView):
             
             # Also try to get system logs if available
             try:
-                # Check if fastapi.log exists in multiple possible locations using relative paths
-                possible_fastapi_logs = [
-                    "fastapi.log",  # Current directory
-                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-                    "/app/fastapi.log",  # Container path as fallback
+                # Check if model_run.log exists in multiple possible locations using relative paths
+                possible_model_run_logs = [
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+                    "logs/model_run.log",  # Relative to current directory
+                    os.path.join(os.getcwd(), "model_run.log"),  # Current working directory
+                    "/app/model_run.log",  # Container path as fallback
+                    # Legacy fastapi.log locations (pre-rename) kept for backward compatibility
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"),
+                    "logs/fastapi.log",
+                    "fastapi.log",
+                    "/app/fastapi.log",
                 ]
-                
-                fastapi_log_found = False
-                for fastapi_log_path in possible_fastapi_logs:
-                    if os.path.exists(fastapi_log_path):
+
+                model_run_log_found = False
+                for model_run_log_path in possible_model_run_logs:
+                    if os.path.exists(model_run_log_path):
                         try:
-                            with open(fastapi_log_path, 'r') as f:
+                            with open(model_run_log_path, 'r') as f:
                                 lines = f.readlines()
                                 # Get last 8 lines and limit size
                                 log_content = ''.join(lines[-8:])
                                 if len(log_content) > 800:
                                     log_content = log_content[-800:] + "\n\n... (truncated)"
-                                logs_data["fastapi"] = log_content
-                            fastapi_log_found = True
+                                logs_data["model_run"] = log_content
+                            model_run_log_found = True
                             break
                         except Exception as read_error:
-                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                            logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
                             continue
-                
-                if not fastapi_log_found:
-                    logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
-                    
+
+                if not model_run_log_found:
+                    logs_data["model_run"] = "model_run.log not accessible from container (logs available from Docker containers above)"
+
             except Exception as e:
-                logger.error(f"Error reading fastapi.log: {str(e)}")
-                logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"
+                logger.error(f"Error reading model_run.log: {str(e)}")
+                logs_data["model_run"] = f"Error reading model_run.log: {str(e)[:500]}"
             
             # Try to get backend log file if available
             try:
