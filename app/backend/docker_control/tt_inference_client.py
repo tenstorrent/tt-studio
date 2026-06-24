@@ -21,6 +21,27 @@ class TTInferenceRunResult:
     api_response: Optional[Dict[str, Any]] = None
 
 
+def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
+    """Return the vLLM ``--tool-call-parser`` for a model family, or None.
+
+    Coding agents (Claude Code, Cursor) send ``tool_choice: "auto"`` with tool
+    definitions; vLLM rejects those unless launched with
+    ``--enable-auto-tool-choice --tool-call-parser <parser>``. The correct parser
+    is model-family specific. Unknown families return None so we DON'T enable tool
+    calling rather than risk a wrong parser breaking model startup.
+    """
+    s = f"{hf_model_id} {model_name}".lower()
+    if "llama-3" in s or "llama3" in s:
+        return "llama3_json"
+    if "qwen" in s or "qwq" in s:
+        return "hermes"
+    if "mistral" in s:
+        return "mistral"
+    if "deepseek" in s:
+        return "deepseek_v3"
+    return None
+
+
 def resolve_deploy_image(
     model_name: str,
     device: Optional[str] = None,
@@ -71,6 +92,7 @@ def start_chat_deployment(
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
     override_tt_config: Optional[str] = None,
+    vllm_override_args: Optional[str] = None,
     override_docker_image: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
@@ -92,6 +114,8 @@ def start_chat_deployment(
         payload["device_id"] = str(device_id)
     if override_tt_config is not None:
         payload["override_tt_config"] = override_tt_config
+    if vllm_override_args is not None:
+        payload["vllm_override_args"] = vllm_override_args
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
 

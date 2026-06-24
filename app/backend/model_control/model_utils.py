@@ -438,3 +438,32 @@ async def stream_response_from_external_api(url: str, json_data: dict):
         logger.error(f"RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
+
+async def stream_openai_passthrough(url: str, json_data: dict):
+    """Clean OpenAI SSE passthrough for the coding-agent gateway.
+
+    Forwards the upstream vLLM stream verbatim — no injected
+    `stream_options`/`include_usage`, no TT-Studio TTFT/TPOT stats trailer, no
+    param coercion. This keeps the bytes spec-compliant OpenAI streaming chunks
+    so downstream Anthropic adapters (e.g. LiteLLM's /v1/messages, whose
+    streaming iterator does `chunk.choices[0]`) don't choke on the empty-`choices`
+    usage/stats chunks that `stream_response_from_external_api` emits for the
+    in-app chat UI.
+    """
+    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    try:
+        async with _vllm_client.stream(
+            "POST", url, json=json_data, headers=headers
+        ) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_text():
+                if chunk:
+                    yield chunk
+    except httpx.HTTPStatusError as e:
+        body = e.response.text if e.response is not None else "(no body)"
+        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    except httpx.RequestError as e:
+        logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+

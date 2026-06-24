@@ -39,7 +39,7 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, resolve_deploy_image
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -507,8 +507,23 @@ class DeployView(APIView):
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
-                
-                # Some Llama models need a newer image than the inference server's model_spec default 
+                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
+                if qwen32b_p300x2:
+                    override_tt_config = '{"trace_region_size": 53000000}'
+                # Enable vLLM tool calling for chat-completions models so coding
+                # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
+                # Only for /v1/chat/completions models with a known parser — base
+                # (/v1/completions) models and unknown families are left untouched.
+                vllm_override_args = None
+                if impl.service_route == "/v1/chat/completions":
+                    tool_parser = tool_call_parser_for(
+                        impl.model_name, getattr(impl, "hf_model_id", "")
+                    )
+                    if tool_parser:
+                        vllm_override_args = json.dumps(
+                            {"enable-auto-tool-choice": True, "tool-call-parser": tool_parser}
+                        )
+                # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None
                 if impl.model_name in {
@@ -529,6 +544,7 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     dev_mode=False,
+                    vllm_override_args=vllm_override_args,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment

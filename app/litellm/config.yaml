@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+#
+# Static LiteLLM gateway config for TT-Studio coding-agent access.
+#
+# This file is intentionally static and all dynamic model routing lives in the Django backend. 
+# LiteLLM here is purely a protocol-translation + key-management layer:
+#   - OpenAI surface  (/v1/chat/completions, /v1/models)  -> Cursor, OpenAI clients
+#   - Anthropic surface (/v1/messages)                    -> Claude Code
+
+model_list:
+  - model_name: "*"                      # match any model name the client requests
+    litellm_params:
+      model: "hosted_vllm/*"             # self-hosted vLLM provider: routes /v1/messages -> /chat/completions (the openai/ provider bridges to the Responses API instead, which our backend doesn't serve)
+      api_base: http://tt-studio-backend-api:8000/models/openai/v1
+      api_key: os.environ/LITELLM_UPSTREAM_KEY
+
+litellm_settings:
+  check_provider_endpoint: true          # /v1/models discovery queries the backend upstream
+  drop_params: true                      # tolerate params vLLM doesn't accept (avoid 400s)
+  telemetry: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

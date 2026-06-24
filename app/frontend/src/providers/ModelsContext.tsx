@@ -34,6 +34,7 @@ function canonicalToModel(d: CanonicalDeployment): Model {
     device_id: d.device_id ?? null,
     device_ids: d.device_ids ?? undefined,
     model_type: d.model_type ?? undefined,
+    coding_agent_eligible: d.coding_agent_eligible ?? false,
   };
 }
 
