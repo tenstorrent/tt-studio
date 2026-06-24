@@ -21,6 +21,7 @@ import {
   fetchCodingAgentsInfo,
   type CodingAgentsInfo,
 } from "../api/modelsDeployedApis";
+import { cn } from "../lib/utils";
 
 const PLACEHOLDER_MODEL = "your-model-name";
 
@@ -28,6 +29,8 @@ export default function CodingAgentsPage() {
   const [info, setInfo] = useState<CodingAgentsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Model the setup snippets are generated for; null falls back to the first one.
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +57,7 @@ export default function CodingAgentsPage() {
   }, []);
 
   // Host- and protocol-aware URLs so port-forwarded / remote / HTTPS access works
-  const { anthropicBase, openaiBase, firstModel } = useMemo(() => {
+  const { anthropicBase, openaiBase } = useMemo(() => {
     const scheme = window.location.protocol === "https:" ? "https" : "http";
     const host = window.location.hostname;
     const port = info?.gateway_port ?? 4000;
@@ -62,16 +65,22 @@ export default function CodingAgentsPage() {
     return {
       anthropicBase: `${scheme}://${host}:${port}`,
       openaiBase: `${scheme}://${host}:${port}${basePath}`,
-      firstModel: info?.models?.[0]?.name ?? PLACEHOLDER_MODEL,
     };
   }, [info]);
 
   const masterKey = info?.master_key || "";
   const hasModels = (info?.models?.length ?? 0) > 0;
 
+  // The model the snippets target: the user's pick if still deployed, else the first.
+  const activeModel = useMemo(() => {
+    const names = info?.models?.map((m) => m.name) ?? [];
+    if (selectedModel && names.includes(selectedModel)) return selectedModel;
+    return names[0] ?? PLACEHOLDER_MODEL;
+  }, [info, selectedModel]);
+
   const claudeCodeSnippet = `export ANTHROPIC_BASE_URL=${anthropicBase}
 export ANTHROPIC_AUTH_TOKEN=${masterKey || "<your-api-key>"}
-export ANTHROPIC_MODEL=${firstModel}
+export ANTHROPIC_MODEL=${activeModel}
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 claude`;
 
@@ -79,7 +88,7 @@ claude`;
   -H "Authorization: Bearer ${masterKey || "<your-api-key>"}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${firstModel}",
+    "model": "${activeModel}",
     "messages": [{"role": "user", "content": "Write a hello world in Python"}]
   }'`;
 
@@ -196,7 +205,7 @@ claude`;
               <CardHeader>
                 <CardTitle>Available models</CardTitle>
                 <CardDescription>
-                  Use one of these names as the model in your coding agent.{" "}
+                  Pick a model to fill in the setup below.{" "}
                   <span className="font-mono">-thinking</span> variants turn on
                   step-by-step reasoning.
                 </CardDescription>
@@ -205,15 +214,23 @@ claude`;
                 {hasModels ? (
                   <div className="flex flex-wrap gap-2">
                     {info.models.map((m) => (
-                      <span
+                      <button
                         key={m.name}
-                        className="inline-flex items-center gap-2 rounded-md border border-gray-200 dark:border-gray-700 px-3 py-1.5 font-mono text-sm"
+                        type="button"
+                        onClick={() => setSelectedModel(m.name)}
+                        aria-pressed={m.name === activeModel}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-sm transition-colors",
+                          m.name === activeModel
+                            ? "border-TT-purple bg-TT-purple/10 text-TT-purple"
+                            : "border-gray-200 dark:border-gray-700 hover:border-TT-purple/50",
+                        )}
                       >
-                        <CopyableText text={m.name} isInsideButton />
+                        {m.name}
                         <Badge variant="outline" className="text-[10px]">
                           {m.name.endsWith("-thinking") ? "thinking" : m.type}
                         </Badge>
-                      </span>
+                      </button>
                     ))}
                   </div>
                 ) : (
