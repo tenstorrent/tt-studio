@@ -78,12 +78,37 @@ def download_with_progress(url, dest, label="Downloading"):
 
 
 class _StepHandle:
-    """Yielded by step(); call .fail() for phases that signal failure via return value."""
+    """Yielded by step(); lets a phase signal its outcome and attach a detail.
+
+    - .fail()       → render ✗ (also implied by raising inside the block)
+    - .skip(detail) → render ○ for a benign no-op (not an error)
+    - .detail(text) → append a muted suffix to the ✓/○/✗ line (e.g. "3 removed")
+    """
     def __init__(self):
         self.failed = False
+        self.skipped = False
+        self.detail_text = ""
 
     def fail(self):
         self.failed = True
+
+    def skip(self, detail=""):
+        self.skipped = True
+        if detail:
+            self.detail_text = detail
+
+    def detail(self, text):
+        self.detail_text = text or ""
+
+
+def _render_result(label, handle):
+    """Rich markup for a finished step line, reflecting fail/skip/detail state."""
+    suffix = f"  [muted]{handle.detail_text}[/muted]" if handle.detail_text else ""
+    if handle.failed:
+        return f"[error]✗ {label}[/error]{suffix}"
+    if handle.skipped:
+        return f"[muted]○ {label}[/muted]{suffix}"
+    return f"[success]✓[/success] {label}{suffix}"
 
 
 def _log_detail(label, text):
@@ -116,11 +141,10 @@ def step(label, spinner=True):
         try:
             yield handle
         except BaseException:
-            _real_console.print(f"[error]✗ {label}[/error]")
+            handle.failed = True
+            _real_console.print(_render_result(label, handle))
             raise
-        _real_console.print(
-            f"[error]✗ {label}[/error]" if handle.failed else f"[success]✓[/success] {label}"
-        )
+        _real_console.print(_render_result(label, handle))
         return
 
     use_spinner = spinner and _real_console.is_terminal
@@ -132,30 +156,27 @@ def step(label, spinner=True):
         # static line (overwritten in place on a TTY by _finish)
         _real_console.print(f"[muted]{label}…[/muted]")
 
-    def _finish(ok):
+    def _finish():
         if status is not None:
             status.stop()
         elif _real_console.is_terminal:
             # overwrite the static "label…" line in place
             _real_console.file.write("\033[A\033[2K")
             _real_console.file.flush()
-        if ok:
-            _real_console.print(f"[success]✓[/success] {label}")
-        else:
-            _real_console.print(f"[error]✗ {label}[/error]")
+        _real_console.print(_render_result(label, handle))
 
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             yield handle
     except BaseException:
-        _finish(False)
+        handle.failed = True
+        _finish()
         sys.__stdout__.write(buf.getvalue())
         sys.__stdout__.flush()
         raise
+    _finish()
     if handle.failed:
-        _finish(False)
         sys.__stdout__.write(buf.getvalue())
         sys.__stdout__.flush()
     else:
-        _finish(True)
         _log_detail(label, buf.getvalue())

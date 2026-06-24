@@ -50,26 +50,59 @@ def check_port_available(port):
 
 def check_and_free_ports(ports, no_sudo=False):
     """
-    Check if multiple ports are available and attempt to free them if not.
-    
+    Check if multiple ports are available and free any that are in use.
+
+    In-use ports are freed one at a time on a single transient progress line
+    ("[i/N] Freeing port ...") that is cleared on completion, so the PID-hunting
+    mechanics never clutter the output. A successful run collapses to one
+    summary line instead of several lines per port.
+
     Args:
         ports: List of tuples (port_number, service_name)
         no_sudo: Whether to skip sudo usage
-        
+
     Returns:
         tuple: (bool, list) - (True if all ports OK, list of failed ports with service names)
     """
+    in_use = [(port, name) for port, name in ports if not check_port_available(port)]
+    if not in_use:
+        return (True, [])
+
+    total = len(in_use)
+    freed_ports = []
     failed_ports = []
-    
-    for port, service_name in ports:
-        if not check_port_available(port):
-            print(f"{C_YELLOW}⚠️  Port {port} ({service_name}) in use — freeing...{C_RESET}")
-            if not kill_process_on_port(port, no_sudo=no_sudo):
-                print(f"{C_RED}❌ Failed to free port {port} for {service_name}{C_RESET}")
-                failed_ports.append((port, service_name))
-            else:
-                print(f"{C_GREEN}✅ Port {port} freed{C_RESET}")
-    
+    # In-place rewrites only make sense on a TTY; in a piped/redirected log the
+    # carriage returns and escape codes would corrupt the output, so skip them.
+    use_ansi = sys.stdout.isatty()
+
+    for index, (port, service_name) in enumerate(in_use, start=1):
+        if use_ansi:
+            # Transient line — overwritten in place per step, then cleared, so the
+            # noisy "found PID / terminated" details are taken away once done.
+            sys.stdout.write(
+                f"\r{C_YELLOW}🔓 Freeing in-use ports [{index}/{total}] — "
+                f"port {port} ({service_name})...{C_RESET}\033[K"
+            )
+            sys.stdout.flush()
+
+        if kill_process_on_port(port, no_sudo=no_sudo, quiet=True):
+            freed_ports.append((port, service_name))
+        else:
+            failed_ports.append((port, service_name))
+
+    if use_ansi:
+        # Clear the transient progress line.
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+
+    if freed_ports:
+        summary = ", ".join(f"{port} ({name})" for port, name in freed_ports)
+        label = "port" if len(freed_ports) == 1 else "ports"
+        print(f"{C_GREEN}✅ Freed {len(freed_ports)} {label}: {summary}{C_RESET}")
+
+    for port, service_name in failed_ports:
+        print(f"{C_RED}❌ Could not free port {port} ({service_name}){C_RESET}")
+
     return (len(failed_ports) == 0, failed_ports)
 
 

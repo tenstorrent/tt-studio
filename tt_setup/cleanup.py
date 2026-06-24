@@ -13,6 +13,7 @@ import re
 import fnmatch
 from tt_setup.constants import *
 from tt_setup.constants import _CLEANUP_IMAGE_REFS, _CLEANUP_VOLUME_PREFIX
+from tt_setup.console import console, step
 from tt_setup.docker import build_docker_compose_command, check_docker_access, run_docker_command
 from tt_setup.env_config import get_env_var, is_first_time_setup, save_preference
 from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_server
@@ -309,7 +310,7 @@ def cleanup_resources(args):
     assume_yes = bool(getattr(args, "yes", False))
 
     if not full_cleanup:
-        print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+        console.print("\n[bold]🧹 Cleaning up TT Studio[/bold]")
         _cleanup_runtime(args, check_docker_access())
 
         # Unset the Welcome flag so the next bring-up re-runs first-run setup.
@@ -320,23 +321,28 @@ def cleanup_resources(args):
             os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
         user_config_path = os.path.join(host_persistent_volume, "backend_volume", "user_config.json")
         if os.path.exists(user_config_path):
-            try:
-                with open(user_config_path, "r") as f:
-                    cfg = json.load(f)
-                if cfg.pop("setup_complete", None) is not None:
-                    with open(user_config_path, "w") as f:
-                        json.dump(cfg, f, indent=2)
-                    print(f"  {C_GREEN}✅ Reset Welcome flag (setup_complete){C_RESET}")
-            except PermissionError:
-                print(f"  {C_CYAN}🔐 user_config.json is root-owned; removing so Welcome re-runs...{C_RESET}")
-                if _remove_path(user_config_path, no_sudo=args.no_sudo):
-                    print(f"  {C_GREEN}✅ Reset Welcome flag (removed root-owned user_config.json){C_RESET}")
-                else:
-                    print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag (permission denied).{C_RESET}")
-            except Exception as e:
-                print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag: {e}{C_RESET}")
+            with step("Resetting Welcome flag", spinner=False) as s:
+                try:
+                    with open(user_config_path, "r") as f:
+                        cfg = json.load(f)
+                    if cfg.pop("setup_complete", None) is not None:
+                        with open(user_config_path, "w") as f:
+                            json.dump(cfg, f, indent=2)
+                        s.detail("setup_complete cleared")
+                    else:
+                        s.skip("already cleared")
+                except PermissionError:
+                    # Root-owned (Docker wrote it): remove so the backend regenerates it.
+                    if _remove_path(user_config_path, no_sudo=args.no_sudo):
+                        s.detail("removed root-owned user_config.json")
+                    else:
+                        s.fail()
+                        s.detail("permission denied")
+                except Exception as e:
+                    s.fail()
+                    s.detail(type(e).__name__)
 
-        print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+        console.print("\n[bold success]✓ Cleanup complete[/bold success]")
         return
 
     # --- --cleanup-all: build full inventory and ask once ---
@@ -438,50 +444,50 @@ def cleanup_resources(args):
     else:
         print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
 
-    print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+    console.print("\n[bold]🧹 Cleaning up TT Studio[/bold]")
     _cleanup_runtime(args, has_docker_access)
+
+    # Sudo prompts for password when we lack Docker access — the live spinner
+    # would clash with that prompt, so disable it in that case.
+    docker_spinner = has_docker_access
 
     # Volumes must come before images: removing a volume while its image is
     # gone is fine; removing an image while a volume's container is gone is
     # also fine — but we want both done before the host-state wipe so the
     # final "Reclaimed approximately X" total is honest.
-    sys.stdout.write(f"  Removing model volumes...  ")
-    sys.stdout.flush()
-    removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({removed_vols} volume(s))")
+    with step("Removing model volumes", spinner=docker_spinner) as s:
+        removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
+        s.detail(f"{removed_vols} volume(s)")
 
-    sys.stdout.write(f"  Pruning anon volumes...    ")
-    sys.stdout.flush()
-    removed_anon = _prune_anonymous_volumes(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({removed_anon} volume(s))")
+    with step("Pruning anonymous volumes", spinner=docker_spinner) as s:
+        removed_anon = _prune_anonymous_volumes(has_docker_access)
+        s.detail(f"{removed_anon} volume(s)")
 
-    sys.stdout.write(f"  Removing local images...   ")
-    sys.stdout.flush()
-    removed = _remove_local_tt_studio_images(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({removed} image(s))")
+    with step("Removing local images", spinner=docker_spinner) as s:
+        removed = _remove_local_tt_studio_images(has_docker_access)
+        s.detail(f"{removed} image(s)")
 
-    sys.stdout.write(f"  Removing host state...     ")
-    sys.stdout.flush()
-    removed_paths = 0
-    for _, path, _, _ in existing:
-        if path == os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"):
-            removed = _remove_directory_contents(
-                path,
-                preserve_names={".venv_bootstrap_uv"},
-                no_sudo=args.no_sudo,
-            )
-        else:
-            removed = _remove_path(path, no_sudo=args.no_sudo)
-        if removed:
-            removed_paths += 1
-    print(f"{C_GREEN}done{C_RESET}  ({removed_paths}/{len(existing)} path(s))")
+    with step("Removing host state", spinner=False) as s:
+        removed_paths = 0
+        for _, path, _, _ in existing:
+            if path == os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"):
+                removed = _remove_directory_contents(
+                    path,
+                    preserve_names={".venv_bootstrap_uv"},
+                    no_sudo=args.no_sudo,
+                )
+            else:
+                removed = _remove_path(path, no_sudo=args.no_sudo)
+            if removed:
+                removed_paths += 1
+        s.detail(f"{removed_paths}/{len(existing)} path(s)")
 
-    sys.stdout.write(f"  Arming browser wipe...     ")
-    sys.stdout.flush()
-    token = _write_browser_cleanup_sentinel()
-    print(f"{C_GREEN}done{C_RESET}" if token else f"{C_YELLOW}skipped{C_RESET}")
+    with step("Arming browser wipe", spinner=False) as s:
+        token = _write_browser_cleanup_sentinel()
+        if not token:
+            s.skip()
 
-    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+    console.print("\n[bold success]✓ Cleanup complete[/bold success]")
     if total_bytes > 0:
         print(f"   Reclaimed approximately {C_BOLD}{_format_bytes(total_bytes)}{C_RESET} from disk.")
     print(f"\n{C_CYAN}🌐 Browser data (chat history, theme, login) will auto-clear the")
@@ -495,50 +501,44 @@ def _cleanup_runtime(args, has_docker_access):
     serving across a TT Studio restart; ``--cleanup-all`` still removes them
     as part of the full reset."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
+    # Sudo prompts for password when we lack Docker access — the live spinner
+    # would clash with that prompt, so disable it in that case.
+    docker_spinner = has_docker_access
 
     if full_cleanup:
         # Deployment containers (vLLM, etc.) live outside compose — kill them first
         # so the subsequent network removal and weight-directory deletion aren't
         # blocked by running processes holding bind mounts open.
-        sys.stdout.write(f"  Stopping deployments...    ")
-        sys.stdout.flush()
-        deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
-        print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+        with step("Stopping deployments", spinner=docker_spinner) as s:
+            deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+            s.detail(f"{deploys_removed} container(s)")
     else:
-        sys.stdout.write(f"  Preserving deployments...  ")
-        sys.stdout.flush()
-        print(f"{C_GREEN}done{C_RESET}  (use --cleanup-all to remove)")
+        with step("Preserving deployments", spinner=False) as s:
+            s.detail("use --cleanup-all to remove")
 
-    docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
+    docker_compose_cmd = build_docker_compose_command(
+        dev_mode=args.dev, show_hardware_info=False, quiet=True)
     docker_compose_cmd.extend(["down", "-v"])
-    try:
-        sys.stdout.write(f"  Stopping containers...     ")
-        sys.stdout.flush()
-        run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
-        print(f"{C_GREEN}done{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}skipped{C_RESET}")
+    with step("Stopping containers", spinner=docker_spinner) as s:
+        try:
+            run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
+        except Exception:
+            s.skip("nothing to stop")
 
     # Skip explicit network removal when deployments are preserved — they stay
     # attached to ``tt_studio_network`` and need it for DNS resolution so the
     # backend can reconnect after restart. ``compose down`` also tries to
     # remove the network and fails silently when external containers hold it.
     if full_cleanup:
-        try:
-            sys.stdout.write(f"  Removing network...        ")
-            sys.stdout.flush()
-            run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                                use_sudo=not has_docker_access, capture_output=True)
-            print(f"{C_GREEN}done{C_RESET}")
-        except Exception:
-            print(f"{C_YELLOW}skipped{C_RESET}")
+        with step("Removing network", spinner=docker_spinner) as s:
+            try:
+                run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                    use_sudo=not has_docker_access, capture_output=True)
+            except Exception:
+                s.skip("not present")
 
-    sys.stdout.write(f"  Stopping FastAPI server... ")
-    sys.stdout.flush()
-    cleanup_fastapi_server(no_sudo=args.no_sudo)
-    print(f"{C_GREEN}done{C_RESET}")
+    with step("Stopping FastAPI server", spinner=False):
+        cleanup_fastapi_server(no_sudo=args.no_sudo)
 
-    sys.stdout.write(f"  Stopping Docker Control... ")
-    sys.stdout.flush()
-    cleanup_docker_control_service(no_sudo=args.no_sudo)
-    print(f"{C_GREEN}done{C_RESET}")
+    with step("Stopping Docker Control", spinner=False):
+        cleanup_docker_control_service(no_sudo=args.no_sudo)
