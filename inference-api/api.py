@@ -134,6 +134,51 @@ except ImportError as e:
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
 
+# Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
+# HF cache snapshots. The original method globs for any *.safetensors and returns True
+# if found, but a prior interrupted download can leave some shards complete (as symlinks
+# in the snapshot dir) while earlier shards are still in-progress .incomplete blobs two
+# levels up in blobs/. Without this patch, setup skips the download and launches the
+# container with missing shards → FileNotFoundError crash.
+#
+# Only overrides True → False (never the reverse). Fails open on any exception so a
+# permission error or unexpected path layout never blocks a valid deploy.
+import workflows.setup_host as _setup_host_module  # noqa: E402
+_orig_check_model_weights_dir = _setup_host_module.HostSetupManager.check_model_weights_dir
+
+
+def _patched_check_model_weights_dir(self, host_weights_dir):
+    result = _orig_check_model_weights_dir(self, host_weights_dir)
+    if not result or host_weights_dir is None:
+        return result
+    # Navigate to the HF cache blobs/ dir (two levels above the snapshot dir).
+    # Layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
+    try:
+        blobs_dir = host_weights_dir.parent.parent / "blobs"
+    except Exception:
+        return result
+    if not blobs_dir.is_dir():
+        return result  # not an HF cache layout (host-volume, local dir, etc.)
+    try:
+        incomplete = list(blobs_dir.glob("*.incomplete"))
+    except Exception as exc:
+        _patched_check_model_weights_dir_logger = logging.getLogger(__name__)
+        _patched_check_model_weights_dir_logger.warning(
+            "check_model_weights_dir: cannot scan blobs dir %s: %s", blobs_dir, exc
+        )
+        return result
+    if incomplete:
+        logging.getLogger(__name__).warning(
+            "check_model_weights_dir: %d incomplete blob(s) in %s — "
+            "re-download required. Files: %s",
+            len(incomplete), blobs_dir, [f.name for f in incomplete],
+        )
+        return False
+    return True
+
+
+_setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
+
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
 # Instead, configure logging manually
@@ -1746,7 +1791,8 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -1852,6 +1898,21 @@ async def run_inference(request: RunRequest):
         # path: Qwen uses host-volume, media uses hf-cache; they shouldn't combine.
         if _model_uses_host_hf_cache(request.model) and "--host-volume" not in initial_argv:
             host_hf_cache_path = str(_default_hf_home())
+            # Ensure the HF cache dir exists. tt-inference-server's
+            # validate_bind_mount_permissions() ValueErrors on a non-existent
+            # --host-hf-cache path, which forces a baseline (in-container XET)
+            # fallback that stalls on large media weights. setup_host() will
+            # populate this dir via `hf download` once the mount validates.
+            try:
+                Path(host_hf_cache_path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "Job %s: could not create HF cache dir %s (%s); "
+                    "deploy may fall back to baseline startup",
+                    job_id,
+                    host_hf_cache_path,
+                    exc,
+                )
             initial_argv.extend(["--host-hf-cache", host_hf_cache_path])
             logger.info(
                 "Job %s: media model %s accepted for HF-cache reuse; using --host-hf-cache %s",
