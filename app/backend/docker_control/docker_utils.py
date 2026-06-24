@@ -918,7 +918,8 @@ def _enrich_container_with_model_impl(con, con_id):
 
 # Mirrors ChipSlotAllocator._STARTING_GRACE_SECONDS. Records younger than this are trusted during the placeholder
 # window between Django creating the row and deployment_sync swapping in the real container_id.
-_CANONICAL_STARTING_GRACE_SECONDS = 60
+_CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
+_CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
 
 
 def get_canonical_deployments():
@@ -984,7 +985,16 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            if age < _CANONICAL_STARTING_GRACE_SECONDS:
+            _impl = next(
+                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
+                None,
+            )
+            _grace = (
+                _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
+                if _impl and getattr(_impl, "inference_engine", None) == "media"
+                else _CANONICAL_STARTING_GRACE_SECONDS
+            )
+            if age < _grace:
                 # Legitimate placeholder window — surface but flag as pending.
                 result[full_id or f"pending-{dep.id}"] = {
                     "name": dep.container_name,
