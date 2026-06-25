@@ -4,7 +4,7 @@
 import axios from "axios";
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Layers, Cpu, ArrowLeft } from "lucide-react";
+import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
 import { Step, Stepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
@@ -512,13 +512,34 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {voiceAgentAvailable && (
-          <button
-            onClick={() => setDeployMode(null)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
-          </button>
+        {(voiceAgentAvailable || isMultiChipBoard) && (
+          <div className="flex items-center mb-4">
+            {voiceAgentAvailable && (
+              <button
+                onClick={() => setDeployMode(null)}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
+              </button>
+            )}
+            {isMultiChipBoard && (
+              <button
+                type="button"
+                aria-expanded={showHardwareConfig}
+                onClick={() => {
+                  setShowHardwareConfig((v: boolean) => !v);
+                  if (showHardwareConfig) setSelectedDeviceIds([]);
+                }}
+                className="group ml-auto flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+              >
+                <Cpu className="w-3.5 h-3.5 opacity-70" />
+                <span>Advanced device configuration</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${showHardwareConfig ? "rotate-180" : ""}`}
+                />
+              </button>
+            )}
+          </div>
         )}
         <Stepper
           variant="circle-alt"
@@ -550,53 +571,6 @@ export default function StepperDemo() {
               {/* Final step — optional advanced hardware config, then deploy */}
               {step.label === "Final Step" && (
                 <>
-                  {isMultiChipBoard && (
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={showHardwareConfig}
-                      onClick={() => {
-                        setShowHardwareConfig((v: boolean) => !v);
-                        if (showHardwareConfig) setSelectedDeviceIds([]);
-                      }}
-                      className={`group flex items-center justify-between gap-3 w-full px-4 py-3 mb-4 rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent/50 ${
-                        showHardwareConfig
-                          ? "border-TT-purple-accent/70 bg-TT-purple/10 hover:bg-TT-purple/15 shadow-[0_0_18px_rgba(124,104,250,0.15)]"
-                          : "border-TT-purple-accent/30 bg-TT-purple/5 hover:border-TT-purple-accent/60 hover:bg-TT-purple/10"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`p-2 rounded-md transition-colors ${
-                            showHardwareConfig
-                              ? "bg-TT-purple-accent/20 text-TT-purple-accent"
-                              : "bg-TT-purple/10 text-TT-purple-accent/80 group-hover:bg-TT-purple-accent/20 group-hover:text-TT-purple-accent"
-                          }`}
-                        >
-                          <Cpu className="w-4 h-4" />
-                        </div>
-                        <div className="text-left min-w-0">
-                          <div className="text-sm font-semibold text-foreground leading-tight">
-                            Advanced: Configure Hardware
-                          </div>
-                          <div className="text-xs text-muted-foreground leading-tight mt-0.5">
-                            Manually choose which devices this model deploys to
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
-                          showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                            showHardwareConfig ? "translate-x-4" : "translate-x-0"
-                          }`}
-                        />
-                      </span>
-                    </button>
-                  )}
                   {advancedActive && (
                     <ChipConfigStep
                       placement={placement}
