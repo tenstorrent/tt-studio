@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Terminal, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Terminal, CheckCircle2, Check, XCircle, AlertCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -212,8 +212,9 @@ claude`;
               </CardHeader>
               <CardContent>
                 {hasModels ? (
-                  <div className="flex flex-wrap gap-2">
-                    {info.models.map((m) => (
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      {info.models.map((m) => (
                       <button
                         key={m.name}
                         type="button"
@@ -222,16 +223,24 @@ claude`;
                         className={cn(
                           "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-sm transition-colors",
                           m.name === activeModel
-                            ? "border-TT-purple bg-TT-purple/10 text-TT-purple"
+                            ? "border-TT-purple bg-TT-purple/10 text-TT-purple font-medium"
                             : "border-gray-200 dark:border-gray-700 hover:border-TT-purple/50",
                         )}
                       >
+                        {m.name === activeModel && <Check className="h-4 w-4" />}
                         {m.name}
                         <Badge variant="outline" className="text-[10px]">
                           {m.name.endsWith("-thinking") ? "thinking" : m.type}
                         </Badge>
                       </button>
                     ))}
+                    </div>
+                    <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                      Selected model:{" "}
+                      <span className="font-mono text-TT-purple">
+                        {activeModel}
+                      </span>
+                    </p>
                   </div>
                 ) : (
                   <Alert>
@@ -274,7 +283,7 @@ claude`;
                       <code>claude</code>. Model discovery lets you switch models
                       with the <code>/model</code> command.
                     </p>
-                    <CodeBlock code={claudeCodeSnippet} language="bash" />
+                    <CodeBlock code={claudeCodeSnippet} language="bash" className="text-left" />
                   </TabsContent>
 
                   <TabsContent value="openai" className="space-y-3">
@@ -282,7 +291,7 @@ claude`;
                       Any OpenAI-compatible client works against the base URL
                       above. Example request:
                     </p>
-                    <CodeBlock code={curlSnippet} language="bash" />
+                    <CodeBlock code={curlSnippet} language="bash" className="text-left" />
                   </TabsContent>
                 </Tabs>
               </CardContent>
