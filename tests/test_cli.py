@@ -16,8 +16,14 @@ class TestCli(unittest.TestCase):
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        for flag in ("--dev", "--cleanup", "--help-env", "--fix-docker", "--no-sudo"):
+        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--fix-docker", "--no-sudo"):
             self.assertIn(flag, result.output)
+
+    def test_help_hides_deprecated_aliases(self):
+        # --cleanup/--cleanup-all still work but must not clutter --help.
+        result = runner.invoke(M.app, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertNotIn("--cleanup", result.output)
 
     def test_unknown_flag_errors(self):
         result = runner.invoke(M.app, ["--definitely-not-a-flag"])
@@ -29,14 +35,46 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Environment Variables Help", result.output)
 
-    def test_cleanup_flag_dispatches_to_cleanup_resources(self):
+    def test_stop_flag_dispatches_to_cleanup_resources(self):
+        with patch.object(M, "cleanup_resources") as cleanup:
+            result = runner.invoke(M.app, ["--stop"])
+        self.assertEqual(result.exit_code, 0)
+        cleanup.assert_called_once()
+        # --stop is the plain teardown: cleanup=True, no full purge.
+        ns = cleanup.call_args[0][0]
+        self.assertTrue(ns.cleanup)
+        self.assertFalse(ns.cleanup_all)
+
+    def test_purge_all_flag_dispatches_to_cleanup_resources(self):
+        with patch.object(M, "cleanup_resources") as cleanup:
+            result = runner.invoke(M.app, ["--purge-all"])
+        self.assertEqual(result.exit_code, 0)
+        cleanup.assert_called_once()
+        # --purge-all is the full reset; it also implies the stop trigger.
+        ns = cleanup.call_args[0][0]
+        self.assertTrue(ns.cleanup_all)
+        self.assertTrue(ns.cleanup)
+
+    def test_deprecated_cleanup_alias_still_works_and_warns(self):
         with patch.object(M, "cleanup_resources") as cleanup:
             result = runner.invoke(M.app, ["--cleanup"])
         self.assertEqual(result.exit_code, 0)
         cleanup.assert_called_once()
-        # the parsed args carry cleanup=True
         ns = cleanup.call_args[0][0]
         self.assertTrue(ns.cleanup)
+        self.assertFalse(ns.cleanup_all)
+        self.assertIn("deprecated", result.output)
+        self.assertIn("--stop", result.output)
+
+    def test_deprecated_cleanup_all_alias_still_works_and_warns(self):
+        with patch.object(M, "cleanup_resources") as cleanup:
+            result = runner.invoke(M.app, ["--cleanup-all"])
+        self.assertEqual(result.exit_code, 0)
+        cleanup.assert_called_once()
+        ns = cleanup.call_args[0][0]
+        self.assertTrue(ns.cleanup_all)
+        self.assertIn("deprecated", result.output)
+        self.assertIn("--purge-all", result.output)
 
     def test_fix_docker_flag_dispatches(self):
         with patch.object(M, "fix_docker_issues", return_value=True) as fix:

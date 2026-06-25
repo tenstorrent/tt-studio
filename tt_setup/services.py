@@ -21,10 +21,11 @@ except ImportError:
     HAS_REQUESTS = False
 from tt_setup.venv_utils import recreate_venv_if_stale, print_manual_fix_steps
 from tt_setup.constants import *
-from tt_setup.shell import clear_lines, run_command
+from tt_setup.shell import run_command
 from tt_setup.docker_diag import _resolve_container_name
 from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var, get_preference, save_preference
+from tt_setup.console import console, progress_status, notice_panel
 
 
 def check_port_available(port):
@@ -98,10 +99,10 @@ def check_and_free_ports(ports, no_sudo=False):
     if freed_ports:
         summary = ", ".join(f"{port} ({name})" for port, name in freed_ports)
         label = "port" if len(freed_ports) == 1 else "ports"
-        print(f"{C_GREEN}✅ Freed {len(freed_ports)} {label}: {summary}{C_RESET}")
+        console.print(f"[success]✅ Freed {len(freed_ports)} {label}: {summary}[/success]")
 
     for port, service_name in failed_ports:
-        print(f"{C_RED}❌ Could not free port {port} ({service_name}){C_RESET}")
+        console.print(f"[error]❌ Could not free port {port} ({service_name})[/error]")
 
     return (len(failed_ports) == 0, failed_ports)
 
@@ -115,56 +116,52 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     start_time = time.time()
     last_failure = "waiting to connect"
 
-    while time.time() - start_time < timeout:
-        elapsed = int(time.time() - start_time)
-        failure_reason = None
+    with progress_status(f"Waiting for {service_name}…") as health_spinner:
+        while time.time() - start_time < timeout:
+            elapsed = int(time.time() - start_time)
+            failure_reason = None
 
-        if HAS_REQUESTS:
-            try:
-                response = requests.get(health_url, timeout=5)
-                if response.status_code == 200:
-                    # Clear the waiting line and return success silently
-                    sys.stdout.write(f"\r{' ' * 80}\r")
-                    sys.stdout.flush()
-                    return True
-                failure_reason = f"HTTP {response.status_code}"
-            except requests.exceptions.ConnectionError:
-                failure_reason = "connection refused"
-            except requests.exceptions.Timeout:
-                failure_reason = "request timeout"
-            except requests.RequestException as exc:
-                failure_reason = f"network error: {type(exc).__name__}"
-        else:
-            try:
-                import urllib.error
-                resp = urllib.request.urlopen(health_url, timeout=5)
-                if resp.getcode() == 200:
-                    sys.stdout.write(f"\r{' ' * 80}\r")
-                    sys.stdout.flush()
-                    return True
-                failure_reason = f"HTTP {resp.getcode()}"
-            except urllib.error.URLError as exc:
-                reason = str(exc.reason) if hasattr(exc, 'reason') else str(exc)
-                if "refused" in reason.lower():
+            if HAS_REQUESTS:
+                try:
+                    response = requests.get(health_url, timeout=5)
+                    if response.status_code == 200:
+                        # Spinner clears on exiting the context manager; succeed silently.
+                        return True
+                    failure_reason = f"HTTP {response.status_code}"
+                except requests.exceptions.ConnectionError:
                     failure_reason = "connection refused"
-                elif "timed out" in reason.lower():
+                except requests.exceptions.Timeout:
                     failure_reason = "request timeout"
-                else:
-                    failure_reason = f"URL error: {reason}"
-            except Exception as exc:
-                failure_reason = f"error: {type(exc).__name__}"
+                except requests.RequestException as exc:
+                    failure_reason = f"network error: {type(exc).__name__}"
+            else:
+                try:
+                    import urllib.error
+                    resp = urllib.request.urlopen(health_url, timeout=5)
+                    if resp.getcode() == 200:
+                        return True
+                    failure_reason = f"HTTP {resp.getcode()}"
+                except urllib.error.URLError as exc:
+                    reason = str(exc.reason) if hasattr(exc, 'reason') else str(exc)
+                    if "refused" in reason.lower():
+                        failure_reason = "connection refused"
+                    elif "timed out" in reason.lower():
+                        failure_reason = "request timeout"
+                    else:
+                        failure_reason = f"URL error: {reason}"
+                except Exception as exc:
+                    failure_reason = f"error: {type(exc).__name__}"
 
-        if failure_reason:
-            last_failure = failure_reason
+            if failure_reason:
+                last_failure = failure_reason
 
-        sys.stdout.write(f"\r⏳ {service_name} not ready ({elapsed}s/{timeout}s) — {last_failure}      ")
-        sys.stdout.flush()
-        time.sleep(interval)
+            health_spinner.update(
+                f"Waiting for {service_name}… ({elapsed}s/{timeout}s) — {last_failure}"
+            )
+            time.sleep(interval)
 
-    sys.stdout.write(f"\r{' ' * 80}\r")
-    sys.stdout.flush()
-    print(f"{C_RED}⛔ {service_name} did not become healthy within {timeout}s{C_RESET}")
-    print(f"   Last failure: {last_failure}")
+    console.print(f"[error]⛔ {service_name} did not become healthy within {timeout}s[/error]")
+    console.print(f"   [muted]Last failure: {last_failure}[/muted]")
 
     # Auto-fetch container logs if this maps to a container
     prefix = SERVICE_CONTAINER_PREFIX_MAP.get(health_url)
@@ -177,9 +174,10 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
             )
             log_output = (result.stdout or "") + (result.stderr or "")
             if log_output.strip():
-                print(f"{C_CYAN}   [{container} last 10 log lines]{C_RESET}")
+                console.print(f"[muted]   \\[{container} last 10 log lines][/muted]", highlight=False)
                 for line in log_output.strip().splitlines()[-10:]:
-                    print(f"   {line}")
+                    # Raw container log lines may contain markup-like brackets.
+                    console.print(f"   {line}", markup=False, highlight=False)
         except Exception:
             pass
 
@@ -191,7 +189,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
     Wait for all core services to become healthy.
     Returns True if all are healthy, False otherwise.
     """
-    print(f"\n{C_BLUE}⏳ Waiting for all services to become healthy...{C_RESET}")
+    console.print("\n[info]⏳ Waiting for all services to become healthy...[/info]")
 
     services_to_check = [
         ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
@@ -212,11 +210,15 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             failed_services.append(service_name)
 
     if all_healthy:
-        print(f"\n{C_GREEN}✅ All services are healthy and ready!{C_RESET}")
+        console.print("\n[success]✅ All services are healthy and ready![/success]")
     else:
-        print(f"\n{C_RED}⛔ The following services failed health checks:{C_RESET}")
-        for svc in failed_services:
-            print(f"  • {C_RED}{svc}{C_RESET}")
+        console.print()
+        failed_lines = [f"[error]• {svc}[/error]" for svc in failed_services]
+        console.print(notice_panel(
+            "[error]Service health checks failed[/error]",
+            failed_lines,
+            border_style="error",
+        ))
 
         # Map to log sources
         service_log_map = {
@@ -226,11 +228,11 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
             "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
         }
-        print(f"\n{C_CYAN}📋 Check logs:{C_RESET}")
+        console.print("\n[info]📋 Check logs:[/info]")
         for svc in failed_services:
             log_cmd = service_log_map.get(svc, "unknown")
-            print(f"  # {svc}:")
-            print(f"  {log_cmd}")
+            console.print(f"  [muted]# {svc}:[/muted]")
+            console.print(f"  [muted]{log_cmd}[/muted]", highlight=False)
 
     return all_healthy
 
@@ -256,23 +258,23 @@ def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, 
         from urllib.parse import urlencode
         params = urlencode({"auto-deploy": auto_deploy_model, "device-id": device_id})
         frontend_url = f"{base_url}?{params}"
-        print(f"\n🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}")
+        console.print(f"\n[info]🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}[/info]")
     else:
         frontend_url = base_url
-    
+
     if wait_for_service_health("Frontend", base_url, timeout=timeout, interval=2):
         try:
             webbrowser.open(frontend_url)
             return True
         except Exception as e:
-            print(f"⚠️  Could not open browser automatically: {e}")
-            print(f"💡 Please manually open: {frontend_url}")
+            console.print(f"[warning]⚠️  Could not open browser automatically: {e}[/warning]")
+            console.print(f"[info]💡 Please manually open: {frontend_url}[/info]")
             return False
     else:
-        print(f"{C_YELLOW}⚠️  Frontend not ready within {timeout} seconds{C_RESET}")
-        print(f"{C_CYAN}💡 To fix this, run:{C_RESET}")
-        print(f"  {C_WHITE}python run.py --cleanup && python run.py{C_RESET}")
-        print(f"{C_CYAN}   Or check container logs: cd app && docker compose logs -f{C_RESET}")
+        console.print(f"[warning]⚠️  Frontend not ready within {timeout} seconds[/warning]")
+        console.print("[info]💡 To fix this, run:[/info]")
+        console.print("  [bold]python run.py --stop && python run.py[/bold]")
+        console.print("[info]   Or check container logs: cd app && docker compose logs -f[/info]")
         return False
 
 
@@ -402,19 +404,19 @@ def is_valid_git_repo(path):
 
 def setup_fastapi_environment():
     """Set up the inference-api FastAPI environment."""
-    print(f"🔧 Setting up inference-api environment...")
-    
+    console.print("[info]🔧 Setting up inference-api environment...[/info]")
+
     original_dir = os.getcwd()
 
     try:
         if not os.path.exists(INFERENCE_API_DIR):
-            print(f"{C_RED}⛔ Error: inference-api directory not found at {INFERENCE_API_DIR}{C_RESET}")
+            console.print(f"[error]⛔ Error: inference-api directory not found at {INFERENCE_API_DIR}[/error]")
             return False
 
         os.chdir(INFERENCE_API_DIR)
 
         if not os.path.exists("requirements.txt"):
-            print(f"{C_RED}⛔ Error: requirements.txt not found{C_RESET}")
+            console.print("[error]⛔ Error: requirements.txt not found[/error]")
             return False
 
         # Create virtual environment if it doesn't exist or is stale (e.g. repo moved)
@@ -422,7 +424,7 @@ def setup_fastapi_environment():
             try:
                 run_command(["python3", "-m", "venv", ".venv"], check=True, capture_output=True)
             except (subprocess.CalledProcessError, SystemExit) as e:
-                print(f"{C_RED}⛔ Failed to create virtual environment: {e}{C_RESET}")
+                console.print(f"[error]⛔ Failed to create virtual environment: {e}[/error]")
                 print_manual_fix_steps(INFERENCE_API_DIR, "requirements.txt", C_YELLOW, C_RESET)
                 return False
 
@@ -431,7 +433,7 @@ def setup_fastapi_environment():
             venv_pip = ".venv/Scripts/pip.exe"
 
         if not os.path.exists(venv_pip):
-            print(f"{C_RED}⛔ Virtual environment pip not found{C_RESET}")
+            console.print("[error]⛔ Virtual environment pip not found[/error]")
             return False
 
         # Upgrade pip + install requirements (silent)
@@ -443,7 +445,7 @@ def setup_fastapi_environment():
         try:
             run_command([venv_pip, "install", "-r", "requirements.txt"], check=True, capture_output=True)
         except (subprocess.CalledProcessError, SystemExit) as e:
-            print(f"{C_RED}⛔ Failed to install requirements: {e}{C_RESET}")
+            console.print(f"[error]⛔ Failed to install requirements: {e}[/error]")
             return False
 
         # Verify uvicorn
@@ -455,7 +457,7 @@ def setup_fastapi_environment():
             try:
                 run_command([".venv/bin/python", "-c", "import uvicorn"], check=True, capture_output=True)
             except (subprocess.CalledProcessError, SystemExit):
-                print(f"{C_RED}⛔ uvicorn is not available{C_RESET}")
+                console.print("[error]⛔ uvicorn is not available[/error]")
                 return False
 
         return True
@@ -465,16 +467,16 @@ def setup_fastapi_environment():
 
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
-    print(f"🔧 Starting FastAPI server...")
+    console.print("[info]🔧 Starting FastAPI server...[/info]")
 
     # Check if port 8001 is available
     if not check_port_available(8001):
         if not kill_process_on_port(8001, no_sudo=no_sudo):
-            print(f"{C_RED}❌ Failed to free port 8001. Please manually stop any process using this port.{C_RESET}")
+            console.print("[error]❌ Failed to free port 8001. Please manually stop any process using this port.[/error]")
             return False
 
     # Create PID and log files
-    
+
     for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             # Create files as regular user
@@ -482,7 +484,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
                 pass
             os.chmod(file_path, 0o644)
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
+            console.print(f"[warning]Warning: Could not create {file_path}: {e}[/warning]")
     
     # Get environment variables for the server
     jwt_secret = get_env_var("JWT_SECRET")
@@ -518,11 +520,11 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "uvicorn.exe")
     
     if not os.path.exists(venv_uvicorn):
-        print(f"{C_RED}⛔ Error: uvicorn not found in virtual environment{C_RESET}")
-        print(f"   Expected path: {venv_uvicorn}")
-        print(f"   Please ensure requirements.txt was installed correctly")
+        console.print("[error]⛔ Error: uvicorn not found in virtual environment[/error]")
+        console.print(f"   [muted]Expected path: {venv_uvicorn}[/muted]")
+        console.print("   [muted]Please ensure requirements.txt was installed correctly[/muted]")
         return False
-    
+
     try:
         # Create a temporary wrapper script
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
@@ -580,51 +582,51 @@ cd "$1"
         health_check_retries = 30
         health_check_delay = 2
 
-        for i in range(1, health_check_retries + 1):
-            if process.poll() is not None:
-                print(f"{C_RED}⛔ FastAPI server process died{C_RESET}")
-                try:
-                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
-                        lines = f.readlines()
-                        for line in lines[-15:]:
-                            print(f"   {line.rstrip()}")
-                except:
-                    pass
-                try:
-                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
-                        if "address already in use" in f.read():
-                            print(f"{C_YELLOW}   Port 8001 still in use. Try: python run.py --cleanup && python run.py{C_RESET}")
-                except:
-                    pass
-                return False
+        with progress_status("Waiting for FastAPI server…") as fastapi_spinner:
+            for i in range(1, health_check_retries + 1):
+                if process.poll() is not None:
+                    console.print("[error]⛔ FastAPI server process died[/error]")
+                    try:
+                        with open(MODEL_RUN_LOG_FILE, 'r') as f:
+                            lines = f.readlines()
+                            for line in lines[-15:]:
+                                console.print(f"   {line.rstrip()}", markup=False, highlight=False)
+                    except:
+                        pass
+                    try:
+                        with open(MODEL_RUN_LOG_FILE, 'r') as f:
+                            if "address already in use" in f.read():
+                                console.print("[warning]   Port 8001 still in use. Try: python run.py --stop && python run.py[/warning]")
+                    except:
+                        pass
+                    return False
 
-            try:
-                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/health"],
-                                       capture_output=True, text=True, timeout=5, check=False)
-                if result.stdout.strip() in ["200", "404"]:
-                    clear_lines(1)  # clear "Starting FastAPI server..."
-                    print(f"{C_GREEN}✅ FastAPI server ready at http://localhost:8001{C_RESET}")
-                    return True
-            except:
                 try:
-                    import urllib.request
-                    response = urllib.request.urlopen("http://localhost:8001/health", timeout=5)
-                    if response.getcode() in [200, 404]:
-                        clear_lines(1)  # clear "Starting FastAPI server..."
-                        print(f"{C_GREEN}✅ FastAPI server ready at http://localhost:8001{C_RESET}")
+                    result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/health"],
+                                           capture_output=True, text=True, timeout=5, check=False)
+                    if result.stdout.strip() in ["200", "404"]:
+                        console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
                         return True
                 except:
-                    pass
+                    try:
+                        import urllib.request
+                        response = urllib.request.urlopen("http://localhost:8001/health", timeout=5)
+                        if response.getcode() in [200, 404]:
+                            console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
+                            return True
+                    except:
+                        pass
 
-            if i == health_check_retries:
-                print(f"{C_RED}⛔ FastAPI server failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
-                return False
+                if i == health_check_retries:
+                    console.print("[error]⛔ FastAPI server failed to start[/error]")
+                    console.print(f"   [muted]Check logs: tail -50 {MODEL_RUN_LOG_FILE}[/muted]")
+                    return False
 
-            time.sleep(health_check_delay)
-        
+                fastapi_spinner.update(f"Waiting for FastAPI server… (attempt {i}/{health_check_retries})")
+                time.sleep(health_check_delay)
+
     except Exception as e:
-        print(f"{C_RED}⛔ Error starting FastAPI server: {e}{C_RESET}")
+        console.print(f"[error]⛔ Error starting FastAPI server: {e}[/error]")
         return False
     finally:
         # Clean up the temporary script
@@ -695,19 +697,19 @@ def cleanup_fastapi_server(no_sudo=False):
 def start_docker_control_service(no_sudo=False, dev_mode=False):
     """Start the Docker Control Service on port 8002."""
     mode_label = " (dev/reload)" if dev_mode else ""
-    print(f"🔧 Starting Docker Control Service{mode_label}...")
+    console.print(f"[info]🔧 Starting Docker Control Service{mode_label}...[/info]")
 
     # Check if user has Docker access
     if not check_docker_access():
-        print(f"{C_YELLOW}⚠️  Docker Control Service requires direct Docker socket access{C_RESET}")
-        print(f"{C_YELLOW}   (660 permissions detected - service would need sudo which is not supported){C_RESET}")
-        print(f"{C_CYAN}   Skipping Docker Control Service - Backend will use direct Docker SDK instead{C_RESET}")
+        console.print("[warning]⚠️  Docker Control Service requires direct Docker socket access[/warning]")
+        console.print("[warning]   (660 permissions detected - service would need sudo which is not supported)[/warning]")
+        console.print("[muted]   Skipping Docker Control Service - Backend will use direct Docker SDK instead[/muted]")
         return False
 
     # Check if port 8002 is available
     if not check_port_available(8002):
         if not kill_process_on_port(8002, no_sudo=no_sudo):
-            print(f"{C_RED}❌ Failed to free port 8002. Please manually stop any process using this port.{C_RESET}")
+            console.print("[error]❌ Failed to free port 8002. Please manually stop any process using this port.[/error]")
             return False
 
     # Check if service is already running
@@ -715,14 +717,14 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         try:
             response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=2)
             if response.status_code == 200:
-                print(f"{C_GREEN}✅ Docker Control Service already running{C_RESET}")
+                console.print("[success]✅ Docker Control Service already running[/success]")
                 return True
         except requests.exceptions.RequestException:
             pass
 
     # Check if service directory exists
     if not os.path.exists(DOCKER_CONTROL_SERVICE_DIR):
-        print(f"{C_RED}⛔ Error: Docker Control Service directory not found at {DOCKER_CONTROL_SERVICE_DIR}{C_RESET}")
+        console.print(f"[error]⛔ Error: Docker Control Service directory not found at {DOCKER_CONTROL_SERVICE_DIR}[/error]")
         return False
 
     # Create PID and log files
@@ -732,7 +734,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
                 pass
             os.chmod(file_path, 0o644)
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
+            console.print(f"[warning]Warning: Could not create {file_path}: {e}[/warning]")
 
     # Check for virtual environment
     venv_dir = os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv")
@@ -750,14 +752,14 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
                 check=True
             )
         except Exception as e:
-            print(f"{C_RED}⛔ Error creating virtual environment: {e}{C_RESET}")
+            console.print(f"[error]⛔ Error creating virtual environment: {e}[/error]")
             print_manual_fix_steps(DOCKER_CONTROL_SERVICE_DIR, "requirements-api.txt", C_YELLOW, C_RESET)
             return False
 
     # Check if requirements are installed
     requirements_file = os.path.join(DOCKER_CONTROL_SERVICE_DIR, "requirements-api.txt")
     if not os.path.exists(requirements_file):
-        print(f"{C_RED}⛔ Error: requirements-api.txt not found at {requirements_file}{C_RESET}")
+        console.print(f"[error]⛔ Error: requirements-api.txt not found at {requirements_file}[/error]")
         return False
 
     # Install/upgrade dependencies
@@ -779,7 +781,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
             check=True
         )
     except Exception as e:
-        print(f"{C_RED}⛔ Error installing dependencies: {e}{C_RESET}")
+        console.print(f"[error]⛔ Error installing dependencies: {e}[/error]")
         return False
 
     # Get environment variables for the service
@@ -822,49 +824,49 @@ fi
         health_check_retries = 30
         health_check_delay = 2
 
-        for i in range(1, health_check_retries + 1):
-            # Check if process is still running
-            if process.poll() is not None:
-                print(f"{C_RED}⛔ Docker Control Service process died{C_RESET}")
-                try:
-                    with open(DOCKER_CONTROL_LOG_FILE, 'r') as f:
-                        lines = f.readlines()
-                        for line in lines[-15:]:
-                            print(f"   {line.rstrip()}")
-                except:
-                    pass
-                return False
+        with progress_status("Waiting for Docker Control Service…") as docker_ctl_spinner:
+            for i in range(1, health_check_retries + 1):
+                # Check if process is still running
+                if process.poll() is not None:
+                    console.print("[error]⛔ Docker Control Service process died[/error]")
+                    try:
+                        with open(DOCKER_CONTROL_LOG_FILE, 'r') as f:
+                            lines = f.readlines()
+                            for line in lines[-15:]:
+                                console.print(f"   {line.rstrip()}", markup=False, highlight=False)
+                    except:
+                        pass
+                    return False
 
-            # Check if service is responding
-            if HAS_REQUESTS:
-                try:
-                    response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=5)
-                    if response.status_code == 200:
-                        clear_lines(1)  # clear "Starting Docker Control Service..."
-                        print(f"{C_GREEN}✅ Docker Control Service ready at http://localhost:8002{C_RESET}")
-                        return True
-                except:
-                    pass
-            else:
-                try:
-                    import urllib.request
-                    response = urllib.request.urlopen("http://localhost:8002/api/v1/health", timeout=5)
-                    if response.getcode() == 200:
-                        clear_lines(1)  # clear "Starting Docker Control Service..."
-                        print(f"{C_GREEN}✅ Docker Control Service ready at http://localhost:8002{C_RESET}")
-                        return True
-                except:
-                    pass
+                # Check if service is responding
+                if HAS_REQUESTS:
+                    try:
+                        response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=5)
+                        if response.status_code == 200:
+                            console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+                            return True
+                    except:
+                        pass
+                else:
+                    try:
+                        import urllib.request
+                        response = urllib.request.urlopen("http://localhost:8002/api/v1/health", timeout=5)
+                        if response.getcode() == 200:
+                            console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+                            return True
+                    except:
+                        pass
 
-            if i == health_check_retries:
-                print(f"{C_RED}⛔ Docker Control Service failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {DOCKER_CONTROL_LOG_FILE}")
-                return False
+                if i == health_check_retries:
+                    console.print("[error]⛔ Docker Control Service failed to start[/error]")
+                    console.print(f"   [muted]Check logs: tail -50 {DOCKER_CONTROL_LOG_FILE}[/muted]")
+                    return False
 
-            time.sleep(health_check_delay)
+                docker_ctl_spinner.update(f"Waiting for Docker Control Service… (attempt {i}/{health_check_retries})")
+                time.sleep(health_check_delay)
 
     except Exception as e:
-        print(f"{C_RED}⛔ Error starting Docker Control Service: {e}{C_RESET}")
+        console.print(f"[error]⛔ Error starting Docker Control Service: {e}[/error]")
         return False
     finally:
         # Clean up the temporary script
@@ -947,7 +949,7 @@ def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
     package_json_path = os.path.join(frontend_dir, "package.json")
 
     if not os.path.exists(package_json_path):
-        print(f"{C_RED}⛔ package.json not found in {frontend_dir}{C_RESET}")
+        console.print(f"[error]⛔ package.json not found in {frontend_dir}[/error]")
         return False
 
     # If node_modules already exists and is populated, we're good.
@@ -970,41 +972,41 @@ def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
             
             if not force_prompt and npm_pref:
                 if npm_pref in ['n', 'no', 'false']:
-                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    console.print("[warning]Skipping local dependency installation (using saved preference). IDE features may be limited.[/warning]")
                     return True
                 # else preference is to install
                 choice = npm_pref
             else:
-                choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip() or 'y'
+                choice = input("Do you want to run 'npm install' locally? (Y/n): ").lower().strip() or 'y'
                 save_preference("npm_install_locally", choice)
-            
+
             # Check the actual choice (either from preference or from user input)
             if choice not in ['n', 'no', 'false']:
-                print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+                console.print("\n[info]📦 Installing dependencies locally with npm...[/info]")
                 run_command(["npm", "install"], check=True, cwd=frontend_dir)
-                print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+                console.print("[success]✅ Frontend dependencies installed successfully.[/success]")
             else:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                console.print("[warning]Skipping local dependency installation. IDE features may be limited.[/warning]")
 
         else: # No local npm found
-            print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            
+            console.print("\n[warning]⚠️ 'npm' command not found on your local machine.[/warning]")
+
             # Check for saved preference
             docker_pref = get_preference("npm_install_via_docker")
             choice = None
-            
+
             if not force_prompt and docker_pref:
                 if docker_pref in ['n', 'no', 'false']:
-                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    console.print("[warning]Skipping local dependency installation (using saved preference). IDE features may be limited.[/warning]")
                     return True
                 choice = docker_pref
             else:
-                choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip() or 'y'
+                choice = input("Do you want to install dependencies using Docker? (Y/n): ").lower().strip() or 'y'
                 save_preference("npm_install_via_docker", choice)
-            
+
             # Check the actual choice (either from preference or from user input)
             if choice not in ['n', 'no', 'false']:
-                print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+                console.print("\n[info]📦 Installing dependencies using a temporary Docker container...[/info]")
                 # This command runs `npm install` inside a container and mounts the result back to the host.
                 docker_cmd = [
                     "docker", "run", "--rm",
@@ -1014,16 +1016,16 @@ def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
                     "npm", "install"
                 ]
                 run_command(docker_cmd, check=True)
-                print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
+                console.print("[success]✅ Frontend dependencies installed successfully using Docker.[/success]")
             else:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                console.print("[warning]Skipping local dependency installation. IDE features may be limited.[/warning]")
 
     except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_RED}⛔ Error installing frontend dependencies: {e}{C_RESET}")
-        print(f"{C_YELLOW}   Could not install dependencies locally. IDE features may be limited, but the app will still run.{C_RESET}")
+        console.print(f"[error]⛔ Error installing frontend dependencies: {e}[/error]")
+        console.print("[warning]   Could not install dependencies locally. IDE features may be limited, but the app will still run.[/warning]")
         return True # Still return True, as this is not a fatal error for the application itself.
     except KeyboardInterrupt:
-        print(f"\n{C_YELLOW}🛑 Installation cancelled by user.{C_RESET}")
+        console.print("\n[warning]🛑 Installation cancelled by user.[/warning]")
         return True
 
     return True

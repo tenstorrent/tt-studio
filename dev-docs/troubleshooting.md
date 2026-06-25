@@ -38,7 +38,7 @@ If you see a "TT Board (Error)" message:
 4. Restart TT-Studio:
 
    ```bash
-   python run.py --cleanup
+   python run.py --stop
    python run.py
    ```
 
@@ -56,7 +56,7 @@ If you see a "TT Board (Error)" message:
 If port 8001 is already in use, clean up existing Docker services and restart:
 
 ```bash
-python run.py --cleanup
+python run.py --stop
 ```
 
 Then try starting TT-Studio again.
@@ -136,7 +136,7 @@ If you experience authentication errors:
 If you encounter database errors:
 
 ```bash
-python run.py --cleanup
+python run.py --stop
 python run.py
 ```
 

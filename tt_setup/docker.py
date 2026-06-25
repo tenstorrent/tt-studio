@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import getpass
 from tt_setup.constants import *
+from tt_setup.console import console, step, notice_panel
 
 
 # Official docs we point users to — we link rather than try to fix Docker for
@@ -35,17 +36,17 @@ def check_docker_installation():
     attempt to fix Docker or print start commands for the user."""
     # 1. Docker CLI installed?
     if not shutil.which("docker"):
-        print(f"{C_RED}⛔ Docker is not installed.{C_RESET}")
-        print(f"{C_YELLOW}   Docker (with Compose v2) is required to run TT Studio.{C_RESET}")
-        print(f"{C_CYAN}   Install: {DOCKER_INSTALL_URL}{C_RESET}")
+        console.print("[error]⛔ Docker is not installed.[/error]")
+        console.print("[warning]   Docker (with Compose v2) is required to run TT Studio.[/warning]")
+        console.print(f"[info]   Install: {DOCKER_INSTALL_URL}[/info]")
         sys.exit(1)
 
     # 2. Docker Compose v2 plugin present? (does not need the daemon, so it's
     #    validated up front regardless of daemon state).
     if not _docker_compose_v2_available():
-        print(f"{C_RED}⛔ Docker Compose v2 is not available.{C_RESET}")
-        print(f"{C_YELLOW}   TT Studio requires the `docker compose` (v2) plugin, not legacy `docker-compose`.{C_RESET}")
-        print(f"{C_CYAN}   Install / upgrade: {DOCKER_COMPOSE_URL}{C_RESET}")
+        console.print("[error]⛔ Docker Compose v2 is not available.[/error]")
+        console.print("[warning]   TT Studio requires the `docker compose` (v2) plugin, not legacy `docker-compose`.[/warning]")
+        console.print(f"[info]   Install / upgrade: {DOCKER_COMPOSE_URL}[/info]")
         sys.exit(1)
 
     # 3. Docker daemon running / reachable? (retry with sudo for 660 sockets).
@@ -57,10 +58,10 @@ def check_docker_installation():
         if subprocess.run(["sudo", "docker", "info"], capture_output=True, text=True, check=False).returncode == 0:
             return  # daemon reachable with sudo; TT Studio will use sudo when needed
 
-    print(f"{C_RED}⛔ Docker is installed but its daemon isn't running.{C_RESET}")
-    print(f"{C_YELLOW}   Start Docker, then re-run TT Studio.{C_RESET}")
-    print(f"{C_CYAN}   Docker Desktop: {DOCKER_DESKTOP_URL}{C_RESET}")
-    print(f"{C_CYAN}   Daemon docs:    {DOCKER_DAEMON_URL}{C_RESET}")
+    console.print("[error]⛔ Docker is installed but its daemon isn't running.[/error]")
+    console.print("[warning]   Start Docker, then re-run TT Studio.[/warning]")
+    console.print(f"[info]   Docker Desktop: {DOCKER_DESKTOP_URL}[/info]")
+    console.print(f"[info]   Daemon docs:    {DOCKER_DAEMON_URL}[/info]")
     sys.exit(1)
 
 
@@ -95,7 +96,7 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
 
         # If permission denied, try with sudo
         if result.returncode != 0 and "permission denied" in result.stderr.lower():
-            print(f"{C_YELLOW}⚠️  Permission denied, retrying with sudo (you may be prompted for password)...{C_RESET}")
+            console.print("[warning]⚠️  Permission denied, retrying with sudo (you may be prompted for password)...[/warning]")
             sudo_command = ["sudo"] + command
             # Don't capture output when using sudo interactively - allow password prompt to show
             # But capture stderr to check for errors after authentication
@@ -127,18 +128,25 @@ def ensure_docker_group_membership():
         import grp
         socket_group = grp.getgrgid(socket_stat.st_gid).gr_name
 
-        print(f"\n{C_YELLOW}🔒 Docker Socket Access Issue{C_RESET}")
-        print(f"{C_YELLOW}{'─' * 60}{C_RESET}")
-        print(f"{C_CYAN}The Docker socket requires group membership: {socket_group}{C_RESET}")
-        print(f"\n{C_GREEN}To fix this, run:{C_RESET}")
-        print(f"   {C_CYAN}sudo usermod -aG {socket_group} $USER{C_RESET}")
-        print(f"   {C_CYAN}newgrp {socket_group}{C_RESET}")
-        print(f"\n{C_YELLOW}Or continue with sudo access (commands will prompt for password){C_RESET}")
-        print(f"{C_YELLOW}{'─' * 60}{C_RESET}\n")
+        console.print()
+        console.print(notice_panel(
+            "[warning]🔒 Docker Socket Access Issue[/warning]",
+            [
+                f"[info]The Docker socket requires group membership: {socket_group}[/info]",
+                "",
+                "[success]To fix this, run:[/success]",
+                f"   [info]sudo usermod -aG {socket_group} $USER[/info]",
+                f"   [info]newgrp {socket_group}[/info]",
+                "",
+                "[warning]Or continue with sudo access (commands will prompt for password)[/warning]",
+            ],
+            border_style="warning",
+        ))
+        console.print()
 
         return False
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  Could not check Docker socket permissions: {e}{C_RESET}")
+        console.print(f"[warning]⚠️  Could not check Docker socket permissions: {e}[/warning]")
         return False
 
 
@@ -170,131 +178,152 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
         if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
             compose_files.extend(["-f", DOCKER_COMPOSE_DEV_FILE])
             if not quiet:
-                print(f"{C_MAGENTA}🚀 Applying development mode overrides...{C_RESET}")
+                console.print("[muted]🚀 Applying development mode overrides...[/muted]")
     else:
         if os.path.exists(DOCKER_COMPOSE_PROD_FILE):
             compose_files.extend(["-f", DOCKER_COMPOSE_PROD_FILE])
             if not quiet:
-                print(f"{C_GREEN}🚀 Applying production mode overrides...{C_RESET}")
+                console.print("[success]🚀 Applying production mode overrides...[/success]")
 
     if detect_tt_hardware():
         if os.path.exists(DOCKER_COMPOSE_TT_HARDWARE_FILE):
             compose_files.extend(["-f", DOCKER_COMPOSE_TT_HARDWARE_FILE])
             if show_hardware_info and not quiet:
-                print(f"{C_GREEN}✅ Tenstorrent hardware detected - enabling hardware support{C_RESET}")
+                console.print("[success]✅ Tenstorrent hardware detected - enabling hardware support[/success]")
         else:
             if show_hardware_info and not quiet:
-                print(f"{C_YELLOW}⚠️  TT hardware detected but override file not found: {DOCKER_COMPOSE_TT_HARDWARE_FILE}{C_RESET}")
+                console.print(f"[warning]⚠️  TT hardware detected but override file not found: {DOCKER_COMPOSE_TT_HARDWARE_FILE}[/warning]")
     else:
         if show_hardware_info and not quiet:
-            print(f"{C_YELLOW}⚠️  No Tenstorrent hardware detected{C_RESET}")
+            console.print("[warning]⚠️  No Tenstorrent hardware detected[/warning]")
 
     return compose_files
 
 
 def fix_docker_issues():
     """Automatically fix common Docker service and permission issues."""
-    print(f"\n{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Docker Fix Utility{C_RESET}")
-    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
+    console.print("\n[bold accent]🔧 Docker fix utility[/bold accent]")
 
     try:
         # Step 1: Start Docker service
-        print(f"\n{C_BLUE}🚀 Starting Docker service...{C_RESET}")
-        result = subprocess.run(["sudo", "service", "docker", "start"],
-                              capture_output=True, text=True, check=False)
+        with step("Starting Docker service", spinner=False) as s:
+            result = subprocess.run(["sudo", "service", "docker", "start"],
+                                  capture_output=True, text=True, check=False)
 
-        if result.returncode == 0:
-            print(f"{C_GREEN}✅ Docker service started successfully{C_RESET}")
-        else:
-            print(f"{C_YELLOW}⚠️  Docker service start returned code {result.returncode}{C_RESET}")
-            if result.stderr:
-                print(f"{C_YELLOW}   {result.stderr.strip()}{C_RESET}")
+            if result.returncode == 0:
+                s.detail("started successfully")
+            else:
+                detail = f"returned code {result.returncode}"
+                if result.stderr:
+                    detail += f" — {result.stderr.strip()}"
+                s.detail(detail)
 
         # Step 2: Determine socket group and provide guidance
-        print(f"\n{C_BLUE}🔒 Checking Docker socket permissions...{C_RESET}")
+        console.print("\n[info]🔒 Checking Docker socket permissions...[/info]")
         try:
             import grp
             socket_stat = os.stat("/var/run/docker.sock")
             socket_group = grp.getgrgid(socket_stat.st_gid).gr_name
             current_user = getpass.getuser()
 
-            print(f"{C_CYAN}Docker socket group: {socket_group}{C_RESET}")
-            print(f"\n{C_YELLOW}Choose permission fix method:{C_RESET}")
-            print(f"  {C_GREEN}1){C_RESET} Add user to {socket_group} group (recommended, secure)")
-            print(f"  {C_GREEN}2){C_RESET} Set socket to 666 (quick fix, less secure)")
-            print(f"  {C_GREEN}3){C_RESET} Keep current permissions and use sudo for Docker commands")
+            console.print(f"[info]Docker socket group: {socket_group}[/info]")
+            console.print("\n[warning]Choose permission fix method:[/warning]")
+            console.print(f"  [success]1)[/success] Add user to {socket_group} group (recommended, secure)")
+            console.print("  [success]2)[/success] Set socket to 666 (quick fix, less secure)")
+            console.print("  [success]3)[/success] Keep current permissions and use sudo for Docker commands")
 
+            console.print()
             try:
-                choice = input(f"\n{C_CYAN}Enter choice (1-3) [1]: {C_RESET}").strip() or "1"
+                choice = input("Enter choice (1-3) [1]: ").strip() or "1"
             except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}⚠️  Cancelled by user{C_RESET}")
+                console.print("\n[warning]⚠️  Cancelled by user[/warning]")
                 return False
 
             if choice == "1":
-                print(f"\n{C_BLUE}Adding user '{current_user}' to '{socket_group}' group...{C_RESET}")
+                console.print(f"\n[info]Adding user '{current_user}' to '{socket_group}' group...[/info]")
                 group_result = subprocess.run(["sudo", "usermod", "-aG", socket_group, current_user],
                                             capture_output=True, text=True, check=False)
 
                 if group_result.returncode == 0:
-                    print(f"{C_GREEN}✅ User added to {socket_group} group{C_RESET}")
-                    print(f"\n{C_YELLOW}⚠️  IMPORTANT: You need to log out and log back in for group changes to take effect{C_RESET}")
-                    print(f"{C_CYAN}Or run this command to apply changes in current session:{C_RESET}")
-                    print(f"   {C_WHITE}newgrp {socket_group}{C_RESET}")
+                    console.print(f"[success]✅ User added to {socket_group} group[/success]")
+                    console.print("\n[warning]⚠️  IMPORTANT: You need to log out and log back in for group changes to take effect[/warning]")
+                    console.print("[info]Or run this command to apply changes in current session:[/info]")
+                    console.print(f"   [bold]newgrp {socket_group}[/bold]")
                 else:
-                    print(f"{C_RED}❌ Failed to add user to group: {group_result.stderr.strip() if group_result.stderr else 'Unknown error'}{C_RESET}")
+                    console.print(f"[error]❌ Failed to add user to group: {group_result.stderr.strip() if group_result.stderr else 'Unknown error'}[/error]")
                     return False
 
             elif choice == "2":
-                print(f"\n{C_YELLOW}⚠️  Setting socket permissions to 666 (less secure){C_RESET}")
+                console.print("\n[warning]⚠️  Setting socket permissions to 666 (less secure)[/warning]")
                 socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"],
                                              capture_output=True, text=True, check=False)
 
                 if socket_result.returncode == 0:
-                    print(f"{C_GREEN}✅ Docker socket permissions set to 666{C_RESET}")
-                    print(f"{C_YELLOW}Note: To reset to secure 660, run: sudo chmod 660 /var/run/docker.sock{C_RESET}")
+                    console.print("[success]✅ Docker socket permissions set to 666[/success]")
+                    console.print("[warning]Note: To reset to secure 660, run: sudo chmod 660 /var/run/docker.sock[/warning]")
                 else:
-                    print(f"{C_RED}❌ Failed to set permissions: {socket_result.stderr.strip() if socket_result.stderr else 'Unknown error'}{C_RESET}")
+                    console.print(f"[error]❌ Failed to set permissions: {socket_result.stderr.strip() if socket_result.stderr else 'Unknown error'}[/error]")
                     return False
 
             elif choice == "3":
-                print(f"\n{C_CYAN}✅ Keeping current permissions{C_RESET}")
-                print(f"{C_YELLOW}TT Studio will use sudo for Docker commands when needed{C_RESET}")
+                console.print("\n[success]✅ Keeping current permissions[/success]")
+                console.print("[warning]TT Studio will use sudo for Docker commands when needed[/warning]")
 
             else:
-                print(f"{C_RED}❌ Invalid choice{C_RESET}")
+                console.print("[error]❌ Invalid choice[/error]")
                 return False
 
         except Exception as e:
-            print(f"{C_YELLOW}⚠️  Could not check socket permissions: {e}{C_RESET}")
-            print(f"{C_YELLOW}Defaulting to 666 permissions...{C_RESET}")
+            console.print(f"[warning]⚠️  Could not check socket permissions: {e}[/warning]")
+            console.print("[warning]Defaulting to 666 permissions...[/warning]")
             socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"],
                                          capture_output=True, text=True, check=False)
             if socket_result.returncode == 0:
-                print(f"{C_GREEN}✅ Docker socket permissions set to 666{C_RESET}")
+                console.print("[success]✅ Docker socket permissions set to 666[/success]")
 
         # Step 3: Test Docker connectivity
-        print(f"\n{C_BLUE}🔍 Testing Docker connectivity...{C_RESET}")
-        test_result = subprocess.run(["docker", "info"],
-                                   capture_output=True, text=True, check=False)
+        with step("Testing Docker connectivity", spinner=False) as s:
+            test_result = subprocess.run(["docker", "info"],
+                                       capture_output=True, text=True, check=False)
+            if test_result.returncode != 0:
+                s.fail()
 
-        if test_result.returncode == 0:
-            print(f"{C_GREEN}✅ Docker is working correctly!{C_RESET}")
-            print(f"\n{C_GREEN}{C_BOLD}🎉 Docker fix completed successfully!{C_RESET}")
-            print(f"{C_CYAN}You can now run: {C_WHITE}python run.py{C_RESET}")
-        else:
-            print(f"{C_RED}❌ Docker connectivity test failed{C_RESET}")
-            if test_result.stderr:
-                print(f"{C_YELLOW}Error: {test_result.stderr.strip()}{C_RESET}")
-            print(f"\n{C_YELLOW}You may need to manually troubleshoot Docker installation.{C_RESET}")
+        if test_result.returncode != 0:
+            console.print(notice_panel(
+                "[error]❌ Docker connectivity test failed[/error]",
+                [
+                    f"[warning]Error: {test_result.stderr.strip()}[/warning]" if test_result.stderr else "[warning]No additional error output.[/warning]",
+                    "",
+                    "[warning]You may need to manually troubleshoot Docker installation.[/warning]",
+                ],
+                border_style="error",
+            ))
             return False
 
     except FileNotFoundError:
-        print(f"{C_RED}❌ Error: 'sudo' or 'docker' command not found{C_RESET}")
-        print(f"{C_YELLOW}Please ensure Docker is installed and sudo is available.{C_RESET}")
+        console.print(notice_panel(
+            "[error]❌ Docker fix failed[/error]",
+            [
+                "[error]'sudo' or 'docker' command not found[/error]",
+                "[warning]Please ensure Docker is installed and sudo is available.[/warning]",
+            ],
+            border_style="error",
+        ))
         return False
     except Exception as e:
-        print(f"{C_RED}❌ Unexpected error during Docker fix: {e}{C_RESET}")
+        console.print(notice_panel(
+            "[error]❌ Docker fix failed[/error]",
+            [f"[error]Unexpected error during Docker fix: {e}[/error]"],
+            border_style="error",
+        ))
         return False
 
-    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
+    console.print(notice_panel(
+        "[bold success]🎉 Docker fix completed successfully![/bold success]",
+        [
+            "[success]✅ Docker is working correctly![/success]",
+            "[info]You can now run: [bold]python run.py[/bold][/info]",
+        ],
+        border_style="success",
+    ))
     return True

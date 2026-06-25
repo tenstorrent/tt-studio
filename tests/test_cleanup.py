@@ -411,7 +411,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         return order
 
     def test_cleanup_runtime_preserves_deployments_for_basic_cleanup(self):
-        # Plain `--cleanup` must not touch deployment containers — loaded
+        # Plain `--stop` must not touch deployment containers — loaded
         # models stay serving so a TT Studio restart doesn't pay the ~minutes
         # cost of re-loading weights onto the device. The shared docker
         # network also stays since deployments are attached to it.
@@ -422,7 +422,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         self.assertIn("compose_down", order)
 
     def test_cleanup_runtime_stops_deployments_first_for_full_cleanup(self):
-        # `--cleanup-all` is the full reset path; deployments must be torn
+        # `--purge-all` is the full reset path; deployments must be torn
         # down before `compose down -v` so the network is empty when we then
         # remove it.
         args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=True)

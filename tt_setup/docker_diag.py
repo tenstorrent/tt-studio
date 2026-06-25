@@ -10,9 +10,10 @@ import time
 import re
 from datetime import datetime
 from rich.progress import Progress, BarColumn, TextColumn, MofNCompleteColumn
+from rich.table import Table
 from tt_setup.constants import *
 from tt_setup.shell import copy_to_clipboard
-from tt_setup.console import console
+from tt_setup.console import console, notice_panel
 
 
 def _resolve_container_name(prefix):
@@ -34,33 +35,33 @@ def _resolve_container_name(prefix):
 
 def suggest_docker_fixes(error_context):
     """Provide contextual suggestions for Docker-related errors."""
-    print(f"\n{C_CYAN}💡 Common solutions:{C_RESET}")
+    console.print("\n[info]💡 Common solutions:[/info]")
 
     ctx = error_context.lower()
     if "build" in ctx:
-        print(f"  • Check Dockerfile syntax and COPY/ADD source files")
-        print(f"  • Rebuild without cache: cd app && docker compose build --no-cache")
+        console.print("[muted]  • Check Dockerfile syntax and COPY/ADD source files[/muted]")
+        console.print("[muted]  • Rebuild without cache: cd app && docker compose build --no-cache[/muted]")
 
     if "permission" in ctx or "denied" in ctx:
-        print(f"  • Add user to docker group: sudo usermod -aG docker $USER")
-        print(f"  • Or run: python run.py --fix-docker")
+        console.print("[muted]  • Add user to docker group: sudo usermod -aG docker $USER[/muted]")
+        console.print("[muted]  • Or run: python run.py --fix-docker[/muted]")
 
     if "port" in ctx or "address already in use" in ctx:
-        print(f"  • Check port usage: lsof -i :8000")
-        print(f"  • Free ports: python run.py --cleanup")
+        console.print("[muted]  • Check port usage: lsof -i :8000[/muted]")
+        console.print("[muted]  • Free ports: python run.py --stop[/muted]")
 
     # Always show these
-    print(f"  • Check Docker is running: docker info")
-    print(f"  • Clean up and retry: python run.py --cleanup && python run.py")
+    console.print("[muted]  • Check Docker is running: docker info[/muted]")
+    console.print("[muted]  • Clean up and retry: python run.py --stop && python run.py[/muted]")
 
 
 def suggest_pip_fixes():
     """Provide suggestions for pip installation errors."""
-    print(f"\n{C_CYAN}💡 Common solutions:{C_RESET}")
-    print(f"  • Check internet connectivity: ping pypi.org")
-    print(f"  • Upgrade pip: pip3 install --upgrade pip")
-    print(f"  • Clear pip cache: pip3 cache purge")
-    print(f"  • Check Python version compatibility")
+    console.print("\n[info]💡 Common solutions:[/info]")
+    console.print("[muted]  • Check internet connectivity: ping pypi.org[/muted]")
+    console.print("[muted]  • Upgrade pip: pip3 install --upgrade pip[/muted]")
+    console.print("[muted]  • Clear pip cache: pip3 cache purge[/muted]")
+    console.print("[muted]  • Check Python version compatibility[/muted]")
 
 
 def parse_docker_build_failure(output):
@@ -222,9 +223,9 @@ def verify_docker_containers(use_sudo=False):
 
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
-            print(f"{C_RED}⛔ Error: Failed to list Docker containers{C_RESET}")
+            console.print("[error]⛔ Error: Failed to list Docker containers[/error]")
             if result.stderr:
-                print(f"{C_RED}   {result.stderr}{C_RESET}")
+                console.print(f"[muted]   {result.stderr}[/muted]")
             return {}
 
         containers = {}
@@ -237,15 +238,15 @@ def verify_docker_containers(use_sudo=False):
                 }
 
         if not containers:
-            print(f"{C_YELLOW}⚠️  No tt_studio containers found{C_RESET}")
+            console.print("[warning]⚠️  No tt_studio containers found[/warning]")
 
         return containers
 
     except FileNotFoundError:
-        print(f"{C_RED}⛔ Error: Could not check containers. Ensure Docker is installed and in PATH{C_RESET}")
+        console.print("[error]⛔ Error: Could not check containers. Ensure Docker is installed and in PATH[/error]")
         return {}
     except Exception as e:
-        print(f"{C_RED}⛔ Error verifying containers: {type(e).__name__}: {e}{C_RESET}")
+        console.print(f"[error]⛔ Error verifying containers: {type(e).__name__}: {e}[/error]")
         return {}
 
 
@@ -287,7 +288,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Port conflict{port_hint}',
             'detail': f"{container_name} could not bind to a port already in use.",
-            'action': f"Run: lsof -i{port_hint or ''}\n  Or: python run.py --cleanup && python run.py",
+            'action': f"Run: lsof -i{port_hint or ''}\n  Or: python run.py --stop && python run.py",
         }
 
     if "modulenotfounderror" in log_lower or "importerror" in log_lower:
@@ -297,7 +298,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Missing Python module{module_hint}',
             'detail': f"{container_name} failed to import a required module. Docker image may be stale.",
-            'action': "Rebuild: python run.py --cleanup && python run.py",
+            'action': "Rebuild: python run.py --stop && python run.py",
         }
 
     if "keyerror" in log_lower:
@@ -315,7 +316,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': 'Permission denied',
             'detail': f"{container_name} was denied file/socket access. Common: persistent volume owned by root.",
-            'action': "Fix ownership: sudo chown -R $USER:$USER tt_studio_persistent_volume\n  Or: python run.py --cleanup-all && python run.py",
+            'action': "Fix ownership: sudo chown -R $USER:$USER tt_studio_persistent_volume\n  Or: python run.py --purge-all && python run.py",
         }
 
     if "no space left on device" in log_lower:
@@ -346,10 +347,14 @@ def print_container_diagnostics(containers):
     if not failed:
         return
 
-    print(f"\n{C_RED}⚠️  Some containers failed to start:{C_RESET}")
+    console.print("\n[error]⚠️  Some containers failed to start:[/error]")
+    failed_table = Table(box=None, show_header=True, header_style="bold")
+    failed_table.add_column("Container")
+    failed_table.add_column("Status")
     for name, info in failed.items():
         friendly = friendly_map.get(name, name)
-        print(f"  • {C_YELLOW}{friendly} ({name}){C_RESET}: {info['status']}")
+        failed_table.add_row(f"[warning]{friendly} ({name})[/warning]", info['status'])
+    console.print(failed_table)
 
     # Auto-diagnose each failed container
     for name in failed:
@@ -371,12 +376,19 @@ def print_container_diagnostics(containers):
         logs = (logs_result.stdout or "") + (logs_result.stderr or "")
 
         diagnosis = diagnose_container_failure(name, exit_code, logs)
-        color = C_RED if diagnosis['severity'] == 'critical' else C_YELLOW
-        print(f"\n{color}{C_BOLD}  Diagnosis for {friendly_map.get(name, name)}: {diagnosis['cause']}{C_RESET}")
-        print(f"{color}  {diagnosis['detail']}{C_RESET}")
-        print(f"{C_CYAN}  Recommended:{C_RESET}")
-        for action_line in diagnosis['action'].splitlines():
-            print(f"    {action_line}")
+        style = "error" if diagnosis['severity'] == 'critical' else "warning"
+        friendly = friendly_map.get(name, name)
+        lines = [
+            f"[{style}]{diagnosis['detail']}[/{style}]",
+            "",
+            "[info]Recommended:[/info]",
+        ]
+        lines.extend(f"[muted]  {action_line}[/muted]" for action_line in diagnosis['action'].splitlines())
+        console.print(notice_panel(
+            f"[bold {style}]Diagnosis for {friendly}: {diagnosis['cause']}[/bold {style}]",
+            lines,
+            border_style="error",
+        ))
 
 
 def handle_docker_compose_result(returncode, full_output, use_sudo=False):
@@ -390,13 +402,17 @@ def handle_docker_compose_result(returncode, full_output, use_sudo=False):
 
         containers = verify_docker_containers(use_sudo=use_sudo)
         if not containers:
-            print(f"{C_RED}⛔ Could not verify container status{C_RESET}")
+            console.print("[error]⛔ Could not verify container status[/error]")
             suggest_docker_fixes("Container verification")
             return False
 
         failed_any = any(not info['running'] for info in containers.values())
         if failed_any:
-            print(f"\n{C_RED}⛔ CONTAINER STARTUP FAILED{C_RESET}")
+            console.print(notice_panel(
+                "[error]⛔ CONTAINER STARTUP FAILED[/error]",
+                ["[error]One or more containers failed to start.[/error]"],
+                border_style="error",
+            ))
             print_container_diagnostics(containers)
             suggest_docker_fixes("Container startup")
 
@@ -405,46 +421,52 @@ def handle_docker_compose_result(returncode, full_output, use_sudo=False):
             copy_to_clipboard(error_log)
             return False
 
-        print(f"{C_GREEN}✅ All containers built and running{C_RESET}")
+        console.print("[success]✅ All containers built and running[/success]")
         return True
 
     # Build failed
     container_name, friendly_name, error_section = parse_docker_build_failure(full_output)
 
-    print(f"\n{C_RED}{'='*60}{C_RESET}")
     if friendly_name:
-        print(f"{C_RED}⛔ BUILD FAILED: {friendly_name} Container ({container_name}){C_RESET}")
+        header_title = f"[error]⛔ BUILD FAILED: {friendly_name} Container ({container_name})[/error]"
     else:
-        print(f"{C_RED}⛔ DOCKER COMPOSE BUILD FAILED{C_RESET}")
-    print(f"{C_RED}{'='*60}{C_RESET}")
+        header_title = "[error]⛔ DOCKER COMPOSE BUILD FAILED[/error]"
 
+    header_lines = []
     if error_section:
-        print(f"\n{C_RED}Error details:{C_RESET}")
-        print(error_section)
+        header_lines.append("[error]Error details:[/error]")
+        header_lines.append(f"[muted]{error_section}[/muted]")
+    else:
+        header_lines.append("[muted]The docker compose build did not complete.[/muted]")
+    console.print(notice_panel(header_title, header_lines, border_style="error"))
 
     # Check which containers exist/failed
     containers = verify_docker_containers(use_sudo=use_sudo)
     if containers:
-        print(f"\n{C_YELLOW}Container status:{C_RESET}")
+        console.print("\n[warning]Container status:[/warning]")
+        status_table = Table(box=None, show_header=True, header_style="bold")
+        status_table.add_column("Container")
+        status_table.add_column("Status")
         for name, info in containers.items():
             if info['running']:
-                print(f"  {C_GREEN}✓ {name}: {info['status']}{C_RESET}")
+                status_table.add_row(f"[success]✓ {name}[/success]", f"[success]{info['status']}[/success]")
             else:
-                print(f"  {C_RED}❌ {name}: {info['status']}{C_RESET}")
+                status_table.add_row(f"[error]❌ {name}[/error]", f"[error]{info['status']}[/error]")
+        console.print(status_table)
 
     suggest_docker_fixes("Docker build")
 
     sudo_prefix = "sudo " if use_sudo else ""
-    print(f"\n{C_CYAN}📋 Debug commands:{C_RESET}")
-    print(f"  {sudo_prefix}cd app && docker compose build --no-cache")
+    console.print("\n[info]📋 Debug commands:[/info]")
+    console.print(f"[muted]  {sudo_prefix}cd app && docker compose build --no-cache[/muted]")
     if container_name:
-        print(f"  {sudo_prefix}docker logs {container_name}")
+        console.print(f"[muted]  {sudo_prefix}docker logs {container_name}[/muted]")
 
     # Clipboard
     error_log = f"TT STUDIO BUILD FAILURE\nTimestamp: {datetime.now().isoformat()}\nFailed: {container_name or 'unknown'}\nExit: {returncode}\n"
     if error_section:
         error_log += f"\n{error_section}\n"
     if copy_to_clipboard(error_log):
-        print(f"\n{C_GREEN}📋 Error log copied to clipboard{C_RESET}")
+        console.print("\n[success]📋 Error log copied to clipboard[/success]")
 
     return False

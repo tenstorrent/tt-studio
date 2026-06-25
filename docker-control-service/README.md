@@ -183,7 +183,7 @@ python3 run.py
 python3 run.py --skip-docker-control
 
 # Cleanup (stops service)
-python3 run.py --cleanup
+python3 run.py --stop
 ```
 
 ## Troubleshooting

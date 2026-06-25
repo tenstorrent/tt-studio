@@ -4,6 +4,7 @@
 """Argument parsing and main() orchestration entrypoint."""
 
 import os
+import shutil
 import sys
 import subprocess
 import time
@@ -11,10 +12,10 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import console, is_verbose, ready_panel, set_verbose, step
+from tt_setup.console import console, is_verbose, notice_panel, ready_panel, set_verbose, step
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
-from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks
+from tt_setup.shell import check_tt_smi, clear_lines, display_welcome_banner, run_preflight_checks
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
@@ -35,9 +36,11 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def _entry(
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults)."),
-    cleanup: bool = typer.Option(False, "--cleanup", help="Clean up Docker containers and networks."),
-    cleanup_all: bool = typer.Option(False, "--cleanup-all", help="Clean up everything incl. persistent data and .env."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --cleanup-all confirmation prompt."),
+    stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks."),
+    purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env."),
+    cleanup: bool = typer.Option(False, "--cleanup", hidden=True, help="Deprecated alias for --stop."),
+    cleanup_all: bool = typer.Option(False, "--cleanup-all", hidden=True, help="Deprecated alias for --purge-all."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all confirmation prompt."),
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help."),
     reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options."),
     reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", help="Reconfigure the TT Inference Server artifact."),
@@ -59,8 +62,18 @@ def _entry(
 ):
     """Set up and launch TT Studio. With no flags, runs the default minimal setup."""
     set_verbose(verbose)
+
+    # --cleanup/--cleanup-all are deprecated aliases for --stop/--purge-all.
+    # Warn, then normalize all four onto the internal cleanup/cleanup_all flags.
+    if cleanup or cleanup_all:
+        legacy = "--cleanup-all" if cleanup_all else "--cleanup"
+        replacement = "--purge-all" if cleanup_all else "--stop"
+        console.print(f"[warning]⚠  {legacy} is deprecated; use {replacement} instead.[/warning]")
+    full_teardown = purge_all or cleanup_all
+    stop_requested = stop or cleanup or full_teardown
+
     args = SimpleNamespace(
-        dev=dev, cleanup=cleanup, cleanup_all=cleanup_all, yes=yes, help_env=help_env,
+        dev=dev, cleanup=stop_requested, cleanup_all=full_teardown, yes=yes, help_env=help_env,
         reconfigure=reconfigure, reconfigure_inference_server=reconfigure_inference_server,
         resync=resync, pull_branch=pull_branch, skip_fastapi=skip_fastapi,
         skip_docker_control=skip_docker_control, no_sudo=no_sudo, no_browser=no_browser,
@@ -120,8 +133,8 @@ def _run(args):
   {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
-  {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
-  {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
+  {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
+  {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
@@ -182,6 +195,27 @@ def _run(args):
         with step("Running preflight checks"):
             run_preflight_checks()
         startup_log.step("preflight_checks", "OK")
+
+        # tt-smi health probe — non-fatal. Skips silently when tt-smi isn't on
+        # PATH (e.g. a Mac dev box with no TT tooling).
+        if shutil.which("tt-smi"):
+            startup_log.step("tt_smi_check", "START")
+            tt_status, tt_detail = "bad", ""
+            with step("Checking tt-smi", spinner=False) as s:
+                tt_status, tt_detail = check_tt_smi()
+                if tt_status == "ok":
+                    s.detail(tt_detail or "working")
+                else:
+                    s.skip(tt_detail)
+            if tt_status == "ok":
+                startup_log.step("tt_smi_check", "OK", tt_detail)
+            else:
+                startup_log.step("tt_smi_check", "WARN", tt_detail)
+                console.print(notice_panel(
+                    "[bold]⚠  tt-smi may not be working[/bold]",
+                    ["Couldn't read Tenstorrent devices via tt-smi — your TT tooling or board may need attention.",
+                     "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
+                    border_style="warning"))
 
         startup_log.step("docker_install_check", "START")
         with step("Checking Docker"):
@@ -535,7 +569,7 @@ def _run(args):
         rows.append(("Mode", " + ".join(mode_parts)))
 
         # Full log paths only with --verbose; otherwise one compact hint.
-        footer = ["[muted]Stop · python run.py --cleanup[/muted]"]
+        footer = ["[muted]Stop · python run.py --stop[/muted]"]
         if is_verbose():
             footer.append("[muted]Logs · cd app && docker compose logs -f[/muted]")
             if fastapi_enabled:
@@ -564,7 +598,7 @@ def _run(args):
                     s.fail()
             if s.failed:
                 print(f"\n{C_RED}⛔ Not all services became healthy{C_RESET}")
-                print(f"{C_CYAN}   Review logs above. Try: python run.py --cleanup && python run.py{C_RESET}")
+                print(f"{C_CYAN}   Review logs above. Try: python run.py --stop && python run.py{C_RESET}")
                 sys.exit(1)
         
         
@@ -578,7 +612,7 @@ def _run(args):
             if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy, device_id=device_id_val):
                 auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
                 print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{auto_deploy_param}{C_RESET}")
-                print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --cleanup && python run.py{C_RESET}")
+                print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
         else:
             host, port, _ = get_frontend_config()
             device_id_val = getattr(args, "device_id", 0)
@@ -637,7 +671,7 @@ def _run(args):
                 original_cmd += " --resync"
         
         print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
-        print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
+        print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --stop{C_RESET}")
         print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
         sys.exit(130)
     except Exception as e:
@@ -656,7 +690,7 @@ def _run(args):
         print(f"  • Check the error details above")
         print(f"  • Startup log: {STARTUP_LOG_FILE}")
         print(f"  • For help: python run.py --help")
-        print(f"  • To clean up: python run.py --cleanup")
+        print(f"  • To clean up: python run.py --stop")
         print(f"  • Report bugs: https://github.com/tenstorrent/tt-studio/issues")
         sys.exit(1)
 

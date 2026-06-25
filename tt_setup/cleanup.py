@@ -13,7 +13,8 @@ import re
 import fnmatch
 from tt_setup.constants import *
 from tt_setup.constants import _CLEANUP_IMAGE_REFS, _CLEANUP_VOLUME_PREFIX
-from tt_setup.console import console, step
+from rich.table import Table
+from tt_setup.console import console, kept_panel, notice_panel, step
 from tt_setup.docker import build_docker_compose_command, check_docker_access, run_docker_command
 from tt_setup.env_config import get_env_var, is_first_time_setup, save_preference
 from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_server
@@ -122,7 +123,7 @@ def _parse_size_to_bytes(s):
 
 
 def _docker_reclaimable_bytes(has_docker_access):
-    """Best-effort size of the Docker objects --cleanup-all removes.
+    """Best-effort size of the Docker objects --purge-all removes.
 
     Reads `docker system df -v --format json` (the daemon already computes exact
     sizes) and sums the images and volumes cleanup-all actually deletes:
@@ -304,14 +305,68 @@ def _write_browser_cleanup_sentinel():
         return None
 
 
+def _deployed_model_names(has_docker_access):
+    """Names of currently-running model deployment containers (vLLM / YOLO / TTS …),
+    i.e. tt-inference-server / media-inference-server images — distinct from the
+    frontend/backend/agent/chroma app stack. Read-only.
+
+    Runs `docker ps` WITHOUT sudo so just showing a count never triggers a password
+    prompt. Returns None if docker is inaccessible (so callers show "preserved"
+    rather than a misleading "none"), [] if nothing is running, else the names.
+    """
+    if not has_docker_access:
+        return None
+    model_globs = ("*tt-inference-server*", "*tt-media-inference-server*")
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}\t{{.Image}}"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return None
+        names = []
+        for line in result.stdout.splitlines():
+            if "\t" not in line:
+                continue
+            name, image = line.split("\t", 1)
+            if any(fnmatch.fnmatch(image, g) for g in model_globs):
+                names.append(name.strip())
+        return names
+    except Exception:
+        return None
+
+
+def _print_preserved_summary(has_docker_access):
+    """Panel summarising what a plain --stop leaves in place, with a clear
+    next-step for wiping it — so users aren't left guessing what survived."""
+    names = _deployed_model_names(has_docker_access)
+    if names is None:
+        models = "[muted]left running (not checked)[/muted]"
+    elif not names:
+        models = "[muted]none running[/muted]"
+    else:
+        more = "…" if len(names) > 1 else ""
+        models = f"[accent]{len(names)} still running[/accent][muted] · {names[0]}{more}[/muted]"
+
+    rows = [
+        ("Model deployments", models),
+        ("Config & secrets", "app/.env"),
+        ("Saved data", "model weights, chat history, RAG"),
+    ]
+    footer = ["[muted]Remove these too →[/muted]  [accent]python run.py --purge-all[/accent]"]
+    console.print()
+    console.print(kept_panel("[bold]Preserved[/bold]", rows, footer))
+
+
 def cleanup_resources(args):
-    """Clean up TT Studio Docker resources, and (with --cleanup-all) all persistent state."""
+    """Clean up TT Studio Docker resources, and (with --purge-all) all persistent state."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
     assume_yes = bool(getattr(args, "yes", False))
 
     if not full_cleanup:
         console.print("\n[bold]🧹 Cleaning up TT Studio[/bold]")
-        _cleanup_runtime(args, check_docker_access())
+        has_access = check_docker_access()
+        _cleanup_runtime(args, has_access)
 
         # Unset the Welcome flag so the next bring-up re-runs first-run setup.
         # Normal path: rewrite the file in place to preserve saved secrets (HF token, etc.).
@@ -342,10 +397,11 @@ def cleanup_resources(args):
                     s.fail()
                     s.detail(type(e).__name__)
 
+        _print_preserved_summary(has_access)
         console.print("\n[bold success]✓ Cleanup complete[/bold success]")
         return
 
-    # --- --cleanup-all: build full inventory and ask once ---
+    # --- --purge-all: build full inventory and ask once ---
     host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
         os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
     artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
@@ -358,10 +414,10 @@ def cleanup_resources(args):
     # files fell back to the repo root.
     logs_dir = os.path.join(TT_STUDIO_ROOT, "logs")
     log_items = [
-        ("📜", logs_dir, "host-side runtime logs & PID files (startup, model run, docker-control)"),
+        ("📜", logs_dir, "host-side logs & PID files"),
     ]
     log_items += [
-        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host-side log (pre-consolidation)")
+        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host log")
         for name in (
             "model_run.log", "model_run_logs",
             "fastapi.log", "fastapi.pid", "fastapi_logs",
@@ -371,23 +427,23 @@ def cleanup_resources(args):
 
     items = [
         ("📁", host_persistent_volume,
-         "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
+         "HF token, deploy history, RAG DB, model weights"),
         ("⚙️ ", ENV_FILE_PATH,
-         "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+         "config & secrets (Django key, tokens)"),
         ("🔧", artifacts_root,
-         "downloaded inference server + workflow logs + release tarball"),
+         "inference-server download + tarball"),
         *log_items,
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
         ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
-        ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
-        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch output"),
-        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch output"),
+        ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy setup snapshot"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch"),
         ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
-         "inference-api Python virtualenv"),
+         "inference-api virtualenv"),
         ("🐍", os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv"),
-         "docker-control-service Python virtualenv"),
+         "docker-control virtualenv"),
         ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
-         "workflow Python virtualenvs"),
+         "workflow virtualenvs"),
     ]
 
     existing = [(emoji, path, desc, _path_size(path))
@@ -401,48 +457,73 @@ def cleanup_resources(args):
     docker_sizes = _docker_reclaimable_bytes(has_docker_access)
     total_bytes = host_bytes + sum(docker_sizes.values())
 
-    print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
-    print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
+    # --- Danger header ---
+    console.print()
+    console.print(notice_panel(
+        "[bold]⚠  --purge-all · full reset[/bold]",
+        [
+            "Resets TT Studio to a fresh-clone state.",
+            "[bold]Everything below is permanently deleted — this cannot be undone.[/bold]",
+        ],
+        border_style="error",
+    ))
 
+    def _table():
+        t = Table(box=None, show_header=False, padding=(0, 2), pad_edge=False)
+        t.add_column(no_wrap=True)                                       # icon
+        t.add_column(no_wrap=True)                                       # name
+        t.add_column(justify="right", no_wrap=True, style="muted")       # size
+        t.add_column(style="muted", overflow="fold")                    # description
+        return t
+
+    # --- Files on disk ---
+    console.print("\n[bold]Files on disk[/bold]")
     if existing:
-        path_w = max(len(os.path.relpath(p, TT_STUDIO_ROOT)) for _, p, _, _ in existing)
-        path_w = min(max(path_w, 32), 56)
+        files = _table()
         for emoji, path, desc, size in existing:
             rel = os.path.relpath(path, TT_STUDIO_ROOT)
-            size_str = _format_bytes(size) if size > 0 else "—"
-            print(f"  {emoji} {rel:<{path_w}}  {size_str:>10}")
-            print(f"       └─ {C_CYAN}{desc}{C_RESET}")
+            files.add_row(emoji, rel, _format_bytes(size) if size > 0 else "—", desc)
+        console.print(files)
     else:
-        print(f"  {C_CYAN}(no host-side state found){C_RESET}")
+        console.print("  [muted]none found[/muted]")
 
-    def _docker_size(key):
-        return f"  ({_format_bytes(docker_sizes[key])})" if docker_sizes[key] > 0 else ""
+    # --- Docker objects ---
+    def _dsize(key):
+        return f"~{_format_bytes(docker_sizes[key])}" if docker_sizes[key] > 0 else ""
 
-    print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
-    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)"
-          f"{_docker_size('model_volumes')}")
-    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)"
-          f"{_docker_size('anon_volumes')}")
-    print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
-          f"tt-media-inference-server, chromadb/chroma{_docker_size('images')}")
-    print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
+    console.print("\n[bold]Docker[/bold]")
+    docker = _table()
+    docker.add_row("🐳", "Deployment containers", "", "vLLM, YOLO, … on tt_studio_network")
+    docker.add_row("💾", "Model-weight volumes", _dsize("model_volumes"), f"{_CLEANUP_VOLUME_PREFIX}*")
+    docker.add_row("💾", "Anonymous volumes", _dsize("anon_volumes"), "dangling (dev node_modules, …)")
+    docker.add_row("🐳", "Local images", _dsize("images"), "tt-studio, tt-inference-server, chroma")
+    console.print(docker)
 
+    # --- Browser ---
+    console.print("\n[bold]Browser[/bold]")
+    console.print("  🌐 [muted]chat history, theme, login — cleared on next page load[/muted]")
+
+    # --- Reclaim total + final warning ---
     if total_bytes > 0:
-        print(f"  {C_BOLD}Estimated disk to reclaim: {_format_bytes(total_bytes)}{C_RESET}")
-
-    print(f"\n{C_RED}{C_BOLD}This CANNOT be undone.{C_RESET}")
+        console.print(f"\n[bold]Reclaims ≈ {_format_bytes(total_bytes)}[/bold] [error]· cannot be undone[/error]")
+    else:
+        console.print("\n[error]This cannot be undone.[/error]")
 
     if not assume_yes:
-        try:
-            confirm = input(f"\n{C_YELLOW}Proceed? [y/N]: {C_RESET}").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            print(f"\n{C_YELLOW}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
-            return
-        if confirm not in ("y", "yes"):
-            print(f"\n{C_CYAN}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
-            return
+        while True:
+            try:
+                confirm = console.input("\n[warning]Proceed with full reset?[/warning] [muted](y/yes or n/no)[/muted] ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[warning]🛑 Aborted — nothing was deleted.[/warning]")
+                return
+            if confirm in ("y", "yes"):
+                break
+            if confirm in ("n", "no", ""):
+                console.print("\n[info]🛑 Aborted — nothing was deleted.[/info]")
+                return
+            console.print("[muted]Please answer y/yes or n/no.[/muted]")
     else:
-        print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
+        console.print("\n[muted]--yes passed; proceeding without prompt.[/muted]")
 
     console.print("\n[bold]🧹 Cleaning up TT Studio[/bold]")
     _cleanup_runtime(args, has_docker_access)
@@ -497,48 +578,47 @@ def cleanup_resources(args):
 
 def _cleanup_runtime(args, has_docker_access):
     """Tear down host services and compose containers. Deployment containers
-    (vLLM, TTS, STT, …) survive a plain ``--cleanup`` so loaded models keep
-    serving across a TT Studio restart; ``--cleanup-all`` still removes them
+    (vLLM, TTS, STT, …) survive a plain ``--stop`` so loaded models keep
+    serving across a TT Studio restart; ``--purge-all`` still removes them
     as part of the full reset."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
-    # Sudo prompts for password when we lack Docker access — the live spinner
-    # would clash with that prompt, so disable it in that case.
-    docker_spinner = has_docker_access
 
-    if full_cleanup:
-        # Deployment containers (vLLM, etc.) live outside compose — kill them first
-        # so the subsequent network removal and weight-directory deletion aren't
-        # blocked by running processes holding bind mounts open.
-        with step("Stopping deployments", spinner=docker_spinner) as s:
-            deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
-            s.detail(f"{deploys_removed} container(s)")
-    else:
-        with step("Preserving deployments", spinner=False) as s:
-            s.detail("use --cleanup-all to remove")
+    # Collapse the whole teardown into one step that resolves to a single line
+    # listing what was stopped. spinner=False because stopping host services may
+    # trigger a sudo password prompt (660 sockets / root-owned PID files), which
+    # a live spinner would clash with.
+    with step("Stopping services", spinner=False) as s:
+        stopped = []
 
-    docker_compose_cmd = build_docker_compose_command(
-        dev_mode=args.dev, show_hardware_info=False, quiet=True)
-    docker_compose_cmd.extend(["down", "-v"])
-    with step("Stopping containers", spinner=docker_spinner) as s:
+        # Plain --stop preserves deployments (summarised in the Preserved
+        # panel afterwards); --purge-all removes them first so the later
+        # network removal / weight deletion isn't blocked by running processes.
+        if full_cleanup:
+            removed = _remove_tt_studio_network_containers(has_docker_access)
+            if removed:
+                stopped.append(f"{removed} deployment(s)")
+
+        docker_compose_cmd = build_docker_compose_command(
+            dev_mode=args.dev, show_hardware_info=False, quiet=True)
+        docker_compose_cmd.extend(["down", "-v"])
         try:
             run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
+            stopped.append("containers")
         except Exception:
-            s.skip("nothing to stop")
+            pass
 
-    # Skip explicit network removal when deployments are preserved — they stay
-    # attached to ``tt_studio_network`` and need it for DNS resolution so the
-    # backend can reconnect after restart. ``compose down`` also tries to
-    # remove the network and fails silently when external containers hold it.
-    if full_cleanup:
-        with step("Removing network", spinner=docker_spinner) as s:
+        # Only --purge-all removes the network — preserved deployments stay
+        # attached to it for DNS so the backend can reconnect after a restart.
+        if full_cleanup:
             try:
                 run_docker_command(["docker", "network", "rm", "tt_studio_network"],
                                     use_sudo=not has_docker_access, capture_output=True)
+                stopped.append("network")
             except Exception:
-                s.skip("not present")
+                pass
 
-    with step("Stopping FastAPI server", spinner=False):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
-
-    with step("Stopping Docker Control", spinner=False):
         cleanup_docker_control_service(no_sudo=args.no_sudo)
+        stopped += ["FastAPI", "Docker Control"]
+
+        s.detail(" · ".join(stopped))

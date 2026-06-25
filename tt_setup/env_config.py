@@ -17,6 +17,7 @@ except ImportError:
     import urllib.request
     HAS_REQUESTS = False
 from dotenv import set_key, dotenv_values
+from rich.markup import escape as escape_markup
 from tt_setup.constants import *
 from tt_setup.console import console, is_verbose
 
@@ -151,7 +152,7 @@ def save_setup_config(config_dict):
             json.dump(config_dict, f, indent=2)
         # Silent — no need to show config file path to user
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not save setup configuration: {e}{C_RESET}")
+        console.print(f"[warning]⚠️  Warning: Could not save setup configuration: {e}[/warning]")
 
 
 def should_configure_var(var_name, current_value):
@@ -190,7 +191,7 @@ def save_preferences(prefs):
         with open(PREFS_FILE_PATH, 'w') as f:
             json.dump(prefs, f, indent=2)
     except IOError as e:
-        print(f"{C_YELLOW}Warning: Could not save preferences: {e}{C_RESET}")
+        console.print(f"[warning]Warning: Could not save preferences: {e}[/warning]")
 
 
 def save_preference(key, value):
@@ -224,50 +225,45 @@ def is_first_time_setup():
 
 def display_first_time_welcome():
     """Display welcome message for first-time setup."""
-    print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
-    print(f"{C_TT_PURPLE}{C_BOLD}           📝 First-Time Setup{C_RESET}")
-    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
-    print()
-    print(f"{C_CYAN}Welcome to TT Studio!{C_RESET}")
-    print()
     terms_url = "https://docs.tenstorrent.com/os-model-terms.html"
-    terms_link = f"\033]8;;{terms_url}\033\\{C_BLUE}\033[4mOS Model Terms{C_RESET}\033]8;;\033\\"
-    print(f"{C_BOLD}📄 Terms & Conditions{C_RESET}")
-    print(f"By proceeding, you agree to our {terms_link}")
-    print(f"  {C_WHITE}↳ {terms_url}{C_RESET}")
-    print()
-    print(f"{C_BOLD}TL;DR:{C_RESET}")
-    print(f"  • {C_GREEN}AS-IS:{C_RESET} These models are for demonstration; we don't guarantee their output.")
-    print(f"  • {C_GREEN}Liability:{C_RESET} Tenstorrent isn't responsible for damages or AI-generated content.")
-    print(f"  • {C_GREEN}Compliance:{C_RESET} You agree to follow the original creators' licenses.")
-    print()
+    terms_link = f"[link={terms_url}]OS Model Terms[/link]"
+    console.print()
+    console.print("[bold accent]📝 First-Time Setup[/bold accent]")
+    console.print()
+    console.print("[info]Welcome to TT Studio![/info]")
+    console.print()
+    console.print("[bold]📄 Terms & Conditions[/bold]")
+    console.print(f"By proceeding, you agree to our {terms_link}")
+    console.print(f"  [muted]↳ {terms_url}[/muted]")
+    console.print()
+    console.print("[bold]TL;DR:[/bold]")
+    console.print("  • [success]AS-IS:[/success] These models are for demonstration; we don't guarantee their output.")
+    console.print("  • [success]Liability:[/success] Tenstorrent isn't responsible for damages or AI-generated content.")
+    console.print("  • [success]Compliance:[/success] You agree to follow the original creators' licenses.")
+    console.print()
 
     # Terms acceptance confirmation
     while True:
-        response = input(f"{C_CYAN}Do you agree to these terms? [yes/no]: {C_RESET}").strip().lower()
+        response = input("Do you agree to these terms? [yes/no]: ").strip().lower()
         if response in ['n', 'no', '']:
-            print(f"{C_RED}Terms not accepted. Exiting TT-Studio.{C_RESET}")
+            console.print("[error]Terms not accepted. Exiting TT-Studio.[/error]")
             sys.exit(0)
         elif response in ['y', 'yes']:
-            print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            console.print("[success]Terms accepted. Continuing with setup...[/success]")
             save_preference("terms_accepted", True)
             break
         else:
-            print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
+            console.print("[warning]Please enter 'yes' (or 'y') or 'no' (or 'n').[/warning]")
 
-    print()
-    print(f"{C_TT_PURPLE}{C_BOLD}-----------------------------------------------------{C_RESET}")
-    print()
-    print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
-    print(f"  • We'll guide you through the initial setup")
-    print(f"  • Your responses will be saved for future runs")
-    print(f"  • Subsequent runs will be much faster and non-interactive")
-    print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
-    print()
-    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset your preference(s) and .env file.{C_RESET}")
-    print()
-    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
-    print()
+    console.print()
+    console.print("[info]ℹ️  What to expect:[/info]")
+    console.print("  • [muted]We'll guide you through the initial setup[/muted]")
+    console.print("  • [muted]Your responses will be saved for future runs[/muted]")
+    console.print("  • [muted]Subsequent runs will be much faster and non-interactive[/muted]")
+    console.print("  • [muted]You can reset your preferences anytime with[/muted] [bold]--reconfigure[/bold]")
+    console.print()
+    console.print("[warning]Note: You won't be asked these questions again unless you explicitly reset your preference(s) and .env file.[/warning]")
+    console.print()
 
 
 def ask_overwrite_preference(existing_vars, force_prompt=False):
@@ -294,15 +290,15 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     # Debug: Show what variables are being filtered
     placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
     if placeholder_vars:
-        print(f"{C_YELLOW}📋 Found placeholder values that will be configured: {list(placeholder_vars.keys())}{C_RESET}")
-    
+        console.print(f"[muted]📋 Found placeholder values that will be configured: {list(placeholder_vars.keys())}[/muted]")
+
     if not real_vars:
-        print(f"{C_YELLOW}All existing variables appear to be placeholders. Will configure all values.{C_RESET}")
+        console.print("[muted]All existing variables appear to be placeholders. Will configure all values.[/muted]")
         return True
-    
-    print(f"\n{C_CYAN}{C_BOLD}🔍 Configuration Status Check{C_RESET}")
-    print(f"{C_GREEN}✅ Found an existing TT Studio configuration with {len(real_vars)} configured variables:{C_RESET}")
-    print()
+
+    console.print("\n[bold info]🔍 Configuration Status Check[/bold info]")
+    console.print(f"[success]✅ Found an existing TT Studio configuration with {len(real_vars)} configured variables:[/success]")
+    console.print()
     
     # Group variables by category for better display
     core_vars = ["TT_STUDIO_ROOT", "HOST_PERSISTENT_STORAGE_VOLUME", "INTERNAL_PERSISTENT_STORAGE_VOLUME", "BACKEND_API_HOSTNAME"]
@@ -313,7 +309,7 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     def display_vars(category_name, var_list, emoji):
         category_vars = {k: v for k, v in real_vars.items() if k in var_list}
         if category_vars:
-            print(f"{C_BOLD}{emoji} {category_name}:{C_RESET}")
+            console.print(f"[bold]{emoji} {category_name}:[/bold]")
             for var_name, var_value in category_vars.items():
                 # Mask sensitive values only if they're not placeholders
                 if any(sensitive in var_name.lower() for sensitive in ['secret', 'token', 'password', 'key']):
@@ -324,43 +320,46 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
                         display_value = "***configured***"
                 else:
                     display_value = var_value[:50] + "..." if len(var_value) > 50 else var_value
-                print(f"    • {var_name}: {C_CYAN}{display_value}{C_RESET}")
-            print()
+                # display_value may contain literal brackets (e.g. [PLACEHOLDER: …]);
+                # escape it so Rich renders it as data, not markup.
+                safe_value = escape_markup(display_value)
+                console.print(f"    • {var_name}: [info]{safe_value}[/info]", highlight=False)
+            console.print()
     
     display_vars("Core Configuration", core_vars, "📁")
     display_vars("Security Credentials", security_vars, "🔐")
     display_vars("Application Settings", app_vars, "⚙️")
     display_vars("Cloud Model APIs", cloud_vars, "☁️")
-    
+
     # Add visual separator
-    print("=" * 80)
-    
-    print(f"{C_YELLOW}{C_BOLD}What would you like to do?{C_RESET}")
-    print()
-    print(f"  {C_GREEN}{C_BOLD}1 - Keep Existing Configuration (Recommended){C_RESET}")
-    print(f"    • Keep all current values as they are")
-    print(f"    • Only configure any missing or placeholder values")
-    print(f"    • Recommended for normal startup")
-    print()
-    print(f"  {C_ORANGE}{C_BOLD}2 - Reconfigure Everything{C_RESET}")
-    print(f"    • Go through setup prompts for ALL variables")
-    print(f"    • Replace existing values with new ones")
-    print(f"    • Use this if you want to change your configuration")
-    print()
-    
+    console.print("[muted]" + "=" * 80 + "[/muted]")
+
+    console.print("[bold info]What would you like to do?[/bold info]")
+    console.print()
+    console.print("  [bold success]1 - Keep Existing Configuration (Recommended)[/bold success]")
+    console.print("    [muted]• Keep all current values as they are[/muted]")
+    console.print("    [muted]• Only configure any missing or placeholder values[/muted]")
+    console.print("    [muted]• Recommended for normal startup[/muted]")
+    console.print()
+    console.print("  [bold accent]2 - Reconfigure Everything[/bold accent]")
+    console.print("    [muted]• Go through setup prompts for ALL variables[/muted]")
+    console.print("    [muted]• Replace existing values with new ones[/muted]")
+    console.print("    [muted]• Use this if you want to change your configuration[/muted]")
+    console.print()
+
     # Add another visual separator before input
-    print("=" * 80)
-    
+    console.print("[muted]" + "=" * 80 + "[/muted]")
+
     while True:
-        print(f"{C_WHITE}{C_BOLD}Choose an option:{C_RESET}")
-        print(f"  {C_GREEN}1{C_RESET} - Keep existing configuration (recommended)")
-        print(f"  {C_ORANGE}2{C_RESET} - Reconfigure everything")
-        print()
+        console.print("[bold]Choose an option:[/bold]")
+        console.print("  [success]1[/success] - Keep existing configuration (recommended)")
+        console.print("  [accent]2[/accent] - Reconfigure everything")
+        console.print()
         try:
-            choice = input(f"Enter your choice (1/2): ").strip()
+            choice = input("Enter your choice (1/2): ").strip()
         except KeyboardInterrupt:
-            print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
-            
+            console.print("\n\n[warning]🛑 Setup interrupted by user (Ctrl+C)[/warning]")
+
             # Build the original command with flags for resume suggestion
             original_cmd = "python run.py"
             if 'args' in locals():
@@ -372,30 +371,30 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
                     original_cmd += " --no-sudo"
                 if args.resync:
                     original_cmd += " --resync"
-            
-            print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
-            print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
-            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help or alternatively: python3 run.py --help{C_RESET}")
+
+            console.print(f"[info]🔄 To resume setup later, run:[/info] [bold]{original_cmd}[/bold]")
+            console.print("[info]🧹 To clean up any partial setup:[/info] [bold]python run.py --stop[/bold]")
+            console.print("[info]❓ For help:[/info] [bold]python run.py --help or alternatively: python3 run.py --help[/bold]")
             sys.exit(0)
-        
+
         if choice == "1":
-            print(f"\n{C_GREEN}✅ Keeping existing configuration. Only missing values will be configured.{C_RESET}")
+            console.print("\n[success]✅ Keeping existing configuration. Only missing values will be configured.[/success]")
             # Show which placeholder values will still need to be configured
             placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
             if placeholder_vars:
-                print(f"{C_CYAN}📝 Note: Placeholder values will still be prompted for configuration:{C_RESET}")
+                console.print("[info]📝 Note: Placeholder values will still be prompted for configuration:[/info]")
                 for var_name in placeholder_vars.keys():
-                    print(f"    • {var_name}")
-                print()
+                    console.print(f"    [muted]• {var_name}[/muted]")
+                console.print()
             save_preference("configuration_mode", "keep_existing")
             return False
         elif choice == "2":
-            print(f"\n{C_ORANGE}🔄 Will reconfigure all environment variables.{C_RESET}")
+            console.print("\n[accent]🔄 Will reconfigure all environment variables.[/accent]")
             save_preference("configuration_mode", "reconfigure_everything")
             return True
         else:
-            print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
-            print()
+            console.print("[error]❌ Please enter 1 to keep existing config or 2 to reconfigure everything.[/error]")
+            console.print()
 
 
 def _hf_check_repo(token, repo_id):
@@ -494,21 +493,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     
     if not env_file_exists:
         if os.path.exists(ENV_FILE_DEFAULT):
-            print(f"{C_BLUE}📄 No .env file found. Creating one from the default template...{C_RESET}")
+            console.print("[info]📄 No .env file found. Creating one from the default template...[/info]")
             shutil.copy(ENV_FILE_DEFAULT, ENV_FILE_PATH)
         else:
-            print(f"{C_YELLOW}⚠️  Warning: .env.default not found. Creating an empty .env file.{C_RESET}")
+            console.print("[warning]⚠️  Warning: .env.default not found. Creating an empty .env file.[/warning]")
             open(ENV_FILE_PATH, 'w').close()
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
 
     if not quick_setup:
-        print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
-        print(f"{C_GREEN}⚙️  Configure Env Mode: Full interactive setup for all variables{C_RESET}")
+        console.print("\n[bold accent]TT Studio Environment Configuration[/bold accent]")
+        console.print("[success]⚙️  Configure Env Mode: Full interactive setup for all variables[/success]")
         if dev_mode:
-            print(f"{C_YELLOW}   Development Mode: suggested defaults shown (NOT secure for production){C_RESET}")
+            console.print("[warning]   Development Mode: suggested defaults shown (NOT secure for production)[/warning]")
         else:
-            print(f"{C_CYAN}   Production Mode: prompting for secure, production-ready values{C_RESET}")
+            console.print("[info]   Production Mode: prompting for secure, production-ready values[/info]")
     
     # Get existing variables
     existing_vars = get_existing_env_vars()
@@ -520,7 +519,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         # No need to ask, we're configuring everything
         if not env_file_exists:
             if not quick_setup:
-                print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
+                console.print("\n[info]📝 Setting up TT Studio for the first time...[/info]")
             FORCE_OVERWRITE = True
         elif quick_setup:
             # In quick setup with existing .env, don't force overwrite - let individual checks handle it
@@ -529,18 +528,18 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             else:
                 FORCE_OVERWRITE = True
         else:
-            print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
+            console.print("\n[info]📝 No existing configuration found. Will configure all environment variables.[/info]")
             FORCE_OVERWRITE = True
 
     if not quick_setup:
-        print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
+        console.print("\n[info]📁 Setting core application paths...[/info]")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
     if not quick_setup:
-        print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
+        console.print("\n[bold accent]--- 🔑  Security Credentials  ---[/bold accent]")
 
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
@@ -549,22 +548,22 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
-            print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
+            console.print(f"[info]🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...[/info]")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
         prompt_text = f"🔐 Enter JWT_SECRET (for authentication to model endpoints){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
-        
+
         while True:
             val = getpass.getpass(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
                 write_env_var("JWT_SECRET", val.strip().strip('"\''), quote_value=False)
-                print("✅ JWT_SECRET saved.")
+                console.print("[success]✅ JWT_SECRET saved.[/success]")
                 break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            console.print("[error]⛔ This value cannot be empty.[/error]")
     else:
         if not quick_setup:
-            print(f"✅ JWT_SECRET already configured (keeping existing value).")
+            console.print("[success]✅ JWT_SECRET already configured (keeping existing value).[/success]")
 
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
@@ -573,21 +572,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
         if is_placeholder(current_django):
-            print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
+            console.print(f"[info]🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...[/info]")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
         prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django backend security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
-        
+
         while True:
             val = getpass.getpass(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
                 write_env_var("DJANGO_SECRET_KEY", val.strip().strip('"\''), quote_value=False)
-                print("✅ DJANGO_SECRET_KEY saved.")
+                console.print("[success]✅ DJANGO_SECRET_KEY saved.[/success]")
                 break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            console.print("[error]⛔ This value cannot be empty.[/error]")
     else:
-        print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
+        console.print("[success]✅ DJANGO_SECRET_KEY already configured (keeping existing value).[/success]")
 
     # TTS_API_KEY
     current_tts_api_key = get_env_var("TTS_API_KEY")
@@ -596,7 +595,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("TTS_API_KEY", "your-secret-key")
     elif should_configure_var("TTS_API_KEY", current_tts_api_key):
         if is_placeholder(current_tts_api_key):
-            print(f"🔄 TTS_API_KEY has placeholder value '{current_tts_api_key}' - configuring...")
+            console.print(f"[info]🔄 TTS_API_KEY has placeholder value '{current_tts_api_key}' - configuring...[/info]")
         dev_default = "your-secret-key" if dev_mode else ""
         prompt_text = f"🔑 Enter TTS_API_KEY (for TTS inference server authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
@@ -606,12 +605,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 val = dev_default
             if val and val.strip():
                 write_env_var("TTS_API_KEY", val)
-                print("✅ TTS_API_KEY saved.")
+                console.print("[success]✅ TTS_API_KEY saved.[/success]")
                 break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            console.print("[error]⛔ This value cannot be empty.[/error]")
     else:
         if not quick_setup:
-            print(f"✅ TTS_API_KEY already configured (keeping existing value).")
+            console.print("[success]✅ TTS_API_KEY already configured (keeping existing value).[/success]")
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
@@ -620,17 +619,17 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
         if is_placeholder(current_docker_url):
-            print(f"🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...")
+            console.print(f"[info]🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...[/info]")
         dev_default = "http://host.docker.internal:8002"
         prompt_text = f"🐳 Enter DOCKER_CONTROL_SERVICE_URL{' [default: ' + dev_default + ']' if dev_mode else ' (default: http://host.docker.internal:8002)'}: "
         val = input(prompt_text)
         if not val:
             val = dev_default
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
-        print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
+        console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL saved.[/success]")
     else:
         if not quick_setup:
-            print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+            console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).[/success]")
 
     # DOCKER_CONTROL_JWT_SECRET
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
@@ -639,7 +638,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
         if is_placeholder(current_docker_jwt):
-            print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
+            console.print(f"[info]🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...[/info]")
         dev_default = "dev-docker-jwt-secret-12345-not-for-production" if dev_mode else ""
         prompt_text = f"🔐 Enter DOCKER_CONTROL_JWT_SECRET (for Docker Control Service authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
@@ -649,12 +648,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 val = dev_default
             if val and val.strip():
                 write_env_var("DOCKER_CONTROL_JWT_SECRET", val.strip().strip('"\''), quote_value=False)
-                print("✅ DOCKER_CONTROL_JWT_SECRET saved.")
+                console.print("[success]✅ DOCKER_CONTROL_JWT_SECRET saved.[/success]")
                 break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            console.print("[error]⛔ This value cannot be empty.[/error]")
     else:
         if not quick_setup:
-            print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+            console.print("[success]✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).[/success]")
 
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
@@ -665,18 +664,18 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
         val = getpass.getpass(prompt_text)
         write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
-        print("✅ TAVILY_API_KEY saved.")
+        console.print("[success]✅ TAVILY_API_KEY saved.[/success]")
     else:
         if not quick_setup:
-            print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
+            console.print("[success]✅ TAVILY_API_KEY already configured (keeping existing value).[/success]")
 
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
     needs_token = should_configure_var("HF_TOKEN", current_hf)
 
     if quick_setup and needs_token:
-        print(f"\n{C_CYAN}A Hugging Face token is required to download models like Llama.{C_RESET}")
-        print(f"{C_CYAN}Get yours at: https://huggingface.co/settings/tokens{C_RESET}\n")
+        console.print("\n[info]A Hugging Face token is required to download models like Llama.[/info]")
+        console.print("[info]Get yours at: https://huggingface.co/settings/tokens[/info]\n")
 
     retrying = False
     while True:
@@ -686,33 +685,33 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 val = getpass.getpass(prompt)
                 if not val or not val.strip():
                     # Keep existing token, continue without access
-                    print(f"{C_YELLOW}⚠️  Continuing with existing token. Re-run once you have access.{C_RESET}")
+                    console.print("[warning]⚠️  Continuing with existing token. Re-run once you have access.[/warning]")
                     break
             else:
                 prompt = "🤗 Enter HF_TOKEN: " if quick_setup else "🤗 Enter HF_TOKEN (Hugging Face token): "
                 val = getpass.getpass(prompt)
                 if not val or not val.strip():
-                    print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+                    console.print("[error]⛔ This value cannot be empty.[/error]")
                     continue
             val = val.strip().strip('"\'')
             write_env_var("HF_TOKEN", val, quote_value=False)
-            print("✅ HF_TOKEN saved.")
+            console.print("[success]✅ HF_TOKEN saved.[/success]")
         else:
             val = current_hf
             if not quick_setup:
-                print(f"✅ HF_TOKEN already configured (keeping existing value).")
+                console.print("[success]✅ HF_TOKEN already configured (keeping existing value).[/success]")
 
         status, hf_results = check_hf_access(val)
         render_hf_access(status, hf_results)
         if status is False:
-            print()
-            print(f"   1. Enter a different token now")
-            print(f"   2. Continue with this token once access is granted, then re-run: python run.py")
+            console.print()
+            console.print("   [muted]1. Enter a different token now[/muted]")
+            console.print("   [muted]2. Continue with this token once access is granted, then re-run: python run.py[/muted]")
             while True:
                 choice = input("Choose (1 or 2): ").strip()
                 if choice in ("1", "2"):
                     break
-                print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
+                console.print("[error]⛔ Enter 1 or 2.[/error]")
             if choice == "1":
                 needs_token = True
                 retrying = True
@@ -721,7 +720,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         break
 
     if not quick_setup:
-        print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
+        console.print("\n[bold accent]--- ⚙️  Application Configuration  ---[/bold accent]")
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
@@ -732,13 +731,13 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
         val = input(f"📝 Enter application title (default: {dev_default}): ") or dev_default
         write_env_var("VITE_APP_TITLE", val)
-        print("✅ VITE_APP_TITLE saved.")
+        console.print("[success]✅ VITE_APP_TITLE saved.[/success]")
     else:
         if not quick_setup:
-            print(f"✅ VITE_APP_TITLE already configured: {current_title}")
+            console.print(f"[success]✅ VITE_APP_TITLE already configured:[/success] [muted]{escape_markup(current_title)}[/muted]")
 
     if not quick_setup:
-        print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
+        console.print("\n[bold info]------------------ Mode Selection ------------------[/bold info]")
 
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
@@ -746,23 +745,23 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
             write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
-        print("Enable AI Playground Mode? (Connects to external cloud models)")
+        console.print("[info]Enable AI Playground Mode? (Connects to external cloud models)[/info]")
         dev_default = "false" if dev_mode else "false"
-        
+
         while True:
             val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
             if val in ["true", "false"]:
                 write_env_var("VITE_ENABLE_DEPLOYED", val, quote_value=False)
-                print("✅ VITE_ENABLE_DEPLOYED saved.")
+                console.print("[success]✅ VITE_ENABLE_DEPLOYED saved.[/success]")
                 break
-            print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+            console.print("[error]⛔ Invalid input. Please enter 'true' or 'false'.[/error]")
     else:
         if not quick_setup:
-            print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
+            console.print(f"[success]✅ VITE_ENABLE_DEPLOYED already configured:[/success] [muted]{current_deployed}[/muted]")
 
     is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
     if not quick_setup:
-        print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
+        console.print(f"[info]🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}[/info]")
 
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
@@ -770,23 +769,23 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
             write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
-        print("\nEnable RAG document management admin page?")
+        console.print("\n[info]Enable RAG document management admin page?[/info]")
         dev_default = "false" if dev_mode else "false"
-        
+
         while True:
             val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
             if val in ["true", "false"]:
                 write_env_var("VITE_ENABLE_RAG_ADMIN", val, quote_value=False)
-                print("✅ VITE_ENABLE_RAG_ADMIN saved.")
+                console.print("[success]✅ VITE_ENABLE_RAG_ADMIN saved.[/success]")
                 break
-            print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+            console.print("[error]⛔ Invalid input. Please enter 'true' or 'false'.[/error]")
     else:
         if not quick_setup:
-            print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
+            console.print(f"[success]✅ VITE_ENABLE_RAG_ADMIN already configured:[/success] [muted]{current_rag}[/muted]")
 
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
     if not quick_setup:
-        print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
+        console.print(f"[info]🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}[/info]")
 
     # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in quick setup)
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
@@ -798,18 +797,18 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             dev_default = "dev-admin-123" if dev_mode else ""
             prompt_text = f"Enter RAG_ADMIN_PASSWORD{' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
             
-            print("🔒 RAG admin is enabled. You must set a password.")
+            console.print("[info]🔒 RAG admin is enabled. You must set a password.[/info]")
             while True:
                 val = getpass.getpass(prompt_text)
                 if not val and dev_mode:
                     val = dev_default
                 if val and val.strip():
                     write_env_var("RAG_ADMIN_PASSWORD", val.strip().strip('"\''), quote_value=False)
-                    print("✅ RAG_ADMIN_PASSWORD saved.")
+                    console.print("[success]✅ RAG_ADMIN_PASSWORD saved.[/success]")
                     break
-                print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
+                console.print("[error]⛔ Password cannot be empty.[/error]")
         else:
-            print(f"✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).")
+            console.print("[success]✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).[/success]")
 
     # Cloud/External model configuration
     cloud_vars = [
@@ -829,9 +828,9 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if should_configure_var(var_name, current_val):
                 write_env_var(var_name, "")
     elif is_deployed_mode:
-        print(f"\n{C_TT_PURPLE}{C_BOLD}--- ☁️  AI Playground Model Configuration  ---{C_RESET}")
-        print(f"{C_YELLOW}Note: These are optional. Press Enter to skip any field.{C_RESET}")
-        
+        console.print("\n[bold accent]--- ☁️  AI Playground Model Configuration  ---[/bold accent]")
+        console.print("[warning]Note: These are optional. Press Enter to skip any field.[/warning]")
+
         for var_name, prompt, is_secret in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
@@ -841,12 +840,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                     val = input(f"{prompt} (optional): ")
                 write_env_var(var_name, val or "")
                 status = "saved" if val else "skipped (empty)"
-                print(f"✅ {var_name} {status}.")
+                console.print(f"[success]✅ {var_name} {status}.[/success]")
             else:
-                print(f"✅ {var_name} already configured (keeping existing value).")
+                console.print(f"[success]✅ {var_name} already configured (keeping existing value).[/success]")
     else:
         if not quick_setup:
-            print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
+            console.print("\n[warning]Skipping cloud model configuration (AI Playground mode is disabled).[/warning]")
 
     # Frontend configuration (always set in quick setup, optional otherwise)
     if quick_setup:
@@ -863,7 +862,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # TT Inference Server Artifact Configuration
     if not quick_setup:
-        print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
+        console.print("\n[bold accent]--- 🔧 TT Inference Server Configuration  ---[/bold accent]")
     configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
     console.print("[success]✓[/success] Environment configured")

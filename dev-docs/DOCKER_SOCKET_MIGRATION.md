@@ -396,7 +396,7 @@ tt_studio_backend:
 
 **2. Restart containers:**
 ```bash
-python3 run.py --cleanup
+python3 run.py --stop
 python3 run.py
 ```
 

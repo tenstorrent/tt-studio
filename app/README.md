@@ -69,7 +69,7 @@ docker compose \
   down
 ```
 
-Or just use `python3 run.py --cleanup` from the repo root.
+Or just use `python3 run.py --stop` from the repo root.
 
 ## Environment variables
 

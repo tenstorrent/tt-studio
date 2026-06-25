@@ -56,6 +56,22 @@ def real_console():
     return _real_console
 
 
+def progress_status(label):
+    """A transient live spinner bound to the real terminal — a Rich-native
+    replacement for hand-rolled `\\r`/escape-code progress loops.
+
+    Use as a context manager and update the message as work proceeds:
+
+        with progress_status("Waiting for backend…") as status:
+            ...
+            status.update("Waiting for backend… (12s)")
+
+    Renders via the real terminal so it survives step()'s stdout capture, and
+    auto-disables (no spinner, no escape codes) on a non-TTY / piped log.
+    """
+    return _real_console.status(f"[muted]{label}[/muted]", spinner="dots")
+
+
 def is_verbose():
     """True when --verbose/-v is active. Lets legacy modules gate extra detail."""
     return VERBOSE
@@ -169,6 +185,57 @@ def ready_panel(title, rows, footer_lines=None):
         box=box.ROUNDED,
         padding=(1, 2),
         width=_panel_width(),
+    )
+
+
+def kept_panel(title, rows, footer_lines=None):
+    """A content-sized panel for 'what was preserved' summaries (e.g. after
+    --stop). Muted border (distinct from the accent ready card) signals
+    secondary state; `expand=False` keeps it compact, not hollow.
+
+    - title: Rich-markup string shown in the top border (caller styles it).
+    - rows: list of (label, value), both Rich-markup strings the caller styles
+      (labels readable, values can grey out secondary bits / accent a live count).
+    - footer_lines: optional Rich-markup strings under the grid.
+    """
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column()
+    grid.add_column()
+    for label, value in rows:
+        grid.add_row(label, value)
+
+    body = [grid]
+    if footer_lines:
+        body.append("")
+        body.extend(footer_lines)
+
+    return Panel(
+        Group(*body),
+        title=title,
+        title_align="left",
+        border_style="muted",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        expand=False,
+    )
+
+
+def notice_panel(title, lines, border_style="accent"):
+    """A compact, content-sized panel with a styled border and body lines —
+    used for headers/callouts (e.g. the red --purge-all danger header).
+
+    - title: Rich-markup string shown in the top border.
+    - lines: list of Rich-markup strings stacked in the body.
+    - border_style: theme style for the border (e.g. "error", "accent").
+    """
+    return Panel(
+        Group(*lines),
+        title=title,
+        title_align="left",
+        border_style=border_style,
+        box=box.ROUNDED,
+        padding=(1, 2),
+        expand=False,
     )
 
 

@@ -3,12 +3,15 @@
 
 """Low-level shell/output helpers: command execution, preflight checks, banners."""
 
+import json
 import os
+import shutil
+import signal
 import sys
 import subprocess
 import socket
 from tt_setup.constants import *
-from tt_setup.console import console, welcome_panel
+from tt_setup.console import console, notice_panel, welcome_panel
 
 
 def clear_lines(n):
@@ -26,14 +29,14 @@ def run_command(command, check=False, cwd=None, capture_output=True, shell=False
         cmd_str = command if shell else ' '.join(command)
         return subprocess.run(command, check=check, cwd=cwd, text=True, capture_output=capture_output, shell=shell)
     except FileNotFoundError as e:
-        print(f"{C_RED}⛔ Error: Command not found: {e.filename}{C_RESET}")
+        console.print(f"[error]⛔ Error: Command not found: {e.filename}[/error]")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         # Don't exit if check=False, just return the result
         if check:
-            print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
+            console.print(f"[error]⛔ Error executing command: {cmd_str}[/error]")
             if capture_output:
-                print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
+                console.print(f"[error]Stderr: {e.stderr}[/error]")
             sys.exit(1)
         return e
 
@@ -48,7 +51,7 @@ def run_preflight_checks():
     # 1. Python version
     major, minor = sys.version_info[:2]
     if (major, minor) < (3, 8):
-        print(f"{C_RED}⛔ Python {major}.{minor} detected. TT Studio requires Python 3.8+.{C_RESET}")
+        console.print(f"[error]⛔ Python {major}.{minor} detected. TT Studio requires Python 3.8+.[/error]")
         sys.exit(1)
 
     # 2. Disk space
@@ -81,12 +84,67 @@ def run_preflight_checks():
         warnings.append("Cannot reach Docker Hub — builds may fail if images need pulling")
 
     if warnings:
-        print(f"\n{C_YELLOW}⚠️  Pre-flight warnings:{C_RESET}")
-        for w in warnings:
-            print(f"  {C_YELLOW}• {w}{C_RESET}")
-        print()
+        console.print(notice_panel(
+            "[bold]⚠  Pre-flight warnings[/bold]",
+            [f"[warning]• {w}[/warning]" for w in warnings],
+            border_style="warning",
+        ))
 
     return True
+
+
+def check_tt_smi(timeout=20):
+    """Run `tt-smi -s` as a fast preflight health probe for Tenstorrent devices.
+
+    Mirrors board_control.services.get_tt_smi_data: spawns tt-smi in its own
+    process group so a hung call can be killed cleanly. Returns a tuple
+    (status, detail) where status is "ok" or "bad". On success, detail is a
+    short "N device(s)" summary (or "" if unknown); on failure it's a short
+    reason. NEVER raises — callers can treat this as a non-fatal check.
+    """
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            ["tt-smi", "-s"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+        )
+        try:
+            stdout, _stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                if hasattr(os, "killpg"):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
+            except Exception:
+                pass
+            return ("bad", f"timed out after {timeout}s")
+
+        if proc.returncode != 0:
+            return ("bad", f"exit {proc.returncode}")
+
+        try:
+            data = json.loads(stdout)
+        except (ValueError, TypeError):
+            return ("bad", "unreadable output")
+
+        try:
+            n = len(data.get("device_info", []) or [])
+            detail = f"{n} device(s)" if n else ""
+        except Exception:
+            detail = ""
+        return ("ok", detail)
+    except Exception:
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        return ("bad", "unreadable output")
 
 
 def copy_to_clipboard(text):
@@ -152,7 +210,7 @@ def display_welcome_banner(dev_mode=False):
     sections = [
         ("Getting started", [
             f"{'Open':<9}http://localhost:3000",
-            f"{'Stop':<9}python run.py --cleanup",
+            f"{'Stop':<9}python run.py --stop",
         ]),
     ]
     title = f"TT Studio · {branch}" if branch else "TT Studio"

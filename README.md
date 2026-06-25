@@ -48,7 +48,7 @@ python3 run.py
 Two flags are worth knowing:
 
 - **`python3 run.py --dev`** — development mode: mounts your local source so the backend and frontend hot-reload as you edit.
-- **`python3 run.py --cleanup-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--cleanup` instead to stop the containers but keep your data.)
+- **`python3 run.py --purge-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--stop` instead to stop the containers but keep your data.)
 
 That's all most people need. Everything else — hardware modes, environment variables, the dev workflow, remote access, and troubleshooting — lives in the **[detailed setup guide](dev-docs/detailed-setup.md)**.
 

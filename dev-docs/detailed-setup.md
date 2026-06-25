@@ -51,8 +51,8 @@ Plain `python3 run.py` does the full standard setup:
 | Flag | Purpose |
 | --- | --- |
 | `--dev` | Dev mode — applies the `docker-compose.dev-mode.yml` overlay, mounts local source, enables hot reload |
-| `--cleanup` | Stop and remove containers (keeps your data) |
-| `--cleanup-all` | Cleanup **and** wipe the persistent volume and `.env` — a clean slate |
+| `--stop` | Stop and remove containers (keeps your data) — deprecated alias: `--cleanup` |
+| `--purge-all` | Stop **and** wipe the persistent volume and `.env` — a clean slate — deprecated alias: `--cleanup-all` |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (disables LLM deployment) |
 | `--skip-docker-control` | Don't start the docker-control-service |
 | `--no-sudo` | Skip sudo prompts (some features won't be available) |
@@ -84,7 +84,7 @@ TT-Studio composes from a base file plus zero or more **overlays**. `run.py` pic
 >   down
 > ```
 >
-> Or just use `python3 run.py --cleanup`, which handles this for you.
+> Or just use `python3 run.py --stop`, which handles this for you.
 
 ### QB2 / Blackhole notes
 

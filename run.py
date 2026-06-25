@@ -14,8 +14,8 @@ Usage:
 
 Options:
     --dev              Development mode with suggested defaults
-    --cleanup          Clean up Docker containers and networks
-    --cleanup-all      Clean up everything including persistent data
+    --stop             Stop Docker containers and networks
+    --purge-all        Stop and wipe everything including persistent data
     --skip-fastapi     Skip TT Inference Server FastAPI setup
     --no-sudo          Skip sudo usage for FastAPI setup
     --check-headers       Check for missing SPDX license headers

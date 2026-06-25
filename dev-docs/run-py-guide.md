@@ -37,8 +37,8 @@ The script will guide you through all configuration options and set up everythin
 | `--help`        | Display help message with usage details.                                     |
 | `--dev`         | Run in development mode with suggested defaults.                             |
 | `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
-| `--cleanup`     | Stop and remove all Docker services.                                         |
-| `--cleanup-all` | Clean up everything including persistent data and .env file.                 |
+| `--stop`        | Stop and remove all Docker services. (Deprecated alias: `--cleanup`.)        |
+| `--purge-all`   | Stop and wipe everything including persistent data and .env file. (Deprecated alias: `--cleanup-all`.) |
 | `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
 | `--no-sudo`     | Skip sudo usage for FastAPI setup.                                           |
 | `--help-env`    | Show help for environment variables.                                         |
@@ -177,7 +177,7 @@ If you started with the default setup and want to switch to a production-ready s
 
 1. **Stop TT-Studio** (if running):
    ```bash
-   python3 run.py --cleanup
+   python3 run.py --stop
    ```
 
 2. **Reconfigure with secure values**:
@@ -362,12 +362,12 @@ python run.py --dev
 
 ### Stopping and Cleaning Up
 ```bash
-python run.py --cleanup
+python run.py --stop
 ```
 
 ### Complete Cleanup (including data)
 ```bash
-python run.py --cleanup-all
+python run.py --purge-all
 ```
 
 ### Running on Remote Machine

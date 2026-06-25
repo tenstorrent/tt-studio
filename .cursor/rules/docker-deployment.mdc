@@ -43,7 +43,7 @@ python run.py
 python run.py --dev
 
 # Cleanup containers and services
-python run.py --cleanup
+python run.py --stop
 ```
 
 ## Docker Best Practices

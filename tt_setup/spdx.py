@@ -5,7 +5,10 @@
 
 from pathlib import Path
 from datetime import datetime
+from rich.table import Table
+from rich.text import Text
 from tt_setup.constants import *
+from tt_setup.console import console, notice_panel
 
 
 def get_spdx_header_type(file_path):
@@ -100,12 +103,12 @@ def add_spdx_header_to_file(file_path, headers):
             if "SPDX-License-Identifier" not in content:
                 file.seek(0, 0)
                 file.write(header + "\n" + content)
-                print(f"{C_GREEN}✅ Added SPDX header to: {file_path}{C_RESET}")
+                console.print(f"[success]✅ Added SPDX header to: {file_path}[/success]")
                 return True
             else:
                 return False
     except Exception as e:
-        print(f"{C_RED}❌ Error processing {file_path}: {e}{C_RESET}")
+        console.print(f"[error]❌ Error processing {file_path}: {e}[/error]")
         return False
 
 
@@ -113,34 +116,34 @@ def check_spdx_headers():
     """
     Check for missing SPDX headers in the codebase (excluding frontend).
     """
-    print(f"{C_BLUE}{C_BOLD}🔍 Checking for missing SPDX license headers...{C_RESET}")
-    
+    console.print("[info]🔍 Checking for missing SPDX license headers...[/info]")
+
     repo_root = Path(TT_STUDIO_ROOT)
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "agent", 
+        repo_root / "app" / "agent",
         repo_root / "app" / "frontend",
         repo_root / "dev-tools",
         repo_root / "models",
         repo_root / "docs",
         repo_root,  # Root level files (like run.py, startup.sh)
     ]
-    
+
     missing_headers = []
     total_files_checked = 0
-    
+
     for directory in directories_to_process:
         if not directory.exists():
-            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            console.print(f"[muted]⚠️  Directory does not exist: {directory}[/muted]")
             continue
-            
-        print(f"{C_CYAN}📁 Checking directory: {directory}{C_RESET}")
+
+        console.print(f"[muted]📁 Checking directory: {directory}[/muted]")
         for file_path in directory.rglob("*"):
             if file_path.is_file():
                 # Skip files in excluded directories
                 if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
                     continue
-                    
+
                 # Check if the file is a supported type
                 if get_spdx_header_type(file_path) is not None:
                     total_files_checked += 1
@@ -150,22 +153,35 @@ def check_spdx_headers():
                             if "SPDX-License-Identifier" not in content:
                                 missing_headers.append(str(file_path))
                     except Exception as e:
-                        print(f"{C_YELLOW}⚠️  Could not read {file_path}: {e}{C_RESET}")
-    
-    print(f"\n{C_BLUE}📊 SPDX Header Check Results:{C_RESET}")
-    print(f"  Total files checked: {total_files_checked}")
-    print(f"  Files with missing headers: {len(missing_headers)}")
-    
+                        console.print(f"[muted]⚠️  Could not read {file_path}: {e}[/muted]")
+
     if missing_headers:
-        print(f"\n{C_RED}{C_BOLD}❌ Files missing SPDX headers:{C_RESET}")
+        summary = [
+            f"[muted]Total files checked:[/muted] {total_files_checked}",
+            f"[warning]Files with missing headers:[/warning] {len(missing_headers)}",
+            "",
+            "[muted]To add missing headers, run:[/muted] python run.py --add-headers",
+        ]
+        console.print(notice_panel(
+            "[warning]❌ Missing SPDX headers[/warning]",
+            summary,
+            border_style="warning",
+        ))
+        missing_table = Table(box=None, show_header=True, header_style="bold")
+        missing_table.add_column("File missing SPDX header", style="error")
         for file_path in missing_headers:
-            print(f"  {C_RED}• {file_path}{C_RESET}")
-        print(f"\n{C_CYAN}💡 To add missing headers, run: {C_WHITE}python run.py --add-headers{C_RESET}")
-        print(f"   {C_CYAN}or alternatively:{C_RESET}")
-        print(f"   {C_CYAN}python3 run.py --add-headers{C_RESET}")
+            missing_table.add_row(Text(file_path))
+        console.print(missing_table)
         return False
     else:
-        print(f"\n{C_GREEN}{C_BOLD}✅ All files have proper SPDX license headers!{C_RESET}")
+        console.print(notice_panel(
+            "[success]✅ SPDX headers[/success]",
+            [
+                f"[muted]Total files checked:[/muted] {total_files_checked}",
+                "[success]All files have proper SPDX license headers![/success]",
+            ],
+            border_style="success",
+        ))
         return True
 
 
@@ -173,45 +189,51 @@ def add_spdx_headers():
     """
     Add missing SPDX headers to all source files (excluding frontend).
     """
-    print(f"{C_BLUE}{C_BOLD}📝 Adding missing SPDX license headers...{C_RESET}")
-    
+    console.print("[info]📝 Adding missing SPDX license headers...[/info]")
+
     repo_root = Path(TT_STUDIO_ROOT)
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "agent", 
+        repo_root / "app" / "agent",
         repo_root / "dev-tools",
         repo_root / "models",
         repo_root / "docs",
         repo_root,  # Root level files (like run.py, startup.sh)
     ]
-    
+
     headers = get_spdx_headers()
     files_modified = 0
     total_files_checked = 0
-    
+
     for directory in directories_to_process:
         if not directory.exists():
-            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            console.print(f"[muted]⚠️  Directory does not exist: {directory}[/muted]")
             continue
-            
-        print(f"{C_CYAN}📁 Processing directory: {directory}{C_RESET}")
+
+        console.print(f"[muted]📁 Processing directory: {directory}[/muted]")
         for file_path in directory.rglob("*"):
             if file_path.is_file():
                 # Skip files in excluded directories
                 if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
                     continue
-                    
+
                 # Check if the file is a supported type
                 if get_spdx_header_type(file_path) is not None:
                     total_files_checked += 1
                     if add_spdx_header_to_file(file_path, headers):
                         files_modified += 1
-    
-    print(f"\n{C_BLUE}📊 SPDX Header Addition Results:{C_RESET}")
-    print(f"  Total files checked: {total_files_checked}")
-    print(f"  Files modified: {files_modified}")
-    
+
     if files_modified > 0:
-        print(f"\n{C_GREEN}{C_BOLD}✅ Successfully added SPDX headers to {files_modified} files!{C_RESET}")
+        result_line = f"[success]Successfully added SPDX headers to {files_modified} files![/success]"
     else:
-        print(f"\n{C_GREEN}{C_BOLD}✅ All files already have proper SPDX license headers!{C_RESET}")
+        result_line = "[success]All files already have proper SPDX license headers![/success]"
+    console.print(notice_panel(
+        "[success]📊 SPDX Header Addition Results[/success]",
+        [
+            f"[muted]Total files checked:[/muted] {total_files_checked}",
+            f"[muted]Files modified:[/muted] {files_modified}",
+            "",
+            result_line,
+        ],
+        border_style="success",
+    ))
