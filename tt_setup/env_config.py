@@ -18,6 +18,7 @@ except ImportError:
     HAS_REQUESTS = False
 from dotenv import set_key, dotenv_values
 from tt_setup.constants import *
+from tt_setup.console import console, is_verbose
 
 
 def configure_inference_server_artifact(*args, **kwargs):
@@ -135,10 +136,12 @@ def set_app_version_env():
     write_env_var("VITE_APP_VERSION", version)
     write_env_var("VITE_APP_GIT_BRANCH", branch)
 
+    # Low-priority provenance: show a muted one-liner for official releases;
+    # the unofficial-branch note is detail, shown only with --verbose.
     if version:
-        print(f"{C_GREEN}✅ Build version: {version} (official release){C_RESET}")
-    elif branch:
-        print(f"{C_CYAN}ℹ️  Build version: {branch} branch (unofficial build){C_RESET}")
+        console.print(f"[muted]Build {version} · official release[/muted]")
+    elif branch and is_verbose():
+        console.print(f"[muted]Build {branch} · unofficial build[/muted]")
 
 
 def save_setup_config(config_dict):
@@ -416,48 +419,54 @@ def _hf_check_repo(token, repo_id):
 
 
 def check_hf_access(token):
-    """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
+    """Check if the HF token can access the gated model repos.
+
+    Returns (status, results):
+      - status: True if any repo is accessible, False if the token is
+        invalid/denied, None if HuggingFace was unreachable for every repo.
+      - results: list of (label, repo_id, http_code) per repo (code None =
+        unreachable). The caller renders this — one calm line by default, the
+        full per-repo breakdown on failure or with --verbose.
+    """
     repos = [
         ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
         ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
         ("Qwen/Qwen3-32B", "Qwen3-32B"),
     ]
-    results = []
-    for repo_id, label in repos:
-        code = _hf_check_repo(token, repo_id)
-        results.append((label, repo_id, code))
+    results = [(label, repo_id, _hf_check_repo(token, repo_id)) for repo_id, label in repos]
 
-    if all(c is None for _, _, c in results):
-        return (None, "⚠️  Could not reach HuggingFace — skipping access check.")
+    codes = [code for _, _, code in results]
+    if all(c is None for c in codes):
+        return (None, results)
+    if any(c == 401 for c in codes) or any(c == 403 for c in codes):
+        return (False, results)
+    if any(c == 200 for c in codes):
+        return (True, results)
+    return (None, results)
 
-    lines = []
-    any_ok = False
-    any_denied = False
-    invalid = False
+
+def render_hf_access(status, results):
+    """Render check_hf_access() output through the theme: one ✓ line when all
+    good (unless --verbose), otherwise the full per-repo breakdown."""
+    ok_labels = [label for label, _, code in results if code == 200]
+    if all(code is None for _, _, code in results):
+        console.print("[muted]🤗 HuggingFace: couldn't reach to verify access — continuing[/muted]")
+        return
+    if status and not is_verbose():
+        console.print(f"[success]✓[/success] HuggingFace access [muted]· {', '.join(ok_labels)}[/muted]")
+        return
+    console.print("[info]🤗 HuggingFace access:[/info]")
     for label, repo_id, code in results:
-        if code is None:
-            lines.append(f"   ⚠️  {label}: could not reach HuggingFace")
-        elif code == 200:
-            lines.append(f"   ✅ {label}: access confirmed")
-            any_ok = True
+        if code == 200:
+            console.print(f"  [success]✓[/success] {label}: confirmed")
         elif code == 401:
-            lines.append(f"   ✖  {label}: token invalid or expired (401)")
-            invalid = True
+            console.print(f"  [error]✗[/error] {label}: token invalid or expired (401)")
         elif code == 403:
-            lines.append(f"   ✖  {label}: access not granted yet (403) — https://huggingface.co/{repo_id}")
-            any_denied = True
+            console.print(f"  [error]✗[/error] {label}: access not granted yet (403) — https://huggingface.co/{repo_id}")
+        elif code is None:
+            console.print(f"  [warning]…[/warning] {label}: couldn't reach HuggingFace")
         else:
-            lines.append(f"   ⚠️  {label}: unexpected HTTP {code}")
-
-    summary = "\n".join(lines)
-    if invalid:
-        return (False, f"HF token access check:\n{summary}")
-    elif any_denied:
-        return (False, f"HF token access check:\n{summary}")
-    elif any_ok:
-        return (True, f"HF token access check:\n{summary}")
-    else:
-        return (None, f"HF token access check:\n{summary}")
+            console.print(f"  [warning]…[/warning] {label}: unexpected HTTP {code}")
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
@@ -693,9 +702,9 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not quick_setup:
                 print(f"✅ HF_TOKEN already configured (keeping existing value).")
 
-        ok, msg = check_hf_access(val)
-        print(msg)
-        if ok is False:
+        status, hf_results = check_hf_access(val)
+        render_hf_access(status, hf_results)
+        if status is False:
             print()
             print(f"   1. Enter a different token now")
             print(f"   2. Continue with this token once access is granted, then re-run: python run.py")
@@ -857,4 +866,4 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
     configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
-    print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
+    console.print("[success]✓[/success] Environment configured")

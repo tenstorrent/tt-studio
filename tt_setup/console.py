@@ -16,8 +16,12 @@ import contextlib
 import io
 import sys
 
-from rich.console import Console
+from rich import box
+from rich.console import Console, Group
+from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn
+from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
 
 TT_THEME = Theme({
@@ -27,6 +31,9 @@ TT_THEME = Theme({
     "error": "bold red",
     "muted": "dim",
     "tt": "magenta",
+    # Brand accent — matches the legacy C_TT_PURPLE (\033[38;5;99m). Used for
+    # panel borders/titles so the launcher reads as one cohesive theme.
+    "accent": "color(99)",
 })
 
 console = Console(theme=TT_THEME)
@@ -47,6 +54,90 @@ def set_verbose(value):
 def real_console():
     """Console bound to the real terminal (survives step()'s stdout capture)."""
     return _real_console
+
+
+def is_verbose():
+    """True when --verbose/-v is active. Lets legacy modules gate extra detail."""
+    return VERBOSE
+
+
+def _vdivider(height):
+    """A full-height vertical divider for a two-column grid row (accent-colored)."""
+    return "\n".join("[accent]│[/accent]" for _ in range(max(height, 1)))
+
+
+def welcome_panel(title, left_lines, sections, logo=None):
+    """Build the Claude-Code-style launch panel: title in the top border, an
+    optional centered logo band, then a two-column body (left context | divider
+    | headed right sections).
+
+    - title: text shown in the top border (e.g. "TT Studio · main").
+    - left_lines: list of Rich-markup strings stacked in the left column.
+    - sections: list of (heading, [item, ...]) rendered in the right column,
+      each heading bold-accent, items muted, separated by a thin rule.
+    - logo: optional multi-line ASCII string, centered in accent above the body
+      (rendered as plain Text so backslashes/brackets aren't parsed as markup).
+
+    Markup-bearing content (left_lines/sections) must be markup-safe.
+    """
+    right_lines = []
+    for i, (heading, items) in enumerate(sections):
+        if i:
+            right_lines.append("[muted]" + "─" * 28 + "[/muted]")
+        right_lines.append(f"[bold accent]{heading}[/bold accent]")
+        right_lines.extend(f"[muted]{item}[/muted]" for item in items)
+
+    height = max(len(left_lines), len(right_lines), 1)
+    left = list(left_lines) + [""] * (height - len(left_lines))
+    right = right_lines + [""] * (height - len(right_lines))
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column()
+    grid.add_column()
+    grid.add_column()
+    grid.add_row("\n".join(left), _vdivider(height), "\n".join(right))
+
+    if logo:
+        body = Group(Text(logo, style="accent", justify="center"), "", grid)
+    else:
+        body = grid
+
+    return Panel(
+        body,
+        title=f"[bold accent]{title}[/bold accent]",
+        title_align="left",
+        border_style="accent",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
+def ready_panel(title, rows, footer_lines=None):
+    """Build the post-startup summary panel: title in the top border, an aligned
+    label/value grid (endpoints, mode), plus optional muted footer lines.
+
+    - rows: list of (label, value); labels muted, values in info (cyan).
+    - footer_lines: list of Rich-markup strings shown under the grid.
+    """
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column()
+    grid.add_column()
+    for label, value in rows:
+        grid.add_row(f"[muted]{label}[/muted]", f"[info]{value}[/info]")
+
+    body = [grid]
+    if footer_lines:
+        body.append("")
+        body.extend(footer_lines)
+
+    return Panel(
+        Group(*body),
+        title=f"[bold accent]{title}[/bold accent]",
+        title_align="left",
+        border_style="accent",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
 
 
 def download_with_progress(url, dest, label="Downloading"):

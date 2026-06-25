@@ -8,6 +8,7 @@ import sys
 import subprocess
 import socket
 from tt_setup.constants import *
+from tt_setup.console import console, welcome_panel
 
 
 def clear_lines(n):
@@ -114,38 +115,48 @@ def copy_to_clipboard(text):
         return False
 
 
-def display_welcome_banner():
-    """Display welcome banner"""
-    # Clear screen for a clean splash screen effect
-    os.system('cls' if OS_NAME == 'Windows' else 'clear')
-    
-    # Simple, clean banner without complex Unicode characters
-    print(f"{C_TT_PURPLE}{C_BOLD}")
-    print("=" * 68)
-    print("                   Welcome to TT Studio")
-    print("=" * 68)
-    print(f"{C_RESET}")
-    
-    # Tenstorrent ASCII Art
-    print(f"{C_TT_PURPLE}{C_BOLD}")
-    print(TENSTORRENT_ASCII_ART)
-    print(f"{C_RESET}")
-    print()
-    
-    # TT Studio ASCII Art
-    print(f"{C_TT_PURPLE}{C_BOLD}")
-    print("████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ ")
-    print("╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗")
-    print("   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║")
-    print("   ██║      ██║       ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║")
-    print("   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝")
-    print("   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ ")
-    print(f"{C_RESET}")
-    
-    # Subtitle
-    print(f"{C_CYAN}AI Model Development & Deployment Made Easy{C_RESET}")
-    print()
-        
-    # Bottom line
-    print(f"{C_TT_PURPLE}{'=' * 68}{C_RESET}")
-    print()
+def _git_value(args):
+    """Best-effort `git <args>` output (stripped), or '' if unavailable."""
+    try:
+        result = subprocess.run(["git", "-C", TT_STUDIO_ROOT, *args],
+                                capture_output=True, text=True, check=False)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def display_welcome_banner(dev_mode=False):
+    """Show the launch panel — Claude-Code-style: name + version in the top
+    border, a two-column body (greeting + logo + context | getting-started)."""
+    # Clear screen for a clean splash effect (only when interactive).
+    if sys.stdout.isatty():
+        os.system('cls' if OS_NAME == 'Windows' else 'clear')
+
+    branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"])
+    user_name = _git_value(["config", "user.name"])
+    name = user_name.split()[0] if user_name else ""
+    home = os.path.expanduser("~")
+    cwd = TT_STUDIO_ROOT.replace(home, "~", 1) if TT_STUDIO_ROOT.startswith(home) else TT_STUDIO_ROOT
+
+    greeting = f"Welcome back, {name}!" if name else "Welcome to TT Studio!"
+    mode = "Local + Dev" if dev_mode else "Local"
+
+    left = [
+        f"[bold accent]{greeting}[/bold accent]",
+        "",
+        f"[muted]{mode}[/muted]",
+        f"[muted]{cwd}[/muted]",
+    ]
+    sections = [
+        ("Getting started", [
+            "Open http://localhost:3000",
+            "python run.py --cleanup  to stop",
+            "-v  for verbose output",
+        ]),
+        ("Docs", ["dev-docs/  ·  README.md"]),
+    ]
+    title = f"TT Studio · {branch}" if branch else "TT Studio"
+
+    console.print()
+    console.print(welcome_panel(title, left, sections, logo=TENSTORRENT_ASCII_ART))
+    console.print()

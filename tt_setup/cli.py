@@ -11,7 +11,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import console, set_verbose, step
+from tt_setup.console import console, is_verbose, ready_panel, set_verbose, step
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks
@@ -148,7 +148,7 @@ def _run(args):
             add_spdx_headers()
             return
         
-        display_welcome_banner()
+        display_welcome_banner(dev_mode=args.dev)
         freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
 
         # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
@@ -469,7 +469,7 @@ def _run(args):
 
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
-        print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
+        console.print("\n[info]🔨 Building containers[/info] [muted](backend, frontend, agent, chroma)…[/muted]")
         _docker_transient_lines = 1  # track lines to clear on success
 
         # Check Docker access to determine if sudo is needed
@@ -495,7 +495,7 @@ def _run(args):
 
         # Clear the "Building containers..." line (build progress was already cleared by run_docker_compose_with_progress)
         clear_lines(_docker_transient_lines)
-        print(f"{C_GREEN}✅ Docker containers built and running{C_RESET}")
+        console.print("[success]✓[/success] Containers built and running")
         startup_log.step("docker_compose_up", "OK")
 
         # Start FastAPI server now that containers are up
@@ -530,17 +530,13 @@ def _run(args):
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
 
-        print()
-        print(f"{C_GREEN}{'=' * 60}{C_RESET}")
-        print(f"{C_GREEN}🚀 TT Studio is ready!{C_RESET}")
-        print(f"{C_GREEN}{'=' * 60}{C_RESET}")
-        print(f"  URL:             {C_CYAN}http://localhost:3000{C_RESET}")
+        # Endpoints + mode go in the ready card; stop/logs hints sit beneath it.
+        rows = [("URL", "http://localhost:3000")]
         if fastapi_enabled:
-            print(f"  FastAPI:         {C_CYAN}http://localhost:8001{C_RESET}")
+            rows.append(("FastAPI", "http://localhost:8001"))
         if docker_control_enabled:
-            print(f"  Docker Control:  {C_CYAN}http://localhost:8002{C_RESET}")
+            rows.append(("Docker Control", "http://localhost:8002"))
 
-        # Active modes
         mode_parts = []
         if is_deployed_mode:
             mode_parts.append("AI Playground")
@@ -550,19 +546,22 @@ def _run(args):
             mode_parts.append("Dev")
         if detect_tt_hardware():
             mode_parts.append("TT Hardware")
-        print(f"  Mode:            {' + '.join(mode_parts)}")
+        rows.append(("Mode", " + ".join(mode_parts)))
 
-        print()
-        print(f"{C_CYAN}📋 Logs:{C_RESET}")
-        print(f"  Docker containers: cd app && docker compose logs -f")
-        if fastapi_enabled:
-            print(f"  FastAPI server:    tail -f {MODEL_RUN_LOG_FILE}")
-        if docker_control_enabled:
-            print(f"  Docker Control:    tail -f {DOCKER_CONTROL_LOG_FILE}")
-        print()
-        print(f"{C_YELLOW}🧹 Stop: python run.py --cleanup{C_RESET}")
-        print(f"{C_GREEN}{'=' * 60}{C_RESET}")
-        print()
+        # Full log paths only with --verbose; otherwise one compact hint.
+        footer = ["[muted]Stop · python run.py --cleanup[/muted]"]
+        if is_verbose():
+            footer.append("[muted]Logs · cd app && docker compose logs -f[/muted]")
+            if fastapi_enabled:
+                footer.append(f"[muted]     · tail -f {MODEL_RUN_LOG_FILE}[/muted]")
+            if docker_control_enabled:
+                footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
+        else:
+            footer.append("[muted]Logs · cd app && docker compose logs -f   (-v for paths)[/muted]")
+
+        console.print()
+        console.print(ready_panel("TT Studio is ready", rows, footer))
+        console.print()
 
         startup_log.step("startup_complete", "OK")
         startup_log.summary(exit_code=0)
