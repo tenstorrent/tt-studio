@@ -20,7 +20,7 @@ class CleanupAllTests(unittest.TestCase):
         docker_pid = root / "docker-control-service.pid"
         return (
             patch.object(run, "TT_STUDIO_ROOT", str(root)),
-            patch.object(run, "ENV_FILE_PATH", str(root / "app" / ".env")),
+            patch.object(run, "ENV_FILE_PATH", str(root / ".env")),
             patch.object(run, "STARTUP_LOG_FILE", str(root / "startup.log")),
             patch.object(run, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
             patch.object(run, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
@@ -113,8 +113,7 @@ class CleanupAllTests(unittest.TestCase):
             persistent = root / "tt_studio_persistent_volume"
             persistent.mkdir()
             (persistent / "user_config.json").write_text('{"hf_token": "hf_test"}')
-            env_file = root / "app" / ".env"
-            env_file.parent.mkdir()
+            env_file = root / ".env"
             env_file.write_text("HF_TOKEN=hf_test\n")
             startup_log = root / "startup.log"
             startup_log.write_text("log")
