@@ -18,19 +18,12 @@ logger = get_logger(__name__)
 
 PROXY_TIMEOUT = 120
 
-# The training container runs the tt-media-server, which authenticates requests
-# with `Authorization: Bearer <API_KEY>` (defaults to "your-secret-key").
-# In TT Studio this key is configured via TTS_API_KEY, matching how the other
-# media-server endpoints in model_control/views.py authenticate. Note: this is
-# NOT the JWT used for the vLLM/LLM inference endpoints.
+# tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
+# Not the JWT used for vLLM/LLM inference endpoints.
 TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 
-# Job endpoints on the media-server (e.g. /v1/jobs) additionally require a
-# non-empty organization header for multi-tenant scoping (see
-# tt-media-server security/org_id_checker.py). TT Studio is single-tenant, so
-# we send a fixed value. The header name ("X-TT-Organization") matches the
-# media-server's ORG_ID_HEADER default, and "tenstorrent" mirrors the team_id
-# used in model_control/model_utils.py.
+# Training job endpoints (e.g. /v1/jobs) also require a non-empty org header
+# for multi-tenant scoping. TT Studio is single-tenant, so we send a fixed value.
 ORG_ID_HEADER = "X-TT-Organization"
 ORG_ID = "tenstorrent"
 
