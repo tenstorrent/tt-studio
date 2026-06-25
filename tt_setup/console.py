@@ -66,41 +66,71 @@ def _vdivider(height):
     return "\n".join("[accent]│[/accent]" for _ in range(max(height, 1)))
 
 
-def welcome_panel(title, left_lines, sections, logo=None):
+# Fixed panel width: a stretched (terminal-width) panel re-wraps and garbles the
+# ASCII logos when the user resizes the window, so we pin it. Capped to the
+# current width so it still fits narrow terminals.
+_PANEL_WIDTH = 78
+
+
+def _panel_width():
+    return min(_PANEL_WIDTH, console.width)
+
+
+def _logo_text(art):
+    """Centered accent logo that crops (never word-wraps) on narrow terminals,
+    so a resize clips it cleanly instead of garbling the art."""
+    return Text(art, style="accent", justify="center", no_wrap=True, overflow="crop")
+
+
+def welcome_panel(title, left_lines, sections, logos=None, tagline=None):
     """Build the Claude-Code-style launch panel: title in the top border, an
-    optional centered logo band, then a two-column body (left context | divider
-    | headed right sections).
+    optional stack of centered logo bands, an optional centered tagline, then a
+    two-column body (left context | divider | headed right sections).
 
     - title: text shown in the top border (e.g. "TT Studio · main").
     - left_lines: list of Rich-markup strings stacked in the left column.
     - sections: list of (heading, [item, ...]) rendered in the right column,
       each heading bold-accent, items muted, separated by a thin rule.
-    - logo: optional multi-line ASCII string, centered in accent above the body
-      (rendered as plain Text so backslashes/brackets aren't parsed as markup).
+    - logos: optional list of multi-line ASCII strings, each centered in accent
+      above the body (rendered as plain Text — backslashes/brackets are safe).
+    - tagline: optional list of Rich-markup strings, centered under the logo
+      (e.g. the product name + one-line description).
 
-    Markup-bearing content (left_lines/sections) must be markup-safe.
+    Markup-bearing content (left_lines/sections/tagline) must be markup-safe.
     """
     right_lines = []
     for i, (heading, items) in enumerate(sections):
         if i:
-            right_lines.append("[muted]" + "─" * 28 + "[/muted]")
+            right_lines.append("")  # spacing between sections
         right_lines.append(f"[bold accent]{heading}[/bold accent]")
+        right_lines.append("")  # spacing under the heading
         right_lines.extend(f"[muted]{item}[/muted]" for item in items)
 
     height = max(len(left_lines), len(right_lines), 1)
     left = list(left_lines) + [""] * (height - len(left_lines))
     right = right_lines + [""] * (height - len(right_lines))
 
-    grid = Table.grid(padding=(0, 2))
-    grid.add_column()
-    grid.add_column()
-    grid.add_column()
+    # expand=True + a ratio on the right column makes the body fill the panel
+    # width (right column reaches the border) instead of leaving a hollow gap.
+    grid = Table.grid(padding=(0, 2), expand=True)
+    grid.add_column()           # left — sized to its content
+    grid.add_column()           # vertical divider
+    grid.add_column(ratio=1)    # right — absorbs the remaining width
     grid.add_row("\n".join(left), _vdivider(height), "\n".join(right))
 
-    if logo:
-        body = Group(Text(logo, style="accent", justify="center"), "", grid)
-    else:
-        body = grid
+    parts = []
+    for art in (logos or []):
+        if parts:
+            parts.append("")  # blank line between stacked logos so they don't collide
+        parts.append(_logo_text(art))
+    if tagline and parts:
+        parts.append("")  # breathing room between the logo and the tagline
+    for line in (tagline or []):
+        parts.append(Text.from_markup(line, justify="center"))  # centered under the logo
+    if parts:
+        parts.append("")  # blank line between the header and the body
+    parts.append(grid)
+    body = Group(*parts) if len(parts) > 1 else grid
 
     return Panel(
         body,
@@ -109,6 +139,7 @@ def welcome_panel(title, left_lines, sections, logo=None):
         border_style="accent",
         box=box.ROUNDED,
         padding=(1, 2),
+        width=_panel_width(),
     )
 
 
@@ -137,6 +168,7 @@ def ready_panel(title, rows, footer_lines=None):
         border_style="accent",
         box=box.ROUNDED,
         padding=(1, 2),
+        width=_panel_width(),
     )
 
 

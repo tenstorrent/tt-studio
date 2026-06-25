@@ -147,16 +147,20 @@ def display_welcome_banner(dev_mode=False):
         f"[muted]{mode}[/muted]",
         f"[muted]{cwd}[/muted]",
     ]
+    # Keep the right column terse — labels + value, no prose. These aren't
+    # clickable links, so there's nothing to explain.
     sections = [
         ("Getting started", [
-            "Open http://localhost:3000",
-            "python run.py --cleanup  to stop",
-            "-v  for verbose output",
+            f"{'Open':<9}http://localhost:3000",
+            f"{'Stop':<9}python run.py --cleanup",
         ]),
-        ("Docs", ["dev-docs/  ·  README.md"]),
     ]
     title = f"TT Studio · {branch}" if branch else "TT Studio"
 
     console.print()
-    console.print(welcome_panel(title, left, sections, logo=TENSTORRENT_ASCII_ART))
+    console.print(welcome_panel(
+        title, left, sections,
+        logos=[TENSTORRENT_ASCII_ART],
+        tagline=["[bold accent]TT Studio[/bold accent][muted]  ·  AI model dev & deployment[/muted]"],
+    ))
     console.print()

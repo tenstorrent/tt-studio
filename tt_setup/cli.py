@@ -255,15 +255,8 @@ def _run(args):
                     print(f"{C_RED}⛔ Error: Failed to create Docker network.{C_RESET}")
 
                     if "cannot connect" in error_output or "connection refused" in error_output:
-                        print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
-                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-                        print()
-                        print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
-                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-                        print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
-                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                        print(f"{C_YELLOW}   Docker is installed but its daemon isn't running. Start Docker, then re-run.{C_RESET}")
+                        print(f"{C_CYAN}   Docker Desktop: https://docs.docker.com/desktop/{C_RESET}")
                     else:
                         print(f"{C_YELLOW}Docker network creation failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
                         print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
@@ -276,15 +269,8 @@ def _run(args):
             print(f"{C_RED}⛔ Error: Failed to list Docker networks.{C_RESET}")
 
             if "cannot connect" in error_output or "connection refused" in error_output:
-                print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
-                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-                print()
-                print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
-                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-                print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
-                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                print(f"{C_YELLOW}   Docker is installed but its daemon isn't running. Start Docker, then re-run.{C_RESET}")
+                print(f"{C_CYAN}   Docker Desktop: https://docs.docker.com/desktop/{C_RESET}")
             else:
                 print(f"{C_YELLOW}Docker network listing failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
                 print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")

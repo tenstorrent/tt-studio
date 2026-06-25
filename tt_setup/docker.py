@@ -11,85 +11,57 @@ import getpass
 from tt_setup.constants import *
 
 
+# Official docs we point users to — we link rather than try to fix Docker for
+# them or print shell commands (which are platform-specific and often wrong).
+DOCKER_INSTALL_URL = "https://docs.docker.com/get-docker/"
+DOCKER_COMPOSE_URL = "https://docs.docker.com/compose/install/"
+DOCKER_DESKTOP_URL = "https://docs.docker.com/desktop/"
+DOCKER_DAEMON_URL = "https://docs.docker.com/config/daemon/start/"
+
+
+def _docker_compose_v2_available():
+    """True if the `docker compose` (v2) plugin runs — with a sudo fallback for
+    660 sockets. The space form (`docker compose`) only succeeds on v2; legacy
+    `docker-compose` (v1) is a separate binary and intentionally not accepted."""
+    res = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, check=False)
+    if res.returncode != 0 and "permission denied" in res.stderr.lower():
+        res = subprocess.run(["sudo", "docker", "compose", "version"], capture_output=True, text=True, check=False)
+    return res.returncode == 0
+
+
 def check_docker_installation():
-    """Function to check Docker installation and daemon connectivity."""
+    """Gate startup on Docker + Docker Compose v2 being present and the daemon
+    running. On any failure we point to the official docs and exit — we do not
+    attempt to fix Docker or print start commands for the user."""
+    # 1. Docker CLI installed?
     if not shutil.which("docker"):
-        print(f"{C_RED}⛔ Error: Docker is not installed.{C_RESET}")
-        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
+        print(f"{C_RED}⛔ Docker is not installed.{C_RESET}")
+        print(f"{C_YELLOW}   Docker (with Compose v2) is required to run TT Studio.{C_RESET}")
+        print(f"{C_CYAN}   Install: {DOCKER_INSTALL_URL}{C_RESET}")
         sys.exit(1)
 
-    # Test Docker daemon connectivity - first try without sudo
+    # 2. Docker Compose v2 plugin present? (does not need the daemon, so it's
+    #    validated up front regardless of daemon state).
+    if not _docker_compose_v2_available():
+        print(f"{C_RED}⛔ Docker Compose v2 is not available.{C_RESET}")
+        print(f"{C_YELLOW}   TT Studio requires the `docker compose` (v2) plugin, not legacy `docker-compose`.{C_RESET}")
+        print(f"{C_CYAN}   Install / upgrade: {DOCKER_COMPOSE_URL}{C_RESET}")
+        sys.exit(1)
+
+    # 3. Docker daemon running / reachable? (retry with sudo for 660 sockets).
     result = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
+    if result.returncode == 0:
+        return  # daemon reachable without sudo
 
-    if result.returncode != 0:
-        error_output = result.stderr.lower()
+    if "permission denied" in result.stderr.lower():
+        if subprocess.run(["sudo", "docker", "info"], capture_output=True, text=True, check=False).returncode == 0:
+            return  # daemon reachable with sudo; TT Studio will use sudo when needed
 
-        if "permission denied" in error_output:
-            # Permission issue - try with sudo
-            print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
-            print(f"{C_YELLOW}Docker socket has secure 660 permissions - sudo access will be used{C_RESET}")
-            print(f"{C_CYAN}Verifying Docker daemon is running with sudo...{C_RESET}")
-
-            # Try with sudo to verify Docker daemon is actually running
-            sudo_result = subprocess.run(["sudo", "docker", "info"], capture_output=True, text=True, check=False)
-
-            if sudo_result.returncode == 0:
-                print(f"{C_GREEN}✅ Docker daemon is running (sudo access confirmed){C_RESET}")
-                print(f"{C_CYAN}TT Studio will use sudo for Docker commands when needed{C_RESET}\n")
-                # Docker is working with sudo - continue
-                return
-            else:
-                # Even with sudo it's not working
-                sudo_error = sudo_result.stderr.lower()
-                if "cannot connect" in sudo_error or "connection refused" in sudo_error:
-                    print(f"\n{C_RED}⛔ Error: Docker daemon is not running{C_RESET}")
-                    print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
-                    print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                    print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-                    print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-                    print()
-                    print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
-                    print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-                    print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
-                    print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                else:
-                    print(f"{C_RED}⛔ Error: Docker daemon error{C_RESET}")
-                    print(f"{C_YELLOW}Error: {sudo_result.stderr}{C_RESET}")
-                sys.exit(1)
-
-        elif "cannot connect" in error_output or "connection refused" in error_output:
-            print(f"\n{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
-            print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
-            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-            print()
-            print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
-            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-            print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
-            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-            sys.exit(1)
-        else:
-            print(f"{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
-            print(f"{C_YELLOW}Docker daemon error: {result.stderr}{C_RESET}")
-            print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
-            sys.exit(1)
-    else:
-        # Docker accessible without sudo
-        print(f"{C_GREEN}✅ Docker daemon is accessible{C_RESET}")
-
-    # Check if docker compose is available
-    compose_result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, check=False)
-
-    if compose_result.returncode != 0:
-        # Try with sudo if permission denied
-        if "permission denied" in compose_result.stderr.lower():
-            compose_result = subprocess.run(["sudo", "docker", "compose", "version"], capture_output=True, text=True, check=False)
-
-        if compose_result.returncode != 0:
-            print(f"{C_RED}⛔ Error: Docker Compose is not installed or not working correctly.{C_RESET}")
-            print(f"{C_YELLOW}Please install Docker Compose from: https://docs.docker.com/compose/install/{C_RESET}")
-            sys.exit(1)
+    print(f"{C_RED}⛔ Docker is installed but its daemon isn't running.{C_RESET}")
+    print(f"{C_YELLOW}   Start Docker, then re-run TT Studio.{C_RESET}")
+    print(f"{C_CYAN}   Docker Desktop: {DOCKER_DESKTOP_URL}{C_RESET}")
+    print(f"{C_CYAN}   Daemon docs:    {DOCKER_DAEMON_URL}{C_RESET}")
+    sys.exit(1)
 
 
 def check_docker_access():
