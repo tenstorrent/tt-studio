@@ -32,6 +32,8 @@ import platform
 import argparse
 import shutil
 import re
+import secrets
+import fnmatch
 import getpass
 import webbrowser
 import socket
@@ -89,14 +91,26 @@ INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inferenc
 # These will be read from .env file or environment variables
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
-FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
-FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+# All host-side runtime logs and PID files live under a single logs/ directory so
+# they don't clutter the repo root. Created eagerly because StartupLogger opens
+# startup.log at import time (below).
+LOGS_DIR = os.path.join(TT_STUDIO_ROOT, "logs")
+try:
+    os.makedirs(LOGS_DIR, exist_ok=True)
+except OSError:
+    # Keep run.py importable even if logs/ can't be created.
+    LOGS_DIR = TT_STUDIO_ROOT
+
+FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
+MODEL_RUN_LOG_FILE = os.path.join(LOGS_DIR, "model_run.log")
+MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
-DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
-DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
+DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
+DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
-EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
-STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
+SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
+LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
+STARTUP_LOG_FILE = os.path.join(LOGS_DIR, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
 # Container names vary by mode: tt_studio_backend_api_prod, tt_studio_frontend_dev, etc.
@@ -829,6 +843,7 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
+        'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
         '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
@@ -950,25 +965,14 @@ def get_existing_env_vars():
                     env_vars[key] = value.strip('"\'')
     return env_vars
 
-def save_easy_config(config_dict):
-    """Save easy mode configuration to JSON file"""
+def save_setup_config(config_dict):
+    """Save the quick-setup configuration snapshot to JSON file"""
     try:
-        with open(EASY_CONFIG_FILE_PATH, 'w') as f:
+        with open(SETUP_CONFIG_FILE_PATH, 'w') as f:
             json.dump(config_dict, f, indent=2)
         # Silent — no need to show config file path to user
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not save easy mode configuration: {e}{C_RESET}")
-
-def load_easy_config():
-    """Load easy mode configuration from JSON file"""
-    if os.path.exists(EASY_CONFIG_FILE_PATH):
-        try:
-            with open(EASY_CONFIG_FILE_PATH, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"{C_YELLOW}⚠️  Warning: Could not load easy mode configuration: {e}{C_RESET}")
-            return None
-    return None
+        print(f"{C_YELLOW}⚠️  Warning: Could not save setup configuration: {e}{C_RESET}")
 
 def should_configure_var(var_name, current_value):
     """
@@ -1270,7 +1274,7 @@ def check_hf_access(token):
         return (None, f"HF token access check:\n{summary}")
 
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=True, reconfigure_inference=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
@@ -1278,7 +1282,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
         force_reconfigure (bool): If True, force reconfiguration and clear preferences
-        easy_mode (bool): If True, use minimal prompts and defaults for quick setup
+        quick_setup (bool): If True, use minimal prompts and defaults for quick setup
         reconfigure_inference (bool): If True, force reconfiguration of inference server artifact only
     """
     global FORCE_OVERWRITE
@@ -1303,7 +1307,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
         print(f"{C_GREEN}⚙️  Configure Env Mode: Full interactive setup for all variables{C_RESET}")
         if dev_mode:
@@ -1314,17 +1318,17 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # Get existing variables
     existing_vars = get_existing_env_vars()
     
-    # Only ask about overwrite preference if .env file existed before (skip for easy mode)
-    if not easy_mode and env_file_exists and existing_vars:
+    # Only ask about overwrite preference if .env file existed before (skip for quick setup)
+    if not quick_setup and env_file_exists and existing_vars:
         FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, force_prompt=force_reconfigure)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
-            if not easy_mode:
+            if not quick_setup:
                 print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
             FORCE_OVERWRITE = True
-        elif easy_mode:
-            # In easy mode with existing .env, don't force overwrite - let individual checks handle it
+        elif quick_setup:
+            # In quick setup with existing .env, don't force overwrite - let individual checks handle it
             if env_file_exists and existing_vars:
                 FORCE_OVERWRITE = False
             else:
@@ -1333,19 +1337,28 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
             FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
-    if not easy_mode:
+    # LiteLLM gateway: generate strong random keys so the network-published port
+    # is never protected by a predictable shared secret.
+    if should_configure_var("LITELLM_MASTER_KEY", get_env_var("LITELLM_MASTER_KEY")):
+        write_env_var("LITELLM_MASTER_KEY", f"sk-tt-studio-{secrets.token_urlsafe(32)}", quote_value=False)
+    if should_configure_var("LITELLM_UPSTREAM_KEY", get_env_var("LITELLM_UPSTREAM_KEY")):
+        write_env_var("LITELLM_UPSTREAM_KEY", secrets.token_urlsafe(32), quote_value=False)
+    if should_configure_var("LITELLM_PORT", get_env_var("LITELLM_PORT")):
+        write_env_var("LITELLM_PORT", "4000", quote_value=False)
+
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
 
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("JWT_SECRET", current_jwt):
             write_env_var("JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("JWT_SECRET", current_jwt):
@@ -1364,12 +1377,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ JWT_SECRET already configured (keeping existing value).")
 
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
             write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
@@ -1392,7 +1405,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # TTS_API_KEY
     current_tts_api_key = get_env_var("TTS_API_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("TTS_API_KEY", current_tts_api_key):
             write_env_var("TTS_API_KEY", "your-secret-key")
     elif should_configure_var("TTS_API_KEY", current_tts_api_key):
@@ -1411,12 +1424,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ TTS_API_KEY already configured (keeping existing value).")
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
             write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
@@ -1430,12 +1443,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
 
     # DOCKER_CONTROL_JWT_SECRET
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
             write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
@@ -1454,12 +1467,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
 
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("TAVILY_API_KEY", current_tavily):
             write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured", quote_value=False)
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
@@ -1468,14 +1481,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
         print("✅ TAVILY_API_KEY saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
 
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
     needs_token = should_configure_var("HF_TOKEN", current_hf)
 
-    if easy_mode and needs_token:
+    if quick_setup and needs_token:
         print(f"\n{C_CYAN}A Hugging Face token is required to download models like Llama.{C_RESET}")
         print(f"{C_CYAN}Get yours at: https://huggingface.co/settings/tokens{C_RESET}\n")
 
@@ -1490,7 +1503,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                     print(f"{C_YELLOW}⚠️  Continuing with existing token. Re-run once you have access.{C_RESET}")
                     break
             else:
-                prompt = "🤗 Enter HF_TOKEN: " if easy_mode else "🤗 Enter HF_TOKEN (Hugging Face token): "
+                prompt = "🤗 Enter HF_TOKEN: " if quick_setup else "🤗 Enter HF_TOKEN (Hugging Face token): "
                 val = getpass.getpass(prompt)
                 if not val or not val.strip():
                     print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1500,7 +1513,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print("✅ HF_TOKEN saved.")
         else:
             val = current_hf
-            if not easy_mode:
+            if not quick_setup:
                 print(f"✅ HF_TOKEN already configured (keeping existing value).")
 
         ok, msg = check_hf_access(val)
@@ -1521,12 +1534,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             # choice == "2": continue with current token
         break
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
             write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
     elif should_configure_var("VITE_APP_TITLE", current_title):
@@ -1535,15 +1548,15 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("VITE_APP_TITLE", val)
         print("✅ VITE_APP_TITLE saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_APP_TITLE already configured: {current_title}")
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
 
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
             write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
@@ -1558,16 +1571,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
 
     is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
 
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
             write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
@@ -1582,16 +1595,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
 
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
 
-    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in easy mode)
+    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in quick setup)
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password", quote_value=False)
     elif is_rag_admin_enabled:
@@ -1624,7 +1637,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
     ]
     
-    if easy_mode:
+    if quick_setup:
         for var_name, _, _ in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
@@ -1646,11 +1659,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             else:
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
 
-    # Frontend configuration (always set in easy mode, optional otherwise)
-    if easy_mode:
+    # Frontend configuration (always set in quick setup, optional otherwise)
+    if quick_setup:
         current_frontend_host = get_env_var("FRONTEND_HOST")
         current_frontend_port = get_env_var("FRONTEND_PORT")
         current_frontend_timeout = get_env_var("FRONTEND_TIMEOUT")
@@ -1663,9 +1676,9 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
 
     # TT Inference Server Artifact Configuration
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
-    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure, reconfigure_inference)
+    configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
@@ -1806,6 +1819,65 @@ _CLEANUP_IMAGE_REFS = (
 # `id_{impl_id}-{model_name}-v{version}` — see app/backend/shared_config/model_config.py.
 # These hold model weights and are distinct from the bind-mounted persistent volume.
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
+
+
+def _parse_size_to_bytes(s):
+    """Parse a docker-formatted size string (e.g. "39.42GB", "545kB", "32B") to bytes.
+
+    Docker reports sizes in SI units (base 1000) via go-units, so this is the
+    inverse of `_format_bytes` but decimal — used only to total the daemon's own
+    numbers, not for display. Returns 0 on anything unparseable.
+    """
+    if not s:
+        return 0
+    m = re.match(r"\s*([0-9]*\.?[0-9]+)\s*([kKMGTP]?B)\s*$", s)
+    if not m:
+        return 0
+    value, unit = float(m.group(1)), m.group(2).upper()
+    factor = {"B": 1, "KB": 10**3, "MB": 10**6,
+              "GB": 10**9, "TB": 10**12, "PB": 10**15}.get(unit, 1)
+    return int(value * factor)
+
+
+def _docker_reclaimable_bytes(has_docker_access):
+    """Best-effort size of the Docker objects --cleanup-all removes.
+
+    Reads `docker system df -v --format json` (the daemon already computes exact
+    sizes) and sums the images and volumes cleanup-all actually deletes:
+      - images whose Repository matches `_CLEANUP_IMAGE_REFS`
+        (same set `_remove_local_tt_studio_images` removes),
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+        plus dangling anonymous volumes (`_prune_anonymous_volumes`).
+    Build cache is intentionally excluded — cleanup-all does not prune it.
+    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
+    docker is unavailable, so the reclaim total degrades to the host-side paths
+    just like before.
+    """
+    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return zero
+
+    sizes = dict(zero)
+    for img in data.get("Images") or []:
+        repo = img.get("Repository", "")
+        if any(fnmatch.fnmatch(repo, ref) for ref in _CLEANUP_IMAGE_REFS):
+            sizes["images"] += _parse_size_to_bytes(img.get("Size", ""))
+
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+            sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
+            sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+
+    return sizes
 
 
 def _remove_local_tt_studio_images(has_docker_access):
@@ -1999,6 +2071,25 @@ def cleanup_resources(args):
         os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
     artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
 
+    # All host-side runtime logs + PID files now live under logs/, so the whole
+    # directory is removed in one shot (it is always a proper subdir of the repo,
+    # never the repo root itself). The repo-root entries that follow clear logs
+    # left behind by TT Studio versions from before the logs/ consolidation +
+    # rename — and the degenerate case where logs/ couldn't be created and the
+    # files fell back to the repo root.
+    logs_dir = os.path.join(TT_STUDIO_ROOT, "logs")
+    log_items = [
+        ("📜", logs_dir, "host-side runtime logs & PID files (startup, model run, docker-control)"),
+    ]
+    log_items += [
+        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host-side log (pre-consolidation)")
+        for name in (
+            "model_run.log", "model_run_logs",
+            "fastapi.log", "fastapi.pid", "fastapi_logs",
+            "startup.log", "docker-control-service.log", "docker-control-service.pid",
+        )
+    ]
+
     items = [
         ("📁", host_persistent_volume,
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
@@ -2006,15 +2097,10 @@ def cleanup_resources(args):
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
-        ("📜", STARTUP_LOG_FILE, "startup log"),
-        ("📜", FASTAPI_LOG_FILE, "FastAPI server log"),
-        ("📜", FASTAPI_PID_FILE, "FastAPI server PID file"),
-        ("📜", DOCKER_CONTROL_LOG_FILE, "Docker Control Service log"),
-        ("📜", DOCKER_CONTROL_PID_FILE, "Docker Control Service PID file"),
-        ("📜", os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
-         "per-deployment FastAPI logs"),
+        *log_items,
         ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
-        ("⚙️ ", EASY_CONFIG_FILE_PATH, "easy-mode setup snapshot"),
+        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
+        ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch output"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch output"),
         ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
@@ -2027,7 +2113,14 @@ def cleanup_resources(args):
 
     existing = [(emoji, path, desc, _path_size(path))
                 for emoji, path, desc in items if os.path.exists(path) or os.path.islink(path)]
-    total_bytes = sum(sz for _, _, _, sz in existing)
+    host_bytes = sum(sz for _, _, _, sz in existing)
+
+    # Measure the Docker objects we are about to remove while they still exist,
+    # so both the estimate and the final "Reclaimed approximately X" reflect the
+    # model volumes + images (tens of GB), not just the host-side files.
+    has_docker_access = check_docker_access()
+    docker_sizes = _docker_reclaimable_bytes(has_docker_access)
+    total_bytes = host_bytes + sum(docker_sizes.values())
 
     print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
     print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
@@ -2043,11 +2136,16 @@ def cleanup_resources(args):
     else:
         print(f"  {C_CYAN}(no host-side state found){C_RESET}")
 
+    def _docker_size(key):
+        return f"  ({_format_bytes(docker_sizes[key])})" if docker_sizes[key] > 0 else ""
+
     print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
-    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)")
-    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)")
+    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)"
+          f"{_docker_size('model_volumes')}")
+    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)"
+          f"{_docker_size('anon_volumes')}")
     print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
-          f"tt-media-inference-server, chromadb/chroma")
+          f"tt-media-inference-server, chromadb/chroma{_docker_size('images')}")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
 
     if total_bytes > 0:
@@ -2068,7 +2166,6 @@ def cleanup_resources(args):
         print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
 
     print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
-    has_docker_access = check_docker_access()
     _cleanup_runtime(args, has_docker_access)
 
     # Volumes must come before images: removing a volume while its image is
@@ -2378,7 +2475,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "ChromaDB": "docker logs -f tt_studio_chroma",
             "Backend API": "docker logs -f tt_studio_backend",
             "Frontend": "docker logs -f tt_studio_frontend",
-            "FastAPI Server": f"tail -f {FASTAPI_LOG_FILE}",
+            "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
             "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
         }
         print(f"\n{C_CYAN}📋 Check logs:{C_RESET}")
@@ -2552,21 +2649,21 @@ def is_valid_git_repo(path):
             return False
     return False  # Exists but not a git repo
 
-def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False, reconfigure_inference=False):
+def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force_reconfigure=False, reconfigure_inference=False):
     """
     Configure TT Inference Server artifact source (release version or branch).
 
     Args:
         dev_mode: Development mode flag
-        easy_mode: Easy mode flag
+        quick_setup: Quick setup flag (minimal prompts, defaults)
         force_reconfigure: Force reconfiguration of all options
         reconfigure_inference: Force reconfiguration of inference server artifact only
     """
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
 
-    # In easy mode with no reconfigure request: silently default to 'latest' if not already set
-    if easy_mode and not (force_reconfigure or reconfigure_inference):
+    # In quick setup with no reconfigure request: silently default to 'latest' if not already set
+    if quick_setup and not (force_reconfigure or reconfigure_inference):
         if not (current_version or current_branch):
             write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "latest", quote_value=False)
         return
@@ -2601,8 +2698,8 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
     print(f"  1. Release version (stable, recommended for production)")
     print(f"  2. Branch (latest development code, may have new features)")
     
-    if easy_mode:
-        # In easy mode, default to latest release but still allow choice
+    if quick_setup:
+        # In quick setup, default to latest release but still allow choice
         while True:
             choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
             if choice in ["1", "2"]:
@@ -3600,7 +3697,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
 
     # Create PID and log files
     
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             # Create files as regular user
             with open(file_path, 'w') as f:
@@ -3698,7 +3795,7 @@ cd "$1"
         os.chmod(temp_script_path, 0o755)
         
         # Start server
-        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
         process = subprocess.Popen(cmd, env=env)
         
         # Health check (silent — only prints on success or failure)
@@ -3709,14 +3806,14 @@ cd "$1"
             if process.poll() is not None:
                 print(f"{C_RED}⛔ FastAPI server process died{C_RESET}")
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
                 except:
                     pass
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         if "address already in use" in f.read():
                             print(f"{C_YELLOW}   Port 8001 still in use. Try: python run.py --cleanup && python run.py{C_RESET}")
                 except:
@@ -3743,7 +3840,7 @@ cd "$1"
 
             if i == health_check_retries:
                 print(f"{C_RED}⛔ FastAPI server failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                 return False
 
             time.sleep(health_check_delay)
@@ -3808,7 +3905,7 @@ def cleanup_fastapi_server(no_sudo=False):
     kill_process_on_port(8001, no_sudo=no_sudo, quiet=True)
 
     # Remove PID and log files
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -3914,7 +4011,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
     env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
     env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
-    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
+    env["MODEL_RUN_LOG_FILE"] = MODEL_RUN_LOG_FILE
 
     # Start the service using uvicorn
     try:
@@ -4158,7 +4255,7 @@ def remove_artifact_with_sudo(directory_path, description="artifact directory"):
         print(f"\n{C_YELLOW}   Sudo removal cancelled by user.{C_RESET}")
         return False
 
-def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
+def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
@@ -4167,7 +4264,7 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
     
     Args:
         force_prompt (bool): If True, always prompt user even if preference exists
-        easy_mode (bool): If True, automatically skip npm installation without prompting
+        quick_setup (bool): If True, automatically skip npm installation without prompting
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -4186,8 +4283,8 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
 
     try:
         if has_local_npm:
-            # In easy mode, automatically skip npm installation
-            if easy_mode:
+            # In quick setup, automatically skip npm installation
+            if quick_setup:
                 save_preference("npm_install_locally", 'n')
                 return True
             
@@ -4690,8 +4787,8 @@ def main():
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
-  {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
-  {C_CYAN}python run.py --easy{C_RESET}                 Easy setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
@@ -4761,13 +4858,13 @@ def main():
         startup_log.step("docker_install_check", "OK")
 
         startup_log.step("configure_environment", "START")
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
-        # Save easy mode configuration to JSON if not in --configure-env mode
+        # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
         if not args.configure_env:
-            easy_config = {
-                "mode": "easy",
+            setup_config = {
+                "mode": "quick",
                 "setup_timestamp": datetime.now().isoformat(),
                 "jwt_secret_default": "test-secret-456",
                 "django_secret_key_default": "django-insecure-default",
@@ -4778,7 +4875,7 @@ def main():
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
-            save_easy_config(easy_config)
+            save_setup_config(setup_config)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
@@ -4864,7 +4961,7 @@ def main():
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=not args.configure_env)
+        ensure_frontend_dependencies(force_prompt=args.reconfigure, quick_setup=not args.configure_env)
 
         # Check if all required ports are available
 
@@ -4941,27 +5038,27 @@ def main():
                         print()
                         sys.exit(1)
 
-        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # Ensure model_run_logs/ exists and is owned by the invoking user before
         # inference-api writes per-deployment log files into it. If a prior
         # sudo'd process created this dir, writes from the non-root uvicorn
-        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
-        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
-        if not os.path.exists(fastapi_logs_dir):
+        # process will fail with EACCES (see inference-api/api.py:get_model_run_logs_dir).
+        model_run_logs_dir = MODEL_RUN_LOGS_DIR
+        if not os.path.exists(model_run_logs_dir):
             try:
-                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+                os.makedirs(model_run_logs_dir, mode=0o755, exist_ok=True)
             except Exception as e:
-                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+                print(f"{C_YELLOW}⚠️  Could not create model_run_logs directory: {e}{C_RESET}")
         elif OS_NAME != "Windows":
             current_user_uid = os.getuid()
-            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
-                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+            if os.stat(model_run_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  model_run_logs directory is owned by another user, fixing permissions...{C_RESET}")
                 try:
-                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
-                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                    os.chown(model_run_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed model_run_logs directory ownership{C_RESET}")
                 except (OSError, PermissionError) as e:
-                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_RED}⛔ Could not fix model_run_logs permissions: {e}{C_RESET}")
                     print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
-                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {model_run_logs_dir}{C_RESET}")
                     input("Press Enter once you've run the command above to continue...")
 
         # Start Docker Control Service BEFORE starting Docker containers
@@ -5079,9 +5176,9 @@ def main():
                     sys.exit(1)
 
                 if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
-                    startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
+                    startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
-                    print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                    print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
@@ -5126,7 +5223,7 @@ def main():
         print(f"{C_CYAN}📋 Logs:{C_RESET}")
         print(f"  Docker containers: cd app && docker compose logs -f")
         if fastapi_enabled:
-            print(f"  FastAPI server:    tail -f {FASTAPI_LOG_FILE}")
+            print(f"  FastAPI server:    tail -f {MODEL_RUN_LOG_FILE}")
         if docker_control_enabled:
             print(f"  Docker Control:    tail -f {DOCKER_CONTROL_LOG_FILE}")
         print()
@@ -5182,10 +5279,10 @@ def main():
                 cwd=os.path.join(TT_STUDIO_ROOT, "app")
             )
             
-            # Also check for FastAPI server logs
-            fastapi_logs_process = None
-            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_LOG_FILE):
-                fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+            # Also check for model run logs
+            model_run_logs_process = None
+            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(MODEL_RUN_LOG_FILE):
+                model_run_logs_process = subprocess.Popen(["tail", "-f", MODEL_RUN_LOG_FILE])
             
             try:
                 # Wait for Ctrl+C
@@ -5197,8 +5294,8 @@ def main():
                 # Clean up processes
                 if docker_logs_process:
                     docker_logs_process.terminate()
-                if fastapi_logs_process:
-                    fastapi_logs_process.terminate()
+                if model_run_logs_process:
+                    model_run_logs_process.terminate()
 
     except KeyboardInterrupt:
         print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")

@@ -10,8 +10,8 @@ export interface LogEntry {
 
 export interface BugReportData {
   backend_log: LogEntry;
-  fastapi_log: LogEntry;
-  fastapi_deployment_logs: LogEntry[];
+  model_run_log: LogEntry;
+  model_run_deployment_logs: LogEntry[];
   docker_control_log: LogEntry;
   startup_log: LogEntry;
   agent_log: { content: string };

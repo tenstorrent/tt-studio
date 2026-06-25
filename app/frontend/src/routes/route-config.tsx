@@ -58,6 +58,7 @@ import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
+import CodingAgentsPage from "../pages/CodingAgentsPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -152,6 +153,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/canvas",
       element: <CanvasPage />,
+      condition: true,
+    },
+    {
+      path: "/coding-agents",
+      element: <CodingAgentsPage />,
       condition: true,
     },
     {
