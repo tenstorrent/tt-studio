@@ -28,10 +28,11 @@ TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 # Job endpoints on the media-server (e.g. /v1/jobs) additionally require a
 # non-empty organization header for multi-tenant scoping (see
 # tt-media-server security/org_id_checker.py). TT Studio is single-tenant, so
-# we send a fixed value. The header name defaults to "X-TT-Organization" and is
-# configurable on the container via ORG_ID_HEADER.
-ORG_ID_HEADER = os.environ.get("ORG_ID_HEADER", "X-TT-Organization")
-ORG_ID = os.environ.get("TTS_ORG_ID", "tenstorrent")
+# we send a fixed value. The header name ("X-TT-Organization") matches the
+# media-server's ORG_ID_HEADER default, and "tenstorrent" mirrors the team_id
+# used in model_control/model_utils.py.
+ORG_ID_HEADER = "X-TT-Organization"
+ORG_ID = "tenstorrent"
 
 
 def _find_training_container(deploy_id=None):

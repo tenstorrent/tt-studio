@@ -82,6 +82,12 @@ const STATUS_STYLES: Record<
     bg: "bg-red-100 dark:bg-red-900/30",
     icon: AlertTriangle,
   },
+  cancelling: {
+    label: "Cancelling",
+    color: "text-orange-700 dark:text-orange-300",
+    bg: "bg-orange-100 dark:bg-orange-900/30",
+    icon: Loader2,
+  },
   cancelled: {
     label: "Cancelled",
     color: "text-gray-600 dark:text-gray-400",
@@ -89,6 +95,8 @@ const STATUS_STYLES: Record<
     icon: Ban,
   },
 };
+
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_STYLES[status] ?? STATUS_STYLES.queued;
@@ -98,7 +106,11 @@ function StatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${cfg.color} ${cfg.bg}`}
     >
       <Icon
-        className={`h-4 w-4 ${status === "in_progress" ? "animate-spin" : ""}`}
+        className={`h-4 w-4 ${
+          status === "in_progress" || status === "cancelling"
+            ? "animate-spin"
+            : ""
+        }`}
       />
       {cfg.label}
     </span>
@@ -153,11 +165,18 @@ export default function TrainingJobDetailPage() {
   const [checkpoints, setCheckpoints] = useState<TrainingCheckpoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
   const isActive = job?.status === "queued" || job?.status === "in_progress";
+  const isTerminal = job ? TERMINAL_STATUSES.includes(job.status) : false;
+  // Show "Cancelling" optimistically: the backend keeps reporting the previous
+  // status (queued / in_progress) for a few seconds after a cancel request, so
+  // we override the displayed status until it reaches a terminal state.
+  const displayStatus =
+    cancelRequested && !isTerminal ? "cancelling" : job?.status ?? "queued";
 
   const loadAll = useCallback(async () => {
     if (!jobId) return;
@@ -220,11 +239,19 @@ export default function TrainingJobDetailPage() {
 
   const handleCancel = async () => {
     if (!jobId) return;
+    setCancelRequested(true);
     try {
-      await cancelTrainingJob(jobId);
+      const result = await cancelTrainingJob(jobId);
+      // The server flips the job to "cancelling" and returns the new status in
+      // the cancel response. Apply it directly so the UI reflects the server's
+      // authoritative status without waiting for the next poll.
+      if (result?.status) {
+        setJob((prev) => (prev ? { ...prev, status: result.status as TrainingJob["status"] } : prev));
+      }
       customToast.success("Cancellation requested");
       loadAll();
     } catch {
+      setCancelRequested(false);
       customToast.error("Failed to cancel job");
     }
   };
@@ -264,9 +291,18 @@ export default function TrainingJobDetailPage() {
               Refresh
             </Button>
             {isActive && (
-              <Button variant="destructive" size="sm" onClick={handleCancel}>
-                <XCircle className="mr-2 h-4 w-4" />
-                Cancel Job
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleCancel}
+                disabled={cancelRequested}
+              >
+                {cancelRequested ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <XCircle className="mr-2 h-4 w-4" />
+                )}
+                {cancelRequested ? "Cancelling..." : "Cancel Job"}
               </Button>
             )}
           </div>
@@ -292,7 +328,7 @@ export default function TrainingJobDetailPage() {
                   {job.id.slice(0, 12)}
                 </span>
               </CardTitle>
-              <StatusBadge status={job.status} />
+              <StatusBadge status={displayStatus} />
             </div>
           </CardHeader>
           <CardContent>
@@ -350,13 +386,18 @@ export default function TrainingJobDetailPage() {
             {(() => {
               const config = job.config ?? job.request_parameters;
               if (!config || Object.keys(config).length === 0) return null;
+              const HIDDEN_CONFIG_KEYS = ["lora_task_type", "ignored_index"];
+              const visibleEntries = Object.entries(config).filter(
+                ([k]) => !HIDDEN_CONFIG_KEYS.includes(k),
+              );
+              if (visibleEntries.length === 0) return null;
               return (
                 <div className="mt-4 border-t pt-4 dark:border-gray-700">
                   <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     Configuration
                   </h4>
                   <div className="flex flex-wrap gap-2">
-                    {Object.entries(config).map(([k, v]) => (
+                    {visibleEntries.map(([k, v]) => (
                       <span
                         key={k}
                         className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800"
@@ -429,7 +470,10 @@ export default function TrainingJobDetailPage() {
                         name="Train Loss"
                         stroke="#3B82F6"
                         strokeWidth={2}
-                        dot={false}
+                        dot={
+                          metrics.filter((m) => m.train_loss != null).length ===
+                          1
+                        }
                         connectNulls
                       />
                       <Line
@@ -438,7 +482,9 @@ export default function TrainingJobDetailPage() {
                         name="Val Loss"
                         stroke="#F59E0B"
                         strokeWidth={2}
-                        dot={false}
+                        dot={
+                          metrics.filter((m) => m.val_loss != null).length === 1
+                        }
                         connectNulls
                       />
                     </LineChart>
@@ -494,7 +540,10 @@ export default function TrainingJobDetailPage() {
                         name="Learning Rate"
                         stroke="#10B981"
                         strokeWidth={2}
-                        dot={false}
+                        dot={
+                          metrics.filter((m) => m.learning_rate != null)
+                            .length === 1
+                        }
                         connectNulls
                       />
                     </LineChart>
