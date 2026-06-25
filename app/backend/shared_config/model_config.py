@@ -87,6 +87,20 @@ class ModelImpl:
                 "wormhole_b0_80_arch_eth_dispatch.yaml"
             )
 
+        # Training (tt-media-server job) containers: forward job-management
+        # settings so long-running fine-tuning jobs aren't reaped prematurely and
+        # survive container restarts. setdefault lets the catalog `env_vars` or a
+        # model env file override these defaults.
+        if self.model_type == ModelTypes.TRAINING:
+            training_job_env = {
+                "JOB_CLEANUP_INTERVAL_SECONDS": "10000",
+                "JOB_MAX_STUCK_TIME_SECONDS": "100000",
+                "REQUEST_PROCESSING_TIMEOUT_SECONDS": "100000",
+                "ENABLE_JOB_PERSISTENCE": "true",
+            }
+            for _key, _value in training_job_env.items():
+                self.docker_config["environment"].setdefault(_key, _value)
+
         # model env file must be interpreted here
         if not self.env_file:
             _env_file = self.get_model_env_file()

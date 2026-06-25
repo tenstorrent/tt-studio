@@ -25,6 +25,14 @@ PROXY_TIMEOUT = 120
 # NOT the JWT used for the vLLM/LLM inference endpoints.
 TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 
+# Job endpoints on the media-server (e.g. /v1/jobs) additionally require a
+# non-empty organization header for multi-tenant scoping (see
+# tt-media-server security/org_id_checker.py). TT Studio is single-tenant, so
+# we send a fixed value. The header name defaults to "X-TT-Organization" and is
+# configurable on the container via ORG_ID_HEADER.
+ORG_ID_HEADER = os.environ.get("ORG_ID_HEADER", "X-TT-Organization")
+ORG_ID = os.environ.get("TTS_ORG_ID", "tenstorrent")
+
 
 def _find_training_container(deploy_id=None):
     """Look up a running training container from the deploy cache.
@@ -72,7 +80,10 @@ def _base_url(entry):
 
 
 def _auth_headers():
-    return {"Authorization": f"Bearer {TTS_API_KEY}"}
+    return {
+        "Authorization": f"Bearer {TTS_API_KEY}",
+        ORG_ID_HEADER: ORG_ID,
+    }
 
 
 def _proxy_get(url, params=None, stream=False):

@@ -20,6 +20,8 @@ import { Button } from "../components/ui/button";
 import {
   fetchTrainingJobs,
   cancelTrainingJob,
+  formatTrainingTimestamp,
+  getJobDataset,
   type TrainingJob,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
@@ -244,12 +246,12 @@ export default function TrainingPage() {
                         <td className="py-3 pr-4 font-medium">
                           {job.model}
                         </td>
-                        <td className="py-3 pr-4">{job.dataset}</td>
+                        <td className="py-3 pr-4">{getJobDataset(job)}</td>
                         <td className="py-3 pr-4">
                           <StatusBadge status={job.status} />
                         </td>
                         <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
-                          {new Date(job.created_at).toLocaleString()}
+                          {formatTrainingTimestamp(job.created_at)}
                         </td>
                         <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
                           {job.progress

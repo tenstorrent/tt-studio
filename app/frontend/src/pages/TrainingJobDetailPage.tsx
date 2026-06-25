@@ -40,6 +40,9 @@ import {
   fetchTrainingJobCheckpoints,
   cancelTrainingJob,
   getCheckpointDownloadUrl,
+  formatTrainingTimestamp,
+  getJobDataset,
+  getJobErrorMessage,
   type TrainingJob,
   type TrainingMetricPoint,
   type TrainingLogEntry,
@@ -106,13 +109,21 @@ function StatusBadge({ status }: { status: string }) {
 // Log level coloring
 // ---------------------------------------------------------------------------
 
-function logLevelClass(level: string): string {
-  const l = level.toLowerCase();
+function logLevelClass(level?: string): string {
+  const l = (level ?? "").toLowerCase();
   if (l === "error") return "text-red-500";
   if (l === "warning" || l === "warn") return "text-yellow-500";
   if (l === "eval" || l === "validation") return "text-cyan-400";
   if (l === "checkpoint") return "text-purple-400";
   return "text-gray-300";
+}
+
+function formatLogTime(value: number | string): string {
+  const date =
+    typeof value === "number"
+      ? new Date(value < 1e12 ? value * 1000 : value)
+      : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString();
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +154,7 @@ export default function TrainingJobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
   const isActive = job?.status === "queued" || job?.status === "in_progress";
@@ -189,11 +200,23 @@ export default function TrainingJobDetailPage() {
     return () => clearInterval(id);
   }, [loadAll, isActive, job]);
 
+  // Keep the logs pinned to the bottom only while auto-scroll is enabled.
+  // Scroll the container itself (not scrollIntoView) so the page doesn't jump.
   useEffect(() => {
-    if (autoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (autoScroll && logsContainerRef.current) {
+      const el = logsContainerRef.current;
+      el.scrollTop = el.scrollHeight;
     }
   }, [logs, autoScroll]);
+
+  // When the user scrolls up, pause auto-scroll so they can read earlier logs;
+  // re-enable it once they scroll back to the bottom.
+  const handleLogsScroll = useCallback(() => {
+    const el = logsContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setAutoScroll(atBottom);
+  }, []);
 
   const handleCancel = async () => {
     if (!jobId) return;
@@ -282,14 +305,14 @@ export default function TrainingJobDetailPage() {
                 <span className="text-gray-500 dark:text-gray-400">
                   Dataset
                 </span>
-                <p className="font-medium">{job.dataset}</p>
+                <p className="font-medium">{getJobDataset(job)}</p>
               </div>
               <div>
                 <span className="text-gray-500 dark:text-gray-400">
                   Created
                 </span>
                 <p className="font-medium">
-                  {new Date(job.created_at).toLocaleString()}
+                  {formatTrainingTimestamp(job.created_at)}
                 </p>
               </div>
               {job.completed_at && (
@@ -298,7 +321,7 @@ export default function TrainingJobDetailPage() {
                     Completed
                   </span>
                   <p className="font-medium">
-                    {new Date(job.completed_at).toLocaleString()}
+                    {formatTrainingTimestamp(job.completed_at)}
                   </p>
                 </div>
               )}
@@ -316,32 +339,38 @@ export default function TrainingJobDetailPage() {
               {job.error && (
                 <div className="col-span-full">
                   <span className="text-red-500">Error</span>
-                  <p className="font-mono text-xs text-red-400">{job.error}</p>
+                  <p className="font-mono text-xs text-red-400">
+                    {getJobErrorMessage(job.error)}
+                  </p>
                 </div>
               )}
             </div>
 
             {/* Hyperparameters summary */}
-            {job.config && Object.keys(job.config).length > 0 && (
-              <div className="mt-4 border-t pt-4 dark:border-gray-700">
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Configuration
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(job.config).map(([k, v]) => (
-                    <span
-                      key={k}
-                      className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800"
-                    >
-                      <span className="text-gray-500 dark:text-gray-400">
-                        {k}:
-                      </span>{" "}
-                      {String(v)}
-                    </span>
-                  ))}
+            {(() => {
+              const config = job.config ?? job.request_parameters;
+              if (!config || Object.keys(config).length === 0) return null;
+              return (
+                <div className="mt-4 border-t pt-4 dark:border-gray-700">
+                  <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    Configuration
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(config).map(([k, v]) => (
+                      <span
+                        key={k}
+                        className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800"
+                      >
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {k}:
+                        </span>{" "}
+                        {String(v)}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -359,7 +388,7 @@ export default function TrainingJobDetailPage() {
           <TabsContent value="metrics">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Training Metrics</CardTitle>
+                <CardTitle className="text-lg">Loss</CardTitle>
               </CardHeader>
               <CardContent>
                 {metrics.length === 0 ? (
@@ -412,24 +441,67 @@ export default function TrainingJobDetailPage() {
                         dot={false}
                         connectNulls
                       />
-                      {metrics.some((m) => m.learning_rate != null) && (
-                        <Line
-                          type="monotone"
-                          dataKey="learning_rate"
-                          name="LR"
-                          stroke="#10B981"
-                          strokeWidth={1}
-                          strokeDasharray="4 2"
-                          dot={false}
-                          yAxisId="right"
-                          connectNulls
-                        />
-                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 )}
               </CardContent>
             </Card>
+
+            {/* Learning rate (separate chart) */}
+            {metrics.some((m) => m.learning_rate != null) && (
+              <Card className="mt-6">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Learning Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={metrics}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#374151"
+                        opacity={0.3}
+                      />
+                      <XAxis
+                        dataKey="global_step"
+                        label={{
+                          value: "Step",
+                          position: "insideBottomRight",
+                          offset: -5,
+                        }}
+                        stroke="#9CA3AF"
+                        fontSize={12}
+                      />
+                      <YAxis
+                        stroke="#9CA3AF"
+                        fontSize={12}
+                        width={70}
+                        tickFormatter={(v) =>
+                          typeof v === "number" ? v.toExponential(1) : v
+                        }
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1F2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#F9FAFB",
+                        }}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="learning_rate"
+                        name="Learning Rate"
+                        stroke="#10B981"
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* C. Logs Panel */}
@@ -448,25 +520,33 @@ export default function TrainingJobDetailPage() {
                 </label>
               </CardHeader>
               <CardContent>
-                <div className="max-h-[400px] overflow-y-auto rounded bg-gray-950 p-4 font-mono text-xs leading-relaxed">
+                <div
+                  ref={logsContainerRef}
+                  onScroll={handleLogsScroll}
+                  className="max-h-[400px] overflow-y-auto rounded bg-gray-950 p-4 font-mono text-xs leading-relaxed"
+                >
                   {logs.length === 0 ? (
                     <p className="text-gray-500">No logs yet.</p>
                   ) : (
-                    logs.map((entry, i) => (
-                      <div key={i} className="flex gap-3">
-                        <span className="shrink-0 text-gray-600">
-                          {new Date(entry.timestamp).toLocaleTimeString()}
-                        </span>
-                        <span
-                          className={`shrink-0 w-14 uppercase ${logLevelClass(entry.level)}`}
-                        >
-                          {entry.level}
-                        </span>
-                        <span className="text-gray-200">{entry.message}</span>
-                      </div>
-                    ))
+                    logs.map((entry, i) => {
+                      const level = entry.level ?? entry.type ?? "info";
+                      return (
+                        <div key={i} className="flex gap-3">
+                          <span className="shrink-0 text-gray-600">
+                            {formatLogTime(entry.timestamp)}
+                          </span>
+                          <span
+                            className={`shrink-0 w-14 uppercase ${logLevelClass(level)}`}
+                          >
+                            {level}
+                          </span>
+                          <span className="text-gray-200">
+                            {entry.message}
+                          </span>
+                        </div>
+                      );
+                    })
                   )}
-                  <div ref={logsEndRef} />
                 </div>
               </CardContent>
             </Card>
@@ -514,7 +594,10 @@ export default function TrainingJobDetailPage() {
                                         key={k}
                                         className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800"
                                       >
-                                        {k}: {v.toFixed(4)}
+                                        {k}:{" "}
+                                        {typeof v === "number"
+                                          ? v.toFixed(4)
+                                          : String(v)}
                                       </span>
                                     ),
                                   )}
@@ -527,7 +610,7 @@ export default function TrainingJobDetailPage() {
                               {formatBytes(ckpt.size_bytes)}
                             </td>
                             <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
-                              {new Date(ckpt.created_at).toLocaleString()}
+                              {formatTrainingTimestamp(ckpt.created_at)}
                             </td>
                             <td className="py-3 text-right">
                               <Button
@@ -540,7 +623,7 @@ export default function TrainingJobDetailPage() {
                                     jobId!,
                                     ckpt.id,
                                   )}
-                                  download
+                                  download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
                                 >
                                   <Download className="mr-1 h-3 w-3" />
                                   Download

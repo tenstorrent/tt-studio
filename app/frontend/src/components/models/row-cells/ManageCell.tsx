@@ -14,7 +14,7 @@ import {
   Mic,
   Volume2,
   ScanFace,
-  GraduationCap,
+  BrainCog,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
@@ -98,7 +98,7 @@ export default React.memo(function ManageCell({
             : modelType === ModelType.TTS
               ? Volume2
               : modelType === ModelType.Training
-                ? GraduationCap
+                ? BrainCog
                 : MessageSquareText;
 
   if (isFailed) {
