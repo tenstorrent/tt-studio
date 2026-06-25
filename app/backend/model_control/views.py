@@ -1716,7 +1716,8 @@ class OpenAIChatCompletionsView(View):
                 status=404,
             )
         if enable_thinking is not None:
-            ctk = dict(data.get("chat_template_kwargs") or {})
+            ctk_raw = data.get("chat_template_kwargs")
+            ctk = ctk_raw if isinstance(ctk_raw, dict) else {}
             ctk["enable_thinking"] = enable_thinking
             data["chat_template_kwargs"] = ctk
 
