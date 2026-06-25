@@ -92,6 +92,46 @@ claude`;
     "messages": [{"role": "user", "content": "Write a hello world in Python"}]
   }'`;
 
+  // OpenCode has no model discovery, so list every deployed model explicitly.
+  const opencodeModels = (info?.models ?? []).reduce(
+    (acc, m) => {
+      acc[m.name] = m.name.endsWith("-thinking")
+        ? { name: m.name, reasoning: true }
+        : { name: m.name };
+      return acc;
+    },
+    {} as Record<string, { name: string; reasoning?: boolean }>,
+  );
+  const opencodeProviderEntry = {
+    npm: "@ai-sdk/openai-compatible",
+    name: "TT-Studio",
+    options: { baseURL: openaiBase, apiKey: masterKey || "<your-api-key>" },
+    models: hasModels
+      ? opencodeModels
+      : { [PLACEHOLDER_MODEL]: { name: PLACEHOLDER_MODEL } },
+  };
+  const opencodeProvider = JSON.stringify(opencodeProviderEntry);
+  const opencodeConfig = JSON.stringify(
+    {
+      $schema: "https://opencode.ai/config.json",
+      provider: { "tt-studio": opencodeProviderEntry },
+    },
+    null,
+    2,
+  );
+
+  // Merge the tt-studio provider into any existing opencode config (create if
+  // absent), then launch opencode on the selected model.
+  const opencodeSnippet = `python3 - <<'PY' && opencode --model tt-studio/${activeModel}
+import json, pathlib
+p = pathlib.Path.home() / ".config/opencode/opencode.json"
+cfg = json.loads(p.read_text()) if p.exists() else {}
+cfg.setdefault("provider", {})["tt-studio"] = json.loads('''${opencodeProvider}''')
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2) + "\\n")
+print(f"Updated {p}")
+PY`;
+
   const renderHealth = () => {
     if (!info) return null;
     if (info.health === "healthy")
@@ -274,6 +314,7 @@ claude`;
                 <Tabs defaultValue="claude-code" className="w-full">
                   <TabsList>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+                    <TabsTrigger value="opencode">OpenCode</TabsTrigger>
                     <TabsTrigger value="openai">OpenAI / cURL</TabsTrigger>
                   </TabsList>
 
@@ -284,6 +325,23 @@ claude`;
                       with the <code>/model</code> command.
                     </p>
                     <CodeBlock code={claudeCodeSnippet} language="bash" className="text-left" />
+                  </TabsContent>
+
+                  <TabsContent value="opencode" className="space-y-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Adds a <code>tt-studio</code> provider to your OpenCode
+                      config (keeping any existing one) and launches{" "}
+                      <code>opencode</code> on{" "}
+                      <span className="font-mono">{activeModel}</span>.{" "}
+                      <code>-thinking</code> variants appear as separate models.
+                    </p>
+                    <CodeBlock code={opencodeSnippet} language="bash" className="text-left" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      No Python? Save this to{" "}
+                      <code>~/.config/opencode/opencode.json</code> yourself, then
+                      run <code>opencode</code>.
+                    </p>
+                    <CodeBlock code={opencodeConfig} language="json" className="text-left" />
                   </TabsContent>
 
                   <TabsContent value="openai" className="space-y-3">
