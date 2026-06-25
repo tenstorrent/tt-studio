@@ -2110,6 +2110,8 @@ def cleanup_resources(args):
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
         ("⚙️ ", ENV_FILE_PATH,
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+        ("⚙️ ", LEGACY_ENV_FILE_PATH, "legacy pre-consolidation env file (app/.env)"),
+        ("⚙️ ", LEGACY_ENV_BACKUP_PATH, "legacy env backup from migration (app/.env-old)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
         *log_items,
