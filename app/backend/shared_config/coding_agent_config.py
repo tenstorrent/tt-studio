@@ -21,7 +21,7 @@ CODING_AGENT_ELIGIBLE_MODELS = {
 CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 
 # Models with a toggleable "thinking" mode, mapped to their vLLM --reasoning-parser.
-# The parser splits reasoning into reasoning_content instead of inline <think> text,
+# The parser splits reasoning into reasoning_content instead of inline <think> text.
 REASONING_MODELS = {
     "Qwen3-32B": "qwen3",
 }
