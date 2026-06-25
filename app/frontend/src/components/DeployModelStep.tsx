@@ -8,6 +8,7 @@ import { useStepper } from "./ui/stepper";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
+import { useIsResetting } from "../hooks/useIsResetting";
 import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
 import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { Button } from "./ui/button";
@@ -44,6 +45,8 @@ export function DeployModelStep({
   const { refreshModels } = useModels();
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
+  // Block deployment while a board/device reset is in progress.
+  const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
   const [slotInfo, setSlotInfo] = useState<{
     totalSlots: number;
@@ -236,13 +239,15 @@ export function DeployModelStep({
     !!requireDeviceSelection && (selectedDeviceIds?.length ?? 0) === 0;
 
   const deployButtonText = useMemo(() => {
+    if (isResetting) return "Board Resetting…";
     if (cannotFit) return isMultiModel ? "Devices In Use" : "All Devices Occupied";
     if (!selectedModel) return "Select a Model";
     if (needsSelection) return "Select a Device";
     return "Deploy Model";
-  }, [selectedModel, cannotFit, isMultiModel, needsSelection]);
+  }, [selectedModel, cannotFit, isMultiModel, needsSelection, isResetting]);
 
-  const isDeployDisabled = !selectedModel || cannotFit || needsSelection;
+  const isDeployDisabled =
+    !selectedModel || cannotFit || needsSelection || isResetting;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
@@ -332,6 +337,26 @@ export function DeployModelStep({
         className="flex flex-col items-center justify-center p-6 overflow-hidden"
         style={{ minHeight: "200px" }}
       >
+        {/* Board reset in progress — deployment is paused */}
+        {isResetting && (
+          <div className="w-full max-w-2xl mb-6">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-1">
+                    Board reset in progress
+                  </h4>
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    Deployment is paused while the board resets — about a minute or two.
+                    Try again once it finishes.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Show blocking warning when ALL chip slots are occupied */}
         {showSlotsFullWarning && (
           <div className="w-full max-w-2xl mb-6">
