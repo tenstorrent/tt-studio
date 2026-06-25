@@ -14,7 +14,7 @@ import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
 import {
-  firstFreeSlot,
+  autoPlacement,
   fullBoardSlots,
   getModelPlacement,
   isMultiChipModel,
@@ -133,26 +133,28 @@ export default function StepperDemo() {
   const isFlexible = placement.cardGroups.length > 0;
   const allSlotsSelected =
     selectedDeviceIds.length > 0 && selectedDeviceIds.length === (totalSlots ?? 0);
-  // A flexible model runs full-board by default, or when every slot is selected.
-  const fullBoardSelected = isFlexible && (!advancedActive || allSlotsSelected);
+  // In auto mode, the best currently-available placement: full board, else a free
+  // card pair (flexible), else the lowest free slot. null when nothing fits.
+  const autoPlace = advancedActive
+    ? null
+    : autoPlacement(placement, selectedModelChips, chipStatus?.slots ?? [], totalSlots ?? 4);
+  // The full-board (force_full_board) flow applies only to flexible models.
+  const fullBoardSelected =
+    isFlexible && (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
   // Chips the deployment actually occupies (full-board takes every slot).
   const effectiveChips = fullBoardSelected ? 4 : selectedModelChips;
   // Devices shown in the deploy preview; undefined means the backend auto-allocates.
   const previewDeviceIds: number[] | undefined = (() => {
+    if (!advancedActive) return autoPlace?.deviceIds;
     const board = fullBoardSlots(totalSlots ?? 4);
     if (placement.allowsFullBoard && !isFlexible) return board; // true multi-chip
     if (isFlexible) {
-      return fullBoardSelected
-        ? board
-        : selectedDeviceIds.length
-          ? selectedDeviceIds
-          : undefined;
+      return fullBoardSelected ? board : selectedDeviceIds.length ? selectedDeviceIds : undefined;
     }
-    if (advancedActive) return selectedDeviceIds.length ? selectedDeviceIds : undefined;
-    // Auto (no manual config): show the slot the backend will pick — the lowest free one.
-    const autoSlot = firstFreeSlot(chipStatus?.slots ?? []);
-    return autoSlot !== undefined ? [autoSlot] : undefined;
+    return selectedDeviceIds.length ? selectedDeviceIds : undefined;
   })();
+  // Auto mode with no available configuration → block deploy with a clear reason.
+  const placementBlocked = !advancedActive && !!chipStatus && autoPlace === null;
   // Single-device and flexible models in advanced mode need an explicit pick;
   // true multi-chip models auto-allocate the whole board.
   const requireDeviceSelection =
@@ -260,10 +262,13 @@ export default function StepperDemo() {
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
-    // Flexible models run full-board by default or when all slots are chosen;
-    // otherwise we honour the selected card pair (options.device_id from the picker).
+    // Full-board flow omits device_id (force_full_board). Otherwise, in auto mode a
+    // flexible model deploys onto its resolved card pair; manual mode already carries
+    // the picked devices in options.device_id.
     if (fullBoardSelected) {
       resolvedDeviceId = undefined;
+    } else if (!advancedActive && isFlexible && autoPlace && autoPlace.deviceIds.length > 1) {
+      resolvedDeviceId = autoPlace.deviceIds.join(",");
     }
 
     // Only include device_id when explicitly provided — omitting it lets the backend
@@ -606,6 +611,7 @@ export default function StepperDemo() {
                     previewDeviceIds={previewDeviceIds}
                     requireDeviceSelection={requireDeviceSelection}
                     deviceAutoSelected={!advancedActive}
+                    placementBlocked={placementBlocked}
                   />
                 </>
               )}

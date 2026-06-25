@@ -22,6 +22,7 @@ export function DeployModelStep({
   previewDeviceIds,
   requireDeviceSelection,
   deviceAutoSelected,
+  placementBlocked,
 }: {
   selectedModel: string | null;
   handleDeploy: (options?: {
@@ -36,6 +37,8 @@ export function DeployModelStep({
   requireDeviceSelection?: boolean;
   // True when the preview devices were auto-allocated rather than user-picked.
   deviceAutoSelected?: boolean;
+  // True when no valid device configuration is currently free (auto mode).
+  placementBlocked?: boolean;
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
@@ -220,12 +223,14 @@ export function DeployModelStep({
 
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
-  // A full-board model needs slots 0..3 free; a single-device model needs any free slot.
+  // placementBlocked: the parent already determined no valid configuration is free.
+  // Otherwise: a full-board model needs slots 0..3 free, a single-device model any free slot.
   const cannotFit =
-    slotInfo.totalSlots > 0 &&
-    (isMultiModel
-      ? slotInfo.occupiedDetails.some((s) => s.slot_id < fullBoardMax)
-      : slotInfo.availableSlots === 0);
+    !!placementBlocked ||
+    (slotInfo.totalSlots > 0 &&
+      (isMultiModel
+        ? slotInfo.occupiedDetails.some((s) => s.slot_id < fullBoardMax)
+        : slotInfo.availableSlots === 0));
   // Only models that require a manual pick block deploy until a slot is chosen.
   const needsSelection =
     !!requireDeviceSelection && (selectedDeviceIds?.length ?? 0) === 0;
@@ -335,18 +340,24 @@ export function DeployModelStep({
                 <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                    {isMultiModel ? "Not Enough Free Devices" : "All Devices Occupied"}
+                    {isMultiModel
+                      ? "Not Enough Free Devices"
+                      : slotInfo.availableSlots > 0
+                        ? "No Free Device Configuration"
+                        : "All Devices Occupied"}
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
                     {isMultiModel
                       ? `${modelName || "This model"} needs all ${fullBoardMax} devices. In use: `
-                      : `All ${slotInfo.totalSlots} devices are in use: `}
+                      : slotInfo.availableSlots > 0
+                        ? `${modelName || "This model"} has no free device configuration right now. In use: `
+                        : `All ${slotInfo.totalSlots} devices are in use: `}
                     {slotInfo.occupiedDetails
                       .map((s) => `${s.model_name} (device ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
                       .join(", ")}
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Free up {isMultiModel ? "those devices" : "a device"} before deploying this model.
+                    Free up {isMultiModel || slotInfo.availableSlots > 0 ? "devices" : "a device"} before deploying this model.
                   </p>
                   <Button
                     onClick={handleGoToDeployedModels}

@@ -104,3 +104,30 @@ export function firstFreeSlot(slots: DeviceSlotLike[]): number | undefined {
     .map((s) => s.slot_id)
     .sort((a, b) => a - b)[0];
 }
+
+// Devices an automatic (non-manual) deploy will use, given current occupancy:
+// prefer the full board, then any fully-free card group (flexible models), else
+// the lowest free slot (single-device). Returns null when nothing fits.
+export function autoPlacement(
+  placement: ModelPlacement,
+  chipsRequired: number,
+  slots: DeviceSlotLike[],
+  totalSlots: number
+): { deviceIds: number[]; fullBoard: boolean } | null {
+  const board = fullBoardSlots(totalSlots);
+  const isFree = (id: number) =>
+    slots.find((s) => s.slot_id === id)?.status === "available";
+
+  if (placement.cardGroups.length > 0) {
+    if (board.every(isFree)) return { deviceIds: board, fullBoard: true };
+    for (const group of placement.cardGroups) {
+      if (group.every(isFree)) return { deviceIds: group, fullBoard: false };
+    }
+    return null;
+  }
+  if (isMultiChipModel(chipsRequired)) {
+    return board.every(isFree) ? { deviceIds: board, fullBoard: true } : null;
+  }
+  const slot = firstFreeSlot(slots);
+  return slot === undefined ? null : { deviceIds: [slot], fullBoard: false };
+}
