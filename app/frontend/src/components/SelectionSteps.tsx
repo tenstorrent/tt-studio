@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
-import { Step, Stepper } from "./ui/stepper";
+import { Step, Stepper, useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
@@ -39,6 +39,16 @@ export interface Model {
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
 const QB2_BOARD_TYPES = new Set(["P300x2"]);
 
+// Reports the stepper's active step up to the card header (which renders outside
+// the stepper context) so the advanced toggle can be shown only on the deploy step.
+function StepWatcher({ onChange }: { onChange: (step: number) => void }) {
+  const { activeStep } = useStepper();
+  useEffect(() => {
+    onChange(activeStep);
+  }, [activeStep, onChange]);
+  return null;
+}
+
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -60,6 +70,8 @@ export default function StepperDemo() {
   const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
   // Advanced hardware config is opt-in via the Step 2 toggle (multi-chip boards only).
   const [showHardwareConfig, setShowHardwareConfig] = useState(false);
+  // Active stepper step, mirrored out via StepWatcher (0 = model selection, 1 = deploy).
+  const [activeStep, setActiveStep] = useState(0);
 
   // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
@@ -512,7 +524,7 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {(voiceAgentAvailable || isMultiChipBoard) && (
+        {(voiceAgentAvailable || (isMultiChipBoard && activeStep === 1)) && (
           <div className="flex items-center mb-4">
             {voiceAgentAvailable && (
               <button
@@ -522,7 +534,7 @@ export default function StepperDemo() {
                 <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
               </button>
             )}
-            {isMultiChipBoard && (
+            {isMultiChipBoard && activeStep === 1 && (
               <button
                 type="button"
                 aria-expanded={showHardwareConfig}
@@ -591,6 +603,7 @@ export default function StepperDemo() {
               )}
             </Step>
           ))}
+          <StepWatcher onChange={setActiveStep} />
           <div className="py-12">
             <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
