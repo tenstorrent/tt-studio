@@ -18,6 +18,10 @@ export function DeployModelStep({
   handleDeploy,
   selectedModel,
   selectedDeviceIds,
+  chipsRequired,
+  previewDeviceIds,
+  requireDeviceSelection,
+  deviceAutoSelected,
 }: {
   selectedModel: string | null;
   handleDeploy: (options?: {
@@ -25,6 +29,13 @@ export function DeployModelStep({
     host_port?: number | null;
   }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceIds?: number[];
+  chipsRequired?: number;
+  // Devices to show in the preview
+  previewDeviceIds?: number[];
+  // True only when the user must manually pick a device before deploying.
+  requireDeviceSelection?: boolean;
+  // True when the preview devices were auto-allocated rather than user-picked.
+  deviceAutoSelected?: boolean;
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
@@ -68,7 +79,7 @@ export function DeployModelStep({
       setShowLogs(false);
       return;
     }
-    
+
     setLoadingLogs(true);
     try {
       const response = await fetch(`/docker-api/deploy/logs/${jobId}/`);
@@ -207,29 +218,33 @@ export function DeployModelStep({
     fetchSlotStatus();
   }, [isDeploymentInProgress]);
 
-  const allSlotsOccupied = slotInfo.totalSlots > 0 && slotInfo.availableSlots === 0;
+  const isMultiModel = (chipsRequired ?? 1) > 1;
+  const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
+  // A full-board model needs slots 0..3 free; a single-device model needs any free slot.
+  const cannotFit =
+    slotInfo.totalSlots > 0 &&
+    (isMultiModel
+      ? slotInfo.occupiedDetails.some((s) => s.slot_id < fullBoardMax)
+      : slotInfo.availableSlots === 0);
+  // Only models that require a manual pick block deploy until a slot is chosen.
+  const needsSelection =
+    !!requireDeviceSelection && (selectedDeviceIds?.length ?? 0) === 0;
 
   const deployButtonText = useMemo(() => {
-    if (allSlotsOccupied) {
-      return "All Devices Occupied";
-    }
+    if (cannotFit) return isMultiModel ? "Devices In Use" : "All Devices Occupied";
     if (!selectedModel) return "Select a Model";
+    if (needsSelection) return "Select a Device";
     return "Deploy Model";
-  }, [
-    selectedModel,
-    allSlotsOccupied,
-  ]);
+  }, [selectedModel, cannotFit, isMultiModel, needsSelection]);
 
-  const isDeployDisabled =
-    !selectedModel ||
-    allSlotsOccupied;
+  const isDeployDisabled = !selectedModel || cannotFit || needsSelection;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
 
     // Mark deployment as in progress to prevent blocking UI
     setIsDeploymentInProgress(true);
-    
+
     // Optimistically mark a slot as taken to prevent blocking UI during deployment
     setSlotInfo((prev) => ({
       ...prev,
@@ -254,7 +269,7 @@ export function DeployModelStep({
     if (deployResult.job_id) {
       setCurrentJobId(deployResult.job_id);
     }
-    
+
     if (deployResult.success) {
       // Don't refresh models immediately - wait until deployment completes
       // This prevents the blocking UI from showing while deployment is in progress
@@ -301,10 +316,10 @@ export function DeployModelStep({
     // Note: The AnimatedDeployButton will reset its state when onDeploy is called again
   };
 
-  // Show blocking warning only when ALL slots are occupied
-  const showSlotsFullWarning = allSlotsOccupied && !isDeploymentInProgress;
-  // Show informational status when some slots are in use but others are available
-  const showSlotInfo = !allSlotsOccupied && slotInfo.occupiedDetails.length > 0 && !isDeploymentInProgress;
+  // Show blocking warning when the selected model can't fit the free devices
+  const showSlotsFullWarning = cannotFit && !isDeploymentInProgress;
+  // Show informational status when some slots are in use but the model still fits
+  const showSlotInfo = !cannotFit && slotInfo.occupiedDetails.length > 0 && !isDeploymentInProgress;
 
   return (
     <>
@@ -320,16 +335,18 @@ export function DeployModelStep({
                 <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                    All Devices Occupied
+                    {isMultiModel ? "Not Enough Free Devices" : "All Devices Occupied"}
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    All {slotInfo.totalSlots} devices are in use:{" "}
+                    {isMultiModel
+                      ? `${modelName || "This model"} needs all ${fullBoardMax} devices. In use: `
+                      : `All ${slotInfo.totalSlots} devices are in use: `}
                     {slotInfo.occupiedDetails
                       .map((s) => `${s.model_name} (device ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
                       .join(", ")}
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Free up a device before deploying a new model.
+                    Free up {isMultiModel ? "those devices" : "a device"} before deploying this model.
                   </p>
                   <Button
                     onClick={handleGoToDeployedModels}
@@ -375,7 +392,7 @@ export function DeployModelStep({
                   {deploymentError.message}
                 </p>
               </div>
-              
+
               {/* Add View Logs button */}
               {currentJobId && (
                 <div className="mb-4">
@@ -389,7 +406,7 @@ export function DeployModelStep({
                   </Button>
                 </div>
               )}
-              
+
               {/* Display logs if available */}
               {showLogs && deploymentLogs.length > 0 && (
                 <div className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto text-left mb-4">
@@ -400,7 +417,7 @@ export function DeployModelStep({
                   ))}
                 </div>
               )}
-              
+
               <div className="flex justify-center gap-2">
                 <Button
                   onClick={handleRetryDeploy}
@@ -432,20 +449,37 @@ export function DeployModelStep({
               </span>
             </div>
           )}
-          {selectedDeviceIds !== undefined && selectedDeviceIds.length > 0 && (
+          {previewDeviceIds && previewDeviceIds.length > 0 && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
-                {selectedDeviceIds.length > 1 ? "Devices:" : "Device:"}
+                {previewDeviceIds.length > 1 ? "Devices:" : "Device:"}
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                {selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}
+                {previewDeviceIds.slice().sort((a, b) => a - b).join(", ")}
               </span>
+              {deviceAutoSelected && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  (auto-detected)
+                </span>
+              )}
             </div>
           )}
+          {(!previewDeviceIds || previewDeviceIds.length === 0) &&
+            modelName &&
+            !cannotFit &&
+            !needsSelection && (
+              <div className="flex items-center space-x-2">
+                <Cpu className="text-TT-purple-accent" />
+                <span className="text-sm text-gray-800 dark:text-gray-400">Device:</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                  Auto · next free device
+                </span>
+              </div>
+            )}
         </div>
       </div>
-      <StepperFormActions removeDynamicSteps={() => {}} />
+      <StepperFormActions removeDynamicSteps={() => { }} />
     </>
   );
 }
