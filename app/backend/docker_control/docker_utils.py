@@ -15,6 +15,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
 from docker_control.docker_control_client import get_docker_client
@@ -1061,6 +1062,8 @@ def serialize_canonical_entry_for_http(entry):
     out = {k: v for k, v in entry.items() if k != "env_vars"}
 
     model_impl = entry.get("model_impl")
+    # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)
+    out["coding_agent_eligible"] = is_coding_agent_eligible(model_impl)
     if model_impl is None:
         out["model_impl"] = None
         out.setdefault("model_type", None)

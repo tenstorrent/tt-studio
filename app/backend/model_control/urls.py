@@ -32,4 +32,8 @@ urlpatterns = [
     path("inference_cloud/", views.InferenceCloudView.as_view()),
     path("logs/<str:container_id>/", views.ContainerLogsView.as_view(), name="container-logs"),
     path("api-info/", views.ModelAPIInfoView.as_view()),
+    # Coding-agent gateway (LiteLLM) — OpenAI-compatible upstream + UI helper
+    path("openai/v1/chat/completions", views.OpenAIChatCompletionsView.as_view()),
+    path("openai/v1/models", views.OpenAIModelsView.as_view()),
+    path("coding-agents/", views.CodingAgentsView.as_view()),
 ]

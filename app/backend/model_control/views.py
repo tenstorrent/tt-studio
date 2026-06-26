@@ -118,11 +118,13 @@ def _drop_phase_latch(deploy_id: str) -> None:
         _phase_latch.pop(deploy_id, None)
 from model_control.model_utils import (
     encoded_jwt,
+    _vllm_client,
     get_deploy_cache,
     get_model_name_from_container,
     get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
+    stream_openai_passthrough,
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
@@ -1759,3 +1761,212 @@ class ModelAPIInfoView(APIView):
   -H "Content-Type: application/json" \\
   -d '{json_payload}'
 """
+
+
+# Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
+# is the SSOT in shared_config.coding_agent_config.
+from shared_config.coding_agent_config import is_coding_agent_eligible  # noqa: E402
+
+LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
+LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
+LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
+LITELLM_INTERNAL_URL = os.environ.get("LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000")
+
+# Round-robin cursor per model_name for multi-chip / duplicate deployments
+_rr_lock = threading.Lock()
+_rr_counters: dict[str, int] = {}
+
+
+def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
+    """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
+
+    Eligibility is decided by is_coding_agent_eligible (shared_config SSOT).
+    Resilient to deploy-cache failures (e.g. docker-control-service down): logs
+    and returns an empty list so callers degrade gracefully instead of 500ing.
+    """
+    out = []
+    try:
+        cache = get_deploy_cache()
+    except Exception as e:
+        logger.warning(f"coding-agents: deploy cache unavailable: {e}")
+        return out
+    for deploy_id, entry in cache.items():
+        impl = entry.get("model_impl")
+        if not entry.get("internal_url") or not is_coding_agent_eligible(impl):
+            continue
+        out.append((deploy_id, entry))
+    return out
+
+
+def _resolve_deploy_by_model_name(model_name: str):
+    """Find a running CHAT/VLM deployment whose friendly model_name matches.
+
+    Matches the catalog `model_impl.model_name` (what the UI shows and the user
+    types), falling back to `cached_model_name`/`hf_model_id`. Round-robins
+    across duplicates (e.g. the same model deployed on multiple chips).
+    """
+    matches = [
+        entry
+        for _, entry in _running_coding_agent_deploys()
+        if model_name
+        in (
+            getattr(entry.get("model_impl"), "model_name", None),
+            entry.get("cached_model_name"),
+            getattr(entry.get("model_impl"), "hf_model_id", None),
+        )
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    with _rr_lock:
+        idx = _rr_counters.get(model_name, 0)
+        _rr_counters[model_name] = (idx + 1) % len(matches)
+    return matches[idx % len(matches)]
+
+
+def _check_upstream_auth(request) -> bool:
+    """Validate the LiteLLM -> backend shared secret. True if authorized."""
+    if not LITELLM_UPSTREAM_KEY:
+        return True
+    auth = request.headers.get("Authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    return token == LITELLM_UPSTREAM_KEY
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OpenAIChatCompletionsView(View):
+    """OpenAI-compatible /v1/chat/completions upstream for the LiteLLM gateway.
+
+    Resolves the OpenAI `model` field (a friendly catalog name) to a running
+    deployment and proxies to its vLLM container, reusing the same streaming
+    machinery as the in-app chat (`stream_response_from_external_api`).
+    """
+
+    async def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return JsonResponse({"error": {"message": "Unauthorized"}}, status=401)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
+
+        requested_model = data.get("model")
+        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, requested_model)
+        if deploy is None:
+            return JsonResponse(
+                {"error": {"message": f"No running model named '{requested_model}'.",
+                           "type": "model_not_found"}},
+                status=404,
+            )
+
+        internal_url = "http://" + deploy["internal_url"]
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+        )
+
+        # Clamp max_tokens to 75% of the context window (same policy as InferenceView).
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
+            deploy["model_impl"].param_count
+        )
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # Base/completion models: convert messages -> prompt and route accordingly.
+        service_route = deploy["model_impl"].service_route
+        if service_route == "/v1/completions":
+            messages = data.pop("messages", [])
+            data["prompt"] = messages_to_prompt(messages)
+            data.pop("stream_options", None)
+
+        stream = bool(data.get("stream", False))
+
+        if stream:
+            async def generate():
+                try:
+                    # Clean OpenAI SSE passthrough (no injected stream_options /
+                    # stats trailer) so the gateway emits spec-compliant chunks.
+                    async for chunk in stream_openai_passthrough(internal_url, data):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"OpenAIChatCompletionsView stream error: {e}")
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+            response["Cache-Control"] = "no-cache"
+            response["X-Accel-Buffering"] = "no"
+            return response
+
+        # Non-streaming: proxy the JSON response from vLLM verbatim via the shared
+        # pooled client (avoids a fresh connection pool per request).
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        try:
+            upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
+            return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
+        except Exception as e:
+            logger.error(f"OpenAIChatCompletionsView non-stream error: {e}")
+            return JsonResponse({"error": {"message": str(e)}}, status=502)
+
+
+class OpenAIModelsView(APIView):
+    """OpenAI-compatible /v1/models listing of deployed chat models.
+
+    Powers LiteLLM `check_provider_endpoint` discovery (and therefore Claude
+    Code's `/model` picker via CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).
+    """
+
+    def get(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        seen = set()
+        data = []
+        for _, entry in _running_coding_agent_deploys():
+            name = getattr(entry.get("model_impl"), "model_name", None)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            data.append({"id": name, "object": "model", "owned_by": "tt-studio"})
+        return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
+
+
+class CodingAgentsView(APIView):
+    """Info for the frontend 'Coding Agents' page: gateway health, key, models.
+
+    Returns host-relative info only; the frontend builds absolute URLs from
+    window.location.hostname so remote / port-forwarded access works.
+    """
+
+    def get(self, request, *args, **kwargs):
+        health = "disabled"
+        if LITELLM_MASTER_KEY:
+            try:
+                resp = requests.get(f"{LITELLM_INTERNAL_URL}/health/liveliness", timeout=2)
+                health = "healthy" if resp.status_code == 200 else "unreachable"
+            except requests.RequestException:
+                health = "unreachable"
+
+        models = []
+        seen = set()
+        for _, entry in _running_coding_agent_deploys():
+            impl = entry.get("model_impl")
+            name = getattr(impl, "model_name", None)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
+            models.append({"name": name, "type": mtype})
+
+        return Response(
+            {
+                "litellm_enabled": bool(LITELLM_MASTER_KEY),
+                "health": health,
+                "gateway_port": LITELLM_PORT,
+                "openai_base_path": "/v1",
+                "master_key": LITELLM_MASTER_KEY,
+                "models": models,
+            },
+            status=status.HTTP_200_OK,
+        )
