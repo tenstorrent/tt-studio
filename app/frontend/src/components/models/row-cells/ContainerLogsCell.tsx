@@ -11,6 +11,7 @@ import {
 } from "../../ui/tooltip";
 import { Activity, Copy as CopyIcon, ScrollText } from "lucide-react";
 import { customToast } from "../../CustomToaster";
+import { useIsResetting } from "../../../hooks/useIsResetting";
 
 interface Props {
   id: string;
@@ -21,6 +22,7 @@ export default React.memo(function ContainerLogsCell({
   id,
   onOpenLogs,
 }: Props) {
+  const isResetting = useIsResetting();
   return (
     <div className="flex items-center gap-3">
       {/* Copy control outside the View Logs button for easier click target */}
@@ -51,6 +53,8 @@ export default React.memo(function ContainerLogsCell({
         variant="outline"
         size="sm"
         onClick={() => onOpenLogs(id)}
+        disabled={isResetting}
+        title={isResetting ? "Disabled while the board is resetting" : undefined}
         className="group h-auto p-3 flex items-center gap-3 border-TT-purple/30 hover:border-TT-purple-accent hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 hover:shadow-lg hover:shadow-TT-purple/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 min-w-[160px] rounded-xl"
       >
         <div className="relative w-9 h-9 rounded-lg border border-TT-purple-accent/40 bg-gradient-to-br from-TT-purple-tint2/25 to-transparent dark:from-TT-purple-shade/30 dark:to-transparent flex items-center justify-center">

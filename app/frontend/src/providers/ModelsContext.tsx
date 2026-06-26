@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   fetchDeployments,
   fetchModels,
   type CanonicalDeployment,
 } from "../api/modelsDeployedApis";
 import { ModelsContext, type Model } from "../contexts/ModelsContext";
+import { useDeviceState } from "../hooks/useDeviceState";
 
 /** Format Docker port_bindings into the "host:port->container/proto" string the UI expects. */
 function formatPortBindings(bindings: CanonicalDeployment["port_bindings"]): string {
@@ -46,6 +47,11 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
     () => sessionStorage.getItem("userStoppedModel") === "true"
   );
   const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
+
+  // Pause polling while a hardware reset is running.
+  const { deviceState } = useDeviceState();
+  const isResettingRef = useRef<boolean>(false);
+  isResettingRef.current = deviceState?.state === "RESETTING";
 
   const setUserStoppedModel = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
     setUserStoppedModelState((prev) => {
@@ -100,7 +106,10 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   // interval in addition to the on-demand refreshes triggered elsewhere.
   useEffect(() => {
     refreshModels();
-    const intervalId = setInterval(refreshModels, 5000);
+    const intervalId = setInterval(() => {
+      if (isResettingRef.current) return; // paused during a reset
+      refreshModels();
+    }, 5000);
     return () => clearInterval(intervalId);
   }, [refreshModels]);
 

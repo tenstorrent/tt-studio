@@ -34,8 +34,9 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-import { DeployedModelsWarning } from "./DeployedModelsWarning";
+// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
+import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 
 // Status configuration with icons and labels
 const STATUS_CONFIG = {
@@ -86,6 +87,7 @@ export function FirstStepForm({
   isAutoDeploying,
   chipMode,
   onModelNameChange,
+  chipStatus,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
@@ -93,6 +95,10 @@ export function FirstStepForm({
   isAutoDeploying?: boolean;
   chipMode?: "single" | "multi";
   onModelNameChange?: (name: string) => void;
+  chipStatus?: {
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string }[];
+  } | null;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -103,7 +109,8 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isWarningDismissed, setIsWarningDismissed] = useState(false);
+  // Used only by the deployed-models warning, hidden for now (see render below).
+  // const [isWarningDismissed, setIsWarningDismissed] = useState(false);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -302,16 +309,48 @@ export function FirstStepForm({
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
+  // Render a model row, greying it out (and explaining why) when it can't be
+  // deployed against the currently free devices.
+  const renderModelItem = (model: Model, dotClass: string) => {
+    const chips = model.chips_required ?? 1;
+    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+    const fits =
+      !chipStatus ||
+      autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
+    const reason = chipStatus
+      ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
+      : null;
+    return (
+      <SelectItem
+        key={model.id}
+        value={model.name}
+        disabled={!fits}
+        className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+      >
+        <div className="flex items-center w-full">
+          <span className={`${dotClass} mr-2 text-xs`}>●</span>
+          <span className="flex-1">{model.name}</span>
+          {!fits && reason && (
+            <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+              {reason}
+            </span>
+          )}
+        </div>
+      </SelectItem>
+    );
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        {/* Always show deployed models warning prominently */}
-        {!isWarningDismissed && (
+        {/* Deployed-models warning hidden for now — capacity-aware greying of the
+            model list already communicates when devices are in use. */}
+        {/* {!isWarningDismissed && (
           <DeployedModelsWarning
             className="mb-8 mt-8"
             onClose={() => setIsWarningDismissed(true)}
           />
-        )}
+        )} */}
 
         {/* Auto-deploy indicator */}
         {isAutoDeploying && autoDeployModel && (
@@ -419,33 +458,15 @@ export function FirstStepForm({
                                   </div>
 
                                   {/* Compatible Models */}
-                                  {modelsByCompatibility.compatible.map((model: Model) => (
-                                    <SelectItem
-                                      key={model.id}
-                                      value={model.name}
-                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                                    >
-                                      <div className="flex items-center w-full">
-                                        <span className="text-green-500 mr-2 text-xs">●</span>
-                                        <span className="flex-1">{model.name}</span>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
+                                  {modelsByCompatibility.compatible.map((model: Model) =>
+                                    renderModelItem(model, "text-green-500")
+                                  )}
 
 
                                   {/* Unknown Compatibility Models */}
-                                  {modelsByCompatibility.unknown.map((model: Model) => (
-                                    <SelectItem
-                                      key={model.id}
-                                      value={model.name}
-                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                                    >
-                                      <div className="flex items-center w-full">
-                                        <span className="text-yellow-500 mr-2 text-xs">●</span>
-                                        <span className="flex-1">{model.name}</span>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
+                                  {modelsByCompatibility.unknown.map((model: Model) =>
+                                    renderModelItem(model, "text-yellow-500")
+                                  )}
                                 </div>
                               );
                             })}
