@@ -15,9 +15,11 @@ for structured output (progress, status, tables, tracebacks) and new code.
 import contextlib
 import io
 import sys
+import time
 
 from rich import box
 from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
@@ -154,11 +156,39 @@ def end_phase(handle=None):
     if handle._status is not None:
         handle._status.stop()
     marker = "[error]✗[/error]" if handle.failed else "[success]✓[/success]"
-    # Render the collapsed phase line as a left-aligned divider rule so it still
-    # reads as a section marker (e.g. "✓ Phase 1/4 · Checks ──────────").
-    console.rule(f"{marker} {handle.label}", align="left", style="muted")
+    # Collapse the phase to a single left-aligned divider rule that "sweeps in"
+    # left→right (e.g. "✓ Phase 1/4 · Checks ──────────"). The animation is
+    # confined to this one line. Non-TTY / --verbose: render it instantly.
+    _sweep_phase_rule(f"{marker} {handle.label} ")
     _IN_PHASE = False
     _active_phase = None
+
+
+def _sweep_phase_rule(prefix_markup, total_seconds=0.22, frames=18):
+    """Print `prefix` followed by a divider rule that draws in left→right.
+
+    Animated only on an interactive terminal (and not in --verbose); otherwise
+    the full rule prints in one shot. The phase spinner is already stopped when
+    this runs, so the short Live display has no other live region to collide with.
+    """
+    prefix = Text.from_markup(prefix_markup)
+    dashes_total = max(0, console.width - prefix.cell_len)
+
+    def line(d):
+        return prefix + Text("─" * d, style="muted")
+
+    if not console.is_terminal or VERBOSE or dashes_total == 0:
+        console.print(line(dashes_total))
+        return
+
+    step = max(1, dashes_total // frames)
+    with Live(line(0), console=console, transient=False, refresh_per_second=60) as live:
+        d = 0
+        while d < dashes_total:
+            d = min(dashes_total, d + step)
+            live.update(line(d))
+            time.sleep(total_seconds / frames)
+        live.update(line(dashes_total))
 
 
 def stop_active_phase():
