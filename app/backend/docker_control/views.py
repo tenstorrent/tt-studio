@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import os
 import asyncio
+import threading
 import concurrent.futures
 import requests
 import json
@@ -320,6 +321,13 @@ class ChipStatusView(APIView):
 
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
+        # Block new deployments while a board/device reset is in progress — deploying
+        # mid-reset conflicts with the hardware re-init and model teardown.
+        if SystemResourceService.is_reset_in_progress():
+            return Response(
+                {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
@@ -360,29 +368,10 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # Stop and clean up any existing starting/running deployments of this
-            # model before deploying a new instance. Prevents stale records with
-            # wrong device_id from persisting in the UI after a re-deploy.
-            try:
-                from docker_control.models import ModelDeployment
-                from docker_control.docker_utils import stop_container
-                stale = list(ModelDeployment.objects.filter(
-                    model_name=impl.model_name,
-                    status__in=["starting", "running"],
-                ))
-                for old_dep in stale:
-                    try:
-                        stop_container(old_dep.container_id)
-                    except Exception:
-                        pass
-                    old_dep.status = "stopped"
-                    old_dep.save()
-                    logger.info(
-                        f"Cleaned up stale deployment record {old_dep.id} "
-                        f"for {impl.model_name} (container_id={old_dep.container_id})"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available. Slot allocation below enforces capacity and the
+            # canonical reconciliation frees genuinely stale records, so we must not
+            # stop existing same-model deployments here.
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -2550,41 +2539,46 @@ class StopStreamView(View):
         async def generate():
             yield "retry: 1000\n\n"
             truncated = container_id[:12]
-
-            # Step 1: stop and remove the container.
-            yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
             try:
-                async for msg in _astream_stop_remove_container(container_id, truncated):
-                    yield _sse_event({"type": "log", "step": "deleting", "message": msg})
-            except _StopFailed as e:
-                yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
-                return
+                # Step 1: stop and remove the container.
+                yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+                try:
+                    async for msg in _astream_stop_remove_container(container_id, truncated):
+                        yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+                except _StopFailed as e:
+                    yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
+                    return
 
-            # Stop-only: leave the chips for a later whole-board reset.
-            if skip_device_reset:
-                await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
-                return
+                # Stop-only: leave the chips for a later whole-board reset.
+                if skip_device_reset:
+                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                    yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                    return
 
-            # Step 2: reset the chips this model occupied.
-            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
-            if not device_ids:
-                yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
-                return
+                # Step 2: reset the chips this model occupied.
+                device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+                if not device_ids:
+                    yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                    yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                    return
 
-            label = ", ".join(str(d) for d in device_ids)
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=True,
-                success_msg=f"Model deleted and device(s) {label} reset successfully",
-                partial_msg=(
-                    f"Model deleted, but reset of device(s) {label} did not complete "
-                    "successfully. Manual intervention may be required."
-                ),
-            ):
-                yield event
+                label = ", ".join(str(d) for d in device_ids)
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=True,
+                    success_msg=f"Model deleted and device(s) {label} reset successfully",
+                    partial_msg=(
+                        f"Model deleted, but reset of device(s) {label} did not complete "
+                        "successfully. Manual intervention may be required."
+                    ),
+                ):
+                    yield event
+            except Exception as e:
+                # Never let the stream die without a terminal event; the client
+                # treats an abrupt close as "Connection to stream lost".
+                logger.error(f"Stop stream for {truncated} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Stop failed: {e}"})
 
         return _sse_response(generate())
 
@@ -2601,16 +2595,174 @@ class ResetStreamView(View):
 
         async def generate():
             yield "retry: 1000\n\n"
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=False,
-                success_msg=f"Reset of {label} completed successfully",
-                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-            ):
-                yield event
+            try:
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=False,
+                    success_msg=f"Reset of {label} completed successfully",
+                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                ):
+                    yield event
+            except Exception as e:
+                # Always emit a terminal event so the client never sees an abrupt
+                # close ("Connection to stream lost") on an unexpected failure.
+                logger.error(f"Reset stream for {label} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
 
         return _sse_response(generate())
+
+
+# --- Whole-board "Reset All" as a background job (no SSE) ----------------------
+#
+# A multi-model board reset used to run as N concurrent `stop/stream` EventSources
+# followed by a `reset_board/stream`; any one stream closing surfaced as
+# "Connection to stream lost." and aborted the reset before `tt-smi -r` ran.
+# Instead, the reset now runs as a detached task: the frontend starts it with one
+# POST and polls /reset_all/status/. No EventSource → that failure mode is gone.
+# Progress is persisted to a small JSON file on the shared backend volume so a
+# status poll served by any uvicorn worker observes the same state.
+
+_RESET_ALL_STATE_PATH = Path(backend_config.backend_cache_root) / "reset_all_status.json"
+_reset_all_write_lock = threading.Lock()
+_reset_all_task = None  # holds a reference so the detached task isn't garbage-collected
+
+
+def _reset_all_read_state():
+    try:
+        with open(_RESET_ALL_STATE_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _reset_all_write_state(state):
+    from django.utils import timezone
+    state["updated_at"] = timezone.now().isoformat()
+    tmp = _RESET_ALL_STATE_PATH.with_name(_RESET_ALL_STATE_PATH.name + ".tmp")
+    with _reset_all_write_lock:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _RESET_ALL_STATE_PATH)
+
+
+async def _run_reset_all_job():
+    """Stop every deployed model (verified), then reset the whole board.
+
+    Reuses the same building blocks the per-model SSE delete path uses, writing
+    progress to the shared state file after each step.
+    """
+    from django.utils import timezone
+    state = {
+        "step": "deleting",
+        "logs": [],
+        "done": False,
+        "ok": False,
+        "error": None,
+        "deleted": [],
+        "remaining": [],
+        "started_at": timezone.now().isoformat(),
+    }
+
+    def _log(message):
+        state["logs"].append(message)
+        _reset_all_write_state(state)
+
+    _reset_all_write_state(state)
+    try:
+        # Phase 1: stop & remove every deployed model, then verify and retry any
+        # survivors so a model is never left running.
+        targets = await asyncio.to_thread(get_container_status)
+        names = {cid: info.get("name", cid[:12]) for cid, info in targets.items()}
+        _log(f"Stopping {len(targets)} deployed model(s)…")
+        for cid in list(targets):
+            try:
+                async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                    _log(msg)
+            except _StopFailed as e:
+                _log(f"{names.get(cid, cid[:12])}: {e}")
+
+        MAX_ROUNDS = 3
+        remaining = await asyncio.to_thread(get_container_status)
+        for round_no in range(1, MAX_ROUNDS + 1):
+            if not remaining:
+                break
+            _log(f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…")
+            for cid in list(remaining):
+                names.setdefault(cid, remaining[cid].get("name", cid[:12]))
+                try:
+                    async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                        _log(msg)
+                except _StopFailed as e:
+                    _log(f"{names.get(cid, cid[:12])}: {e}")
+            remaining = await asyncio.to_thread(get_container_status)
+
+        state["remaining"] = [info.get("name", cid[:12]) for cid, info in remaining.items()]
+        state["deleted"] = [n for cid, n in names.items() if cid not in remaining]
+        if remaining:
+            state["step"] = "done"
+            state["done"] = True
+            state["ok"] = False
+            state["error"] = "Could not delete: " + ", ".join(state["remaining"])
+            _reset_all_write_state(state)
+            return
+
+        # Phase 2: reset the whole board (only once every model is gone).
+        state["step"] = "resetting"
+        _log("All models stopped — resetting board…")
+        reset_ok = False
+        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+            if kind == "log":
+                _log(payload)
+            else:
+                reset_ok = bool(payload)
+
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = reset_ok
+        if not reset_ok:
+            state["error"] = "Board reset did not complete successfully. Manual intervention may be required."
+        _reset_all_write_state(state)
+    except Exception as e:
+        logger.exception("reset_all job failed")
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = False
+        state["error"] = f"Reset failed: {e}"
+        _reset_all_write_state(state)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StartResetAllView(View):
+    """Start a whole-board reset (stop all models, then `tt-smi -r`) as a detached
+    background job. Returns immediately; progress is read via ResetAllStatusView."""
+
+    async def post(self, request, *args, **kwargs):
+        global _reset_all_task
+        # Idempotent: if a reset is already in flight (fresh, not-done state),
+        # don't launch a second `tt-smi -r`.
+        existing = await asyncio.to_thread(_reset_all_read_state)
+        if existing is not None and not existing.get("done"):
+            from django.utils import timezone
+            from django.utils.dateparse import parse_datetime
+            updated = parse_datetime(existing.get("updated_at") or "")
+            if updated is not None and (timezone.now() - updated).total_seconds() < 120:
+                return JsonResponse({"status": "already_running"}, status=202)
+        _reset_all_task = asyncio.create_task(_run_reset_all_job())
+        return JsonResponse({"status": "started"}, status=202)
+
+
+class ResetAllStatusView(View):
+    """Return the current whole-board reset progress snapshot."""
+
+    def get(self, request, *args, **kwargs):
+        state = _reset_all_read_state()
+        if state is None:
+            return JsonResponse({
+                "step": "idle", "logs": [], "done": True, "ok": True,
+                "error": None, "deleted": [], "remaining": [],
+            })
+        return JsonResponse(state)
 
 
 class AvailableDevicesView(APIView):

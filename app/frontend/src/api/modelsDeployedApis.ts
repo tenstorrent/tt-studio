@@ -238,8 +238,10 @@ export interface SSEResult {
 /**
  * Consume a backend SSE stream until its `complete` event.
  * Calls onLog per `log` line and onStep per `step` change; resolves with the
- * final status and full output. Rejects on connection loss or a 3-minute timeout.
+ * final status and full output. Rejects on connection loss or if the whole stream exceeds STREAM_TIMEOUT_MS.
  */
+const STREAM_TIMEOUT_MS = 300_000; // 5 min — comfortably above the worst-case reset
+
 export const consumeSSE = (
   url: string,
   onLog?: (line: string) => void,
@@ -251,7 +253,7 @@ export const consumeSSE = (
     const timer = window.setTimeout(() => {
       es.close();
       reject(new Error("Stream timed out — the backend may still be processing."));
-    }, 180_000);
+    }, STREAM_TIMEOUT_MS);
     const done = (fn: () => void) => {
       window.clearTimeout(timer);
       es.close();
@@ -296,6 +298,33 @@ export const deleteModel = async (
   if (status !== "success") {
     throw new Error(message || "Failed to stop the container");
   }
+};
+
+/** Progress snapshot for a whole-board "Reset All" background job. */
+export interface ResetAllStatus {
+  step: string; // "idle" | "deleting" | "resetting" | "done"
+  logs: string[];
+  done: boolean;
+  ok: boolean;
+  error: string | null;
+  deleted: string[];
+  remaining: string[];
+}
+
+/**
+ * Start a whole-board reset (stop all models, then reset the board) as a backend
+ * background job. Returns immediately; poll getResetAllStatus() for progress.
+ * Plain request/response — no EventSource, so it cannot fail with
+ * "Connection to stream lost."
+ */
+export const startResetAll = async (): Promise<void> => {
+  await axios.post(`${dockerAPIURL}reset_all/`);
+};
+
+/** Read the current whole-board reset progress. */
+export const getResetAllStatus = async (): Promise<ResetAllStatus> => {
+  const { data } = await axios.get<ResetAllStatus>(`${dockerAPIURL}reset_all/status/`);
+  return data;
 };
 
 export const handleRedeploy = (modelName: string): void => {
