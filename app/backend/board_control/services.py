@@ -153,6 +153,16 @@ class SystemResourceService:
                                 else:
                                     board_type = "N300"
                             
+                            # Blackhole P300C "compute" cards are single-chip and are
+                            # NOT fabric-linked into chip pairs like the dual-chip P300.
+                            # Each tt-smi device == one independent chip, so classify by
+                            # card count and keep them in single-chip mode (p150 / 1x1
+                            # mesh). Treating them as P300x2 would assume chips 0+1 are a
+                            # linked pair and force a 2-chip p300 mesh that these unlinked
+                            # chips cannot build (TT_FATAL on mesh open). Must be checked
+                            # before the generic "p300" branch since "p300c" contains it.
+                            elif "p300c" in raw_lower:
+                                board_type = "P300Cx4" if num_devices >= 4 else "P150"
                             # Blackhole devices (P300 has 2 chips per card)
                             elif "p300" in raw_lower:
                                 if num_devices >= 8:
@@ -457,6 +467,10 @@ class SystemResourceService:
             return "N150X4" if num_devices >= 4 else "N150"
         if "n300" in raw_lower:
             return "T3K" if num_devices >= 4 else "N300"
+        # P300C "compute" cards are single-chip (see get_board_type); checked
+        # before the generic "p300" branch since "p300c" contains "p300".
+        if "p300c" in raw_lower:
+            return "P300Cx4" if num_devices >= 4 else "P150"
         if "p300" in raw_lower:
             if num_devices >= 8:
                 return "P300Cx4"

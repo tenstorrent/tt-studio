@@ -23,7 +23,8 @@ interface ChipStatusDisplayProps {
 // Boards where chips are grouped into physical cards (N chips per card)
 const CARD_GROUPINGS: Record<string, { chipsPerCard: number; cardLabel: string }> = {
   P300x2: { chipsPerCard: 2, cardLabel: "P300 Card" },
-  P300Cx4: { chipsPerCard: 2, cardLabel: "P300 Card" },
+  // P300C "compute" cards are single-chip (one chip per card).
+  P300Cx4: { chipsPerCard: 1, cardLabel: "P300C Card" },
 };
 
 function SlotCard({
