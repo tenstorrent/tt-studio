@@ -23,11 +23,64 @@ DOCKER_DAEMON_URL = "https://docs.docker.com/config/daemon/start/"
 def _docker_compose_v2_available():
     """True if the `docker compose` (v2) plugin runs — with a sudo fallback for
     660 sockets. The space form (`docker compose`) only succeeds on v2; legacy
-    `docker-compose` (v1) is a separate binary and intentionally not accepted."""
-    res = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, check=False)
+    `docker-compose` (v1) is a separate binary and intentionally not accepted.
+
+    We additionally assert a major version of >= 2 from `--short` so that a
+    podman/compatibility shim which answers the subcommand with a non-v2 banner
+    is rejected rather than mistaken for genuine Compose v2."""
+    res = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True, text=True, check=False)
     if res.returncode != 0 and "permission denied" in res.stderr.lower():
-        res = subprocess.run(["sudo", "docker", "compose", "version"], capture_output=True, text=True, check=False)
-    return res.returncode == 0
+        res = subprocess.run(["sudo", "docker", "compose", "version", "--short"], capture_output=True, text=True, check=False)
+    if res.returncode != 0:
+        return False
+    # `--short` prints a bare semver like "2.27.0" (sometimes "v2.27.0").
+    token = res.stdout.strip().lstrip("vV").split()[-1] if res.stdout.strip() else ""
+    head = token.split(".", 1)[0]
+    if head.isdigit():
+        return int(head) >= 2
+    # Couldn't parse a version (unexpected output): fall back to the original,
+    # looser contract (subcommand resolved) to avoid false negatives on genuine
+    # Docker whose `--short` formatting we didn't anticipate.
+    return True
+
+
+def _detect_podman_as_docker():
+    """Detect whether the `docker` command is actually podman (the
+    `podman-docker` shim), using only *positive* podman signals so that genuine
+    Docker and its drop-in replacements (Docker Desktop, Colima, OrbStack,
+    Rancher Desktop in dockerd/moby mode) are never flagged.
+
+    Signal 1 (cheapest, daemon-independent): `docker --version` — capture both
+    stdout and stderr. The podman binary prints `podman version X.Y.Z` and the
+    `podman-docker` wrapper prints `Emulate Docker CLI using podman.` to stderr.
+    Genuine Docker prints `Docker version ...` and nothing on stderr.
+
+    Signal 2 (daemon-dependent, robust): `docker info` — podman's server reports
+    a `Podman Engine` / `PodmanAPIVersion:` block that genuine Docker never has,
+    and `--format '{{.ServerVersion}}'` returns the podman version. We reuse the
+    permission-denied sudo fallback used elsewhere.
+
+    Returns True only on a positive podman signal; never on the mere *absence*
+    of a Docker signal."""
+    # Signal 1: version string / emulate banner.
+    res = subprocess.run(["docker", "--version"], capture_output=True, text=True, check=False)
+    blob = f"{res.stdout}\n{res.stderr}".lower()
+    if "podman" in blob:
+        return True
+
+    # Signal 2: server engine identity (needs a reachable daemon).
+    info = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
+    if info.returncode != 0 and "permission denied" in info.stderr.lower():
+        info = subprocess.run(["sudo", "docker", "info"], capture_output=True, text=True, check=False)
+    info_blob = f"{info.stdout}\n{info.stderr}".lower()
+    # Match only the unique `PodmanAPIVersion` field, not a bare "podman"
+    # substring — the latter can appear in a genuine-Docker host's name or a
+    # configured registry mirror and would false-positive. Signal 1 already
+    # catches the binary/wrapper banner.
+    if "podmanapiversion" in info_blob:
+        return True
+
+    return False
 
 
 def check_docker_installation():
@@ -40,6 +93,31 @@ def check_docker_installation():
         console.print("[warning]   Docker (with Compose v2) is required to run TT Studio.[/warning]")
         console.print(f"[info]   Install: {DOCKER_INSTALL_URL}[/info]")
         sys.exit(1)
+
+    # 1b. Is `docker` actually podman (the podman-docker shim)? This is a strong
+    #     WARNING, not fatal — the podman path may limp along, so we let the user
+    #     proceed at their own risk rather than blocking them. Run before the
+    #     daemon gate so the version/banner signal still fires when it's down.
+    if _detect_podman_as_docker():
+        console.print()
+        console.print(notice_panel(
+            "[warning]⚠️  Podman detected — TT Studio needs genuine Docker[/warning]",
+            [
+                "[info]Your 'docker' command is provided by Podman (podman-docker), not Docker Engine.[/info]",
+                "[info]TT Studio relies on Docker (Moby/dockerd) + the Docker Compose v2 plugin; the[/info]",
+                "[info]podman / podman-compose shim is not fully compatible and causes confusing failures.[/info]",
+                "",
+                f"[info]Install genuine Docker + Compose v2:  {DOCKER_INSTALL_URL}[/info]",
+                f"[info]Compose v2 plugin:                    {DOCKER_COMPOSE_URL}[/info]",
+                "",
+                "[muted]Compatible alternatives that ARE genuine Docker: Docker Desktop, Colima,[/muted]",
+                "[muted]OrbStack, Rancher Desktop in dockerd/moby mode.[/muted]",
+                "",
+                "[warning]Continuing anyway — proceed at your own risk.[/warning]",
+            ],
+            border_style="warning",
+        ))
+        console.print()
 
     # 2. Docker Compose v2 plugin present? (does not need the daemon, so it's
     #    validated up front regardless of daemon state).

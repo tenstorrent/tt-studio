@@ -26,7 +26,7 @@ from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
 app = typer.Typer(
-    add_completion=True,
+    add_completion=False,
     rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
     help="🚀 TT Studio Setup Script — environment, Docker services, and TT Inference Server.",

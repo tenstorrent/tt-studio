@@ -402,7 +402,8 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
                 order.append("network_rm")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch.object(run, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
+        with patch.object(run, "_docker_daemon_status", return_value="ok"), \
+             patch.object(run, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
              patch.object(run, "run_docker_command", side_effect=record_run_docker), \
              patch.object(run, "cleanup_fastapi_server"), \
              patch.object(run, "cleanup_docker_control_service"), \
