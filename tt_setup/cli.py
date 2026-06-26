@@ -12,7 +12,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import begin_phase, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, step, stop_active_phase
+from tt_setup.console import begin_phase, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, show_detail, step, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, clear_lines, display_welcome_banner, run_preflight_checks
@@ -191,7 +191,7 @@ def _run(args):
         startup_log.header(f"git:{_git_hash}")
 
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
-        ph = begin_phase(1, 4, "Checks")
+        ph = begin_phase(1, 5, "Checks")
 
         ph.set("system checks")
         startup_log.step("preflight_checks", "START")
@@ -221,8 +221,8 @@ def _run(args):
         startup_log.step("docker_install_check", "OK")
         end_phase(ph)
 
-        # ── Phase 2 · Set up ─────────────────────────────────────────────────
-        ph = begin_phase(2, 4, "Set up")
+        # ── Phase 2 · Configure ──────────────────────────────────────────────
+        ph = begin_phase(2, 5, "Configure")
         ph.set("environment")
         startup_log.step("configure_environment", "START")
         with ph.pause():  # interactive: secret prompts + HF-access output must show live
@@ -326,7 +326,7 @@ def _run(args):
         # The rest of Set up (ports, permission fixes, services, artifact) is
         # interactive / sudo-prone and prints its own status — keep the spinner
         # suspended through it. The phase still collapses to one ✓ line at the end.
-        ph.set("services & ports")
+        ph.set("ports & permissions")
         # (spinner stays suspended from the frontend-deps step above)
 
         # Check if all required ports are available
@@ -427,6 +427,14 @@ def _run(args):
                     print(f"   {C_WHITE}sudo chown -R $USER:$USER {model_run_logs_dir}{C_RESET}")
                     input("Press Enter once you've run the command above to continue...")
 
+        end_phase(ph)  # ── end Phase 2 · Configure
+
+        # ── Phase 3 · Services ───────────────────────────────────────────────
+        # docker-control / inference-server start here; they print their own
+        # status and may sudo, so keep the spinner suspended through them.
+        ph = begin_phase(3, 5, "Services")
+        ph.suspend()
+
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts
         ph.set("Docker Control service")
@@ -469,7 +477,7 @@ def _run(args):
                 if should_sync:
                     ph.set("model catalog")
                     _sync_model_catalog()
-                else:
+                elif show_detail():
                     console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
             finally:
                 os.chdir(original_dir)
@@ -497,11 +505,11 @@ def _run(args):
         # branch name) so the footer shows what's actually running.
         set_app_version_env()
 
-        end_phase(ph)  # ── end Phase 2 · Set up
+        end_phase(ph)  # ── end Phase 3 · Services
 
-        # ── Phase 3 · Build ──────────────────────────────────────────────────
+        # ── Phase 4 · Build ──────────────────────────────────────────────────
         # Start Docker services with streaming output and comprehensive error reporting
-        ph = begin_phase(3, 4, "Build")
+        ph = begin_phase(4, 5, "Build")
         startup_log.step("docker_compose_up", "START")
         # The compose build renders its own Rich progress, so suspend the phase
         # spinner around it (only one live display at a time).
@@ -533,12 +541,12 @@ def _run(args):
         # build progress already cleared by run_docker_compose_with_progress
         clear_lines(_docker_transient_lines)
         startup_log.step("docker_compose_up", "OK")
-        end_phase(ph)  # ── end Phase 3 · Build (collapses to ✓ Phase 3 · Build)
+        end_phase(ph)  # ── end Phase 4 · Build
 
-        # ── Phase 4 · Launch ─────────────────────────────────────────────────
+        # ── Phase 5 · Launch ─────────────────────────────────────────────────
         # Inference-server env/start may prompt or sudo and print their own
         # status, so keep the phase spinner suspended through them.
-        ph = begin_phase(4, 4, "Launch")
+        ph = begin_phase(5, 5, "Launch")
         ph.suspend()
         if not args.skip_fastapi and not is_deployed_mode:
             original_dir = os.getcwd()
@@ -564,7 +572,7 @@ def _run(args):
             finally:
                 os.chdir(original_dir)
 
-        end_phase(ph)  # ── end Phase 4 · Launch (collapses to ✓ Phase 4 · Launch)
+        end_phase(ph)  # ── end Phase 5 · Launch
 
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)

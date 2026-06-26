@@ -233,8 +233,12 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     else:
         for _, line in ok_items:
             console.print(line)
-        for line in notes:
-            console.print(line)
+        # Benign notes (couldn't reach GitHub / indeterminate) are noise on a
+        # normal run — only surface them with --verbose. Actionable warnings
+        # (behind origin + git-pull guidance) always show.
+        if verbose:
+            for line in notes:
+                console.print(line)
         for line in warns:
             console.print(line)
 

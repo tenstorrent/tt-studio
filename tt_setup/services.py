@@ -25,7 +25,7 @@ from tt_setup.shell import run_command
 from tt_setup.docker_diag import _resolve_container_name
 from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var, get_preference, save_preference
-from tt_setup.console import console, progress_status, notice_panel
+from tt_setup.console import console, in_phase, is_verbose, notice_panel, progress_status, show_detail
 
 
 def check_port_available(port):
@@ -97,10 +97,18 @@ def check_and_free_ports(ports, no_sudo=False):
         sys.stdout.flush()
 
     if freed_ports:
-        summary = ", ".join(f"{port} ({name})" for port, name in freed_ports)
-        label = "port" if len(freed_ports) == 1 else "ports"
-        console.print(f"[success]✅ Freed {len(freed_ports)} {label}: {summary}[/success]")
+        # The transient "🔓 Freeing…" line already showed the work; keep the
+        # confirmation minimal. Fold it into the phase line on a normal run;
+        # show the full port→service breakdown only with --verbose.
+        n = len(freed_ports)
+        word = "port" if n == 1 else "ports"
+        if is_verbose():
+            summary = ", ".join(f"{port} ({name})" for port, name in freed_ports)
+            console.print(f"[success]✓ Freed {n} in-use {word}: {summary}[/success]")
+        elif not in_phase():
+            console.print(f"[success]✓ Freed {n} in-use {word}[/success]")
 
+    # Failures always surface — never folded.
     for port, service_name in failed_ports:
         console.print(f"[error]❌ Could not free port {port} ({service_name})[/error]")
 
@@ -605,14 +613,16 @@ cd "$1"
                     result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/health"],
                                            capture_output=True, text=True, timeout=5, check=False)
                     if result.stdout.strip() in ["200", "404"]:
-                        console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
+                        if show_detail():
+                            console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
                         return True
                 except:
                     try:
                         import urllib.request
                         response = urllib.request.urlopen("http://localhost:8001/health", timeout=5)
                         if response.getcode() in [200, 404]:
-                            console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
+                            if show_detail():
+                                console.print("[success]✅ FastAPI server ready at http://localhost:8001[/success]")
                             return True
                     except:
                         pass
@@ -717,7 +727,8 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         try:
             response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=2)
             if response.status_code == 200:
-                console.print("[success]✅ Docker Control Service already running[/success]")
+                if show_detail():  # confirmation folds into the Services phase line
+                    console.print("[success]✅ Docker Control Service already running[/success]")
                 return True
         except requests.exceptions.RequestException:
             pass
@@ -843,7 +854,8 @@ fi
                     try:
                         response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=5)
                         if response.status_code == 200:
-                            console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+                            if show_detail():
+                                console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
                             return True
                     except:
                         pass
@@ -852,7 +864,8 @@ fi
                         import urllib.request
                         response = urllib.request.urlopen("http://localhost:8002/api/v1/health", timeout=5)
                         if response.getcode() == 200:
-                            console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+                            if show_detail():
+                                console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
                             return True
                     except:
                         pass

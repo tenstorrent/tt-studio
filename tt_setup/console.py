@@ -90,6 +90,14 @@ def in_phase():
     return _IN_PHASE
 
 
+def show_detail():
+    """Whether to print routine 'done' status (service-ready lines, freed-port
+    breakdown, cached notes, …). Hidden when folded inside a phase on a normal
+    run; shown when --verbose un-hides it, or when not inside a phase. Failures,
+    prompts, and actionable warnings should print unconditionally (not via this)."""
+    return VERBOSE or not _IN_PHASE
+
+
 class _PhaseHandle:
     """Handle for a running startup phase. Update the spinner with .set(activity),
     mark failure with .fail(), and wrap prompting / nested-Live work in

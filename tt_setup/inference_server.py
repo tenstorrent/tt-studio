@@ -17,7 +17,7 @@ except ImportError:
     import urllib.request
     HAS_REQUESTS = False
 from tt_setup.constants import *
-from tt_setup.console import console, is_verbose, step
+from tt_setup.console import console, is_verbose, show_detail, step
 from tt_setup.env_config import comment_out_env_var, get_env_var, write_env_var
 
 
@@ -475,7 +475,8 @@ def setup_tt_inference_server(pull_branch=False):
                             console.print("[muted]   Re-downloading latest...[/muted]")
                             branch_mismatch = True
                         elif current_sha and stored_sha:
-                            console.print(f"[success]✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]})[/success]")
+                            if show_detail():
+                                console.print(f"[success]✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]})[/success]")
                         elif current_sha and not stored_sha:
                             # Artifact was downloaded without recording a commit SHA — re-fetch
                             # so we can record the SHA for future freshness checks.
@@ -483,7 +484,8 @@ def setup_tt_inference_server(pull_branch=False):
                             branch_mismatch = True
                         else:
                             # GitHub unreachable and no stored SHA — fall back gracefully
-                            console.print(f"[success]✅ TT Inference Server (branch: {artifact_branch}) (cached)[/success]")
+                            if show_detail():
+                                console.print(f"[success]✅ TT Inference Server (branch: {artifact_branch}) (cached)[/success]")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -613,7 +615,7 @@ def setup_tt_inference_server(pull_branch=False):
                         console.print(f"[muted]   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again[/muted]")
                         return False
             else:
-                if not artifact_branch:
+                if not artifact_branch and show_detail():
                     console.print(f"[success]✅ TT Inference Server{version_str} (cached)[/success]")
                 
                 # If version matches or no version specified, use existing artifact
