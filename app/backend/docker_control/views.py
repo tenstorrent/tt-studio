@@ -489,12 +489,12 @@ class DeployView(APIView):
                         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     else:
                         device = map_board_type_to_device_name(board_type)
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
+                    # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
+                    # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
                         board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
+                        and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
                     # For P300x2 with the whole-board p300x2 device, the inference

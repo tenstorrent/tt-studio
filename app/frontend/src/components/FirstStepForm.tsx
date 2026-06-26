@@ -34,7 +34,7 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-import { DeployedModelsWarning } from "./DeployedModelsWarning";
+// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
 import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 
@@ -109,7 +109,8 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isWarningDismissed, setIsWarningDismissed] = useState(false);
+  // Used only by the deployed-models warning, hidden for now (see render below).
+  // const [isWarningDismissed, setIsWarningDismissed] = useState(false);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -342,13 +343,14 @@ export function FirstStepForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        {/* Always show deployed models warning prominently */}
-        {!isWarningDismissed && (
+        {/* Deployed-models warning hidden for now — capacity-aware greying of the
+            model list already communicates when devices are in use. */}
+        {/* {!isWarningDismissed && (
           <DeployedModelsWarning
             className="mb-8 mt-8"
             onClose={() => setIsWarningDismissed(true)}
           />
-        )}
+        )} */}
 
         {/* Auto-deploy indicator */}
         {isAutoDeploying && autoDeployModel && (
