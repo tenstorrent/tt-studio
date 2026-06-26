@@ -8,9 +8,15 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [resetAllNonce, setResetAllNonce] = useState(0);
 
   const triggerRefresh = () => {
     setRefreshTrigger((prev) => prev + 1);
+  };
+
+  // Signals that a full board reset (Reset All) completed, so views can drop any stale "Died Unexpectedly" rows.
+  const triggerResetAll = () => {
+    setResetAllNonce((prev) => prev + 1);
   };
 
   const triggerHardwareRefresh = async () => {
@@ -37,7 +43,7 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <RefreshContext.Provider
-      value={{ refreshTrigger, triggerRefresh, triggerHardwareRefresh }}
+      value={{ refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce, triggerResetAll }}
     >
       {children}
     </RefreshContext.Provider>
