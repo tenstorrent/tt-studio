@@ -96,15 +96,16 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         for panel in (
             "Setup & Configuration",
+            "Model Deployment",
             "Lifecycle",
             "Reset (--purge-all)",
-            "Model Deployment",
+            "Advanced",
+            "Developer Tools",
             "Troubleshooting & Info",
         ):
             self.assertIn(panel, result.output)
-        # Service Control + Developer Tools were folded into Setup & Configuration.
+        # Service-control flags live under Advanced now, not their own panel.
         self.assertNotIn("Service Control", result.output)
-        self.assertNotIn("Developer Tools", result.output)
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))

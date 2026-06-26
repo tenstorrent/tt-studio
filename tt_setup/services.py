@@ -72,6 +72,7 @@ def check_and_free_ports(ports, no_sudo=False):
     total = len(in_use)
     freed_ports = []
     failed_ports = []
+    docker_ports = []  # held by Docker (a running TT Studio container) — left alone
     # In-place rewrites only make sense on a TTY; in a piped/redirected log the
     # carriage returns and escape codes would corrupt the output, so skip them.
     use_ansi = sys.stdout.isatty()
@@ -86,7 +87,10 @@ def check_and_free_ports(ports, no_sudo=False):
             )
             sys.stdout.flush()
 
-        if kill_process_on_port(port, no_sudo=no_sudo, quiet=True):
+        result = kill_process_on_port(port, no_sudo=no_sudo, quiet=True)
+        if result == "docker":
+            docker_ports.append((port, service_name))
+        elif result:
             freed_ports.append((port, service_name))
         else:
             failed_ports.append((port, service_name))
@@ -95,6 +99,16 @@ def check_and_free_ports(ports, no_sudo=False):
         # Clear the transient progress line.
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
+
+    # Ports held by Docker mean TT Studio containers are still up. Do NOT kill
+    # them — that would crash Docker Desktop's engine. `docker compose up` will
+    # recreate our own containers; if a *different* stack owns the port, compose
+    # will surface a clear bind error. Just note it (and don't fail).
+    if docker_ports:
+        names = ", ".join(f"{port} ({name})" for port, name in docker_ports)
+        console.print(f"[muted]↻ {len(docker_ports)} port(s) held by running TT Studio "
+                      f"containers — left for compose to recreate ([/muted]"
+                      f"[muted]python run.py --stop[/muted][muted] to free them): {names}[/muted]")
 
     if freed_ports:
         # The transient "🔓 Freeing…" line already showed the work; keep the
@@ -113,6 +127,28 @@ def check_and_free_ports(ports, no_sudo=False):
         console.print(f"[error]❌ Could not free port {port} ({service_name})[/error]")
 
     return (len(failed_ports) == 0, failed_ports)
+
+
+def probe_service(health_url, timeout=2):
+    """One-shot health probe: True if `health_url` returns HTTP 200 within
+    `timeout`s. Used for the ready-panel snapshot dot — not the long wait loop."""
+    try:
+        if HAS_REQUESTS:
+            return requests.get(health_url, timeout=timeout).status_code == 200
+        import urllib.request
+        return urllib.request.urlopen(health_url, timeout=timeout).getcode() == 200
+    except Exception:
+        return False
+
+
+def snapshot_health(health_urls, timeout=2):
+    """Probe several health URLs concurrently; return {url: healthy_bool}. A quick
+    parallel snapshot for the ready panel so a stalled service can't block it."""
+    if not health_urls:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(health_urls)) as pool:
+        return dict(pool.map(lambda u: (u, probe_service(u, timeout)), health_urls))
 
 
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
@@ -298,9 +334,25 @@ def get_frontend_config():
     return host, port, timeout
 
 
+def _process_is_docker(pid):
+    """True if `pid` belongs to Docker itself (Docker Desktop backend, docker-proxy,
+    dockerd, containerd, vpnkit). On macOS/Docker Desktop a *published* container
+    port is held by `com.docker.backend`, so killing the port's holder would take
+    down the whole Docker engine — we must never do that."""
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-o", "comm="],
+                           capture_output=True, text=True, check=False)
+    except Exception:
+        return False
+    name = (r.stdout or "").strip().lower()
+    return any(tok in name for tok in ("docker", "vpnkit", "containerd"))
+
+
 def kill_process_on_port(port, no_sudo=False, quiet=False):
     """
-    Find and kill a process using a specific port. More robust and cross-platform.
+    Free a port by stopping the process holding it. Returns True if freed (or
+    nothing was holding it), "docker" if the holder is Docker itself (left
+    untouched — killing it would crash the engine), or False on failure.
     Handles permissions by trying commands with and without sudo.
     """
     pid = None
@@ -343,6 +395,13 @@ def kill_process_on_port(port, no_sudo=False, quiet=False):
         if not quiet:
             print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
         return True
+
+    # NEVER kill Docker itself. On macOS/Docker Desktop the port is held by
+    # com.docker.backend; killing it crashes the engine and the build then fails
+    # with "Cannot connect to the Docker daemon". A TT Studio container holding
+    # the port is recreated by `docker compose up` anyway.
+    if _process_is_docker(pid):
+        return "docker"
 
     if not quiet:
         print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
@@ -969,76 +1028,14 @@ def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
     if os.path.exists(node_modules_dir) and os.listdir(node_modules_dir):
         return True
 
-    # Check for local npm installation
-    has_local_npm = shutil.which("npm")
-
-    try:
-        if has_local_npm:
-            # In quick setup, automatically skip npm installation
-            if quick_setup:
-                save_preference("npm_install_locally", 'n')
-                return True
-            
-            # Check for saved preference
-            npm_pref = get_preference("npm_install_locally")
-            choice = None
-            
-            if not force_prompt and npm_pref:
-                if npm_pref in ['n', 'no', 'false']:
-                    console.print("[warning]Skipping local dependency installation (using saved preference). IDE features may be limited.[/warning]")
-                    return True
-                # else preference is to install
-                choice = npm_pref
-            else:
-                choice = input("Do you want to run 'npm install' locally? (Y/n): ").lower().strip() or 'y'
-                save_preference("npm_install_locally", choice)
-
-            # Check the actual choice (either from preference or from user input)
-            if choice not in ['n', 'no', 'false']:
-                console.print("\n[info]📦 Installing dependencies locally with npm...[/info]")
-                run_command(["npm", "install"], check=True, cwd=frontend_dir)
-                console.print("[success]✅ Frontend dependencies installed successfully.[/success]")
-            else:
-                console.print("[warning]Skipping local dependency installation. IDE features may be limited.[/warning]")
-
-        else: # No local npm found
-            console.print("\n[warning]⚠️ 'npm' command not found on your local machine.[/warning]")
-
-            # Check for saved preference
-            docker_pref = get_preference("npm_install_via_docker")
-            choice = None
-
-            if not force_prompt and docker_pref:
-                if docker_pref in ['n', 'no', 'false']:
-                    console.print("[warning]Skipping local dependency installation (using saved preference). IDE features may be limited.[/warning]")
-                    return True
-                choice = docker_pref
-            else:
-                choice = input("Do you want to install dependencies using Docker? (Y/n): ").lower().strip() or 'y'
-                save_preference("npm_install_via_docker", choice)
-
-            # Check the actual choice (either from preference or from user input)
-            if choice not in ['n', 'no', 'false']:
-                console.print("\n[info]📦 Installing dependencies using a temporary Docker container...[/info]")
-                # This command runs `npm install` inside a container and mounts the result back to the host.
-                docker_cmd = [
-                    "docker", "run", "--rm",
-                    "-v", f"{frontend_dir}:/app",
-                    "-w", "/app",
-                    "node:22-alpine3.20",
-                    "npm", "install"
-                ]
-                run_command(docker_cmd, check=True)
-                console.print("[success]✅ Frontend dependencies installed successfully using Docker.[/success]")
-            else:
-                console.print("[warning]Skipping local dependency installation. IDE features may be limited.[/warning]")
-
-    except (subprocess.CalledProcessError, SystemExit) as e:
-        console.print(f"[error]⛔ Error installing frontend dependencies: {e}[/error]")
-        console.print("[warning]   Could not install dependencies locally. IDE features may be limited, but the app will still run.[/warning]")
-        return True # Still return True, as this is not a fatal error for the application itself.
-    except KeyboardInterrupt:
-        console.print("\n[warning]🛑 Installation cancelled by user.[/warning]")
-        return True
+    # Local node_modules is optional — the running app always installs its deps
+    # inside the Docker container. We no longer prompt to install it locally;
+    # just leave a quiet hint for anyone who wants IDE type-checking/autocomplete.
+    if show_detail():
+        console.print(
+            "[muted]Frontend deps install in Docker; skipping the local copy. "
+            "For IDE support run: cd app/frontend && npm install[/muted]"
+        )
+    return True
 
     return True

@@ -199,12 +199,23 @@ def display_welcome_banner(dev_mode=False):
     greeting = f"Welcome back, {name}!" if name else "Welcome to TT Studio!"
     mode = "Local + Dev" if dev_mode else "Local"
 
+    # Cheap, instant machine context — no tt-smi probe here (it can take ~20s and
+    # the splash must appear instantly; device count is surfaced in the ready
+    # panel once Phase 1 has it). Artifact version falls back to a git describe.
+    import platform
+    host_os = f"{platform.system()} {platform.release()}".strip()
+    version = (os.environ.get("TT_INFERENCE_ARTIFACT_VERSION")
+               or _git_value(["describe", "--tags", "--always"]))
+
     left = [
         f"[bold accent]{greeting}[/bold accent]",
         "",
         f"[muted]{mode}[/muted]",
         f"[muted]{cwd}[/muted]",
+        f"[muted]{host_os}[/muted]",
     ]
+    if version:
+        left.append(f"[muted]artifact {version}[/muted]")
     # Keep the right column terse — labels + value, no prose. These aren't
     # clickable links, so there's nothing to explain.
     sections = [

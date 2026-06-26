@@ -68,15 +68,19 @@ def _locals_guarded_names(tree):
     return guarded
 
 
+def _arg_names(arguments):
+    """Parameter names bound by an `ast.arguments` node (function OR lambda)."""
+    names = {arg.arg for arg in
+             list(arguments.posonlyargs) + list(arguments.args) + list(arguments.kwonlyargs)}
+    if arguments.vararg:
+        names.add(arguments.vararg.arg)
+    if arguments.kwarg:
+        names.add(arguments.kwarg.arg)
+    return names
+
+
 def _function_locals(func):
-    locs = set()
-    a = func.args
-    for arg in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs):
-        locs.add(arg.arg)
-    if a.vararg:
-        locs.add(a.vararg.arg)
-    if a.kwarg:
-        locs.add(a.kwarg.arg)
+    locs = set(_arg_names(func.args))
     for node in ast.walk(func):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             locs.add(node.id)
@@ -122,6 +126,9 @@ class TestNoUndefinedNames(unittest.TestCase):
                 while cur is not None:
                     if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         acc |= func_locals.get(id(cur), set())
+                    elif isinstance(cur, ast.Lambda):
+                        # `lambda u: ...` binds `u` within the lambda's scope.
+                        acc |= _arg_names(cur.args)
                     cur = parents.get(id(cur))
                 return acc
 

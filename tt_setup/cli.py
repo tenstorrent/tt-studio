@@ -12,7 +12,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import begin_phase, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, show_detail, step, stop_active_phase
+from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, show_detail, step, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, clear_lines, display_welcome_banner, run_preflight_checks
@@ -20,7 +20,7 @@ from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compos
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
 from tt_setup.cleanup import cleanup_resources
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -35,34 +35,37 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def _entry(
-    # ── Setup & Configuration ────────────────────────────────────────────────
+    # ── Setup & Configuration (the everyday flags) ───────────────────────────
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults).", rich_help_panel="Setup & Configuration"),
-    configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
-    reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Setup & Configuration"),
     reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", help="Reconfigure the TT Inference Server artifact.", rich_help_panel="Setup & Configuration"),
-    resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog.", rich_help_panel="Setup & Configuration"),
-    pull_branch: bool = typer.Option(False, "--pull-branch", help="Re-download the inference artifact from its branch.", rich_help_panel="Setup & Configuration"),
-    # ── Lifecycle ────────────────────────────────────────────────────────────
-    stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
-    purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env.", rich_help_panel="Reset (--purge-all)"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all confirmation prompt.", rich_help_panel="Reset (--purge-all)"),
+    configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
     auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup.", rich_help_panel="Model Deployment"),
     device_id: int = typer.Option(0, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for --auto-deploy.", rich_help_panel="Model Deployment"),
-    # ── Service Control ──────────────────────────────────────────────────────
-    skip_fastapi: bool = typer.Option(False, "--skip-fastapi", help="Skip TT Inference Server FastAPI setup.", rich_help_panel="Setup & Configuration"),
-    skip_docker_control: bool = typer.Option(False, "--skip-docker-control", help="Skip the Docker Control Service.", rich_help_panel="Setup & Configuration"),
-    no_sudo: bool = typer.Option(False, "--no-sudo", help="Skip sudo usage (may limit functionality).", rich_help_panel="Setup & Configuration"),
-    no_browser: bool = typer.Option(False, "--no-browser", help="Skip automatic browser opening.", rich_help_panel="Setup & Configuration"),
-    wait_for_services: bool = typer.Option(False, "--wait-for-services", help="Wait for all services to be healthy.", rich_help_panel="Setup & Configuration"),
-    browser_timeout: int = typer.Option(60, "--browser-timeout", help="Seconds to wait for frontend before opening browser.", rich_help_panel="Setup & Configuration"),
+    # ── Lifecycle ────────────────────────────────────────────────────────────
+    stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
+    status: bool = typer.Option(False, "--status", help="Open the live monitor TUI for a running stack.", rich_help_panel="Lifecycle"),
+    # ── Reset (--purge-all) ──────────────────────────────────────────────────
+    purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env.", rich_help_panel="Reset (--purge-all)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all confirmation prompt.", rich_help_panel="Reset (--purge-all)"),
+    # ── Advanced (less-common setup/runtime knobs) ───────────────────────────
+    reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Advanced"),
+    resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog.", rich_help_panel="Advanced"),
+    pull_branch: bool = typer.Option(False, "--pull-branch", help="Re-download the inference artifact from its branch.", rich_help_panel="Advanced"),
+    skip_fastapi: bool = typer.Option(False, "--skip-fastapi", help="Skip TT Inference Server FastAPI setup.", rich_help_panel="Advanced"),
+    skip_docker_control: bool = typer.Option(False, "--skip-docker-control", help="Skip the Docker Control Service.", rich_help_panel="Advanced"),
+    no_sudo: bool = typer.Option(False, "--no-sudo", help="Skip sudo usage (may limit functionality).", rich_help_panel="Advanced"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Skip automatic browser opening.", rich_help_panel="Advanced"),
+    wait_for_services: bool = typer.Option(False, "--wait-for-services", help="Wait for all services to be healthy.", rich_help_panel="Advanced"),
+    browser_timeout: int = typer.Option(60, "--browser-timeout", help="Seconds to wait for frontend before opening browser.", rich_help_panel="Advanced"),
+    # ── Developer Tools ──────────────────────────────────────────────────────
+    add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend).", rich_help_panel="Developer Tools"),
+    check_headers: bool = typer.Option(False, "--check-headers", help="Check for missing SPDX license headers.", rich_help_panel="Developer Tools"),
     # ── Troubleshooting & Info ───────────────────────────────────────────────
-    fix_docker: bool = typer.Option(False, "--fix-docker", hidden=True, help="Deprecated. Start Docker yourself; see the links shown when the daemon isn't running."),
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help.", rich_help_panel="Troubleshooting & Info"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary.", rich_help_panel="Troubleshooting & Info"),
-    # ── Developer Tools ──────────────────────────────────────────────────────
-    add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend).", rich_help_panel="Setup & Configuration"),
-    check_headers: bool = typer.Option(False, "--check-headers", help="Check for missing SPDX license headers.", rich_help_panel="Setup & Configuration"),
+    # ── Deprecated / hidden ──────────────────────────────────────────────────
+    fix_docker: bool = typer.Option(False, "--fix-docker", hidden=True, help="Deprecated. Start Docker yourself; see the links shown when the daemon isn't running."),
     # ── Deprecated aliases (hidden) ──────────────────────────────────────────
     cleanup: bool = typer.Option(False, "--cleanup", hidden=True, help="Deprecated alias for --stop."),
     cleanup_all: bool = typer.Option(False, "--cleanup-all", hidden=True, help="Deprecated alias for --purge-all."),
@@ -87,6 +90,7 @@ def _entry(
         wait_for_services=wait_for_services, browser_timeout=browser_timeout,
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
+        status=status,
     )
     _run(args)
 
@@ -152,6 +156,10 @@ def _run(args):
         """)
             return
         
+        if args.status:
+            from tt_setup.monitor import run_status
+            sys.exit(run_status(dev_mode=args.dev))
+
         if args.cleanup or args.cleanup_all:
             cleanup_resources(args)
             return
@@ -170,6 +178,7 @@ def _run(args):
             add_spdx_headers()
             return
         
+        run_start = time.monotonic()
         display_welcome_banner(dev_mode=args.dev)
         freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
 
@@ -201,6 +210,9 @@ def _run(args):
 
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
         ph = begin_phase(1, 5, "Checks")
+
+        # Captured by the tt-smi probe below; surfaced in the ready panel later.
+        tt_status, tt_detail = None, ""
 
         ph.set("system checks")
         startup_log.step("preflight_checks", "START")
@@ -393,9 +405,9 @@ def _run(args):
                     print(f"{C_YELLOW}TT Studio needs to run the following command to fix it:{C_RESET}")
                     print(f"   {C_WHITE}sudo chown -R $USER:$USER {workflow_logs_dir}{C_RESET}")
                     print()
-                    answer = input(f"{C_CYAN}Allow TT Studio to run this automatically? [y/N]: {C_RESET}").strip().lower()
+                    allow = confirm("Allow TT Studio to run this automatically?", default=False)
                     print()
-                    if answer in ("y", "yes"):
+                    if allow:
                         try:
                             import subprocess as _sp
                             _sp.run(
@@ -587,11 +599,19 @@ def _run(args):
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
 
         # Endpoints + mode go in the ready card; stop/logs hints sit beneath it.
-        rows = [("URL", "http://localhost:3000")]
+        # Each endpoint carries the health URL to probe; a quick concurrent
+        # snapshot gives the live ● (up) / … (starting) dot in the panel.
+        endpoints = [("URL", "http://localhost:3000", "http://localhost:3000/")]
         if fastapi_enabled:
-            rows.append(("FastAPI", "http://localhost:8001"))
+            endpoints.append(("FastAPI", "http://localhost:8001", "http://localhost:8001/"))
         if docker_control_enabled:
-            rows.append(("Docker Control", "http://localhost:8002"))
+            endpoints.append(("Docker Control", "http://localhost:8002", "http://localhost:8002/api/v1/health"))
+
+        health = snapshot_health([health_url for _, _, health_url in endpoints])
+        rows = [
+            (label, url, "up" if health.get(health_url) else "starting")
+            for label, url, health_url in endpoints
+        ]
 
         mode_parts = []
         if is_deployed_mode:
@@ -604,8 +624,21 @@ def _run(args):
             mode_parts.append("TT Hardware")
         rows.append(("Mode", " + ".join(mode_parts)))
 
+        # Hardware row — reuse the tt-smi result from Phase 1 (free, already
+        # probed) so the device count shows without re-running tt-smi here.
+        if tt_status == "ok":
+            hardware = tt_detail or "Tenstorrent device detected"
+        elif detect_tt_hardware():
+            hardware = "Tenstorrent device detected"
+        else:
+            hardware = "No accelerator (remote/cloud mode)"
+        rows.append(("Hardware", hardware))
+
         # Full log paths only with --verbose; otherwise one compact hint.
-        footer = ["[muted]Stop · python run.py --stop[/muted]"]
+        footer = [
+            f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]",
+            "[muted]Stop · python run.py --stop[/muted]",
+        ]
         if is_verbose():
             footer.append("[muted]Logs · cd app && docker compose logs -f[/muted]")
             if fastapi_enabled:

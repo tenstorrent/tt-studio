@@ -17,7 +17,7 @@ except ImportError:
     import urllib.request
     HAS_REQUESTS = False
 from tt_setup.constants import *
-from tt_setup.console import console, is_verbose, show_detail, step
+from tt_setup.console import ask, confirm, console, is_verbose, show_detail, step
 from tt_setup.env_config import comment_out_env_var, get_env_var, write_env_var
 
 
@@ -55,35 +55,16 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
         console.print(f"\n[info]Current TT Inference Server configuration: {source_type} '{value}'[/info]")
 
         # Ask if user wants to change
-        while True:
-            change_choice = input(f"{C_CYAN}Would you like to change this? (y/n) [default: n]: {C_RESET}").strip().lower() or "n"
-            if change_choice in ["y", "yes", "n", "no"]:
-                break
-            console.print("[error]⛔ Invalid input. Please enter 'y' or 'n'.[/error]")
-
-        if change_choice in ["n", "no"]:
+        if not confirm("Would you like to change this?", default=False):
             console.print(f"[success]✅ Keeping existing configuration: {source_type} '{value}'[/success]")
             return
-    
+
     # Ask user for artifact source type
     console.print("\n[info]Choose TT Inference Server artifact source:[/info]")
     console.print("  1. Release version (stable, recommended for production)")
     console.print("  2. Branch (latest development code, may have new features)")
+    choice = ask("Enter choice", choices=["1", "2"], default="1")
 
-    if quick_setup:
-        # In quick setup, default to latest release but still allow choice
-        while True:
-            choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
-            if choice in ["1", "2"]:
-                break
-            console.print("[error]⛔ Invalid choice. Please enter 1 or 2.[/error]")
-    else:
-        while True:
-            choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
-            if choice in ["1", "2"]:
-                break
-            console.print("[error]⛔ Invalid choice. Please enter 1 or 2.[/error]")
-    
     if choice == "1":
         # Release version
         if current_branch:
@@ -95,10 +76,10 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
         if current_version and current_version != "latest":
             default_version = current_version
 
-        prompt_text = f"📦 Enter release version (e.g., 'v0.8.0') or 'latest' [default: {default_version}]: "
+        prompt_text = "📦 Enter release version (e.g., 'v0.8.0') or 'latest'"
         semver_pattern = r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
         while True:
-            val = input(prompt_text).strip() or default_version
+            val = ask(prompt_text, default=default_version).strip()
             if val == "latest" or re.match(semver_pattern, val):
                 break
 
@@ -141,8 +122,8 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
         if current_branch:
             default_branch = current_branch
 
-        prompt_text = f"🌿 Enter branch name (e.g., 'main', 'dev', 'feature/xyz') [default: {default_branch}]: "
-        val = input(prompt_text).strip() or default_branch
+        prompt_text = "🌿 Enter branch name (e.g., 'main', 'dev', 'feature/xyz')"
+        val = ask(prompt_text, default=default_branch).strip()
         write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", val, quote_value=False)
         console.print(f"[success]✅ TT_INFERENCE_ARTIFACT_BRANCH set to '{val}'[/success]")
 
@@ -375,11 +356,7 @@ def setup_tt_inference_server(pull_branch=False):
         console.print("\n[warning]⚠️  Both TT_INFERENCE_ARTIFACT_BRANCH and TT_INFERENCE_ARTIFACT_VERSION are set in .env:[/warning]")
         console.print(f"   1. Branch: '{artifact_branch}'")
         console.print(f"   2. Version: '{artifact_version}'")
-        while True:
-            choice = input(f"{C_CYAN}Which would you like to use? (1 or 2): {C_RESET}").strip()
-            if choice in ("1", "2"):
-                break
-            console.print("[error]⛔ Enter 1 or 2.[/error]")
+        choice = ask("Which would you like to use?", choices=["1", "2"])
         if choice == "1":
             comment_out_env_var("TT_INFERENCE_ARTIFACT_VERSION")
             artifact_version = None
@@ -1080,8 +1057,7 @@ def remove_artifact_with_sudo(directory_path, description="artifact directory"):
 
     # Prompt for confirmation
     try:
-        user_input = input(f"   Use sudo to remove {description}? (y/N): ").strip().lower()
-        if user_input not in ['y', 'yes']:
+        if not confirm(f"Use sudo to remove {description}?", default=False):
             console.print("[warning]   Sudo removal declined by user.[/warning]")
             return False
     except KeyboardInterrupt:

@@ -22,6 +22,7 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -83,6 +84,15 @@ _IN_PHASE = False        # True while a phase spinner is active
 _active_phase = None     # the running phase handle (so error paths can stop it)
 
 
+def _fmt_duration(seconds):
+    """Compact human duration for collapsed phase/step lines: '4.2s', '1m 03s'."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(round(seconds)), 60)
+    return f"{minutes}m {secs:02d}s"
+
+
 def in_phase():
     """True while a phase() spinner is active. Lets routine success output stay
     quiet (the single collapsed phase line covers it); warnings/errors/prompts
@@ -107,6 +117,7 @@ class _PhaseHandle:
         self.label = label   # Rich markup: "Phase k/N · Title"
         self.failed = False
         self._status = None  # a rich Status, or None on non-TTY / --verbose
+        self.start = time.monotonic()
 
     def set(self, activity):
         if self._status is not None:
@@ -164,10 +175,11 @@ def end_phase(handle=None):
     if handle._status is not None:
         handle._status.stop()
     marker = "[error]✗[/error]" if handle.failed else "[success]✓[/success]"
+    dur = _fmt_duration(time.monotonic() - handle.start)
     # Collapse the phase to a single left-aligned divider rule that "sweeps in"
-    # left→right (e.g. "✓ Phase 1/4 · Checks ──────────"). The animation is
+    # left→right (e.g. "✓ Phase 1/4 · Checks  4.2s ──────────"). The animation is
     # confined to this one line. Non-TTY / --verbose: render it instantly.
-    _sweep_phase_rule(f"{marker} {handle.label} ")
+    _sweep_phase_rule(f"{marker} {handle.label} [muted]{dur}[/muted] ")
     _IN_PHASE = False
     _active_phase = None
 
@@ -295,14 +307,29 @@ def ready_panel(title, rows, footer_lines=None):
     """Build the post-startup summary panel: title in the top border, an aligned
     label/value grid (endpoints, mode), plus optional muted footer lines.
 
-    - rows: list of (label, value); labels muted, values in info (cyan).
+    - rows: list of (label, value) or (label, value, status). Labels are muted;
+      values render in info (cyan). A value that looks like a URL becomes an
+      OSC-8 hyperlink (cmd-clickable in modern terminals). The optional `status`
+      ("up" / "starting" / "down") prefixes the value with a live health glyph.
     - footer_lines: list of Rich-markup strings shown under the grid.
     """
+    glyphs = {
+        "up": "[success]●[/success] ",
+        "starting": "[warning]…[/warning] ",
+        "down": "[error]✗[/error] ",
+    }
     grid = Table.grid(padding=(0, 3))
     grid.add_column()
     grid.add_column()
-    for label, value in rows:
-        grid.add_row(f"[muted]{label}[/muted]", f"[info]{value}[/info]")
+    for row in rows:
+        label, value = row[0], row[1]
+        status = row[2] if len(row) > 2 else None
+        glyph = glyphs.get(status, "")
+        if isinstance(value, str) and value.startswith("http"):
+            rendered = f"[info][link={value}]{value}[/link][/info]"
+        else:
+            rendered = f"[info]{value}[/info]"
+        grid.add_row(f"[muted]{label}[/muted]", f"{glyph}{rendered}")
 
     body = [grid]
     if footer_lines:
@@ -371,6 +398,37 @@ def notice_panel(title, lines, border_style="accent"):
     )
 
 
+@contextlib.contextmanager
+def _prompt_guard():
+    """Suspend any active phase spinner for the duration of a prompt so the live
+    display doesn't fight the input line, then resume it."""
+    ph = _active_phase
+    if ph is not None:
+        ph.suspend()
+    try:
+        yield
+    finally:
+        if ph is not None:
+            ph.resume()
+
+
+def ask(prompt, default=None, choices=None, password=False):
+    """Themed text prompt (rich.prompt.Prompt) — consistent styling, validated
+    `choices`, and a shown default. Pass password=True to mask input. Suspends
+    any active phase spinner; lets KeyboardInterrupt propagate so callers can
+    print their resume hint."""
+    with _prompt_guard():
+        return Prompt.ask(prompt, console=console, default=default,
+                          choices=choices, password=password)
+
+
+def confirm(prompt, default=True):
+    """Themed yes/no prompt (rich.prompt.Confirm). Suspends any active phase
+    spinner; lets KeyboardInterrupt propagate."""
+    with _prompt_guard():
+        return Confirm.ask(prompt, console=console, default=default)
+
+
 def download_with_progress(url, dest, label="Downloading"):
     """urlretrieve `url` -> `dest` showing a Rich download bar on the real terminal.
 
@@ -410,6 +468,7 @@ class _StepHandle:
         self.failed = False
         self.skipped = False
         self.detail_text = ""
+        self.start = time.monotonic()
 
     def fail(self):
         self.failed = True
@@ -426,6 +485,11 @@ class _StepHandle:
 def _render_result(label, handle):
     """Rich markup for a finished step line, reflecting fail/skip/detail state."""
     suffix = f"  [muted]{handle.detail_text}[/muted]" if handle.detail_text else ""
+    # Append elapsed time only when meaningful, so fast steps stay clean. Skips
+    # are benign no-ops, so they never get a duration.
+    elapsed = time.monotonic() - handle.start
+    if elapsed >= 0.8 and not handle.skipped:
+        suffix += f"  [muted]{_fmt_duration(elapsed)}[/muted]"
     if handle.failed:
         return f"[error]✗ {label}[/error]{suffix}"
     if handle.skipped:
