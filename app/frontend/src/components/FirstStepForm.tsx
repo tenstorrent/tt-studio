@@ -36,7 +36,7 @@ import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
 import { useModels } from "../hooks/useModels";
-import { canModelFit, modelFitReason } from "../utils/deviceFit";
+import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 
 // Status configuration with icons and labels
 const STATUS_CONFIG = {
@@ -311,11 +311,13 @@ export function FirstStepForm({
   // Render a model row, greying it out (and explaining why) when it can't be
   // deployed against the currently free devices.
   const renderModelItem = (model: Model, dotClass: string) => {
+    const chips = model.chips_required ?? 1;
+    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
     const fits =
       !chipStatus ||
-      canModelFit(model.chips_required, chipStatus.slots, chipStatus.total_slots);
+      autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
     const reason = chipStatus
-      ? modelFitReason(model.chips_required, chipStatus.slots, chipStatus.total_slots)
+      ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
       : null;
     return (
       <SelectItem

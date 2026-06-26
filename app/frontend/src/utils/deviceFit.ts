@@ -33,34 +33,36 @@ export function canModelFit(
   slots: DeviceSlotLike[],
   totalSlots: number
 ): boolean {
-  const occupied = new Set(
-    slots.filter((s) => s.status === "occupied").map((s) => s.slot_id)
-  );
   if (isMultiChipModel(chipsRequired)) {
-    return fullBoardSlots(totalSlots).every((id) => !occupied.has(id));
+    // The backend rejects a full-board deploy if ANY slot on the board is occupied,
+    // so require every slot free — not just slots 0..3 (matters on >4-slot boards).
+    return slots
+      .filter((s) => s.slot_id < totalSlots)
+      .every((s) => s.status === "available");
   }
   return slots.some((s) => s.status === "available");
 }
 
-// Short reason shown when a model can't be deployed now (null when it fits).
-export function modelFitReason(
-  chipsRequired: number | undefined,
+// Reason a model can't be auto-deployed against current occupancy (null when it can).
+// Placement-aware: flexible models need a free card pair / full board, not just any slot.
+export function deployabilityReason(
+  placement: ModelPlacement,
+  chipsRequired: number,
   slots: DeviceSlotLike[],
   totalSlots: number
 ): string | null {
-  if (canModelFit(chipsRequired, slots, totalSlots)) return null;
+  if (autoPlacement(placement, chipsRequired, slots, totalSlots) !== null) return null;
+  const occupants = Array.from(
+    new Set(
+      slots
+        .filter((s) => s.status === "occupied")
+        .map((s) => s.model_name || `device ${s.slot_id}`)
+    )
+  ).join(", ");
+  const suffix = occupants ? ` — in use by ${occupants}` : "";
+  if (placement.cardGroups.length > 0) return `Needs a free card pair${suffix}`;
   if (isMultiChipModel(chipsRequired)) {
-    const occupants = Array.from(
-      new Set(
-        slots
-          .filter((s) => s.status === "occupied")
-          .map((s) => s.model_name || `device ${s.slot_id}`)
-      )
-    ).join(", ");
-    const needed = fullBoardSlots(totalSlots).length;
-    return occupants
-      ? `Needs all ${needed} devices — in use by ${occupants}`
-      : `Needs all ${needed} devices`;
+    return `Needs all ${fullBoardSlots(totalSlots).length} devices${suffix}`;
   }
   return "All devices in use";
 }
@@ -126,7 +128,10 @@ export function autoPlacement(
     return null;
   }
   if (isMultiChipModel(chipsRequired)) {
-    return board.every(isFree) ? { deviceIds: board, fullBoard: true } : null;
+    // Full-board models need the whole board free (see canModelFit).
+    return canModelFit(chipsRequired, slots, totalSlots)
+      ? { deviceIds: board, fullBoard: true }
+      : null;
   }
   const slot = firstFreeSlot(slots);
   return slot === undefined ? null : { deviceIds: [slot], fullBoard: false };

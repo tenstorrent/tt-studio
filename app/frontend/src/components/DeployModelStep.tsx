@@ -232,7 +232,7 @@ export function DeployModelStep({
     !!placementBlocked ||
     (slotInfo.totalSlots > 0 &&
       (isMultiModel
-        ? slotInfo.occupiedDetails.some((s) => s.slot_id < fullBoardMax)
+        ? slotInfo.occupiedDetails.length > 0
         : slotInfo.availableSlots === 0));
   // Only models that require a manual pick block deploy until a slot is chosen.
   const needsSelection =
@@ -496,7 +496,7 @@ export function DeployModelStep({
               </span>
               {deviceAutoSelected && (
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  (auto-detected)
+                  (auto-selected)
                 </span>
               )}
             </div>

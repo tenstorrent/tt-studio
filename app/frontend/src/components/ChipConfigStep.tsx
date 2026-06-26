@@ -89,8 +89,7 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
     } else if (selectedMode === "single") {
       onConfirm(selectedSlots);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMode, selectedSlots, multiBoardFree, multiSlots]);
+  }, [selectedMode, selectedSlots, multiBoardFree, multiSlots, onConfirm]);
 
   const slotIsAvailable = (slotId: number) => {
     if (!chipStatus) return false;
@@ -280,7 +279,7 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
                           : "text-gray-700"
                     }`}
                   >
-                    {slot.status === "available" ? "IDLE" : "IN USE"}
+                    {isAvailable ? "IDLE" : "IN USE"}
                   </span>
                 </button>
               );

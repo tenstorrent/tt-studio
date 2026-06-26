@@ -586,7 +586,7 @@ export default function StepperDemo() {
                   {advancedActive && (
                     <ChipConfigStep
                       placement={placement}
-                      onConfirm={(slotIds) => setSelectedDeviceIds(slotIds)}
+                      onConfirm={setSelectedDeviceIds}
                     />
                   )}
                   <DeployModelStep
