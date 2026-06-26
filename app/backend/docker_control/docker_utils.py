@@ -947,6 +947,7 @@ def get_canonical_deployments():
             entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
+            entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
@@ -981,6 +982,7 @@ def get_canonical_deployments():
                     "stopped_by_user": False,
                     "deployment_id": dep.id,
                     "deployment_model_name": dep.model_name,
+                    "tool_calling_enabled": getattr(dep, "tool_calling_enabled", False),
                 }
                 continue
 

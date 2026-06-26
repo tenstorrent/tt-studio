@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "logs_control",
     "board_control",
+    "workflow_control.apps.WorkflowControlConfig",
     "channels",
     "wakeword_control",
 ]
@@ -104,6 +105,14 @@ ASGI_APPLICATION = "api.asgi.application"
 
 CHANNEL_LAYERS = {
     "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
+
+# Database – SQLite for lightweight ORM models (workflow storage, etc.)
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
 }
 
 # local memory thread-safe default

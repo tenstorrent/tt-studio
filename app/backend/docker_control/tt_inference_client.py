@@ -91,8 +91,8 @@ def start_chat_deployment(
     timeout_seconds: int = 30,
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
-    override_tt_config: Optional[str] = None,
     vllm_override_args: Optional[str] = None,
+    override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
@@ -112,10 +112,10 @@ def start_chat_deployment(
         payload["service_port"] = str(service_port)
     if device_id is not None:
         payload["device_id"] = str(device_id)
-    if override_tt_config is not None:
-        payload["override_tt_config"] = override_tt_config
     if vllm_override_args is not None:
         payload["vllm_override_args"] = vllm_override_args
+    if override_tt_config is not None:
+        payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
 

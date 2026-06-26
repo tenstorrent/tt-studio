@@ -86,6 +86,22 @@ try:
 except Exception:
     _compatibility_override_names = set()
 
+# Pin these Llama variants to the v0.14.0 release image for P300x2 compatibility (PR #815).
+# Sent as override_docker_image so the inference server uses the published -release- tag
+# even when dev_mode is on (e.g. tool calling), avoiding the -dev- variant which is not
+# published for this build.
+_LLAMA_V014_IMAGE = (
+    "ghcr.io/tenstorrent/tt-inference-server/"
+    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+)
+_LLAMA_V014_MODELS = {
+    "Llama-3.1-8B",
+    "Llama-3.1-8B-Instruct",
+    "Llama-3.1-70B",
+    "Llama-3.1-70B-Instruct",
+    "Llama-3.3-70B-Instruct",
+}
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -506,15 +522,9 @@ class DeployView(APIView):
                         )
                 # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
-                override_docker_image = None
-                if impl.model_name in {
-                    "Llama-3.1-8B",
-                    "Llama-3.1-8B-Instruct",
-                    "Llama-3.1-70B",
-                    "Llama-3.1-70B-Instruct",
-                    "Llama-3.3-70B-Instruct",
-                }:
-                    override_docker_image = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+                override_docker_image = (
+                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
+                )
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -522,10 +532,10 @@ class DeployView(APIView):
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
+                    vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     dev_mode=False,
-                    vllm_override_args=vllm_override_args,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -655,6 +665,7 @@ class DeployView(APIView):
                         device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
+                        tool_calling_enabled=bool(vllm_override_args),
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")

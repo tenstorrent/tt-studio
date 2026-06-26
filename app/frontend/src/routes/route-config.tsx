@@ -56,6 +56,8 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import WorkflowsPage from "../pages/WorkflowsPage";
+import CanvasPage from "../pages/CanvasPage";
 import CodingAgentsPage from "../pages/CodingAgentsPage";
 
 // Define route configuration type
@@ -141,6 +143,16 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/tts",
       element: <TTSPage />,
+      condition: true,
+    },
+    {
+      path: "/workflows",
+      element: <WorkflowsPage />,
+      condition: true,
+    },
+    {
+      path: "/canvas",
+      element: <CanvasPage />,
       condition: true,
     },
     {

@@ -89,12 +89,32 @@ class ChipSlotAllocator:
 
     def _get_total_slots(self) -> int:
         """Get total number of chip slots for current board"""
+        # P300C "compute" cards are single-chip: one tt-smi device == one chip
+        # == one slot. Derive the count from actual hardware rather than a fixed
+        # constant so any P300C card count (e.g. 4) is sized correctly and the
+        # allocator never hands out slots for chips that aren't present.
+        if self.board_type == "P300Cx4":
+            detected = self._detect_device_count()
+            if detected:
+                return detected
+
         # Multi-chip boards have multiple slots
         if self.board_type in MULTI_CHIP_BOARD_SLOTS:
             return MULTI_CHIP_BOARD_SLOTS[self.board_type]
 
         # Single-chip boards (N150, N300, E150, P100, P150, P300) have 1 slot
         return 1
+
+    def _detect_device_count(self) -> int:
+        """Number of physical TT devices reported by tt-smi (0 if unavailable)."""
+        try:
+            from board_control.services import SystemResourceService
+            data = SystemResourceService.get_tt_smi_data(timeout=10)
+            if data and data.get("device_info"):
+                return len(data["device_info"])
+        except Exception as e:
+            logger.warning(f"Could not detect device count, using static slot map: {e}")
+        return 0
 
     def get_chip_status(self) -> Dict:
         """

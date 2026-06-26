@@ -126,9 +126,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   };
 
   useEffect(() => {
-    // Fetch CPU/memory once on mount (board info is handled by DeviceStateContext)
     fetchSystemResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-hide footer when navigating to Chat UI
