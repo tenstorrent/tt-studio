@@ -313,12 +313,22 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
         {/* ── Step 2: Collecting ── */}
         {step === "collecting" && (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Gathering logs from all TT-Studio services…{" "}
-              <span className="font-medium text-foreground">
-                {doneCount}/{totalCount}
-              </span>
-            </p>
+            <div className="space-y-2">
+              <p className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Gathering logs from all TT-Studio services…</span>
+                <span className="font-medium text-foreground tabular-nums">
+                  {doneCount}/{totalCount}
+                </span>
+              </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-stone-200 dark:bg-stone-800">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300 ease-out"
+                  style={{
+                    width: `${totalCount ? (doneCount / totalCount) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
             <div className="rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/80 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
               We are collecting backend,{" "}
               <code className="rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900/60">
@@ -342,12 +352,20 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 {sources.map((source) => (
                   <div
                     key={source.key}
-                    className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
+                    className={cn(
+                      "flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition-all duration-300",
+                      source.status === "done" &&
+                        "border-green-200 bg-green-50/60 dark:border-green-900 dark:bg-green-950/20",
+                      source.status === "error" &&
+                        "border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20",
+                      source.status === "loading" &&
+                        "border-blue-200/70 dark:border-blue-900/70"
+                    )}
                   >
                     <SourceStatusIcon status={source.status} />
                     <span className="flex-1">{source.label}</span>
                     <span className="text-xs text-muted-foreground capitalize">
-                      {source.status}
+                      {source.status === "done" ? "ready" : source.status}
                     </span>
                   </div>
                 ))}
@@ -359,16 +377,19 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
         {/* ── Step 3: Actions ── */}
         {step === "actions" && (
           <div className="space-y-4">
-            <div className="rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-4 py-3 text-sm text-green-800 dark:text-green-300">
-              Logs collected from{" "}
-              {sources.filter((s) => s.status === "done").length} of{" "}
-              {totalCount} sources.{" "}
-              {sources.filter((s) => s.status === "error").length > 0 && (
-                <span className="text-amber-700 dark:text-amber-400">
-                  {sources.filter((s) => s.status === "error").length} source(s)
-                  unavailable — included as partial data.
-                </span>
-              )}
+            <div className="flex items-start gap-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-4 py-3 text-sm text-green-800 dark:text-green-300 animate-in fade-in slide-in-from-top-1 duration-300">
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Nice — diagnostics captured from{" "}
+                {sources.filter((s) => s.status === "done").length} of {totalCount}{" "}
+                sources.{" "}
+                {sources.filter((s) => s.status === "error").length > 0 && (
+                  <span className="text-amber-700 dark:text-amber-400">
+                    {sources.filter((s) => s.status === "error").length} source(s)
+                    unavailable — included as partial data.
+                  </span>
+                )}
+              </span>
             </div>
 
             {diagnosticsRef && (
@@ -440,40 +461,62 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </div>
             )}
 
-            <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-              <p className="font-medium mb-1">Attach diagnostics to GitHub (later)</p>
-              <ol className="list-decimal list-inside space-y-1 text-amber-900/90 dark:text-amber-100/90">
-                <li>
-                  Click <strong>Download Logs as ZIP</strong> below. The file name
-                  includes the reference above so it lines up with the issue text.
-                </li>
-                <li>
-                  Create or open the GitHub issue (button below or link in a new
-                  tab). The issue title/body include the same reference.
-                </li>
-                <li>
-                  On the GitHub issue page, scroll to the bottom of the composer
-                  and <strong>attach the ZIP file</strong>. GitHub cannot take full
-                  logs in the issue URL — the ZIP is required for complete
-                  diagnostics.
-                </li>
-              </ol>
-            </div>
+            {!issueResult?.gist_url && (
+              <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+                <p className="font-medium mb-1">How diagnostics get attached</p>
+                <ul className="list-disc list-inside space-y-1 text-amber-900/90 dark:text-amber-100/90">
+                  <li>
+                    If a GitHub token is configured, clicking{" "}
+                    <strong>Create GitHub Issue</strong> uploads the logs as a
+                    secret gist and links it in the issue automatically — no
+                    download or manual attach needed.
+                  </li>
+                  <li>
+                    Otherwise, click <strong>Download Logs as ZIP</strong> and
+                    attach the file to the issue yourself (the file name includes
+                    the reference above). GitHub cannot take full logs in the
+                    issue URL.
+                  </li>
+                </ul>
+              </div>
+            )}
 
             {issueResult?.created_via_api && issueResult.issue_url && (
-              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm">
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm space-y-2 animate-in fade-in zoom-in-95 duration-300">
                 <p className="font-medium text-blue-800 dark:text-blue-300">
-                  Issue #{issueResult.issue_number} created!
+                  Issue #{issueResult.issue_number} created 🎉
                 </p>
                 <a
                   href={issueResult.issue_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-blue-600 dark:text-blue-400 underline mt-1"
+                  className="flex items-center gap-1 text-blue-600 dark:text-blue-400 underline break-all"
                 >
                   {issueResult.issue_url}
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="h-3 w-3 shrink-0" />
                 </a>
+                {issueResult.gist_url ? (
+                  <p className="flex flex-wrap items-center gap-1.5 text-green-700 dark:text-green-400">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span className="font-medium">Logs attached automatically:</span>
+                    <a
+                      href={issueResult.gist_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 underline break-all"
+                    >
+                      view gist
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  </p>
+                ) : (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    Logs were not auto-attached (no GitHub token with the{" "}
+                    <code className="text-xs">gist</code> scope). Use{" "}
+                    <strong>Download Logs as ZIP</strong> below and attach it to
+                    the issue.
+                  </p>
+                )}
               </div>
             )}
 
@@ -515,7 +558,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 )}
                 {issueResult?.created_via_api
                   ? "Issue Created"
-                  : "Create GitHub Issue"}
+                  : "Create GitHub Issue (logs attached)"}
               </Button>
 
               <Button
@@ -528,30 +571,32 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </Button>
             </div>
 
-            <div className="rounded-md border border-stone-200 dark:border-stone-700 bg-stone-50/90 dark:bg-stone-900/60 px-4 py-3">
-              <label
-                htmlFor="bug-report-confirm-github-zip"
-                className="flex cursor-pointer items-start gap-3"
-              >
-                <input
-                  id="bug-report-confirm-github-zip"
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 shrink-0 rounded border-stone-400 text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-500 dark:bg-stone-950"
-                  checked={confirmedZipOnGitHub}
-                  onChange={(e) => setConfirmedZipOnGitHub(e.target.checked)}
-                />
-                <span className="text-sm leading-snug text-stone-800 dark:text-stone-200">
-                  I attached the diagnostics ZIP to the GitHub issue (or opened the
-                  issue and will attach / comment with the ZIP reference shortly).
-                </span>
-              </label>
-              {!confirmedZipOnGitHub && (
-                <p className="mt-2 pl-7 text-xs text-muted-foreground">
-                  Tick this when you’re done so you don’t forget — maintainers need
-                  the ZIP to debug.
-                </p>
-              )}
-            </div>
+            {issueResult && !issueResult.gist_url && (
+              <div className="rounded-md border border-stone-200 dark:border-stone-700 bg-stone-50/90 dark:bg-stone-900/60 px-4 py-3">
+                <label
+                  htmlFor="bug-report-confirm-github-zip"
+                  className="flex cursor-pointer items-start gap-3"
+                >
+                  <input
+                    id="bug-report-confirm-github-zip"
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-stone-400 text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-500 dark:bg-stone-950"
+                    checked={confirmedZipOnGitHub}
+                    onChange={(e) => setConfirmedZipOnGitHub(e.target.checked)}
+                  />
+                  <span className="text-sm leading-snug text-stone-800 dark:text-stone-200">
+                    I attached the diagnostics ZIP to the GitHub issue (or opened the
+                    issue and will attach / comment with the ZIP reference shortly).
+                  </span>
+                </label>
+                {!confirmedZipOnGitHub && (
+                  <p className="mt-2 pl-7 text-xs text-muted-foreground">
+                    Tick this when you’re done so you don’t forget — maintainers need
+                    the ZIP to debug.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex justify-between pt-1">
               <Button
