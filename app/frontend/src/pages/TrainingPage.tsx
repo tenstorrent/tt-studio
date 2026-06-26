@@ -55,6 +55,12 @@ const STATUS_STYLES: Record<
     bg: "bg-red-100 dark:bg-red-900/30",
     icon: AlertTriangle,
   },
+  cancelling: {
+    label: "Cancelling",
+    color: "text-orange-700 dark:text-orange-300",
+    bg: "bg-orange-100 dark:bg-orange-900/30",
+    icon: Loader2,
+  },
   cancelled: {
     label: "Cancelled",
     color: "text-gray-600 dark:text-gray-400",
@@ -71,7 +77,7 @@ function StatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${cfg.color} ${cfg.bg}`}
     >
       <Icon
-        className={`h-3 w-3 ${status === "in_progress" ? "animate-spin" : ""}`}
+        className={`h-3 w-3 ${status === "in_progress" || status === "cancelling" ? "animate-spin" : ""}`}
       />
       {cfg.label}
     </span>
@@ -110,7 +116,10 @@ export default function TrainingPage() {
   }, []);
 
   const hasActiveJobs = jobs.some(
-    (j) => j.status === "queued" || j.status === "in_progress",
+    (j) =>
+      j.status === "queued" ||
+      j.status === "in_progress" ||
+      j.status === "cancelling",
   );
 
   useEffect(() => {

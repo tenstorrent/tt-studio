@@ -82,12 +82,15 @@ def _auth_headers():
 
 def _proxy_get(url, params=None, stream=False):
     """Issue a GET to the training container and return a Django response."""
+    if params is not None:
+        params = params.copy()
+        params.pop("deploy_id", None)
     try:
         resp = requests.get(
             url,
             headers=_auth_headers(),
             params=params,
-            timeout=PROXY_TIMEOUT,
+            timeout=None if stream else PROXY_TIMEOUT,
             stream=stream,
         )
         if stream:

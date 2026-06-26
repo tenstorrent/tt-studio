@@ -198,7 +198,7 @@ export function getJobErrorMessage(
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   const { data } = await axios.get(`${TRAINING_API}/jobs/`);
   if (Array.isArray(data)) return data;
-  if (data?.jobs) return data.jobs;
+  if (Array.isArray(data?.jobs)) return data.jobs;
   return [];
 }
 
