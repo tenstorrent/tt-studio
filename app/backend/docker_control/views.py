@@ -352,29 +352,10 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # Stop and clean up any existing starting/running deployments of this
-            # model before deploying a new instance. Prevents stale records with
-            # wrong device_id from persisting in the UI after a re-deploy.
-            try:
-                from docker_control.models import ModelDeployment
-                from docker_control.docker_utils import stop_container
-                stale = list(ModelDeployment.objects.filter(
-                    model_name=impl.model_name,
-                    status__in=["starting", "running"],
-                ))
-                for old_dep in stale:
-                    try:
-                        stop_container(old_dep.container_id)
-                    except Exception:
-                        pass
-                    old_dep.status = "stopped"
-                    old_dep.save()
-                    logger.info(
-                        f"Cleaned up stale deployment record {old_dep.id} "
-                        f"for {impl.model_name} (container_id={old_dep.container_id})"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available. Slot allocation below enforces capacity and the
+            # canonical reconciliation frees genuinely stale records, so we must not
+            # stop existing same-model deployments here.
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
