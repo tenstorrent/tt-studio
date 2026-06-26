@@ -16,14 +16,15 @@ class TestCli(unittest.TestCase):
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--fix-docker", "--no-sudo"):
+        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo"):
             self.assertIn(flag, result.output)
 
     def test_help_hides_deprecated_aliases(self):
-        # --cleanup/--cleanup-all still work but must not clutter --help.
+        # --cleanup/--cleanup-all and --fix-docker still work but must not clutter --help.
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
         self.assertNotIn("--cleanup", result.output)
+        self.assertNotIn("--fix-docker", result.output)
 
     def test_unknown_flag_errors(self):
         result = runner.invoke(M.app, ["--definitely-not-a-flag"])
@@ -81,6 +82,27 @@ class TestCli(unittest.TestCase):
             result = runner.invoke(M.app, ["--fix-docker"])
         fix.assert_called_once()
         self.assertEqual(result.exit_code, 0)
+
+    def test_help_removes_completion_options(self):
+        # add_completion=False drops the Typer-injected completion noise.
+        result = runner.invoke(M.app, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertNotIn("--install-completion", result.output)
+        self.assertNotIn("--show-completion", result.output)
+
+    def test_help_groups_flags_into_panels(self):
+        # Flags are cascaded into titled rich_help_panel sections, not one box.
+        result = runner.invoke(M.app, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        for panel in (
+            "Setup & Configuration",
+            "Lifecycle",
+            "Model Deployment",
+            "Service Control",
+            "Troubleshooting & Info",
+            "Developer Tools",
+        ):
+            self.assertIn(panel, result.output)
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))

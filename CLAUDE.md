@@ -84,7 +84,9 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
   [run.py guide](dev-docs/run-py-guide.md), [FAQ](dev-docs/FAQ.md),
   [Troubleshooting](dev-docs/troubleshooting.md),
   [Model interface](dev-docs/model-interface.md),
-  [vLLM models](dev-docs/HowToRun_vLLM_Models.md). Also [README](README.md),
+  [vLLM models](dev-docs/HowToRun_vLLM_Models.md),
+  [Launcher terminal design](dev-docs/launcher-terminal-design.md) (read before changing
+  `tt_setup/` terminal output). Also [README](README.md),
   [Contributing](CONTRIBUTING.md), [Agent](app/agent/README.md).
 - `.cursor/rules/` — Cursor rules: `general`, `backend`, `frontend`,
   `docker-deployment`, `ai-models`, `project-overview`.
