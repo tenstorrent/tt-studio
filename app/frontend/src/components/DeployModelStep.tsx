@@ -19,6 +19,7 @@ export function DeployModelStep({
   handleDeploy,
   selectedModel,
   selectedDeviceIds,
+  chipMode,
 }: {
   selectedModel: string | null;
   handleDeploy: (options?: {
@@ -26,6 +27,7 @@ export function DeployModelStep({
     host_port?: number | null;
   }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceIds?: number[];
+  chipMode?: "single" | "multi";
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
@@ -458,7 +460,17 @@ export function DeployModelStep({
               </span>
             </div>
           )}
-          {selectedDeviceIds !== undefined && selectedDeviceIds.length > 0 && (
+          {chipMode === "multi" ? (
+            <div className="flex items-center space-x-2">
+              <Cpu className="text-TT-purple-accent" />
+              <span className="text-sm text-gray-800 dark:text-gray-400">
+                Devices:
+              </span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                All devices
+              </span>
+            </div>
+          ) : selectedDeviceIds !== undefined && selectedDeviceIds.length > 0 ? (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
@@ -468,7 +480,7 @@ export function DeployModelStep({
                 {selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}
               </span>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       <StepperFormActions removeDynamicSteps={() => {}} />

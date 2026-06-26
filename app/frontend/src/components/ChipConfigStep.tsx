@@ -71,8 +71,9 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
 
   const handleConfirm = () => {
     if (isConfirmDisabled || !selectedMode) return;
-    // Multi-chip always uses device_id [0]; single uses the chosen slots
-    const slotIds = selectedMode === "multi" ? [0] : selectedSlots;
+    // "All Devices" pins no slot — the backend deploys across the whole board (it selects
+    // the chips itself). "1 Device" uses the explicitly chosen slot(s).
+    const slotIds = selectedMode === "multi" ? [] : selectedSlots;
     onConfirm(selectedMode, slotIds);
     nextStep();
   };

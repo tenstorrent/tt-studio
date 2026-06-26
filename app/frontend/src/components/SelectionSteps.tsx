@@ -35,7 +35,9 @@ export interface Model {
   chips_required?: number; // Number of chips required (1 or 4)
 }
 
-// P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
+// All multi-chip boards use a simplified 2-step flow by default; hardware config is
+// hidden behind an "Advanced" toggle. QB2 (P300x2) additionally has board-specific
+// behaviors (image override, single-chip auto-enable) keyed off this set.
 const QB2_BOARD_TYPES = new Set(["P300x2"]);
 
 export default function StepperDemo() {
@@ -100,9 +102,9 @@ export default function StepperDemo() {
       .catch(() => setModels([])); // on error, treat as no models → single-model only
   }, []);
 
-  // showHardwareConfig drives the 3-step flow only for non-QB2 multi-chip boards by default,
-  // or when the user explicitly enables it via the toggle on QB2.
-  const useHardwareConfigStep = isMultiChipBoard && (!isQB2 || showHardwareConfig);
+  // All multi-chip boards default to the simplified 2-step flow; the hardware config
+  // step only appears when the user explicitly enables it via the Advanced toggle.
+  const useHardwareConfigStep = isMultiChipBoard && showHardwareConfig;
 
   // No-op function for removing dynamic steps (no dynamic steps in this component)
   const removeDynamicSteps = () => {
@@ -513,8 +515,8 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* QB2 hardware config toggle — only shown on P300x2 boards */}
-        {isQB2 && (
+        {/* Hardware config toggle — shown on any multi-chip board */}
+        {isMultiChipBoard && (
           <button
             type="button"
             role="switch"
@@ -626,6 +628,7 @@ export default function StepperDemo() {
                   selectedModel={selectedModel}
                   handleDeploy={handleDeploy}
                   selectedDeviceIds={useHardwareConfigStep ? selectedDeviceIds : undefined}
+                  chipMode={useHardwareConfigStep ? chipMode ?? undefined : undefined}
                 />
               )}
             </Step>
