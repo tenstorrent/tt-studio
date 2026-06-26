@@ -542,9 +542,13 @@ export default function StepperDemo() {
                   setShowHardwareConfig((v: boolean) => !v);
                   if (showHardwareConfig) setSelectedDeviceIds([]);
                 }}
-                className="group ml-auto flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${
+                  showHardwareConfig
+                    ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <Cpu className="w-3.5 h-3.5 opacity-70" />
+                <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
                 <span>Advanced device configuration</span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 transition-transform duration-200 ${showHardwareConfig ? "rotate-180" : ""}`}
