@@ -12,7 +12,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import console, is_verbose, notice_panel, ready_panel, set_verbose, step
+from tt_setup.console import begin_phase, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, step, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, clear_lines, display_welcome_banner, run_preflight_checks
@@ -190,40 +190,43 @@ def _run(args):
             _git_hash = "unknown"
         startup_log.header(f"git:{_git_hash}")
 
-        # Pre-flight system checks
+        # ── Phase 1 · Checks ─────────────────────────────────────────────────
+        ph = begin_phase(1, 4, "Checks")
+
+        ph.set("system checks")
         startup_log.step("preflight_checks", "START")
-        with step("Running preflight checks"):
-            run_preflight_checks()
+        run_preflight_checks()
         startup_log.step("preflight_checks", "OK")
 
         # tt-smi health probe — non-fatal. Skips silently when tt-smi isn't on
         # PATH (e.g. a Mac dev box with no TT tooling).
         if shutil.which("tt-smi"):
+            ph.set("tt-smi")
             startup_log.step("tt_smi_check", "START")
-            tt_status, tt_detail = "bad", ""
-            with step("Checking tt-smi", spinner=False) as s:
-                tt_status, tt_detail = check_tt_smi()
-                if tt_status == "ok":
-                    s.detail(tt_detail or "working")
-                else:
-                    s.skip(tt_detail)
+            tt_status, tt_detail = check_tt_smi()
             if tt_status == "ok":
                 startup_log.step("tt_smi_check", "OK", tt_detail)
             else:
                 startup_log.step("tt_smi_check", "WARN", tt_detail)
-                console.print(notice_panel(
-                    "[bold]⚠  tt-smi may not be working[/bold]",
-                    ["Couldn't read Tenstorrent devices via tt-smi — your TT tooling or board may need attention.",
-                     "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
-                    border_style="warning"))
+                with ph.pause():  # surface the warning panel without the spinner
+                    console.print(notice_panel(
+                        "[bold]⚠  tt-smi may not be working[/bold]",
+                        ["Couldn't read Tenstorrent devices via tt-smi — your TT tooling or board may need attention.",
+                         "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
+                        border_style="warning"))
 
+        ph.set("Docker")
         startup_log.step("docker_install_check", "START")
-        with step("Checking Docker"):
-            check_docker_installation()
+        check_docker_installation()
         startup_log.step("docker_install_check", "OK")
+        end_phase(ph)
 
+        # ── Phase 2 · Set up ─────────────────────────────────────────────────
+        ph = begin_phase(2, 4, "Set up")
+        ph.set("environment")
         startup_log.step("configure_environment", "START")
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        with ph.pause():  # interactive: secret prompts + HF-access output must show live
+            configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
         # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
@@ -244,19 +247,22 @@ def _run(args):
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        with step("Preparing persistent storage"):
-            if host_persistent_volume and not os.path.isdir(host_persistent_volume):
-                print(f"📁 Creating persistent storage directory at: {host_persistent_volume}")
-                os.makedirs(host_persistent_volume, exist_ok=True)
-                # Only set permissions on newly created directory (we own it).
-                # Existing subdirectories are handled by Docker via docker-entrypoint.sh.
-                try:
-                    os.chmod(host_persistent_volume, 0o777)
-                except (OSError, PermissionError) as e:
-                    print(f"⚠️  Could not set permissions on persistent volume: {e}")
-                    print("   Docker containers will handle permissions via docker-entrypoint.sh")
+        ph.set("persistent storage")
+        if host_persistent_volume and not os.path.isdir(host_persistent_volume):
+            os.makedirs(host_persistent_volume, exist_ok=True)
+            # Only set permissions on newly created directory (we own it).
+            # Existing subdirectories are handled by Docker via docker-entrypoint.sh.
+            try:
+                os.chmod(host_persistent_volume, 0o777)
+            except (OSError, PermissionError) as e:
+                with ph.pause():
+                    console.print(f"[warning]⚠️  Could not set permissions on persistent volume: {e}[/warning]")
+                    console.print("[muted]   Docker containers will handle permissions via docker-entrypoint.sh[/muted]")
 
-        # Create Docker network
+        # Create Docker network. Suspend the phase spinner: this may prompt for a
+        # sudo password and prints its own status/errors.
+        ph.set("Docker network")
+        ph.suspend()
         has_docker_access = check_docker_access()
         if not has_docker_access:
             print(f"{C_YELLOW}⚠️  Docker permission issue detected - will use sudo for Docker commands (password may be required){C_RESET}")
@@ -310,9 +316,18 @@ def _run(args):
                 print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
 
             sys.exit(1)
+        ph.resume()
 
-        # Ensure frontend dependencies are installed
+        # Ensure frontend dependencies are installed (may prompt for npm install)
+        ph.set("frontend dependencies")
+        ph.suspend()
         ensure_frontend_dependencies(force_prompt=args.reconfigure, quick_setup=not args.configure_env)
+
+        # The rest of Set up (ports, permission fixes, services, artifact) is
+        # interactive / sudo-prone and prints its own status — keep the spinner
+        # suspended through it. The phase still collapses to one ✓ line at the end.
+        ph.set("services & ports")
+        # (spinner stays suspended from the frontend-deps step above)
 
         # Check if all required ports are available
 
@@ -414,19 +429,17 @@ def _run(args):
 
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts
+        ph.set("Docker Control service")
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            with step("Starting Docker Control Service", spinner=False) as s:
-                if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
-                    s.fail()
-            if s.failed:
+            if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
-                print(f"{C_YELLOW}Note: Backend will not be able to manage Docker containers.{C_RESET}")
+                console.print("[warning]Note: Backend will not be able to manage Docker containers.[/warning]")
             else:
                 startup_log.step("docker_control_service", "OK")
         else:
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
-            print(f"\n{C_YELLOW}⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used){C_RESET}")
+            console.print("[warning]⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used)[/warning]")
 
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
@@ -437,12 +450,10 @@ def _run(args):
             startup_log.step("fastapi_server", "START")
             original_dir = os.getcwd()
             try:
-                with step("Setting up TT Inference Server", spinner=False) as s:
-                    if not setup_tt_inference_server(pull_branch=args.pull_branch):
-                        s.fail()
-                if s.failed:
+                ph.set("TT Inference Server")
+                if not setup_tt_inference_server(pull_branch=args.pull_branch):
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
-                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
+                    console.print("[error]⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.[/error]")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
@@ -456,19 +467,18 @@ def _run(args):
                     not os.path.exists(models_json_path)
                 )
                 if should_sync:
-                    with step("Syncing model catalog"):
-                        _sync_model_catalog()
+                    ph.set("model catalog")
+                    _sync_model_catalog()
                 else:
                     console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
             startup_log.step("fastapi_server", "SKIP", "--skip-fastapi")
-            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
+            console.print("[warning]⚠️  Skipping TT Inference Server setup (--skip-fastapi)[/warning]")
         elif is_deployed_mode:
             startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
-            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
-            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
+            console.print("[muted]AI Playground mode — using cloud models; local inference server not needed[/muted]")
 
         # Pre-create workflow_logs before docker compose up.
         # docker-compose.yml bind-mounts this directory; if Docker creates it first, it
@@ -487,9 +497,16 @@ def _run(args):
         # branch name) so the footer shows what's actually running.
         set_app_version_env()
 
+        end_phase(ph)  # ── end Phase 2 · Set up
+
+        # ── Phase 3 · Build ──────────────────────────────────────────────────
         # Start Docker services with streaming output and comprehensive error reporting
+        ph = begin_phase(3, 4, "Build")
         startup_log.step("docker_compose_up", "START")
-        console.print("\n[info]🔨 Building containers[/info] [muted](backend, frontend, agent, chroma)…[/muted]")
+        # The compose build renders its own Rich progress, so suspend the phase
+        # spinner around it (only one live display at a time).
+        ph.suspend()
+        console.print("[info]🔨 Building containers[/info] [muted](backend, frontend, agent, chroma)…[/muted]")
         _docker_transient_lines = 1  # track lines to clear on success
 
         # Check Docker access to determine if sudo is needed
@@ -513,39 +530,41 @@ def _run(args):
             startup_log.close()
             sys.exit(1)
 
-        # Clear the "Building containers..." line (build progress was already cleared by run_docker_compose_with_progress)
+        # build progress already cleared by run_docker_compose_with_progress
         clear_lines(_docker_transient_lines)
-        console.print("[success]✓[/success] Containers built and running")
         startup_log.step("docker_compose_up", "OK")
+        end_phase(ph)  # ── end Phase 3 · Build (collapses to ✓ Phase 3 · Build)
 
-        # Start FastAPI server now that containers are up
+        # ── Phase 4 · Launch ─────────────────────────────────────────────────
+        # Inference-server env/start may prompt or sudo and print their own
+        # status, so keep the phase spinner suspended through them.
+        ph = begin_phase(4, 4, "Launch")
+        ph.suspend()
         if not args.skip_fastapi and not is_deployed_mode:
             original_dir = os.getcwd()
             try:
-                with step("Preparing inference server environment") as s:
-                    if not setup_fastapi_environment():
-                        s.fail()
-                if s.failed:
+                ph.set("inference server environment")
+                if not setup_fastapi_environment():
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
-                    print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
+                    console.print("[error]⛔ Cannot start TT Studio: inference server environment setup failed. Exiting.[/error]")
                     suggest_pip_fixes()
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
 
-                with step("Starting inference server", spinner=False) as s:
-                    if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
-                        s.fail()
-                if s.failed:
+                ph.set("starting inference server")
+                if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
                     startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
-                    print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
-                    print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
+                    console.print("[error]⛔ Cannot start TT Studio: inference server failed to start. Exiting.[/error]")
+                    console.print(f"[muted]   Check logs: tail -50 {MODEL_RUN_LOG_FILE}[/muted]")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
                 startup_log.step("fastapi_server", "OK")
             finally:
                 os.chdir(original_dir)
+
+        end_phase(ph)  # ── end Phase 4 · Launch (collapses to ✓ Phase 4 · Launch)
 
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
@@ -651,14 +670,18 @@ def _run(args):
                 if model_run_logs_process:
                     model_run_logs_process.terminate()
 
+    except SystemExit:
+        # A phase step called sys.exit() — stop any live phase spinner so it
+        # doesn't corrupt the terminal on the way out, then exit as intended.
+        stop_active_phase()
+        raise
     except KeyboardInterrupt:
-        print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
-
+        stop_active_phase()
         startup_log.step("interrupted", "FAIL", "Ctrl+C")
         startup_log.summary(exit_code=130)
         startup_log.close()
 
-        # Build the original command with flags for resume suggestion
+        # Build the original command with flags for the resume hint.
         original_cmd = "python run.py"
         if 'args' in locals():
             if args.dev:
@@ -669,16 +692,23 @@ def _run(args):
                 original_cmd += " --no-sudo"
             if args.resync:
                 original_cmd += " --resync"
-        
-        print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
-        print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --stop{C_RESET}")
-        print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
+
+        console.print(notice_panel(
+            "[bold]🛑 Setup interrupted (Ctrl+C)[/bold]",
+            [
+                f"[muted]Resume     →[/muted]  {original_cmd}",
+                "[muted]Clean up   →[/muted]  python run.py --stop",
+                "[muted]Help       →[/muted]  python run.py --help",
+            ],
+            border_style="warning",
+        ))
         sys.exit(130)
     except Exception as e:
-        print(f"\n{C_RED}❌ An unexpected error occurred: {type(e).__name__}{C_RESET}")
-        print(f"{C_RED}   {e}{C_RESET}")
+        stop_active_phase()
+        console.print(f"\n[error]❌ An unexpected error occurred: {type(e).__name__}[/error]")
+        console.print(f"   {e}", style="error", markup=False)
 
-        print(f"\n{C_YELLOW}Full error details:{C_RESET}")
+        console.print("\n[warning]Full error details:[/warning]")
         # Rich-rendered traceback (syntax-highlighted, locals on the failing frame).
         console.print_exception(show_locals=False)
 
@@ -686,12 +716,17 @@ def _run(args):
         startup_log.summary(exit_code=1)
         startup_log.close()
 
-        print(f"\n{C_CYAN}💡 Next steps:{C_RESET}")
-        print(f"  • Check the error details above")
-        print(f"  • Startup log: {STARTUP_LOG_FILE}")
-        print(f"  • For help: python run.py --help")
-        print(f"  • To clean up: python run.py --stop")
-        print(f"  • Report bugs: https://github.com/tenstorrent/tt-studio/issues")
+        console.print(notice_panel(
+            "[bold]💡 Next steps[/bold]",
+            [
+                "[muted]Check the error details above[/muted]",
+                f"[muted]Startup log →[/muted]  {STARTUP_LOG_FILE}",
+                "[muted]Help        →[/muted]  python run.py --help",
+                "[muted]Clean up    →[/muted]  python run.py --stop",
+                "[muted]Report bugs →[/muted]  https://github.com/tenstorrent/tt-studio/issues",
+            ],
+            border_style="error",
+        ))
         sys.exit(1)
 
 

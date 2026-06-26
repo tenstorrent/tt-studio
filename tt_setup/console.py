@@ -77,6 +77,100 @@ def is_verbose():
     return VERBOSE
 
 
+_IN_PHASE = False        # True while a phase spinner is active
+_active_phase = None     # the running phase handle (so error paths can stop it)
+
+
+def in_phase():
+    """True while a phase() spinner is active. Lets routine success output stay
+    quiet (the single collapsed phase line covers it); warnings/errors/prompts
+    should still print regardless."""
+    return _IN_PHASE
+
+
+class _PhaseHandle:
+    """Handle for a running startup phase. Update the spinner with .set(activity),
+    mark failure with .fail(), and wrap prompting / nested-Live work in
+    `with handle.pause(): ...` so the spinner doesn't clash with it."""
+
+    def __init__(self, label):
+        self.label = label   # Rich markup: "Phase k/N · Title"
+        self.failed = False
+        self._status = None  # a rich Status, or None on non-TTY / --verbose
+
+    def set(self, activity):
+        if self._status is not None:
+            self._status.update(f"{self.label} [muted]— {activity}…[/muted]")
+
+    def fail(self):
+        self.failed = True
+
+    def suspend(self):
+        """Stop the spinner (for a prompting / nested-Live block). Pair with
+        resume(). Use when wrapping the block in `with pause()` would mean an
+        awkward re-indent."""
+        if self._status is not None:
+            self._status.stop()
+
+    def resume(self):
+        """Restart the spinner after suspend() (no-op if the phase already ended)."""
+        if self._status is not None and _active_phase is self:
+            self._status.start()
+
+    @contextlib.contextmanager
+    def pause(self):
+        """Stop the spinner for work that prompts (getpass/input/sudo) or runs its
+        own Live display (e.g. the Docker build progress), then resume."""
+        self.suspend()
+        try:
+            yield
+        finally:
+            self.resume()
+
+
+def begin_phase(index, total, title):
+    """Start a collapsing startup phase. On a TTY a live spinner shows
+    'Phase k/N · Title — <activity>'; call end_phase() to collapse it to a single
+    '✓ Phase k/N · Title' line. Non-TTY/--verbose: no spinner (just the final
+    line). The phase count is fixed, so k/N is always accurate."""
+    global _IN_PHASE, _active_phase
+    label = f"[muted]Phase {index}/{total} ·[/muted] [bold accent]{title}[/bold accent]"
+    handle = _PhaseHandle(label)
+    if console.is_terminal and not VERBOSE:
+        handle._status = console.status(label, spinner="dots")
+        handle._status.start()
+    _IN_PHASE = True
+    _active_phase = handle
+    return handle
+
+
+def end_phase(handle=None):
+    """Finalize a phase: stop the spinner and print the one collapsed line
+    ('✓' on success, '✗' if .fail() was called)."""
+    global _IN_PHASE, _active_phase
+    handle = handle or _active_phase
+    if handle is None:
+        return
+    if handle._status is not None:
+        handle._status.stop()
+    marker = "[error]✗[/error]" if handle.failed else "[success]✓[/success]"
+    # Render the collapsed phase line as a left-aligned divider rule so it still
+    # reads as a section marker (e.g. "✓ Phase 1/4 · Checks ──────────").
+    console.rule(f"{marker} {handle.label}", align="left", style="muted")
+    _IN_PHASE = False
+    _active_phase = None
+
+
+def stop_active_phase():
+    """Stop any running phase spinner WITHOUT printing its collapsed line — for
+    error/interrupt paths, so the Live display doesn't corrupt a following panel."""
+    global _IN_PHASE, _active_phase
+    if _active_phase is not None and _active_phase._status is not None:
+        _active_phase._status.stop()
+    _IN_PHASE = False
+    _active_phase = None
+
+
 def _vdivider(height):
     """A full-height vertical divider for a two-column grid row (accent-colored)."""
     return "\n".join("[accent]│[/accent]" for _ in range(max(height, 1)))

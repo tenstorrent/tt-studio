@@ -19,7 +19,7 @@ except ImportError:
 from dotenv import set_key, dotenv_values
 from rich.markup import escape as escape_markup
 from tt_setup.constants import *
-from tt_setup.console import console, is_verbose
+from tt_setup.console import console, in_phase, is_verbose
 
 
 def configure_inference_server_artifact(*args, **kwargs):
@@ -446,26 +446,45 @@ def check_hf_access(token):
 
 def render_hf_access(status, results):
     """Render check_hf_access() output through the theme: one ✓ line when all
-    good (unless --verbose), otherwise the full per-repo breakdown."""
+    good (unless --verbose); otherwise a per-model breakdown that names which
+    gated models you can't access yet, with a link to request access on each."""
     ok_labels = [label for label, _, code in results if code == 200]
     if all(code is None for _, _, code in results):
         console.print("[muted]🤗 HuggingFace: couldn't reach to verify access — continuing[/muted]")
         return
     if status and not is_verbose():
-        console.print(f"[success]✓[/success] HuggingFace access [muted]· {', '.join(ok_labels)}[/muted]")
+        # Inside a collapsing phase the single phase line covers this; only print
+        # the standalone confirmation when not folded into a phase.
+        if not in_phase():
+            console.print(f"[success]✓[/success] HuggingFace access [muted]· {', '.join(ok_labels)}[/muted]")
         return
+
     console.print("[info]🤗 HuggingFace access:[/info]")
+    blocked = []          # (label, repo_id) — gated models this token can't reach
+    token_problem = False  # a 401 means the token itself is invalid/expired
     for label, repo_id, code in results:
         if code == 200:
-            console.print(f"  [success]✓[/success] {label}: confirmed")
+            console.print(f"  [success]✓[/success] {label}: access confirmed")
         elif code == 401:
-            console.print(f"  [error]✗[/error] {label}: token invalid or expired (401)")
+            console.print(f"  [error]✗[/error] {label}: [bold]no access[/bold] — token invalid or expired (401)")
+            blocked.append((label, repo_id))
+            token_problem = True
         elif code == 403:
-            console.print(f"  [error]✗[/error] {label}: access not granted yet (403) — https://huggingface.co/{repo_id}")
+            console.print(f"  [error]✗[/error] {label}: [bold]no access[/bold] — gate not accepted for this model (403)")
+            blocked.append((label, repo_id))
         elif code is None:
             console.print(f"  [warning]…[/warning] {label}: couldn't reach HuggingFace")
         else:
             console.print(f"  [warning]…[/warning] {label}: unexpected HTTP {code}")
+
+    if blocked:
+        console.print()
+        console.print("[warning]Request access for these gated models, then re-run TT Studio:[/warning]")
+        for label, repo_id in blocked:
+            console.print(f"  [muted]{label}[/muted]  →  https://huggingface.co/{repo_id}")
+        console.print("  [muted]Open each link, click “Agree and access repository” (sign in first), then run: python run.py[/muted]")
+        if token_problem:
+            console.print("  [muted]If your token is invalid/expired, create a new one: https://huggingface.co/settings/tokens[/muted]")
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
@@ -865,4 +884,5 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         console.print("\n[bold accent]--- 🔧 TT Inference Server Configuration  ---[/bold accent]")
     configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
-    console.print("[success]✓[/success] Environment configured")
+    if not in_phase():  # folded into the "Set up" phase line when run inside a phase
+        console.print("[success]✓[/success] Environment configured")

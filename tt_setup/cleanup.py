@@ -587,7 +587,7 @@ def _cleanup_runtime(args, has_docker_access):
     # listing what was stopped. spinner=False because stopping host services may
     # trigger a sudo password prompt (660 sockets / root-owned PID files), which
     # a live spinner would clash with.
-    with step("Stopping services", spinner=False) as s:
+    with step("Stopping TT Studio", spinner=False) as s:
         stopped = []
 
         # Plain --stop preserves deployments (summarised in the Preserved
@@ -596,14 +596,14 @@ def _cleanup_runtime(args, has_docker_access):
         if full_cleanup:
             removed = _remove_tt_studio_network_containers(has_docker_access)
             if removed:
-                stopped.append(f"{removed} deployment(s)")
+                stopped.append(f"{removed} model deployment(s)")
 
         docker_compose_cmd = build_docker_compose_command(
             dev_mode=args.dev, show_hardware_info=False, quiet=True)
         docker_compose_cmd.extend(["down", "-v"])
         try:
             run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
-            stopped.append("containers")
+            stopped.append("Docker containers")
         except Exception:
             pass
 
@@ -613,12 +613,12 @@ def _cleanup_runtime(args, has_docker_access):
             try:
                 run_docker_command(["docker", "network", "rm", "tt_studio_network"],
                                     use_sudo=not has_docker_access, capture_output=True)
-                stopped.append("network")
+                stopped.append("Docker network")
             except Exception:
                 pass
 
         cleanup_fastapi_server(no_sudo=args.no_sudo)
         cleanup_docker_control_service(no_sudo=args.no_sudo)
-        stopped += ["FastAPI", "Docker Control"]
+        stopped += ["inference server", "Docker control"]
 
-        s.detail(" · ".join(stopped))
+        s.detail("stopped " + ", ".join(stopped))
