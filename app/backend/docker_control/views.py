@@ -364,29 +364,10 @@ class DeployView(APIView):
                 and board_type in WHOLE_BOARD_DEFAULT_BOARDS
             )
 
-            # Stop and clean up any existing starting/running deployments of this
-            # model before deploying a new instance. Prevents stale records with
-            # wrong device_id from persisting in the UI after a re-deploy.
-            try:
-                from docker_control.models import ModelDeployment
-                from docker_control.docker_utils import stop_container
-                stale = list(ModelDeployment.objects.filter(
-                    model_name=impl.model_name,
-                    status__in=["starting", "running"],
-                ))
-                for old_dep in stale:
-                    try:
-                        stop_container(old_dep.container_id)
-                    except Exception:
-                        pass
-                    old_dep.status = "stopped"
-                    old_dep.save()
-                    logger.info(
-                        f"Cleaned up stale deployment record {old_dep.id} "
-                        f"for {impl.model_name} (container_id={old_dep.container_id})"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available. Slot allocation below enforces capacity and the
+            # canonical reconciliation frees genuinely stale records, so we must not
+            # stop existing same-model deployments here.
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -506,12 +487,12 @@ class DeployView(APIView):
                         # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
                         # use the single constituent chip device.
                         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
+                    # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
+                    # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
                         board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
+                        and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
                     # When using a multi-chip whole-board device (e.g. t3k, p300x2,
