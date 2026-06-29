@@ -119,6 +119,13 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "unknown": "cpu",
 }
 
+# Wormhole mesh boards: a single-chip-capable model deploys across the whole board by
+# default (--tt-device t3k, no --device-id), and the inference server selects the
+# physical chips itself. The user can still pin one constituent chip (e.g. n300) via the
+# advanced "1 Device" mode. Per-chip-default boards (e.g. P300x2/QB2) are intentionally
+# absent so their existing per-card behavior is preserved.
+WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GALAXY_T3K"}
+
 # Inference-server device names that denote a single chip/card (as opposed to a
 # whole-board mesh like p300x2/p150x4/t3k). Only these get pinned to a device_id;
 # mesh deployments let the inference server claim the full board itself.
