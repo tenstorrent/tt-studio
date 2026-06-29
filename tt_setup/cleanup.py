@@ -4,7 +4,6 @@
 """Resource cleanup: containers, images, volumes, runtime processes."""
 
 import os
-import sys
 import subprocess
 import time
 import shutil
@@ -16,7 +15,7 @@ from tt_setup.constants import _CLEANUP_IMAGE_REFS, _CLEANUP_VOLUME_PREFIX
 from rich.table import Table
 from tt_setup.console import console, kept_panel, notice_panel, step
 from tt_setup.docker import build_docker_compose_command, check_docker_access, run_docker_command
-from tt_setup.env_config import get_env_var, is_first_time_setup, save_preference
+from tt_setup.env_config import get_env_var
 from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_server
 
 
@@ -608,51 +607,48 @@ def _cleanup_runtime(args, has_docker_access):
     as part of the full reset."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
 
-    # Collapse the whole teardown into one step that resolves to a single line
-    # listing what was stopped. spinner=False because stopping host services may
-    # trigger a sudo password prompt (660 sockets / root-owned PID files), which
-    # a live spinner would clash with.
+    # Tear down each piece as its own labelled step so the user can see exactly
+    # what's being stopped (rather than one opaque "Stopping services…" line that
+    # sits frozen through the ~25s `docker compose down`).
     # If the Docker daemon isn't reachable there's nothing to tear down on the
     # container side (and trying would leak a raw "Cannot connect to the Docker
     # daemon" error) — skip the docker ops and just stop the host services.
     docker_up = _docker_daemon_status() in ("ok", "sudo")
 
-    with step("Stopping services", spinner=False) as s:
-        stopped = []
-
-        if docker_up:
-            # Plain --stop preserves deployments (summarised in the Preserved
-            # panel afterwards); --purge-all removes them first so the later
-            # network removal / weight deletion isn't blocked by running processes.
-            if full_cleanup:
+    if docker_up:
+        # Plain --stop preserves deployments (summarised in the Preserved panel
+        # afterwards); --purge-all removes them first so the later network removal
+        # / weight deletion isn't blocked by running processes.
+        if full_cleanup:
+            with step("Stopping model deployments", spinner=False) as s:
                 removed = _remove_tt_studio_network_containers(has_docker_access)
-                if removed:
-                    stopped.append(f"{removed} model deployment(s)")
+                s.detail(f"{removed} removed") if removed else s.skip("none running")
 
+        # A live spinner only when we don't need sudo (a sudo password prompt
+        # would clash with it); otherwise a static labelled line.
+        with step("Stopping Docker containers", spinner=has_docker_access) as s:
             docker_compose_cmd = build_docker_compose_command(
                 dev_mode=args.dev, show_hardware_info=False, quiet=True)
             docker_compose_cmd.extend(["down", "-v"])
             try:
                 run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
-                stopped.append("Docker containers")
             except Exception:
-                pass
+                s.skip("none running")
 
-            # Only --purge-all removes the network — preserved deployments stay
-            # attached to it for DNS so the backend can reconnect after a restart.
-            if full_cleanup:
+        # Only --purge-all removes the network — preserved deployments stay
+        # attached to it for DNS so the backend can reconnect after a restart.
+        if full_cleanup:
+            with step("Removing Docker network", spinner=False) as s:
                 try:
                     run_docker_command(["docker", "network", "rm", "tt_studio_network"],
                                         use_sudo=not has_docker_access, capture_output=True)
-                    stopped.append("Docker network")
                 except Exception:
-                    pass
+                    s.skip("not present")
+    else:
+        console.print("[muted]Docker isn't running — stopping host services only "
+                      "(no containers to stop).[/muted]")
 
+    with step("Stopping inference API", spinner=False):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
+    with step("Stopping Docker control", spinner=False):
         cleanup_docker_control_service(no_sudo=args.no_sudo)
-        stopped += ["inference server", "Docker control"]
-
-        if docker_up:
-            s.detail("stopped " + ", ".join(stopped))
-        else:
-            s.detail("Docker isn't running — stopped host services only (no containers to stop)")

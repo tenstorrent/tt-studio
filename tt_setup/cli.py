@@ -12,10 +12,10 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, is_verbose, notice_panel, ready_panel, set_verbose, show_detail, step, stop_active_phase
+from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, is_verbose, notice_panel, ready_panel, register_phases, set_verbose, show_detail, step, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
-from tt_setup.shell import check_tt_smi, clear_lines, display_welcome_banner, run_preflight_checks
+from tt_setup.shell import check_tt_smi, display_welcome_banner, run_preflight_checks
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
@@ -208,6 +208,16 @@ def _run(args):
             _git_hash = "unknown"
         startup_log.header(f"git:{_git_hash}")
 
+        # Show the whole roadmap upfront as a persistent checklist; each phase
+        # transitions ▢ → spinner → ✓ in place as the run proceeds.
+        register_phases([
+            (1, 5, "Checks"),
+            (2, 5, "Configure"),
+            (3, 5, "Services"),
+            (4, 5, "Build"),
+            (5, 5, "Launch"),
+        ])
+
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
         ph = begin_phase(1, 5, "Checks")
 
@@ -246,8 +256,10 @@ def _run(args):
         ph = begin_phase(2, 5, "Configure")
         ph.set("environment")
         startup_log.step("configure_environment", "START")
-        with ph.pause():  # interactive: secret prompts + HF-access output must show live
-            configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        # No outer pause(): HF-access output prints above the pinned stepper
+        # (so it stays visible through the long Configure phase), and the
+        # individual prompts (ask/confirm/secret) suspend the stepper themselves.
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
         # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
@@ -532,35 +544,34 @@ def _run(args):
         # Start Docker services with streaming output and comprehensive error reporting
         ph = begin_phase(4, 5, "Build")
         startup_log.step("docker_compose_up", "START")
-        # The compose build renders its own Rich progress, so suspend the phase
-        # spinner around it (only one live display at a time).
-        ph.suspend()
-        console.print("[info]🔨 Building containers[/info] [muted](backend, frontend, agent, chroma)…[/muted]")
-        _docker_transient_lines = 1  # track lines to clear on success
+        ph.set("building containers")
 
         # Check Docker access to determine if sudo is needed
         has_docker_access = check_docker_access()
         use_sudo = not has_docker_access
 
-        # Set up the Docker Compose command (quiet — build progress is transient)
+        # Set up the Docker Compose command (quiet — build progress folds into
+        # the checklist's Build row, not a separate display).
         docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, quiet=True)
         docker_compose_cmd.extend(["up", "--build", "-d"])
 
-        # Run with streaming output
+        # Stream the build; per-service events fold into the active Build row.
         compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
             cwd=os.path.join(TT_STUDIO_ROOT, "app"),
         )
 
+        # Result diagnostics/summary print outside the live region — suspend it first.
+        ph.suspend()
         if not handle_docker_compose_result(returncode, full_output, use_sudo=use_sudo):
             startup_log.step("docker_compose_up", "FAIL", f"exit={returncode}")
+            ph.fail()
+            stop_active_phase()
             startup_log.summary(exit_code=1)
             startup_log.close()
             sys.exit(1)
 
-        # build progress already cleared by run_docker_compose_with_progress
-        clear_lines(_docker_transient_lines)
         startup_log.step("docker_compose_up", "OK")
         end_phase(ph)  # ── end Phase 4 · Build
 
@@ -594,6 +605,7 @@ def _run(args):
                 os.chdir(original_dir)
 
         end_phase(ph)  # ── end Phase 5 · Launch
+        end_run()  # clear the pinned checklist; the ready panel follows
 
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)

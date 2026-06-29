@@ -7,7 +7,6 @@ import os
 import sys
 import shutil
 import re
-import getpass
 import json
 import subprocess
 try:
@@ -19,7 +18,7 @@ except ImportError:
 from dotenv import set_key, dotenv_values
 from rich.markup import escape as escape_markup
 from tt_setup.constants import *
-from tt_setup.console import ask, confirm, console, in_phase, is_verbose
+from tt_setup.console import ask, confirm, console, in_phase, is_verbose, secret
 
 
 def configure_inference_server_artifact(*args, **kwargs):
@@ -530,7 +529,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         prompt_text = f"🔐 Enter JWT_SECRET (for authentication to model endpoints){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
         while True:
-            val = getpass.getpass(prompt_text)
+            val = secret(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
@@ -554,7 +553,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django backend security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
         while True:
-            val = getpass.getpass(prompt_text)
+            val = secret(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
@@ -577,7 +576,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         prompt_text = f"🔑 Enter TTS_API_KEY (for TTS inference server authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
         while True:
-            val = getpass.getpass(prompt_text)
+            val = secret(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
@@ -617,7 +616,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         prompt_text = f"🔐 Enter DOCKER_CONTROL_JWT_SECRET (for Docker Control Service authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
 
         while True:
-            val = getpass.getpass(prompt_text)
+            val = secret(prompt_text)
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
@@ -636,7 +635,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured", quote_value=False)
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
         prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
-        val = getpass.getpass(prompt_text)
+        val = secret(prompt_text)
         write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
         console.print("[success]✅ TAVILY_API_KEY saved.[/success]")
     else:
@@ -656,14 +655,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if needs_token:
             if retrying:
                 prompt = "🤗 Enter a new HF_TOKEN (or press Enter to keep the current one and continue later): "
-                val = getpass.getpass(prompt)
+                val = secret(prompt)
                 if not val or not val.strip():
                     # Keep existing token, continue without access
                     console.print("[warning]⚠️  Continuing with existing token. Re-run once you have access.[/warning]")
                     break
             else:
                 prompt = "🤗 Enter HF_TOKEN: " if quick_setup else "🤗 Enter HF_TOKEN (Hugging Face token): "
-                val = getpass.getpass(prompt)
+                val = secret(prompt)
                 if not val or not val.strip():
                     console.print("[error]⛔ This value cannot be empty.[/error]")
                     continue
@@ -755,7 +754,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             
             console.print("[info]🔒 RAG admin is enabled. You must set a password.[/info]")
             while True:
-                val = getpass.getpass(prompt_text)
+                val = secret(prompt_text)
                 if not val and dev_mode:
                     val = dev_default
                 if val and val.strip():
@@ -791,7 +790,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
                 if is_secret:
-                    val = getpass.getpass(f"{prompt} (optional): ")
+                    val = secret(f"{prompt} (optional): ")
                 else:
                     val = ask(f"{prompt} (optional)", default="")
                 write_env_var(var_name, val or "")

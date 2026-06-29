@@ -108,40 +108,254 @@ def show_detail():
     return VERBOSE or not _IN_PHASE
 
 
-class _PhaseHandle:
-    """Handle for a running startup phase. Update the spinner with .set(activity),
-    mark failure with .fail(), and wrap prompting / nested-Live work in
-    `with handle.pause(): ...` so the spinner doesn't clash with it."""
+class _PhaseState:
+    """Per-phase row state in the persistent checklist."""
+    __slots__ = ("index", "total", "title", "status", "activity", "start", "end", "build")
 
-    def __init__(self, label):
-        self.label = label   # Rich markup: "Phase k/N · Title"
+    def __init__(self, index, total, title):
+        self.index = index
+        self.total = total
+        self.title = title
+        self.status = "pending"   # pending | active | done | failed
+        self.activity = ""
+        self.start = None
+        self.end = None
+        self.build = None         # svc -> {x,y,label,cached,start,end} for the Build phase
+
+
+def _mini_bar(x, y, width=10):
+    """A tiny proportional bar, e.g. '━━━━━╌╌╌╌╌' — purely cosmetic build progress."""
+    y = max(1, y or 1)
+    filled = max(0, min(width, round(width * (x or 0) / y)))
+    return "━" * filled + "╌" * (width - filled)
+
+
+class _ChecklistController:
+    """Owns the single persistent Live region that renders all startup phases as a
+    checklist (▢ pending → spinner active → ✓ done). Phase sub-output scrolls above
+    it; the Build phase folds its per-service progress into its own row. A
+    depth-counted suspend()/resume() stops/starts the Live around prompts, sudo,
+    and raw-print blocks so only one live region is ever active."""
+
+    def __init__(self):
+        self.phases = []          # list[_PhaseState]
+        self._by_index = {}       # index -> _PhaseState
+        self._live = None         # the single Live, or None on non-TTY / --verbose
+        self._suspend_depth = 0
+        self._build_order = []    # svc short names, first-seen order
+        self._build_log = []      # rolling tail of recent raw build output lines
+
+    _BUILD_TAIL = 6               # how many recent build lines to show
+
+    def _enabled(self):
+        return console.is_terminal and not VERBOSE
+
+    def _refresh(self):
+        if self._live is not None and self._live.is_started:
+            self._live.update(self.render())
+
+    # ── lifecycle ──────────────────────────────────────────────────────────────
+    def register(self, specs):
+        """specs: list of (index, total, title). Shows the whole roadmap upfront."""
+        self.phases = [_PhaseState(i, t, title) for (i, t, title) in specs]
+        self._by_index = {p.index: p for p in self.phases}
+        if self._enabled() and self._live is None:
+            self._live = Live(self.render(), console=console, transient=True,
+                              refresh_per_second=12, auto_refresh=True)
+            self._live.start()
+
+    def start_phase(self, index):
+        p = self._by_index.get(index)
+        if p is None:
+            p = _PhaseState(index, index, str(index))
+            self.phases.append(p)
+            self._by_index[index] = p
+        p.status = "active"
+        p.start = time.monotonic()
+        # A bare suspend() at the end of the previous phase leaves the Live stopped;
+        # a new phase re-pins it.
+        self._suspend_depth = 0
+        if self._live is None:
+            # No pinned region (non-TTY / --verbose): print the stepper inline so
+            # logs still show progression. On a TTY the single pinned stepper
+            # (below) is the source of truth — printing inline too would duplicate it.
+            console.print(self._stepper_line())
+        elif not self._live.is_started:
+            self._live.start()
+        self._refresh()
+
+    def set_activity(self, index, text):
+        p = self._by_index.get(index)
+        if p is not None and p.status == "active":
+            p.activity = text
+            self._refresh()
+
+    def finish_phase(self, index, failed=False):
+        p = self._by_index.get(index)
+        if p is None:
+            return
+        p.status = "failed" if failed else "done"
+        p.end = time.monotonic()
+        if self._live is None:
+            dur = self._phase_dur(p)
+            marker = "[error]✗[/error]" if failed else "[success]✓[/success]"
+            console.print(f"{marker} [muted]Phase {p.index}/{p.total} ·[/muted] "
+                          f"[bold accent]{p.title}[/bold accent]  [muted]{dur}[/muted]")
+        self._refresh()
+
+    def suspend(self):
+        self._suspend_depth += 1
+        if self._suspend_depth == 1 and self._live is not None and self._live.is_started:
+            self._live.stop()
+
+    def resume(self):
+        if self._suspend_depth > 0:
+            self._suspend_depth -= 1
+        if self._suspend_depth == 0 and self._live is not None and not self._live.is_started:
+            self._live.start()
+            self._refresh()
+
+    def stop(self):
+        """Error/interrupt path: stop the Live (clearing its region) without fuss."""
+        self._suspend_depth = 0
+        if self._live is not None and self._live.is_started:
+            self._live.stop()
+
+    def end_run(self):
+        """Normal completion: clear the pinned stepper, then leave a final all-done
+        stepper as a permanent record (the ready panel follows)."""
+        self.stop()
+        console.print(self._stepper_line())
+
+    # ── build folding (fed by docker_diag.run_docker_compose_with_progress) ──────
+    def _active(self):
+        for p in self.phases:
+            if p.status == "active":
+                return p
+        return None
+
+    def build_event(self, kind, svc=None, x=None, y=None, label=None):
+        p = self._active()
+        if p is None:
+            return
+        if p.build is None:
+            p.build = {}
+        now = time.monotonic()
+        if kind == "step":
+            entry = p.build.setdefault(svc, {"x": 0, "y": y or 1, "label": "",
+                                             "cached": False, "start": now, "end": None})
+            entry["x"], entry["y"], entry["label"] = x, (y or entry["y"]), label
+            if svc not in self._build_order:
+                self._build_order.append(svc)
+        elif kind == "cached":
+            entry = p.build.get(svc)
+            if entry is not None:
+                entry["cached"] = True
+        elif kind == "built":
+            entry = p.build.setdefault(svc, {"x": 0, "y": 1, "label": "",
+                                             "cached": False, "start": now, "end": None})
+            entry["end"] = now
+            entry["x"] = entry.get("y") or entry["x"]
+            if svc not in self._build_order:
+                self._build_order.append(svc)
+        self._refresh()
+
+    def build_log(self, line):
+        """Append a raw build-output line to the rolling tail shown under the
+        Build row, so a long step (pip/npm/apt) isn't a static black box."""
+        line = line.rstrip()
+        if not line:
+            return
+        self._build_log.append(line)
+        if len(self._build_log) > self._BUILD_TAIL:
+            self._build_log = self._build_log[-self._BUILD_TAIL:]
+        self._refresh()
+
+    # ── rendering ────────────────────────────────────────────────────────────────
+    def render(self):
+        # One horizontal stepper line for the whole roadmap, plus the active
+        # phase's build detail folded beneath it (per-service rows + log tail).
+        parts = [self._stepper_line()]
+        active = self._active()
+        if active is not None and active.build:
+            for svc in self._build_order:
+                if svc in active.build:
+                    parts.append(self._build_row(svc, active.build[svc]))
+            # Rolling tail of raw build output, so a long step shows real
+            # activity (pip/npm/apt) instead of a static label.
+            for line in self._build_log:
+                parts.append(Text(f"  ┊ {line}", style="dim", no_wrap=True, overflow="crop"))
+        return Group(*parts)
+
+    def _phase_dur(self, p):
+        if p.start is None or p.end is None:
+            return "0.0s"
+        return _fmt_duration(p.end - p.start)
+
+    def _stepper_line(self):
+        """A horizontal stepper: ✓ done · ◉ current · ○ pending · ✗ failed, with
+        the current phase emphasized so 'where am I' reads at a glance."""
+        segs = []
+        for p in self.phases:
+            if p.status == "done":
+                segs.append(f"[success]✓[/success] [muted]{p.title}[/muted]")
+            elif p.status == "active":
+                segs.append(f"[bold accent]◉ {p.title}[/bold accent]")
+            elif p.status == "failed":
+                segs.append(f"[bold error]✗ {p.title}[/bold error]")
+            else:
+                segs.append(f"[dim]○ {p.title}[/dim]")
+        line = Text.from_markup("[dim] ── [/dim]".join(segs))
+        line.no_wrap = True
+        line.overflow = "crop"
+        return line
+
+    def _build_row(self, svc, e):
+        end = e["end"] if e["end"] is not None else time.monotonic()
+        elapsed = _fmt_duration(end - e["start"])
+        bar = _mini_bar(e["x"], e["y"])
+        label = e["label"] or ""
+        if e["cached"]:
+            label = f"{label} (cached)" if label else "cached"
+        done = e["end"] is not None
+        mn = f"{e['y']}/{e['y']}" if done else f"{e['x']}/{e['y']}"
+        state = "[success]✓ done[/success]" if done else f"[info]{label}…[/info]"
+        return Text.from_markup(
+            f"  [dim]{svc:<9}[/dim] [accent]{bar}[/accent] [muted]{mn}[/muted]  {state}  [muted]{elapsed}[/muted]"
+        )
+
+
+_checklist = _ChecklistController()
+
+
+class _PhaseHandle:
+    """Thin handle over the checklist controller for one phase. Update the active
+    row with .set(activity), mark failure with .fail(), and wrap prompting /
+    raw-print / nested-Live work in `with handle.pause(): ...` (or suspend/resume)
+    so the pinned checklist Live doesn't clash with it."""
+
+    def __init__(self, index):
+        self.index = index
         self.failed = False
-        self._status = None  # a rich Status, or None on non-TTY / --verbose
-        self.start = time.monotonic()
 
     def set(self, activity):
-        if self._status is not None:
-            self._status.update(f"{self.label} [muted]— {activity}…[/muted]")
+        _checklist.set_activity(self.index, activity)
 
     def fail(self):
         self.failed = True
 
     def suspend(self):
-        """Stop the spinner (for a prompting / nested-Live block). Pair with
-        resume(). Use when wrapping the block in `with pause()` would mean an
-        awkward re-indent."""
-        if self._status is not None:
-            self._status.stop()
+        """Stop the checklist Live (for a prompting / sudo / raw-print block)."""
+        _checklist.suspend()
 
     def resume(self):
-        """Restart the spinner after suspend() (no-op if the phase already ended)."""
-        if self._status is not None and _active_phase is self:
-            self._status.start()
+        """Restart the checklist Live after suspend()."""
+        _checklist.resume()
 
     @contextlib.contextmanager
     def pause(self):
-        """Stop the spinner for work that prompts (getpass/input/sudo) or runs its
-        own Live display (e.g. the Docker build progress), then resume."""
+        """Stop the checklist Live for work that prompts (getpass/input/sudo) or
+        prints raw output, then resume."""
         self.suspend()
         try:
             yield
@@ -149,74 +363,56 @@ class _PhaseHandle:
             self.resume()
 
 
+def register_phases(specs):
+    """Register the full phase roadmap (list of (index, total, title)) and start
+    the persistent checklist so all phases are visible from the start."""
+    _checklist.register(specs)
+
+
 def begin_phase(index, total, title):
-    """Start a collapsing startup phase. On a TTY a live spinner shows
-    'Phase k/N · Title — <activity>'; call end_phase() to collapse it to a single
-    '✓ Phase k/N · Title' line. Non-TTY/--verbose: no spinner (just the final
-    line). The phase count is fixed, so k/N is always accurate."""
+    """Mark a phase active in the checklist. (register_phases() should have been
+    called first; falls back to a single-phase skeleton otherwise.)"""
     global _IN_PHASE, _active_phase
-    label = f"[muted]Phase {index}/{total} ·[/muted] [bold accent]{title}[/bold accent]"
-    handle = _PhaseHandle(label)
-    if console.is_terminal and not VERBOSE:
-        handle._status = console.status(label, spinner="dots")
-        handle._status.start()
+    if not _checklist.phases:
+        _checklist.register([(index, total, title)])
+    _checklist.start_phase(index)
+    handle = _PhaseHandle(index)
     _IN_PHASE = True
     _active_phase = handle
     return handle
 
 
 def end_phase(handle=None):
-    """Finalize a phase: stop the spinner and print the one collapsed line
-    ('✓' on success, '✗' if .fail() was called)."""
+    """Finalize a phase: mark it ✓ (or ✗ if .fail() was called) in the checklist."""
     global _IN_PHASE, _active_phase
     handle = handle or _active_phase
     if handle is None:
         return
-    if handle._status is not None:
-        handle._status.stop()
-    marker = "[error]✗[/error]" if handle.failed else "[success]✓[/success]"
-    dur = _fmt_duration(time.monotonic() - handle.start)
-    # Collapse the phase to a single left-aligned divider rule that "sweeps in"
-    # left→right (e.g. "✓ Phase 1/4 · Checks  4.2s ──────────"). The animation is
-    # confined to this one line. Non-TTY / --verbose: render it instantly.
-    _sweep_phase_rule(f"{marker} {handle.label} [muted]{dur}[/muted] ")
+    _checklist.finish_phase(handle.index, handle.failed)
     _IN_PHASE = False
     _active_phase = None
 
 
-def _sweep_phase_rule(prefix_markup, total_seconds=0.22, frames=18):
-    """Print `prefix` followed by a divider rule that draws in left→right.
+def end_run():
+    """Clear the pinned checklist at the end of a normal run (ready panel follows)."""
+    _checklist.end_run()
 
-    Animated only on an interactive terminal (and not in --verbose); otherwise
-    the full rule prints in one shot. The phase spinner is already stopped when
-    this runs, so the short Live display has no other live region to collide with.
-    """
-    prefix = Text.from_markup(prefix_markup)
-    dashes_total = max(0, console.width - prefix.cell_len)
 
-    def line(d):
-        return prefix + Text("─" * d, style="muted")
+def build_event(kind, svc=None, x=None, y=None, label=None):
+    """Feed a Docker build event into the active phase's folded build row."""
+    _checklist.build_event(kind, svc=svc, x=x, y=y, label=label)
 
-    if not console.is_terminal or VERBOSE or dashes_total == 0:
-        console.print(line(dashes_total))
-        return
 
-    step = max(1, dashes_total // frames)
-    with Live(line(0), console=console, transient=False, refresh_per_second=60) as live:
-        d = 0
-        while d < dashes_total:
-            d = min(dashes_total, d + step)
-            live.update(line(d))
-            time.sleep(total_seconds / frames)
-        live.update(line(dashes_total))
+def build_log(line):
+    """Feed a raw build-output line into the Build row's rolling tail."""
+    _checklist.build_log(line)
 
 
 def stop_active_phase():
-    """Stop any running phase spinner WITHOUT printing its collapsed line — for
-    error/interrupt paths, so the Live display doesn't corrupt a following panel."""
+    """Stop the checklist Live WITHOUT marking the phase — for error/interrupt
+    paths, so the Live doesn't corrupt a following panel."""
     global _IN_PHASE, _active_phase
-    if _active_phase is not None and _active_phase._status is not None:
-        _active_phase._status.stop()
+    _checklist.stop()
     _IN_PHASE = False
     _active_phase = None
 
@@ -427,6 +623,14 @@ def confirm(prompt, default=True):
     spinner; lets KeyboardInterrupt propagate."""
     with _prompt_guard():
         return Confirm.ask(prompt, console=console, default=default)
+
+
+def secret(prompt):
+    """Masked input via getpass, with the pinned stepper suspended for the
+    duration so it doesn't clash with the (non-Rich) prompt. Returns the raw string."""
+    import getpass
+    with _prompt_guard():
+        return getpass.getpass(prompt)
 
 
 def download_with_progress(url, dest, label="Downloading"):

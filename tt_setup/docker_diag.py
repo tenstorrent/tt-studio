@@ -4,12 +4,10 @@
 """Docker/compose failure parsing and diagnostics."""
 
 import os
-import sys
 import subprocess
 import time
 import re
 from datetime import datetime
-from rich.progress import Progress, BarColumn, TextColumn, MofNCompleteColumn
 from rich.table import Table
 from tt_setup.constants import *
 from tt_setup.shell import copy_to_clipboard
@@ -113,23 +111,64 @@ def parse_docker_build_failure(output):
 
 
 # BuildKit step header, e.g. "#22 [tt_studio_backend 2/8] RUN apt-get update..."
-_BUILD_STEP_RE = re.compile(r'^#\d+\s+\[(?P<svc>\S+)\s+(?P<x>\d+)/(?P<y>\d+)\]\s+(?P<desc>.*)$')
+_BUILD_STEP_RE = re.compile(r'^#(?P<n>\d+)\s+\[(?P<svc>\S+)\s+(?P<x>\d+)/(?P<y>\d+)\]\s+(?P<desc>.*)$')
+# A cached step, e.g. "#22 CACHED"
+_CACHED_RE = re.compile(r'^#(?P<n>\d+)\s+CACHED\b')
 # Compose completion, e.g. " ✔ tt_studio_backend  Built" / "... tt_studio_frontend  Started"
 _BUILT_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\b(?:Built|Started)\b')
+
+
+def friendly_build_label(desc):
+    """Translate a cryptic BuildKit step description into a human label so the
+    build isn't a black box, e.g. 'RUN pip install -r req.txt' -> 'installing
+    Python deps'. Falls back to a trimmed form of the original."""
+    d = desc.strip()
+    low = d.lower()
+    # Strip a leading BuildKit verb to inspect the command.
+    body = low
+    for verb in ("run ", "copy ", "add ", "from ", "workdir ", "env ", "arg ",
+                 "expose ", "cmd ", "entrypoint ", "label "):
+        if low.startswith(verb):
+            body = low[len(verb):].strip()
+            break
+    if low.startswith(("copy ", "add ")):
+        return "copying files"
+    if low.startswith("from "):
+        return "pulling base image"
+    if low.startswith("workdir "):
+        return "setting up workspace"
+    if low.startswith(("cmd ", "entrypoint ", "expose ", "env ", "arg ", "label ")):
+        return "configuring image"
+    if low.startswith("run "):
+        if any(k in body for k in ("pip ", "pip3 ", "poetry ", "uv pip", "python -m pip")):
+            return "installing Python deps"
+        if any(k in body for k in ("npm ", "yarn ", "pnpm ", "npx ")):
+            return "installing JS deps"
+        if any(k in body for k in ("apt-get", "apt ", "apk add", "yum ", "dnf ", "microdnf")):
+            return "installing system packages"
+        # Generic RUN: show a short, readable form of the command.
+        short = body.split("&&")[0].strip()
+        return f"running {short[:32]}" if short else "running setup"
+    # Unknown step type — keep something readable.
+    return d[:40]
 
 
 def parse_build_line(line):
     """Classify a single line of `docker compose up --build` output.
 
     Returns one of:
-      ('step', svc, x, y, desc) -- a BuildKit step header
-      ('built', svc)            -- a service finished building/starting
-      None                      -- not a line we render
+      ('step', n, svc, x, y, desc) -- a BuildKit step header (n = step number)
+      ('cached', n)                -- step number n was served from cache
+      ('built', svc)               -- a service finished building/starting
+      None                         -- not a line we render
     """
     stripped = line.strip()
     m = _BUILD_STEP_RE.match(stripped)
     if m:
-        return ('step', m.group('svc'), int(m.group('x')), int(m.group('y')), m.group('desc'))
+        return ('step', int(m.group('n')), m.group('svc'), int(m.group('x')), int(m.group('y')), m.group('desc'))
+    m = _CACHED_RE.match(stripped)
+    if m:
+        return ('cached', int(m.group('n')))
     m = _BUILT_RE.search(stripped)
     if m:
         return ('built', m.group('svc'))
@@ -143,13 +182,17 @@ def _short_service(svc):
 
 def run_docker_compose_with_progress(cmd, cwd):
     """
-    Run docker compose, streaming real per-container build progress via Rich.
+    Run docker compose, streaming real per-container build progress.
 
-    Shows one live progress bar per container (BuildKit step X/Y + current action).
-    On success the bars clear and a per-container "✓ <svc> built" summary remains.
-    On failure the full captured output is returned for diagnostics (the BUILD
-    FAILED box). Returns (returncode, full_output_string).
+    Build events are folded into the active phase's checklist row (one live region
+    for the whole run) via console.build_event(): each service shows a friendly
+    step label ("installing Python deps", "copying files", …), x/y, CACHED, and
+    elapsed. On a non-TTY / --verbose run (no live checklist) it prints a plain
+    "✓ <svc> built" per service instead. Returns (returncode, full_output_string).
     """
+    from tt_setup.console import build_event, build_log
+    from tt_setup.console import _checklist  # to detect whether the live checklist is on
+
     # Force plain BuildKit progress so the piped stream is parseable.
     env = dict(os.environ)
     env["BUILDKIT_PROGRESS"] = "plain"
@@ -165,49 +208,37 @@ def run_docker_compose_with_progress(cmd, cwd):
         env=env,
     )
 
+    live = _checklist._enabled()
     output_lines = []
-    tasks = {}        # svc -> rich task id
-    totals = {}       # svc -> total steps
+    step_svc = {}     # BuildKit step number -> short svc name
     built = []        # short names that finished, in order
 
-    progress = Progress(
-        TextColumn("  [info]{task.fields[svc]:<10}[/info]"),
-        BarColumn(bar_width=24),
-        MofNCompleteColumn(),
-        TextColumn("[muted]{task.description}[/muted]"),
-        console=console,
-        transient=True,   # bars disappear on completion, leaving the summary
-    )
-
-    with progress:
-        for line in process.stdout:
-            output_lines.append(line)
-            parsed = parse_build_line(line)
-            if parsed is None:
-                continue
-            if parsed[0] == 'step':
-                _, svc, x, y, desc = parsed
-                short = _short_service(svc)
-                if svc not in tasks:
-                    tasks[svc] = progress.add_task("", total=y, svc=short)
-                    totals[svc] = y
-                progress.update(tasks[svc], completed=x, total=y, description=desc[:60])
-            elif parsed[0] == 'built':
-                svc = parsed[1]
-                short = _short_service(svc)
-                if svc in tasks:
-                    progress.update(tasks[svc], completed=totals.get(svc, 1))
-                if short not in built:
-                    built.append(short)
+    for line in process.stdout:
+        output_lines.append(line)
+        if live:
+            build_log(line)   # rolling raw-output tail under the Build row
+        parsed = parse_build_line(line)
+        if parsed is None:
+            continue
+        if parsed[0] == 'step':
+            _, n, svc, x, y, desc = parsed
+            short = _short_service(svc)
+            step_svc[n] = short
+            build_event('step', svc=short, x=x, y=y, label=friendly_build_label(desc))
+        elif parsed[0] == 'cached':
+            short = step_svc.get(parsed[1])
+            if short:
+                build_event('cached', svc=short)
+        elif parsed[0] == 'built':
+            short = _short_service(parsed[1])
+            build_event('built', svc=short)
+            if short not in built:
+                built.append(short)
+                if not live:
+                    console.print(f"  [success]✓ {short} built[/success]")
 
     process.wait()
     full_output = ''.join(output_lines)
-
-    # On success, leave a per-container summary (bars were transient and cleared).
-    if process.returncode == 0:
-        for short in built:
-            console.print(f"  [success]✓ {short} built[/success]")
-
     return process.returncode, full_output
 
 
