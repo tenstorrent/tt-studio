@@ -31,9 +31,14 @@ TT-Studio composes from a base file plus optional overlays:
 ### Standard bring-up
 
 ```bash
+# From the repo root — run.py creates .env and brings the stack up:
+python3 run.py
+
+# Or run compose directly. The canonical .env lives at the repo root, so point
+# compose at it explicitly (compose still runs from app/):
 cd app
-cp .env.default .env       # then edit JWT_SECRET, HF_TOKEN, DOCKER_CONTROL_JWT_SECRET, etc.
-docker compose up
+cp ../.env.default ../.env  # then edit JWT_SECRET, HF_TOKEN, DOCKER_CONTROL_JWT_SECRET, etc.
+docker compose --env-file ../.env up
 ```
 
 ### Dev mode (hot reload)
@@ -73,9 +78,10 @@ Or just use `python3 run.py --cleanup` from the repo root.
 
 ## Environment variables
 
-Defined in `app/.env`; template is `app/.env.default`. Run `python3 run.py --help-env` for descriptions, or see the [env-var section in the top-level README](../README.md#environment-configuration).
+Defined in the repo-root `.env`; template is the repo-root `.env.default`. Run `python3 run.py --help-env` for descriptions, or see the [env-var section in the top-level README](../README.md#environment-configuration).
 
 ```bash
+# from the repo root
 cp .env.default .env
 # edit JWT_SECRET, HF_TOKEN, DJANGO_SECRET_KEY, DOCKER_CONTROL_JWT_SECRET, ...
 ```

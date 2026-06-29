@@ -83,8 +83,11 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
-ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
-ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
+ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
+ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
+LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
+LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 # Updated: Use inference-api instead of tt-inference-server submodule
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
@@ -536,7 +539,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Configuration key missing{key_hint}',
             'detail': f"{container_name} encountered a missing env var or config key.",
-            'action': "Check app/.env for missing variables. Run: python run.py --reconfigure",
+            'action': "Check .env for missing variables. Run: python run.py --reconfigure",
         }
 
     if "permission denied" in log_lower or "permissionerror" in log_lower:
@@ -844,8 +847,7 @@ def is_placeholder(value):
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
         'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
-        'true or false to enable RAG admin'
+        '<PATH_TO_ROOT_OF_REPO>'
     ]
 
     value_str = str(value).strip().strip('"\'')
@@ -853,7 +855,7 @@ def is_placeholder(value):
 
 def write_env_var(var_name, var_value, quote_value=True):
     """
-    Update or add an environment variable to the app/.env file.
+    Update or add an environment variable to the repo-root .env file.
     """
     if not os.path.exists(ENV_FILE_PATH):
         open(ENV_FILE_PATH, 'w').close()
@@ -886,7 +888,7 @@ def write_env_var(var_name, var_value, quote_value=True):
 
 def set_app_version_env():
     """
-    Compute the running build's version from git and persist it to app/.env so
+    Compute the running build's version from git and persist it to .env so
     docker compose can inject it into the frontend as VITE_APP_VERSION /
     VITE_APP_GIT_BRANCH.
 
@@ -1295,8 +1297,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     if force_reconfigure:
         clear_preferences()
     
+    # One-time migration: the canonical .env moved from app/.env to the repo root.
+    # Preserve any existing secrets by copying the legacy file up and keeping a backup.
+    if os.path.exists(LEGACY_ENV_FILE_PATH):
+        if not os.path.exists(ENV_FILE_PATH):
+            print(f"{C_BLUE}📦 Migrating legacy app/.env to the repo-root .env...{C_RESET}")
+            shutil.copy(LEGACY_ENV_FILE_PATH, ENV_FILE_PATH)
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+            print(f"{C_GREEN}   ✅ Copied to repo-root .env; backed up the old file to app/.env-old{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Both repo-root .env and legacy app/.env exist; keeping the "
+                  f"repo-root .env and backing up the legacy file to app/.env-old.{C_RESET}")
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+
     env_file_exists = os.path.exists(ENV_FILE_PATH)
-    
+
     if not env_file_exists:
         if os.path.exists(ENV_FILE_DEFAULT):
             print(f"{C_BLUE}📄 No .env file found. Creating one from the default template...{C_RESET}")
@@ -2095,6 +2110,8 @@ def cleanup_resources(args):
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
         ("⚙️ ", ENV_FILE_PATH,
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+        ("⚙️ ", LEGACY_ENV_FILE_PATH, "legacy pre-consolidation env file (app/.env)"),
+        ("⚙️ ", LEGACY_ENV_BACKUP_PATH, "legacy env backup from migration (app/.env-old)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
         *log_items,
@@ -2286,7 +2303,11 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     Returns:
         list: Docker Compose command with appropriate files
     """
-    compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
+    # Compose runs with cwd=app/, so it would otherwise auto-load app/.env. The canonical
+    # env file now lives at the repo root, so point compose at it explicitly. --env-file
+    # only changes variable resolution; the project directory stays app/ so relative build
+    # contexts (./backend, ./frontend, ./agent) and ${TT_STUDIO_ROOT} volume paths are kept.
+    compose_files = ["docker", "compose", "--env-file", ENV_FILE_PATH, "-f", DOCKER_COMPOSE_FILE]
 
     if dev_mode:
         if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
@@ -2855,7 +2876,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             # Instructions for changing
             f.write("  💡 To switch to a different artifact:\n")
             f.write("     • Run: python run.py --reconfigure-inference-server\n")
-            f.write("     • Or manually edit: app/.env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
+            f.write("     • Or manually edit: .env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
             f.write("\n" + "-" * 80 + "\n\n")
 
             # Technical details section

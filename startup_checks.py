@@ -223,11 +223,11 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
 
 
 if __name__ == "__main__":
-    # Standalone test — reads TT_INFERENCE_ARTIFACT_BRANCH from app/.env directly
+    # Standalone test — reads TT_INFERENCE_ARTIFACT_BRANCH from the repo-root .env directly
     root = os.path.dirname(os.path.abspath(__file__))
 
     def _read_env(key):
-        env_file = os.path.join(root, "app", ".env")
+        env_file = os.path.join(root, ".env")
         try:
             with open(env_file) as f:
                 for line in f:

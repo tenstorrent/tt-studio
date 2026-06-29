@@ -127,7 +127,7 @@ The default setup saves a snapshot of your setup to `.tt_studio_setup_config.jso
 - Record of default values used
 - Configuration flags
 
-This file is for reference only and does not affect the actual runtime configuration (which is stored in `app/.env`).
+This file is for reference only and does not affect the actual runtime configuration (which is stored in the repo-root `.env`).
 
 ### Full Interactive Configuration
 
@@ -201,11 +201,11 @@ If you started with the default setup and want to switch to a production-ready s
 
 ## Environment Configuration
 
-The `run.py` script manages environment configuration through the `.env` file located in the `app/` directory. During setup, it uses `app/.env.default` as a template with placeholder values that are replaced with your inputs.
+The `run.py` script manages environment configuration through the `.env` file located at the repo root. During setup, it uses the repo-root `.env.default` as a template with placeholder values that are replaced with your inputs.
 
 ### Default Environment Template
 
-The default environment template (`app/.env.default`) contains the following structure:
+The default environment template (`.env.default`) contains the following structure:
 
 ```
 # TT Studio Environment Configuration
@@ -228,17 +228,17 @@ TAVILY_API_KEY=tvly-xxx
 # Application Configuration
 VITE_APP_TITLE="TT Studio"
 
-# Application Modes
-VITE_ENABLE_DEPLOYED=true or false to enable deployed mode
-VITE_ENABLE_RAG_ADMIN=true or false to enable RAG admin
+# Application Modes (true or false)
+VITE_ENABLE_DEPLOYED=false
+VITE_ENABLE_RAG_ADMIN=false
 
 # RAG Configuration (required if VITE_ENABLE_RAG_ADMIN=true)
 RAG_ADMIN_PASSWORD=tt-studio-rag-admin-password
 
 # Cloud/External Model APIs (only used when VITE_ENABLE_DEPLOYED=true)
 # Chat UI
-CLOUD_CHAT_UI_URL=cloud llama chat ui url
-CLOUD_CHAT_UI_AUTH_TOKEN=cloud llama chat ui auth token
+CLOUD_CHAT_UI_URL=
+CLOUD_CHAT_UI_AUTH_TOKEN=
 
 # Computer Vision
 CLOUD_YOLOV4_API_URL=

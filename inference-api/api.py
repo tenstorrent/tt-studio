@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
 import sys
 import os
+import inspect
 import logging
 import time
 import docker
@@ -68,6 +69,40 @@ workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 # so explicitly override it to point to the artifact directory instead of the repo root.
 if artifact_path:
     workflows_utils.default_dotenv_path = Path(artifact_path) / ".env"
+
+    # workflows.utils.load_dotenv / write_dotenv freeze `default_dotenv_path` as a default
+    # argument value at import time (Python evaluates defaults once, at definition time),
+    # which resolved to the tt-studio repo root. Reassigning the module attribute above does
+    # NOT rebind those already-frozen defaults, so the artifact's no-arg load_dotenv()/
+    # write_dotenv() calls would still read/write a stray .env at the tt-studio repo root
+    # (GitHub issue #820). Rebind the frozen `dotenv_path` default in place so every caller —
+    # including the artifact's own run.py, which imports the same function objects — targets
+    # the artifact's .env instead.
+    _artifact_dotenv = Path(artifact_path) / ".env"
+    for _fn_name in ("load_dotenv", "write_dotenv"):
+        try:
+            _fn = getattr(workflows_utils, _fn_name, None)
+            if _fn is None or not getattr(_fn, "__defaults__", None):
+                continue
+            _params = list(inspect.signature(_fn).parameters.values())
+            # Defaults align to the trailing parameters that have defaults.
+            _defaulted = [p for p in _params if p.default is not inspect.Parameter.empty]
+            _new_defaults = list(_fn.__defaults__)
+            _rebound = False
+            for _idx, _param in enumerate(_defaulted):
+                if _param.name == "dotenv_path":
+                    _new_defaults[_idx] = _artifact_dotenv
+                    _rebound = True
+            if _rebound:
+                _fn.__defaults__ = tuple(_new_defaults)
+            else:
+                logging.warning(
+                    "workflows.utils.%s has no 'dotenv_path' parameter to rebind; "
+                    "a stray .env may still be written to the repo root.",
+                    _fn_name,
+                )
+        except Exception as exc:  # pragma: no cover - defensive: never block import
+            logging.warning("Could not rebind default dotenv path for %s: %s", _fn_name, exc)
 
 # Patch setup_run_logger so run_log file handler is always present even when
 # other handlers were attached to run_log before run_main() executes.
@@ -1644,8 +1679,8 @@ def sync_tokens_from_tt_studio():
     if not tt_studio_root:
         logger.warning("TT_STUDIO_ROOT environment variable not set, cannot sync tokens")
         return
-    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
-    
+    tt_studio_env = Path(tt_studio_root) / ".env"
+
     # Use artifact directory for inference server .env if available, otherwise use TT Studio root
     if artifact_path:
         inference_server_env = Path(artifact_path) / ".env"
