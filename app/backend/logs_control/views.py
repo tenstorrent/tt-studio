@@ -626,14 +626,100 @@ class BugReportDownloadView(APIView):
             return JsonResponse({"error": str(e)}, status=500)
 
 
+def _build_gist_files(data: dict) -> dict:
+    """
+    Flatten collected bug-report data into a GitHub Gist `files` mapping
+    ({filename: {"content": str}}). Mirrors the ZIP layout in
+    BugReportDownloadView, but flattened — gists have no folders, so nested
+    paths become filename prefixes (e.g. model_run_logs__<name>.log).
+    Empty/blank content is replaced with a placeholder (gists reject empty files).
+    """
+    files: dict = {}
+
+    def _add(name: str, content) -> None:
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = json.dumps(content, indent=2, default=str)
+        if not content.strip():
+            content = "(empty — no data collected)"
+        files[name] = {"content": content}
+
+    def _add_entries(prefix: str, entries) -> None:
+        for entry in entries or []:
+            base = os.path.basename(entry.get("file") or "unknown.log")
+            _add(f"{prefix}__{base}", entry.get("content", ""))
+
+    # Single-file log sources
+    _add("backend.log", data.get("backend_log", {}).get("content"))
+    _add("model_run.log", data.get("model_run_log", {}).get("content"))
+    _add("docker-control-service.log", data.get("docker_control_log", {}).get("content"))
+    _add("startup.log", data.get("startup_log", {}).get("content"))
+    _add("agent.log", data.get("agent_log", {}).get("content"))
+
+    # Multi-file log sources — flatten the folder into a filename prefix
+    _add_entries("model_run_logs", data.get("model_run_deployment_logs"))
+    _add_entries("inference_run_logs", data.get("inference_run_logs"))
+    _add_entries("inference_docker_server_logs", data.get("inference_docker_server_logs"))
+    _add_entries("inference_run_specs", data.get("inference_run_specs"))
+
+    # JSON snapshots
+    _add("tt_smi.json", data.get("tt_smi"))
+    _add("deployments.json", data.get("deployments"))
+    _add("current_models.json", data.get("current_models"))
+
+    return files
+
+
+def _create_diagnostics_gist(files: dict, ref: str, pat: str) -> Optional[str]:
+    """
+    Create a secret GitHub Gist containing the collected diagnostics logs and
+    return its html_url. Returns None on failure (e.g. the PAT lacks the `gist`
+    scope) so the caller can still create the issue without the gist link.
+    """
+    if not files:
+        return None
+
+    description = f"TT-Studio diagnostics {ref}".strip()
+    payload = json.dumps(
+        {"description": description, "public": False, "files": files}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.github.com/gists",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {pat}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+            "User-Agent": "tt-studio-bug-reporter",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return result.get("html_url")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        logger.error(f"GitHub Gist API error {e.code}: {error_body}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to create diagnostics gist: {e}")
+        return None
+
+
 class GitHubIssueView(APIView):
     """
     Creates a GitHub issue via the API using GITHUB_PAT from backend config.
+    When a PAT is configured, the collected diagnostics are also uploaded as a
+    secret gist and linked in the issue body, so the reporter never has to
+    download + manually attach the ZIP.
     Falls back to returning a pre-built browser URL if no PAT is configured.
 
-    POST body (JSON): { title, body, labels? }
-    Success response: { issue_url, issue_number, created_via_api }  (201)
-                   or { url, created_via_api: false }               (200, fallback)
+    POST body (JSON): { title, body, labels?, diagnostics_ref? }
+    Success response: { issue_url, issue_number, gist_url, created_via_api }  (201)
+                   or { url, created_via_api: false }                         (200, fallback)
     """
 
     GITHUB_API_URL = "https://api.github.com/repos/tenstorrent/tt-studio/issues"
@@ -650,6 +736,7 @@ class GitHubIssueView(APIView):
         title = body_data.get("title", "").strip()
         body = body_data.get("body", "").strip()
         labels = body_data.get("labels", ["bug", "auto-generated"])
+        diagnostics_ref = body_data.get("diagnostics_ref", "").strip()
 
         if not title:
             return JsonResponse({"error": "title is required"}, status=400)
@@ -660,6 +747,25 @@ class GitHubIssueView(APIView):
             params = urlencode({"title": title, "body": body[:8000], "labels": ",".join(labels)})
             url = f"{self.GITHUB_NEW_ISSUE_URL}?{params}"
             return JsonResponse({"url": url, "created_via_api": False}, status=200)
+
+        # Upload the collected logs as a secret gist and link it in the issue body
+        # so the reporter does not have to download + manually attach the ZIP.
+        gist_url = None
+        try:
+            data = _collect_bug_report_data()
+            gist_url = _create_diagnostics_gist(_build_gist_files(data), diagnostics_ref, pat)
+        except Exception as e:
+            logger.error(f"Failed to collect/upload diagnostics gist: {e}")
+
+        if gist_url:
+            body = f"📦 **Full diagnostics (logs gist):** {gist_url}\n\n{body}"
+        else:
+            body = (
+                "⚠️ _Diagnostics gist could not be created automatically "
+                "(ensure GITHUB_PAT has the `gist` scope). Use **Download Logs as ZIP** "
+                "in TT-Studio and attach it to this issue manually._\n\n"
+                f"{body}"
+            )
 
         # Create the issue via GitHub REST API
         payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
@@ -682,6 +788,7 @@ class GitHubIssueView(APIView):
                     {
                         "issue_url": result.get("html_url"),
                         "issue_number": result.get("number"),
+                        "gist_url": gist_url,
                         "created_via_api": True,
                     },
                     status=201,
