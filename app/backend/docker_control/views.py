@@ -36,6 +36,7 @@ from .docker_utils import (
     map_board_type_to_device_name,
     infer_inference_server_device,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
+    WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
@@ -353,6 +354,17 @@ class DeployView(APIView):
                     board_type,
                 )
 
+            # On Wormhole mesh boards a single-chip-capable model deploys across the whole
+            # board by default; only an explicit slot selection ("1 Device") pins it to a
+            # single constituent chip. Per-chip-default boards (e.g. P300x2) are excluded.
+            use_whole_board_deploy = (
+                impl.model_type == ModelTypes.CHAT
+                and not should_force_full_board_llama
+                and chips_required == 1
+                and not requested_device_ids
+                and board_type in WHOLE_BOARD_DEFAULT_BOARDS
+            )
+
             # Multiple concurrent instances of the same model are allowed when chip
             # capacity is available. Slot allocation below enforces capacity and the
             # canonical reconciliation frees genuinely stale records, so we must not
@@ -362,8 +374,9 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama:
-                    # Simplified QB2 Llama full-board path must reserve all slots.
+                if should_force_full_board_llama or use_whole_board_deploy:
+                    # Whole-board deploy (forced QB2 Llama, or a single-chip model on a
+                    # Wormhole mesh board) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -419,9 +432,9 @@ class DeployView(APIView):
                     else:
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
-                # Full set of chip slots this model actually occupies
-                if should_force_full_board_llama:
-                    # Forced full-board Llama takes over every slot on the board.
+                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                if should_force_full_board_llama or use_whole_board_deploy:
+                    # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
                     # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
@@ -454,7 +467,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama:
+            if should_force_full_board_llama or use_whole_board_deploy:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -467,10 +480,14 @@ class DeployView(APIView):
                     device = "p300x2"
                     inference_device_id = None
                 else:
-                    if chips_required == 1:
-                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    else:
+                    if chips_required > 1 or use_whole_board_deploy:
+                        # Genuinely multi-chip model, or a single-chip model deploying
+                        # across a whole Wormhole mesh board — use the board-level device.
                         device = map_board_type_to_device_name(board_type)
+                    else:
+                        # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
+                        # use the single constituent chip device.
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
                     # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
@@ -479,11 +496,14 @@ class DeployView(APIView):
                         and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
-                    # For P300x2 with the whole-board p300x2 device, the inference
-                    # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
-                    # lands on its allocated slot(s).
-                    if board_type == "P300x2" and device == "p300x2":
+                    # When using a multi-chip whole-board device (e.g. t3k, p300x2,
+                    # p150x4), the inference server selects the physical chips itself —
+                    # omit device_id. Single-board devices (n300/n150/p150) and slot-pinned
+                    # constituent chips keep device_id so each model lands on its slot(s).
+                    whole_board_device = map_board_type_to_device_name(board_type)
+                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    is_multi_chip_board = whole_board_device != single_chip_device
+                    if device == whole_board_device and is_multi_chip_board:
                         inference_device_id = None
                     else:
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)

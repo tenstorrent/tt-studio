@@ -16,6 +16,23 @@ export interface DeviceSlotLike {
   model_name?: string;
 }
 
+// Wormhole mesh boards: a single-device-capable model deploys across the whole
+// board by default (the backend selects the chips itself); only an explicit slot
+// pick pins it to one constituent chip. Mirrors WHOLE_BOARD_DEFAULT_BOARDS in
+// app/backend/docker_control/docker_utils.py — keep the two in sync.
+const WHOLE_BOARD_DEFAULT_BOARDS = new Set([
+  "T3K",
+  "T3000",
+  "N300X4",
+  "N150X4",
+  "GALAXY",
+  "GALAXY_T3K",
+]);
+
+export function isWholeBoardDefaultBoard(boardType?: string): boolean {
+  return !!boardType && WHOLE_BOARD_DEFAULT_BOARDS.has(boardType.toUpperCase());
+}
+
 // Models declare 1 (single device) or >1 (full board: slots 0..3).
 export function isMultiChipModel(chipsRequired?: number): boolean {
   return (chipsRequired ?? 1) > 1;
@@ -61,7 +78,7 @@ export function deployabilityReason(
   ).join(", ");
   const suffix = occupants ? ` — in use by ${occupants}` : "";
   if (placement.cardGroups.length > 0) return `Needs a free card pair${suffix}`;
-  if (isMultiChipModel(chipsRequired)) {
+  if (isMultiChipModel(chipsRequired) || placement.defaultsFullBoard) {
     return `Needs all ${fullBoardSlots(totalSlots).length} devices${suffix}`;
   }
   return "All devices in use";
@@ -72,6 +89,9 @@ export interface ModelPlacement {
   allowsSingle: boolean; // may run on a single device
   allowsFullBoard: boolean; // may run across the whole board (slots 0..3)
   cardGroups: number[][]; // valid multi-device groups, e.g. P300x2 card pairs
+  // True when a single-device model deploys board-wide by default (Wormhole mesh
+  // boards); auto mode previews and uses the whole board, advanced can pin a slot.
+  defaultsFullBoard?: boolean;
 }
 
 // SINGLE SOURCE OF TRUTH for per-model device configurations.
@@ -88,6 +108,16 @@ export function getModelPlacement(
   // Multi-chip models always take the full board.
   if (isMultiChipModel(chipsRequired)) {
     return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  }
+  // Single-device models on Wormhole mesh boards deploy board-wide by default;
+  // advanced config can still pin them to one constituent chip.
+  if (isWholeBoardDefaultBoard(boardType)) {
+    return {
+      allowsSingle: true,
+      allowsFullBoard: false,
+      cardGroups: [],
+      defaultsFullBoard: true,
+    };
   }
   // Standard single-device models.
   return { allowsSingle: true, allowsFullBoard: false, cardGroups: [] };
@@ -126,6 +156,11 @@ export function autoPlacement(
       if (group.every(isFree)) return { deviceIds: group, fullBoard: false };
     }
     return null;
+  }
+  if (placement.defaultsFullBoard) {
+    // Wormhole mesh boards deploy single-device models across the whole board;
+    // the backend requires every slot free for this (no single-slot fallback).
+    return board.every(isFree) ? { deviceIds: board, fullBoard: true } : null;
   }
   if (isMultiChipModel(chipsRequired)) {
     // Full-board models need the whole board free (see canModelFit).
