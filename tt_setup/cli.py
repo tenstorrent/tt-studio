@@ -12,7 +12,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, is_verbose, notice_panel, ready_panel, register_phases, set_verbose, show_detail, step, stop_active_phase
+from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, ensure_region_reset, is_verbose, notice_panel, ready_panel, register_setup_phases, set_verbose, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, run_preflight_checks
@@ -179,24 +179,24 @@ def _run(args):
             return
         
         run_start = time.monotonic()
+
+        # Install the sticky-top stepper FIRST, on an empty screen — this is what
+        # keeps it from corrupting (nothing pre-existing for the region to fight).
+        # Everything below (banner, steps panel, prompts, build) scrolls beneath it.
+        register_setup_phases()
+
+        # Banner prints below the sticky stepper (it skips its own screen-clear
+        # when the region is active, since clearing would reset the region).
         display_welcome_banner(dev_mode=args.dev)
-        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
 
-        # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
-        # rc-*/release-*). Feature branches just warn and continue so dev work
-        # isn't interrupted by stale remote tracking.
-        # Hard-stop on release branches that are behind origin. The warning
-        # itself (with the git pull hint) is already printed by startup_checks.
-        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
-            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
-            startup_log.summary(exit_code=1)
-            startup_log.close()
-            sys.exit(1)
-
-        # Outdated artifact: warning + "auto-fetching" hint are already in
-        # startup_checks; just flip the flag so the download runs.
-        if freshness.get("artifact_behind") and not args.pull_branch:
-            args.pull_branch = True
+        # Mode/context shown in the upfront steps overview. (AI Playground depends
+        # on a var set during Configure, so this shows the locally-known mode.)
+        mode_parts = ["Local"]
+        if args.dev:
+            mode_parts.append("Dev")
+        if detect_tt_hardware():
+            mode_parts.append("TT Hardware")
+        console.print(steps_panel(context=[f"Mode · {' + '.join(mode_parts)}"]))
 
         # Get git hash for startup log
         try:
@@ -208,21 +208,26 @@ def _run(args):
             _git_hash = "unknown"
         startup_log.header(f"git:{_git_hash}")
 
-        # Show the whole roadmap upfront as a persistent checklist; each phase
-        # transitions ▢ → spinner → ✓ in place as the run proceeds.
-        register_phases([
-            (1, 5, "Checks"),
-            (2, 5, "Configure"),
-            (3, 5, "Services"),
-            (4, 5, "Build"),
-            (5, 5, "Launch"),
-        ])
-
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
         ph = begin_phase(1, 5, "Checks")
 
         # Captured by the tt-smi probe below; surfaced in the ready panel later.
         tt_status, tt_detail = None, ""
+
+        # Update freshness is itself a check — fold it into this phase.
+        ph.set("checking for updates")
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+        # Hard-stop only on release branches behind origin (feature branches just
+        # continue). The actionable warning is printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
+            stop_active_phase()
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+        # Outdated artifact: flip the flag so the download runs in Services.
+        if freshness.get("artifact_behind") and not args.pull_branch:
+            args.pull_branch = True
 
         ph.set("system checks")
         startup_log.step("preflight_checks", "START")
@@ -793,5 +798,12 @@ def _run(args):
 
 
 def main():
-    """Entry point: run the Typer app."""
-    app()
+    """Entry point: run the Typer app. The atexit + finally net guarantees the
+    terminal scroll region (sticky header) is always reset, even on an exit path
+    that didn't go through the normal teardown."""
+    import atexit
+    atexit.register(ensure_region_reset)
+    try:
+        app()
+    finally:
+        ensure_region_reset()

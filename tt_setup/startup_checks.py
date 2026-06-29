@@ -122,9 +122,10 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     _RELEASE_PREFIXES = ("rc/", "release/")
 
     verbose = is_verbose()
-    ok_items = []   # (short_label, formatted "✓ …" line) — confirmed up to date
-    notes = []      # muted informational lines (offline / indeterminate)
-    warns = []      # always-shown themed lines (behind origin + guidance)
+    ok_items = []     # (short_label, "✓ …" line) — confirmed up to date (verbose-only)
+    notes = []        # muted offline/indeterminate notes (verbose-only)
+    actionable = []   # ALWAYS shown: there's something for the user to do
+    quiet = []        # informational (feature-branch-behind, SHA detail) — verbose-only
 
     # Detect QB2 mode first — it affects both checks below.
     # Triggered by TT_QB2_LAUNCH_BRANCH, or implicitly when
@@ -176,12 +177,14 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
                 f"[success]✓[/success] tt-studio '{studio_check_branch}': up to date [muted]({local_sha[:7]})[/muted]"))
         else:
             result["tt_studio_behind"] = True
-            warns.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}[/warning]")
-            warns.append(f"[muted]     local {local_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
             if result["tt_studio_branch_is_release"]:
-                warns.append("[warning]     → git pull, then re-run python run.py  (release branch — cannot continue)[/warning]")
+                # Release branch behind → hard-stop follows; this is actionable.
+                actionable.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}[/warning]")
+                actionable.append("[warning]     → git pull, then re-run python run.py  (release branch — cannot continue)[/warning]")
             else:
-                warns.append("[muted]     → to update: git pull  (feature branch — continuing)[/muted]")
+                # Feature branch just behind-but-continuing → informational only.
+                quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")
+            quiet.append(f"[muted]     local {local_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
     else:
         notes.append("[muted]tt-studio: couldn't determine branch/SHA[/muted]")
 
@@ -216,30 +219,26 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
                 f"[success]✓[/success] artifact '{artifact_branch}': up to date [muted]({stored_sha[:7]})[/muted]"))
         else:
             result["artifact_behind"] = True
-            warns.append(f"[warning]⚠️  artifact {artifact_branch} is behind origin[/warning]")
-            warns.append(f"[muted]     local {stored_sha[:7]}  ·  remote {remote_sha[:7]}  → auto-fetching latest…[/muted]")
+            # Behind → a re-download will run in Services; actionable heads-up.
+            actionable.append(f"[warning]⚠️  artifact {artifact_branch} is behind origin → fetching latest…[/warning]")
+            quiet.append(f"[muted]     local {stored_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
 
-    # ── Render: one calm line when everything is current; full detail with -v
-    # or whenever there's something to flag. Behind-origin warnings always show.
+    # ── Render: quiet unless actionable. On a normal run print ONLY actionable
+    # lines (release-branch-must-pull, artifact-fetching); stay silent when up to
+    # date or a feature branch is merely behind-but-continuing. --verbose shows
+    # the full detail (✓ items, offline notes, SHAs, feature-branch note).
     if verbose:
         console.print("[info]🔍 Checking for updates…[/info]")
         if qb2_branch:
             console.print(f"[muted]   Mode: QB2 (artifact branch: {qb2_branch})[/muted]")
-
-    fully_clean = ok_items and not warns and not notes
-    if fully_clean and not verbose:
-        labels = " + ".join(label for label, _ in ok_items)
-        console.print(f"[success]✓[/success] Up to date [muted]· {labels}[/muted]")
-    else:
         for _, line in ok_items:
             console.print(line)
-        # Benign notes (couldn't reach GitHub / indeterminate) are noise on a
-        # normal run — only surface them with --verbose. Actionable warnings
-        # (behind origin + git-pull guidance) always show.
-        if verbose:
-            for line in notes:
-                console.print(line)
-        for line in warns:
+        for line in notes:
+            console.print(line)
+        for line in actionable + quiet:
+            console.print(line)
+    else:
+        for line in actionable:
             console.print(line)
 
     return result

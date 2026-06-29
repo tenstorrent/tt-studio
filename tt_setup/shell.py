@@ -5,13 +5,12 @@
 
 import json
 import os
-import shutil
 import signal
 import sys
 import subprocess
 import socket
 from tt_setup.constants import *
-from tt_setup.console import console, notice_panel, welcome_panel
+from tt_setup.console import console, notice_panel, sticky_active, welcome_panel
 
 
 def clear_lines(n):
@@ -186,8 +185,10 @@ def _git_value(args):
 def display_welcome_banner(dev_mode=False):
     """Show the launch panel — Claude-Code-style: name + version in the top
     border, a two-column body (greeting + logo + context | getting-started)."""
-    # Clear screen for a clean splash effect (only when interactive).
-    if sys.stdout.isatty():
+    # Clear screen for a clean splash effect (only when interactive). Skip it when
+    # the sticky-top stepper region is installed — it already cleared the screen,
+    # and a `clear` here would reset its scroll region.
+    if sys.stdout.isatty() and not sticky_active():
         os.system('cls' if OS_NAME == 'Windows' else 'clear')
 
     branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -197,25 +198,14 @@ def display_welcome_banner(dev_mode=False):
     cwd = TT_STUDIO_ROOT.replace(home, "~", 1) if TT_STUDIO_ROOT.startswith(home) else TT_STUDIO_ROOT
 
     greeting = f"Welcome back, {name}!" if name else "Welcome to TT Studio!"
-    mode = "Local + Dev" if dev_mode else "Local"
 
-    # Cheap, instant machine context — no tt-smi probe here (it can take ~20s and
-    # the splash must appear instantly; device count is surfaced in the ready
-    # panel once Phase 1 has it). Artifact version falls back to a git describe.
-    import platform
-    host_os = f"{platform.system()} {platform.release()}".strip()
-    version = (os.environ.get("TT_INFERENCE_ARTIFACT_VERSION")
-               or _git_value(["describe", "--tags", "--always"]))
-
+    # Keep the banner lean: greeting + repo path only. Mode/context now lives in
+    # the sticky progress header, and host OS / artifact version were noise here.
     left = [
         f"[bold accent]{greeting}[/bold accent]",
         "",
-        f"[muted]{mode}[/muted]",
         f"[muted]{cwd}[/muted]",
-        f"[muted]{host_os}[/muted]",
     ]
-    if version:
-        left.append(f"[muted]artifact {version}[/muted]")
     # Keep the right column terse — labels + value, no prose. These aren't
     # clickable links, so there's nothing to explain.
     sections = [

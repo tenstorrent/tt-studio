@@ -184,14 +184,13 @@ def run_docker_compose_with_progress(cmd, cwd):
     """
     Run docker compose, streaming real per-container build progress.
 
-    Build events are folded into the active phase's checklist row (one live region
-    for the whole run) via console.build_event(): each service shows a friendly
-    step label ("installing Python deps", "copying files", …), x/y, CACHED, and
-    elapsed. On a non-TTY / --verbose run (no live checklist) it prints a plain
-    "✓ <svc> built" per service instead. Returns (returncode, full_output_string).
+    Build events feed console.build_event()/build_log(), which print readable
+    scrolling milestones beneath the sticky top stepper: a friendly step label per
+    service on change ("installing Python deps", "copying files", …), compose
+    status lines (Container/Network …), and a "✓ <svc> built" line when each
+    finishes. Returns (returncode, full_output_string).
     """
     from tt_setup.console import build_event, build_log
-    from tt_setup.console import _checklist  # to detect whether the live checklist is on
 
     # Force plain BuildKit progress so the piped stream is parseable.
     env = dict(os.environ)
@@ -208,15 +207,12 @@ def run_docker_compose_with_progress(cmd, cwd):
         env=env,
     )
 
-    live = _checklist._enabled()
     output_lines = []
     step_svc = {}     # BuildKit step number -> short svc name
-    built = []        # short names that finished, in order
 
     for line in process.stdout:
         output_lines.append(line)
-        if live:
-            build_log(line)   # rolling raw-output tail under the Build row
+        build_log(line)   # compose status lines scroll; BuildKit '#' noise filtered
         parsed = parse_build_line(line)
         if parsed is None:
             continue
@@ -230,12 +226,7 @@ def run_docker_compose_with_progress(cmd, cwd):
             if short:
                 build_event('cached', svc=short)
         elif parsed[0] == 'built':
-            short = _short_service(parsed[1])
-            build_event('built', svc=short)
-            if short not in built:
-                built.append(short)
-                if not live:
-                    console.print(f"  [success]✓ {short} built[/success]")
+            build_event('built', svc=_short_service(parsed[1]))
 
     process.wait()
     full_output = ''.join(output_lines)

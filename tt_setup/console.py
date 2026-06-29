@@ -14,12 +14,12 @@ for structured output (progress, status, tables, tracebacks) and new code.
 
 import contextlib
 import io
+import shutil
 import sys
 import time
 
 from rich import box
 from rich.console import Console, Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.prompt import Confirm, Prompt
@@ -108,6 +108,41 @@ def show_detail():
     return VERBOSE or not _IN_PHASE
 
 
+# The startup roadmap — single source of truth for the steps panel, the sticky
+# header stepper, and register_setup_phases(). (title, one-line description).
+SETUP_PHASES = [
+    ("Checks",    "system, hardware, Docker & update freshness"),
+    ("Configure", "environment, secrets, network & ports"),
+    ("Services",  "Docker-control & the inference-server artifact"),
+    ("Build",     "build & start the containers"),
+    ("Launch",    "inference-server env & process start"),
+]
+
+
+def steps_panel(phases=None, context=None):
+    """A compact upfront overview of the run's steps (shown once, may scroll away):
+    a numbered title + one-line description per step, plus optional context lines."""
+    phases = phases or SETUP_PHASES
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(justify="right")   # number
+    grid.add_column()                  # title
+    grid.add_column()                  # description
+    for i, (title, desc) in enumerate(phases, 1):
+        grid.add_row(f"[bold accent]{i}[/bold accent]", f"[bold]{title}[/bold]", f"[muted]{desc}[/muted]")
+    body = [grid]
+    for line in (context or []):
+        body.append(f"[muted]{line}[/muted]")
+    return Panel(
+        Group(*body),
+        title=f"[bold accent]This run · {len(phases)} steps[/bold accent]",
+        title_align="left",
+        border_style="accent",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        expand=False,
+    )
+
+
 class _PhaseState:
     """Per-phase row state in the persistent checklist."""
     __slots__ = ("index", "total", "title", "status", "activity", "start", "end", "build")
@@ -123,46 +158,109 @@ class _PhaseState:
         self.build = None         # svc -> {x,y,label,cached,start,end} for the Build phase
 
 
-def _mini_bar(x, y, width=10):
-    """A tiny proportional bar, e.g. '━━━━━╌╌╌╌╌' — purely cosmetic build progress."""
-    y = max(1, y or 1)
-    filled = max(0, min(width, round(width * (x or 0) / y)))
-    return "━" * filled + "╌" * (width - filled)
-
-
 class _ChecklistController:
-    """Owns the single persistent Live region that renders all startup phases as a
-    checklist (▢ pending → spinner active → ✓ done). Phase sub-output scrolls above
-    it; the Build phase folds its per-service progress into its own row. A
-    depth-counted suspend()/resume() stops/starts the Live around prompts, sudo,
-    and raw-print blocks so only one live region is ever active."""
+    """Pins the phase stepper (✓ done ── ◉ current ── ○ pending) to the TOP line of
+    the terminal via a DECSTBM scroll region installed BEFORE any other output:
+    row 1 holds the stepper, rows 2.. scroll everything else (banner, prompts,
+    build) beneath it. Installing first (when the screen is empty) is what keeps
+    it from corrupting — there's no pre-existing content for the region to fight.
+    Build progress prints as readable scrolling milestones. Non-TTY / --verbose /
+    too-short terminals fall back to plain per-phase lines (no region). The region
+    is reset on every exit path via the idempotent _teardown()."""
+
+    _RESERVE = 1   # top lines held fixed for the sticky stepper
 
     def __init__(self):
         self.phases = []          # list[_PhaseState]
         self._by_index = {}       # index -> _PhaseState
-        self._live = None         # the single Live, or None on non-TTY / --verbose
         self._suspend_depth = 0
-        self._build_order = []    # svc short names, first-seen order
-        self._build_log = []      # rolling tail of recent raw build output lines
-
-    _BUILD_TAIL = 6               # how many recent build lines to show
+        self._sticky_on = False   # True while the scroll region is installed
+        self._torn_down = False   # cleanup-once guard
+        self._cols = 0
+        self._rows = 0
+        self._build_last = {}     # svc -> last friendly label printed (dedupe)
 
     def _enabled(self):
         return console.is_terminal and not VERBOSE
 
-    def _refresh(self):
-        if self._live is not None and self._live.is_started:
-            self._live.update(self.render())
+    def _capable(self):
+        if not self._enabled():
+            return False
+        return shutil.get_terminal_size(fallback=(80, 24)).lines > self._RESERVE + 3
+
+    def sticky_active(self):
+        return self._sticky_on
+
+    # ── scroll-region plumbing ───────────────────────────────────────────────────
+    def _render_ansi(self, text):
+        """A Rich renderable → a single cropped ANSI line for the fixed top row."""
+        text.no_wrap = True
+        text.overflow = "crop"
+        with _real_console.capture() as cap:
+            _real_console.print(text, end="", crop=True)
+        return cap.get()
+
+    def _install(self):
+        """Install the sticky region on a CLEARED screen (cursor at home), before
+        any other output — the key to not corrupting the display."""
+        if not self._capable():
+            self._sticky_on = False
+            return
+        size = shutil.get_terminal_size(fallback=(80, 24))
+        self._cols, self._rows = size.columns, size.lines
+        f = _real_console.file
+        f.write("\033[2J\033[H")                          # clear screen, cursor home
+        f.write(f"\033[{self._RESERVE + 1};{self._rows}r")  # scroll region below row 1
+        f.write(f"\033[{self._RESERVE + 1};1H")            # cursor into the scroll region
+        f.flush()
+        self._sticky_on = True
+        self._torn_down = False
+        self._paint()
+
+    def _paint(self):
+        if not self._sticky_on:
+            return
+        size = shutil.get_terminal_size(fallback=(80, 24))
+        f = _real_console.file
+        if (size.columns, size.lines) != (self._cols, self._rows):
+            # Resize: recompute the region (or drop to plain if it got too short).
+            self._cols, self._rows = size.columns, size.lines
+            if self._rows <= self._RESERVE + 3:
+                self._teardown(final=False)
+                return
+            f.write(f"\033[{self._RESERVE + 1};{self._rows}r")
+        line = self._render_ansi(self._stepper_line())
+        f.write("\0337")                          # save cursor (relative to region)
+        f.write("\033[1;1H" + line + "\033[K")     # repaint the fixed top row
+        f.write("\0338")                          # restore cursor (back into region)
+        f.flush()
+
+    def _teardown(self, final=False):
+        """Reset the scroll region — idempotent, safe from every exit path."""
+        if self._torn_down:
+            return
+        self._torn_down = True
+        if self._sticky_on:
+            f = _real_console.file
+            f.write("\033[r")                      # reset scroll region to full screen
+            f.write(f"\033[{self._rows};1H\n")     # drop below everything, clean line
+            f.flush()
+            self._sticky_on = False
+        if final:
+            console.print(self._stepper_line())    # permanent final record
 
     # ── lifecycle ──────────────────────────────────────────────────────────────
     def register(self, specs):
-        """specs: list of (index, total, title). Shows the whole roadmap upfront."""
+        """specs: list of (index, total, title). Installs the sticky top stepper.
+        Call this BEFORE the banner so the region is set on an empty screen."""
         self.phases = [_PhaseState(i, t, title) for (i, t, title) in specs]
         self._by_index = {p.index: p for p in self.phases}
-        if self._enabled() and self._live is None:
-            self._live = Live(self.render(), console=console, transient=True,
-                              refresh_per_second=12, auto_refresh=True)
-            self._live.start()
+        self._torn_down = False
+        self._install()
+
+    def set_mode(self, text):
+        """Kept for API compatibility (mode is shown in the steps panel now)."""
+        return
 
     def start_phase(self, index):
         p = self._by_index.get(index)
@@ -172,23 +270,17 @@ class _ChecklistController:
             self._by_index[index] = p
         p.status = "active"
         p.start = time.monotonic()
-        # A bare suspend() at the end of the previous phase leaves the Live stopped;
-        # a new phase re-pins it.
         self._suspend_depth = 0
-        if self._live is None:
-            # No pinned region (non-TTY / --verbose): print the stepper inline so
-            # logs still show progression. On a TTY the single pinned stepper
-            # (below) is the source of truth — printing inline too would duplicate it.
+        if self._sticky_on:
+            self._paint()
+        else:
+            # Fallback (non-TTY / --verbose): print the stepper inline.
             console.print(self._stepper_line())
-        elif not self._live.is_started:
-            self._live.start()
-        self._refresh()
 
     def set_activity(self, index, text):
         p = self._by_index.get(index)
         if p is not None and p.status == "active":
-            p.activity = text
-            self._refresh()
+            p.activity = text   # not shown in the compact stepper; no repaint needed
 
     def finish_phase(self, index, failed=False):
         p = self._by_index.get(index)
@@ -196,104 +288,60 @@ class _ChecklistController:
             return
         p.status = "failed" if failed else "done"
         p.end = time.monotonic()
-        if self._live is None:
+        if self._sticky_on:
+            self._paint()
+        else:
             dur = self._phase_dur(p)
             marker = "[error]✗[/error]" if failed else "[success]✓[/success]"
             console.print(f"{marker} [muted]Phase {p.index}/{p.total} ·[/muted] "
                           f"[bold accent]{p.title}[/bold accent]  [muted]{dur}[/muted]")
-        self._refresh()
 
     def suspend(self):
+        # No Live to stop — prompts/sudo/output scroll inside the region. Kept as
+        # API; resume() repaints to heal any cursor moves.
         self._suspend_depth += 1
-        if self._suspend_depth == 1 and self._live is not None and self._live.is_started:
-            self._live.stop()
 
     def resume(self):
         if self._suspend_depth > 0:
             self._suspend_depth -= 1
-        if self._suspend_depth == 0 and self._live is not None and not self._live.is_started:
-            self._live.start()
-            self._refresh()
+        if self._suspend_depth == 0:
+            self._paint()
 
     def stop(self):
-        """Error/interrupt path: stop the Live (clearing its region) without fuss."""
+        """Error/interrupt path: reset the region (no final stepper)."""
         self._suspend_depth = 0
-        if self._live is not None and self._live.is_started:
-            self._live.stop()
+        self._teardown(final=False)
 
     def end_run(self):
-        """Normal completion: clear the pinned stepper, then leave a final all-done
-        stepper as a permanent record (the ready panel follows)."""
-        self.stop()
-        console.print(self._stepper_line())
+        """Normal completion: reset the region, leave a final all-done stepper."""
+        self._teardown(final=True)
 
-    # ── build folding (fed by docker_diag.run_docker_compose_with_progress) ──────
-    def _active(self):
-        for p in self.phases:
-            if p.status == "active":
-                return p
-        return None
-
+    # ── build progress (scrolling milestones beneath the sticky stepper) ─────────
     def build_event(self, kind, svc=None, x=None, y=None, label=None):
-        p = self._active()
-        if p is None:
-            return
-        if p.build is None:
-            p.build = {}
-        now = time.monotonic()
-        if kind == "step":
-            entry = p.build.setdefault(svc, {"x": 0, "y": y or 1, "label": "",
-                                             "cached": False, "start": now, "end": None})
-            entry["x"], entry["y"], entry["label"] = x, (y or entry["y"]), label
-            if svc not in self._build_order:
-                self._build_order.append(svc)
-        elif kind == "cached":
-            entry = p.build.get(svc)
-            if entry is not None:
-                entry["cached"] = True
-        elif kind == "built":
-            entry = p.build.setdefault(svc, {"x": 0, "y": 1, "label": "",
-                                             "cached": False, "start": now, "end": None})
-            entry["end"] = now
-            entry["x"] = entry.get("y") or entry["x"]
-            if svc not in self._build_order:
-                self._build_order.append(svc)
-        self._refresh()
+        if kind == "step" and svc and label:
+            if self._build_last.get(svc) != label:
+                self._build_last[svc] = label
+                console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
+        elif kind == "built" and svc:
+            console.print(f"  [success]✓ {svc} built[/success]")
 
     def build_log(self, line):
-        """Append a raw build-output line to the rolling tail shown under the
-        Build row, so a long step (pip/npm/apt) isn't a static black box."""
-        line = line.rstrip()
-        if not line:
+        """Show compose status lines (Container/Network …) as they scroll; skip the
+        raw BuildKit '#NN …' step chatter (the friendly milestones cover that)."""
+        line = line.strip()
+        if not line or line.startswith("#"):
             return
-        self._build_log.append(line)
-        if len(self._build_log) > self._BUILD_TAIL:
-            self._build_log = self._build_log[-self._BUILD_TAIL:]
-        self._refresh()
+        if any(k in line for k in ("Container ", "Network ", "Volume ", "Pulling", "Pulled")):
+            console.print(f"  [dim]{line}[/dim]", highlight=False)
 
-    # ── rendering ────────────────────────────────────────────────────────────────
-    def render(self):
-        # One horizontal stepper line for the whole roadmap, plus the active
-        # phase's build detail folded beneath it (per-service rows + log tail).
-        parts = [self._stepper_line()]
-        active = self._active()
-        if active is not None and active.build:
-            for svc in self._build_order:
-                if svc in active.build:
-                    parts.append(self._build_row(svc, active.build[svc]))
-            # Rolling tail of raw build output, so a long step shows real
-            # activity (pip/npm/apt) instead of a static label.
-            for line in self._build_log:
-                parts.append(Text(f"  ┊ {line}", style="dim", no_wrap=True, overflow="crop"))
-        return Group(*parts)
-
+    # ── rendering helpers ────────────────────────────────────────────────────────
     def _phase_dur(self, p):
         if p.start is None or p.end is None:
             return "0.0s"
         return _fmt_duration(p.end - p.start)
 
     def _stepper_line(self):
-        """A horizontal stepper: ✓ done · ◉ current · ○ pending · ✗ failed, with
+        """A horizontal stepper: ✓ done ── ◉ current ── ○ pending ── ✗ failed, with
         the current phase emphasized so 'where am I' reads at a glance."""
         segs = []
         for p in self.phases:
@@ -310,29 +358,16 @@ class _ChecklistController:
         line.overflow = "crop"
         return line
 
-    def _build_row(self, svc, e):
-        end = e["end"] if e["end"] is not None else time.monotonic()
-        elapsed = _fmt_duration(end - e["start"])
-        bar = _mini_bar(e["x"], e["y"])
-        label = e["label"] or ""
-        if e["cached"]:
-            label = f"{label} (cached)" if label else "cached"
-        done = e["end"] is not None
-        mn = f"{e['y']}/{e['y']}" if done else f"{e['x']}/{e['y']}"
-        state = "[success]✓ done[/success]" if done else f"[info]{label}…[/info]"
-        return Text.from_markup(
-            f"  [dim]{svc:<9}[/dim] [accent]{bar}[/accent] [muted]{mn}[/muted]  {state}  [muted]{elapsed}[/muted]"
-        )
-
 
 _checklist = _ChecklistController()
 
 
 class _PhaseHandle:
     """Thin handle over the checklist controller for one phase. Update the active
-    row with .set(activity), mark failure with .fail(), and wrap prompting /
-    raw-print / nested-Live work in `with handle.pause(): ...` (or suspend/resume)
-    so the pinned checklist Live doesn't clash with it."""
+    step with .set(activity) and mark failure with .fail(). suspend()/resume()/
+    pause() are kept for callers but no longer stop a Live (there is none) — the
+    sticky header is fixed by the scroll region; resume() just repaints it to heal
+    any stray cursor moves from a prompt."""
 
     def __init__(self, index):
         self.index = index
@@ -345,17 +380,16 @@ class _PhaseHandle:
         self.failed = True
 
     def suspend(self):
-        """Stop the checklist Live (for a prompting / sudo / raw-print block)."""
+        """No-op for the sticky header (kept as API); paired with resume()."""
         _checklist.suspend()
 
     def resume(self):
-        """Restart the checklist Live after suspend()."""
+        """Repaint the sticky header to heal any cursor moves from a prompt."""
         _checklist.resume()
 
     @contextlib.contextmanager
     def pause(self):
-        """Stop the checklist Live for work that prompts (getpass/input/sudo) or
-        prints raw output, then resume."""
+        """Bracket a prompting / sudo / raw-output block; repaints on exit."""
         self.suspend()
         try:
             yield
@@ -364,9 +398,33 @@ class _PhaseHandle:
 
 
 def register_phases(specs):
-    """Register the full phase roadmap (list of (index, total, title)) and start
-    the persistent checklist so all phases are visible from the start."""
+    """Register the full phase roadmap (list of (index, total, title)) and install
+    the sticky-top header so the roadmap is visible from the start."""
     _checklist.register(specs)
+
+
+def register_setup_phases():
+    """Register the standard SETUP_PHASES roadmap (titles only) for the header."""
+    total = len(SETUP_PHASES)
+    _checklist.register([(i, total, title) for i, (title, _) in enumerate(SETUP_PHASES, 1)])
+
+
+def set_mode(text):
+    """Set the sticky header's context/mode line (e.g. 'Local + Dev · TT Hardware')."""
+    _checklist.set_mode(text)
+
+
+def ensure_region_reset():
+    """Idempotent safety net: reset the terminal scroll region if still installed.
+    Wired into main()'s finally + atexit so no exit path can leave the terminal's
+    scroll region (sticky top) stuck."""
+    _checklist._teardown(final=False)
+
+
+def sticky_active():
+    """True while the sticky top stepper region is installed (so the banner skips
+    its own screen-clear, which would reset the region)."""
+    return _checklist.sticky_active()
 
 
 def begin_phase(index, total, title):
@@ -409,8 +467,8 @@ def build_log(line):
 
 
 def stop_active_phase():
-    """Stop the checklist Live WITHOUT marking the phase — for error/interrupt
-    paths, so the Live doesn't corrupt a following panel."""
+    """Reset the scroll region WITHOUT marking the phase — for error/interrupt
+    paths, so the sticky header doesn't corrupt a following panel."""
     global _IN_PHASE, _active_phase
     _checklist.stop()
     _IN_PHASE = False
