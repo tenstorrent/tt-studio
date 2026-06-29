@@ -3813,7 +3813,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     # restart defaults to prod and Wan deploys uncached (and hang). Respects an explicit
     # operator override. Real fix: add TT_DIT_CACHE_DIR to tt-inference-server
     # prod/video.yaml (and land it on main), then delete this block.
-    env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")
+    # env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")  # TODO: remove this whole block once confirmed it's not needed
 
     # STOPGAP (excise when upstream catalog carries the var): overlay
     # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
