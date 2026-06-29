@@ -358,7 +358,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
-      return "/chat"; // placeholder until video UI exists
+      return "/video-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
