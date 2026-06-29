@@ -400,11 +400,10 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Wan T2V requires 0.15.0 image: carries MODEL_WEIGHTS_DIR fix (#4107) and
-        # WanPipeline kwargs compatible with tt-metal 8574aad (post-#44201 pipeline refactor)
-        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix"
-
+        # Media image selection (Wan T2V, FLUX) is left to the inference server's
+        # own model_spec (v0.17.0+), which pins the correct per-device image —
+        # 0.17.0-8c48a10 on P300X2, 0.10.x-555f240 on T3K/Galaxy/P150x*. A single
+        # hardcoded override_docker_image would defeat that per-device selection.
 
         logger.info(f"API payload: {payload}")
 
