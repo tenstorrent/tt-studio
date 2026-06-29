@@ -57,19 +57,19 @@ That's all most people need. Everything else — hardware modes, environment var
 
 ## Model & hardware support
 
-TT-Studio deploys 53 models across Tenstorrent's Wormhole and Blackhole machines. Support levels are 🟢 Complete, 🟡 Functional, and 🛠️ Experimental.
+TT-Studio deploys 53 models on Tenstorrent Wormhole machines, 34 of which are in the UI today. Support levels are 🟢 Complete, 🟡 Functional, and 🛠️ Experimental.
 
-| Category | Models | 🟢 Complete | 🟡 Functional | 🛠️ Experimental |
-|---|---|---|---|---|
-| Large language models | 18 | 4 | 7 | 7 |
-| Vision-language models | 12 | 0 | 5 | 7 |
-| Image generation | 9 | 7 | 2 | 0 |
-| Video generation | 1 | 1 | 0 | 0 |
-| Speech recognition | 2 | 2 | 0 | 0 |
-| Text-to-speech | 1 | 1 | 0 | 0 |
-| Embeddings | 3 | 0 | 0 | 3 |
-| Computer vision (CNN) | 7 | 3 | 2 | 2 |
-| **Total** | **53** | **18** | **16** | **19** |
+| Category | Models | 🟢 Complete | 🟡 Functional | 🛠️ Experimental | In UI |
+|---|---|---|---|---|---|
+| Large language models | 18 | 4 | 7 | 7 | 11 |
+| Vision-language models | 12 | 0 | 5 | 7 | 5 |
+| Image generation | 9 | 7 | 2 | 0 | 9 |
+| Video generation | 1 | 1 | 0 | 0 | 1 |
+| Speech recognition | 2 | 2 | 0 | 0 | 2 |
+| Text-to-speech | 1 | 1 | 0 | 0 | 1 |
+| Embeddings | 3 | 0 | 0 | 3 | 0 |
+| Computer vision (CNN) | 7 | 3 | 2 | 2 | 5 |
+| **Total** | **53** | **18** | **16** | **19** | **34** |
 
 See the full per-model, per-machine matrix in **[Model & hardware support](dev-docs/model-hardware-support.md)**.
 
