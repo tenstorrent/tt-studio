@@ -96,6 +96,7 @@ export function FirstStepForm({
   chipMode?: "single" | "multi";
   onModelNameChange?: (name: string) => void;
   chipStatus?: {
+    board_type: string;
     total_slots: number;
     slots: { slot_id: number; status: string; model_name?: string }[];
   } | null;

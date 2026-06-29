@@ -882,6 +882,7 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 docker_log_path = progress_data.get("docker_log_file_path")
                 if docker_log_path:
                     dep.workflow_log_path = docker_log_path

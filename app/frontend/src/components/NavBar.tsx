@@ -17,6 +17,7 @@ import {
   ScanFace,
   ChevronRight,
   ChevronLeft,
+  Video,
   type LucideIcon,
   History,
   Terminal,
@@ -294,10 +295,11 @@ export default function NavBar() {
     [models],
   );
 
-  // Check if we're in Chat UI or Image Generation mode
+  // Check if we're in Chat UI, Image Generation, or Video Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+  const isVideoGeneration = location.pathname === "/video-generation";
+  const shouldUseVerticalNav = isChatUI || isImageGeneration || isVideoGeneration;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -424,7 +426,7 @@ export default function NavBar() {
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
-        return BotMessageSquare;
+        return Video;
       case ModelType.ObjectDetectionModel:
       case ModelType.CNN:
         return Eye;

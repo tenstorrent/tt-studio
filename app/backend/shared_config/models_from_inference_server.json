@@ -39,6 +39,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
@@ -62,6 +66,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-schnell",
@@ -428,6 +436,68 @@
         "TORCHDYNAMO_DISABLE": "1"
       },
       "param_count": null
+    },
+    {
+      "model_name": "Wan2.2-I2V-A14B-Diffusers",
+      "model_type": "VIDEO",
+      "display_model_type": "VIDEO",
+      "device_configurations": [
+        "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300x2",
+        "T3K"
+      ],
+      "hf_model_id": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.10.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
+      "service_route": "/v1/videos/generations/i2v",
+      "health_route": "/health",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 14
+    },
+    {
+      "model_name": "Wan2.2-T2V-A14B-Diffusers",
+      "model_type": "VIDEO",
+      "display_model_type": "VIDEO",
+      "device_configurations": [
+        "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300x2",
+        "T3K"
+      ],
+      "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.15.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix",
+      "service_route": "/v1/videos/generations",
+      "health_route": "/health",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 14
     },
     {
       "model_name": "whisper-large-v3",
