@@ -17,6 +17,7 @@
 
 - [Before you start](#before-you-start)
 - [Quickstart](#quickstart)
+- [Model & hardware support](#model--hardware-support)
 - [Documentation](#documentation)
 - [Community & License](#community--license)
 
@@ -54,10 +55,31 @@ That's all most people need. Everything else — hardware modes, environment var
 
 ---
 
+## Model & hardware support
+
+TT-Studio deploys 53 models across Tenstorrent's Wormhole and Blackhole machines. Support levels are 🟢 Complete, 🟡 Functional, and 🛠️ Experimental.
+
+| Category | Models | 🟢 Complete | 🟡 Functional | 🛠️ Experimental |
+|---|---|---|---|---|
+| Large language models | 18 | 4 | 7 | 7 |
+| Vision-language models | 12 | 0 | 5 | 7 |
+| Image generation | 9 | 7 | 2 | 0 |
+| Video generation | 1 | 1 | 0 | 0 |
+| Speech recognition | 2 | 2 | 0 | 0 |
+| Text-to-speech | 1 | 1 | 0 | 0 |
+| Embeddings | 3 | 0 | 0 | 3 |
+| Computer vision (CNN) | 7 | 3 | 2 | 2 |
+| **Total** | **53** | **18** | **16** | **19** |
+
+See the full per-model, per-machine matrix in **[Model & hardware support](dev-docs/model-hardware-support.md)**.
+
+---
+
 ## Documentation
 
 - **[Detailed setup & usage](dev-docs/detailed-setup.md)** — hardware modes, env vars, dev workflow, remote access, troubleshooting
 - [run.py reference](dev-docs/run-py-guide.md) — every flag and environment variable, explained
+- [Model & hardware support](dev-docs/model-hardware-support.md) — which models run on which machines, and their support level
 - [Troubleshooting](dev-docs/troubleshooting.md) and [FAQ](dev-docs/FAQ.md)
 - [Remote endpoints](dev-docs/remote-endpoint-setup.md) — use TT-Studio without local hardware
 - [Contributing](CONTRIBUTING.md) — branching strategy and PR standards
