@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Terminal, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Terminal, CheckCircle2, Check, XCircle, AlertCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -21,6 +21,7 @@ import {
   fetchCodingAgentsInfo,
   type CodingAgentsInfo,
 } from "../api/modelsDeployedApis";
+import { cn } from "../lib/utils";
 
 const PLACEHOLDER_MODEL = "your-model-name";
 
@@ -28,6 +29,8 @@ export default function CodingAgentsPage() {
   const [info, setInfo] = useState<CodingAgentsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Model the setup snippets are generated for; null falls back to the first one.
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +57,7 @@ export default function CodingAgentsPage() {
   }, []);
 
   // Host- and protocol-aware URLs so port-forwarded / remote / HTTPS access works
-  const { anthropicBase, openaiBase, firstModel } = useMemo(() => {
+  const { anthropicBase, openaiBase } = useMemo(() => {
     const scheme = window.location.protocol === "https:" ? "https" : "http";
     const host = window.location.hostname;
     const port = info?.gateway_port ?? 4000;
@@ -62,16 +65,22 @@ export default function CodingAgentsPage() {
     return {
       anthropicBase: `${scheme}://${host}:${port}`,
       openaiBase: `${scheme}://${host}:${port}${basePath}`,
-      firstModel: info?.models?.[0]?.name ?? PLACEHOLDER_MODEL,
     };
   }, [info]);
 
   const masterKey = info?.master_key || "";
   const hasModels = (info?.models?.length ?? 0) > 0;
 
+  // The model the snippets target: the user's pick if still deployed, else the first.
+  const activeModel = useMemo(() => {
+    const names = info?.models?.map((m) => m.name) ?? [];
+    if (selectedModel && names.includes(selectedModel)) return selectedModel;
+    return names[0] ?? PLACEHOLDER_MODEL;
+  }, [info, selectedModel]);
+
   const claudeCodeSnippet = `export ANTHROPIC_BASE_URL=${anthropicBase}
 export ANTHROPIC_AUTH_TOKEN=${masterKey || "<your-api-key>"}
-export ANTHROPIC_MODEL=${firstModel}
+export ANTHROPIC_MODEL=${activeModel}
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 claude`;
 
@@ -79,9 +88,49 @@ claude`;
   -H "Authorization: Bearer ${masterKey || "<your-api-key>"}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${firstModel}",
+    "model": "${activeModel}",
     "messages": [{"role": "user", "content": "Write a hello world in Python"}]
   }'`;
+
+  // OpenCode has no model discovery, so list every deployed model explicitly.
+  const opencodeModels = (info?.models ?? []).reduce(
+    (acc, m) => {
+      acc[m.name] = m.name.endsWith("-thinking")
+        ? { name: m.name, reasoning: true }
+        : { name: m.name };
+      return acc;
+    },
+    {} as Record<string, { name: string; reasoning?: boolean }>,
+  );
+  const opencodeProviderEntry = {
+    npm: "@ai-sdk/openai-compatible",
+    name: "TT-Studio",
+    options: { baseURL: openaiBase, apiKey: masterKey || "<your-api-key>" },
+    models: hasModels
+      ? opencodeModels
+      : { [PLACEHOLDER_MODEL]: { name: PLACEHOLDER_MODEL } },
+  };
+  const opencodeProvider = JSON.stringify(opencodeProviderEntry);
+  const opencodeConfig = JSON.stringify(
+    {
+      $schema: "https://opencode.ai/config.json",
+      provider: { "tt-studio": opencodeProviderEntry },
+    },
+    null,
+    2,
+  );
+
+  // Merge the tt-studio provider into any existing opencode config (create if
+  // absent), then launch opencode on the selected model.
+  const opencodeSnippet = `python3 - <<'PY' && opencode --model tt-studio/${activeModel}
+import json, pathlib
+p = pathlib.Path.home() / ".config/opencode/opencode.json"
+cfg = json.loads(p.read_text()) if p.exists() else {}
+cfg.setdefault("provider", {})["tt-studio"] = json.loads('''${opencodeProvider}''')
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2) + "\\n")
+print(f"Updated {p}")
+PY`;
 
   const renderHealth = () => {
     if (!info) return null;
@@ -196,23 +245,42 @@ claude`;
               <CardHeader>
                 <CardTitle>Available models</CardTitle>
                 <CardDescription>
-                  Use one of these names as the model in your coding agent.
+                  Pick a model to fill in the setup below.{" "}
+                  <span className="font-mono">-thinking</span> variants turn on
+                  step-by-step reasoning.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {hasModels ? (
-                  <div className="flex flex-wrap gap-2">
-                    {info.models.map((m) => (
-                      <span
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      {info.models.map((m) => (
+                      <button
                         key={m.name}
-                        className="inline-flex items-center gap-2 rounded-md border border-gray-200 dark:border-gray-700 px-3 py-1.5 font-mono text-sm"
+                        type="button"
+                        onClick={() => setSelectedModel(m.name)}
+                        aria-pressed={m.name === activeModel}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-sm transition-colors",
+                          m.name === activeModel
+                            ? "border-TT-purple bg-TT-purple/10 text-TT-purple font-medium"
+                            : "border-gray-200 dark:border-gray-700 hover:border-TT-purple/50",
+                        )}
                       >
-                        <CopyableText text={m.name} isInsideButton />
+                        {m.name === activeModel && <Check className="h-4 w-4" />}
+                        {m.name}
                         <Badge variant="outline" className="text-[10px]">
-                          {m.type}
+                          {m.name.endsWith("-thinking") ? "thinking" : m.type}
                         </Badge>
-                      </span>
+                      </button>
                     ))}
+                    </div>
+                    <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                      Selected model:{" "}
+                      <span className="font-mono text-TT-purple">
+                        {activeModel}
+                      </span>
+                    </p>
                   </div>
                 ) : (
                   <Alert>
@@ -246,6 +314,7 @@ claude`;
                 <Tabs defaultValue="claude-code" className="w-full">
                   <TabsList>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+                    <TabsTrigger value="opencode">OpenCode</TabsTrigger>
                     <TabsTrigger value="openai">OpenAI / cURL</TabsTrigger>
                   </TabsList>
 
@@ -255,7 +324,24 @@ claude`;
                       <code>claude</code>. Model discovery lets you switch models
                       with the <code>/model</code> command.
                     </p>
-                    <CodeBlock code={claudeCodeSnippet} language="bash" />
+                    <CodeBlock code={claudeCodeSnippet} language="bash" className="text-left" />
+                  </TabsContent>
+
+                  <TabsContent value="opencode" className="space-y-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Adds a <code>tt-studio</code> provider to your OpenCode
+                      config (keeping any existing one) and launches{" "}
+                      <code>opencode</code> on{" "}
+                      <span className="font-mono">{activeModel}</span>.{" "}
+                      <code>-thinking</code> variants appear as separate models.
+                    </p>
+                    <CodeBlock code={opencodeSnippet} language="bash" className="text-left" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      No Python? Save this to{" "}
+                      <code>~/.config/opencode/opencode.json</code> yourself, then
+                      run <code>opencode</code>.
+                    </p>
+                    <CodeBlock code={opencodeConfig} language="json" className="text-left" />
                   </TabsContent>
 
                   <TabsContent value="openai" className="space-y-3">
@@ -263,7 +349,7 @@ claude`;
                       Any OpenAI-compatible client works against the base URL
                       above. Example request:
                     </p>
-                    <CodeBlock code={curlSnippet} language="bash" />
+                    <CodeBlock code={curlSnippet} language="bash" className="text-left" />
                   </TabsContent>
                 </Tabs>
               </CardContent>
