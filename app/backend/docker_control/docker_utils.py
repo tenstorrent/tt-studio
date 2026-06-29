@@ -119,6 +119,11 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "unknown": "cpu",
 }
 
+# Inference-server device names that denote a single chip/card (as opposed to a
+# whole-board mesh like p300x2/p150x4/t3k). Only these get pinned to a device_id;
+# mesh deployments let the inference server claim the full board itself.
+_SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
+
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
@@ -297,6 +302,14 @@ def infer_inference_server_device(impl, board_type=None):
     chips_required = infer_chips_required(impl.device_configurations)
     if chips_required == 1:
         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+        # A constituent single-chip device (e.g. p150 on a P300x2 board) is only valid
+        # if the model actually declares support for it. Media models like FLUX have no
+        # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
+        # supported device for this model but the whole board is, deploy on the board mesh.
+        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+        board_device = map_board_type_to_device_name(board_type)
+        if device not in supported and board_device in supported:
+            device = board_device
     else:
         device = map_board_type_to_device_name(board_type)
     # Speech models need a single n150-class chip even on n300-based boards.
@@ -350,9 +363,19 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
         service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
-        # comma-separated string that the inference server passes as --device-id 0,1.
-        payload["device_id"] = str(device_id)
+        # Pin to a specific chip slot only for single-chip models. For multi-chip
+        # single-card mode (chips_required == 1 with an explicit slot list) this is a
+        # comma-separated string the inference server passes as --device-id 0,1.
+        #
+        # Whole-board mesh deployments resolve `device` to the board device name
+        # (e.g. p300x2/p150x4/p150x8/t3k/galaxy); the inference server claims the full
+        # mesh itself. Passing a single device_id would wrongly pin the mesh to one chip
+        # and crash on mesh init. We gate on the resolved device name (not chips_required)
+        # because a model with no single-chip spec — e.g. FLUX, which only supports the
+        # p300x2 mesh — resolves to a mesh device even when chips_required == 1. Mirror the
+        # CHAT path, which omits device_id for whole-board p300x2 deployments.
+        if device in _SINGLE_CHIP_DEVICE_NAMES:
+            payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
@@ -369,6 +392,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # TEMP: disabled — do not override docker image for QB2 media models
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
+
+        # Wan T2V requires 0.15.0 image: carries MODEL_WEIGHTS_DIR fix (#4107) and
+        # WanPipeline kwargs compatible with tt-metal 8574aad (post-#44201 pipeline refactor)
+        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix"
+
 
         logger.info(f"API payload: {payload}")
 
@@ -890,7 +919,8 @@ def _enrich_container_with_model_impl(con, con_id):
 
 # Mirrors ChipSlotAllocator._STARTING_GRACE_SECONDS. Records younger than this are trusted during the placeholder
 # window between Django creating the row and deployment_sync swapping in the real container_id.
-_CANONICAL_STARTING_GRACE_SECONDS = 60
+_CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
+_CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
 
 
 def get_canonical_deployments():
@@ -956,7 +986,16 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            if age < _CANONICAL_STARTING_GRACE_SECONDS:
+            _impl = next(
+                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
+                None,
+            )
+            _grace = (
+                _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
+                if _impl and getattr(_impl, "inference_engine", None) == "media"
+                else _CANONICAL_STARTING_GRACE_SECONDS
+            )
+            if age < _grace:
                 # Legitimate placeholder window — surface but flag as pending.
                 result[full_id or f"pending-{dep.id}"] = {
                     "name": dep.container_name,

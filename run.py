@@ -2812,6 +2812,11 @@ def fetch_branch_commit_sha(branch):
         return None
 
 
+def _is_commit_sha(value):
+    """Return True if value looks like a full 40-char hex commit SHA."""
+    return bool(value) and len(value) == 40 and all(c in '0123456789abcdefABCDEF' for c in value)
+
+
 def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
@@ -3079,7 +3084,10 @@ def setup_tt_inference_server(pull_branch=False):
                     print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
-                    if pull_branch:
+                    if _is_commit_sha(artifact_branch):
+                        # SHA is immutable — cached artifact is always current; --pull-branch is a no-op
+                        print(f"{C_GREEN}✅ TT Inference Server (commit: {artifact_branch[:7]}) (cached){C_RESET}")
+                    elif pull_branch:
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
@@ -3246,7 +3254,7 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                         _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
@@ -3289,9 +3297,12 @@ def setup_tt_inference_server(pull_branch=False):
             print(f"📦 Using existing artifact tarball: {artifact_file}")
         else:
             if os.path.exists(artifact_file) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
-                print(f"📦 Artifact directory missing; re-downloading branch to get latest commit...")
-            # Download (overwrites existing tarball if present; always gets current HEAD of branch)
-            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
+                print(f"📦 Artifact directory missing; re-downloading to get latest commit...")
+            # Download: commit SHAs use archive/{sha}.tar.gz; branch names use archive/refs/heads/{branch}.tar.gz
+            if _is_commit_sha(artifact_branch):
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/{artifact_branch}.tar.gz"
+            else:
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
                 import urllib.request
                 print(f"   Downloading from: {github_url}")
@@ -3300,14 +3311,18 @@ def setup_tt_inference_server(pull_branch=False):
             except Exception as e:
                 error_str = str(e)
                 if "404" in error_str or "Not Found" in error_str:
-                    print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
-                    print(f"   The branch name you configured does not exist.")
+                    if _is_commit_sha(artifact_branch):
+                        print(f"{C_RED}⛔ Commit SHA '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The commit SHA you configured does not exist in the repository.")
+                    else:
+                        print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The branch name you configured does not exist.")
                     print(f"   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}")
                     print(f"   Run: python run.py --reconfigure-inference-server")
                     print(f"   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches")
                 else:
-                    print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
-                    print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
+                    print(f"{C_RED}⛔ Failed to download from GitHub: {e}{C_RESET}")
+                    print(f"   Make sure the value '{artifact_branch}' exists in the repository")
                 if os.path.exists(artifact_file):
                     try:
                         os.remove(artifact_file)
@@ -3391,7 +3406,7 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                     _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
@@ -3685,6 +3700,43 @@ def setup_fastapi_environment():
     finally:
         os.chdir(original_dir)
 
+def apply_media_catalog_env_overlay():
+    """STOPGAP: overlay HF_HUB_DISABLE_XET=1 onto the extracted model-spec catalog.
+
+    Runs after the artifact is extracted and before uvicorn loads it. Uses the
+    inference-api venv interpreter because the top-level run.py has no PyYAML, while
+    the inference-api venv does (it parses these same catalog YAMLs). Non-fatal: a
+    failure here only forfeits the Xet workaround, it must not block server start.
+    See app/backend/shared_config/patch_catalog_env.py for the full rationale.
+    """
+    if not os.path.exists(INFERENCE_ARTIFACT_DIR):
+        return
+    patch_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config", "patch_catalog_env.py",
+    )
+    if not os.path.exists(patch_script):
+        print(f"{C_YELLOW}⚠️  Catalog env overlay script not found: {patch_script}{C_RESET}")
+        return
+    venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "python")
+    if OS_NAME == "Windows":
+        venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "python.exe")
+    if not os.path.exists(venv_python):
+        venv_python = sys.executable  # fall back to the launcher interpreter
+    try:
+        result = subprocess.run(
+            [venv_python, patch_script, INFERENCE_ARTIFACT_DIR],
+            capture_output=True, text=True, check=False,
+        )
+        for line in (result.stdout or "").strip().splitlines():
+            print(f"   {line}")
+        if result.returncode != 0 and (result.stderr or "").strip():
+            print(f"{C_YELLOW}⚠️  Catalog env overlay reported errors:{C_RESET}")
+            for line in result.stderr.strip().splitlines():
+                print(f"   {line}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Catalog env overlay failed (continuing): {e}{C_RESET}")
+
+
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🔧 Starting FastAPI server...")
@@ -3733,7 +3785,25 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
-    
+
+    # STOPGAP (excise when prod catalog is uplifted): pin the dev model-spec catalog so
+    # media models (e.g. Wan2.2-T2V) receive TT_DIT_CACHE_DIR. prod/video.yaml currently
+    # lacks the env_vars block; dev/video.yaml has it. Without this, an inference-api
+    # restart defaults to prod and Wan deploys uncached (and hang). Respects an explicit
+    # operator override. Real fix: add TT_DIT_CACHE_DIR to tt-inference-server
+    # prod/video.yaml (and land it on main), then delete this block.
+    env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")
+
+    # STOPGAP (excise when upstream catalog carries the var): overlay
+    # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
+    # artifact. Media containers get their per-model env solely from the catalog
+    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags);
+    # the backend compose service sets HF_HUB_DISABLE_XET but that never reaches them.
+    # Without it, large media weight downloads stall on the Xet CDN and hang past the
+    # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
+    # the pin, then delete this block and patch_catalog_env.py.
+    apply_media_catalog_env_overlay()
+
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":

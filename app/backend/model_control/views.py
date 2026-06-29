@@ -674,6 +674,157 @@ class ImageGenerationInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class VideoGenerationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for tt-media-server T2V API."""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        prompt = data.get("prompt")
+        if not prompt:
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+
+        payload = {"prompt": prompt}
+        if data.get("seed") is not None:
+            try:
+                payload["seed"] = int(data["seed"])
+            except (TypeError, ValueError):
+                pass
+        if data.get("num_inference_steps") is not None:
+            try:
+                payload["num_inference_steps"] = int(data["num_inference_steps"])
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp.raise_for_status()
+
+            # Sync mode: server returned video bytes directly (use_async_video=False)
+            if init_resp.status_code == status.HTTP_200_OK:
+                content_type = init_resp.headers.get("Content-Type", "video/mp4")
+                django_response = HttpResponse(init_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                return django_response
+
+            # Async mode: server returned 202 with job_id — return it immediately so the
+            # frontend can poll status (see VideoGenerationStatusView) and then download
+            # (VideoGenerationDownloadView). The blocking poll loop used to live here.
+            job_data = init_resp.json()
+            job_id = job_data.get("job_id") or job_data.get("id")
+            if not job_id:
+                logger.error(f"No job_id in async response: {job_data}")
+                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationInferenceView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = 0
+            if err_status == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif err_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _video_base_url(deploy_id):
+    """Resolve the tt-media-server base URL for a deployed video model."""
+    deploy = get_deploy_cache()[deploy_id]
+    internal_url = "http://" + deploy["internal_url"]
+    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+
+
+def _normalize_video_phase(raw_status):
+    """Map the tt-media-server status string to a coarse phase for the frontend."""
+    s = (raw_status or "").lower()
+    if s in ("completed", "complete", "done", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "canceled", "cancelling", "canceling"):
+        return "cancelled"
+    if s in ("in_progress", "running", "processing"):
+        return "in_progress"
+    return "queued"
+
+
+class VideoGenerationStatusView(APIView):
+    """Proxy the tt-media-server video job status so the frontend can poll progress."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+            poll_resp.raise_for_status()
+
+            phase = _normalize_video_phase(poll_resp.json().get("status"))
+            return Response({"phase": phase}, status=status.HTTP_200_OK)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationStatusView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VideoGenerationDownloadView(APIView):
+    """Proxy the finished video file from the tt-media-server."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationDownloadView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class SpeechRecognitionInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special automatic speec recognition inference view"""
