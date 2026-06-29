@@ -583,7 +583,7 @@ class DeployView(APIView):
                             model_name=impl.model_name,
                             device=device,
                             device_id=device_id,
-                            device_ids=device_ids,
+                            device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
                         )
