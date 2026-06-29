@@ -21,6 +21,7 @@ import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
 import { useIsResetting } from "../../hooks/useIsResetting";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
@@ -66,6 +67,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     useRefresh();
   // True while any board/device reset is in progress (global, backend-sourced).
   const isResetting = useIsResetting();
+  const { refresh: refreshDeviceState } = useDeviceState();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -554,7 +556,10 @@ export default function ModelsDeployedCard(): JSX.Element {
       stepLogs={deleteStream.stepLogs}
       errorMessage={deleteStream.errorMessage}
       onConfirm={handleConfirmDelete}
-      onMinimize={() => setShowDeleteModal(false)}
+      onMinimize={() => {
+        setShowDeleteModal(false);
+        refreshDeviceState();
+      }}
       onCancel={handleCloseDeleteModal}
     />
   );
@@ -586,14 +591,15 @@ export default function ModelsDeployedCard(): JSX.Element {
   if (rows.length === 0) {
     return (
       <>
-        <NoModelsRunning userStopped={userStoppedModel} />
         {deleteDialog}
+        <NoModelsRunning userStopped={userStoppedModel} />
       </>
     );
   }
 
   return (
     <>
+      {deleteDialog}
       <ElevatedCard accent="neutral" depth="lg" hover>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between gap-3">
@@ -788,8 +794,6 @@ export default function ModelsDeployedCard(): JSX.Element {
             setWorkflowDialogModelName(undefined);
           }}
         />
-
-        {deleteDialog}
 
         <RegisterModelDialog
           open={showRegisterDialog}
