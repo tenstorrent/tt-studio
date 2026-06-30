@@ -303,6 +303,16 @@ DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 # Mark a job as stalled when no run.py log/progress update arrives for this long.
 PULL_STALL_THRESHOLD_SECONDS = 120
 
+# HF download resilience: raise huggingface_hub's 10s defaults so a slow HEAD/read
+# on a high-latency or briefly-flaky route does not fail the whole download. Pure
+# huggingface_hub runtime config (no extra package needed). Propagated to the
+# download containers via the artifact .env (--env-file) and to host-side setup
+# via os.environ — see sync_tokens_from_tt_studio() and env_vars_to_set below.
+HF_DOWNLOAD_RESILIENCE_ENV = {
+    "HF_HUB_ETAG_TIMEOUT": "30",      # metadata/HEAD requests (huggingface_hub default 10)
+    "HF_HUB_DOWNLOAD_TIMEOUT": "60",  # blob read timeout (huggingface_hub default 10)
+}
+
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
 
@@ -1750,7 +1760,23 @@ def sync_tokens_from_tt_studio():
         # Add new HF_TOKEN
         env_lines.append(f"HF_TOKEN={tt_studio_hf}\n")
         updated = True
-    
+
+    # Ensure HF download-resilience timeouts are present in the inference server
+    # .env so they propagate into the download container via --env-file (the same
+    # path HF_TOKEN takes). Upsert each key idempotently.
+    for key, value in HF_DOWNLOAD_RESILIENCE_ENV.items():
+        current = None
+        for line in env_lines:
+            line_stripped = line.strip()
+            if line_stripped.startswith(f"{key}="):
+                current = line_stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+        if current != value:
+            env_lines = [line for line in env_lines
+                         if not line.strip().startswith(f"{key}=")]
+            env_lines.append(f"{key}={value}\n")
+            updated = True
+
     # Write back if updated
     if updated:
         with open(inference_server_env, 'w') as f:
@@ -1829,7 +1855,9 @@ async def run_inference(request: RunRequest):
             "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
-        
+        # Raise HF's fragile 10s default timeouts for host-side (setup_host) downloads.
+        env_vars_to_set.update(HF_DOWNLOAD_RESILIENCE_ENV)
+
         # Handle secrets - use from request if provided and not already in environment
         if request.jwt_secret and not os.getenv("JWT_SECRET"):
             logger.info("Setting JWT_SECRET from request")
