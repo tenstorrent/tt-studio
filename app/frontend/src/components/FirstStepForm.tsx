@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Zap,
   FlaskConical,
+  AlertTriangle,
 } from "lucide-react";
 
 import {
@@ -73,6 +74,15 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
+};
+
+// Models whose automated deployment is still flaky. When one is selected we warn
+// the user and point them at the Hugging Face repo so they can pre-fetch weights
+// if the automatic download fails. Keyed by model name with its HF repo id.
+const EXPERIMENTAL_DEPLOY_MODELS: Record<string, string> = {
+  "FLUX.1-dev": "black-forest-labs/FLUX.1-dev",
+  "FLUX.1-schnell": "black-forest-labs/FLUX.1-schnell",
+  "Wan2.2-T2V-A14B-Diffusers": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
 };
 
 const FirstFormSchema = z.object({
@@ -526,6 +536,33 @@ export function FirstStepForm({
                         </span>
                       )}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Experimental-deploy warning for models with unreliable automated setup */}
+              {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
+                <div className="mt-4 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">This model is still experimental</p>
+                    <p>
+                      {field.value} may fail to deploy reliably. If automatic
+                      deployment fails, download the weights from{" "}
+                      <a
+                        href={`https://huggingface.co/${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium underline"
+                      >
+                        {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                      </a>{" "}
+                      and place them in your{" "}
+                      <code className="rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900/40">
+                        ~/.cache/huggingface/hub
+                      </code>{" "}
+                      directory, then try again.
+                    </p>
                   </div>
                 </div>
               )}
