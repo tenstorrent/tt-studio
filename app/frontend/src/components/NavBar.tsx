@@ -258,7 +258,6 @@ export default function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
   const { models, refreshModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
