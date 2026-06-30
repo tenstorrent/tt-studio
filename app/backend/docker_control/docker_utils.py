@@ -326,6 +326,18 @@ def infer_inference_server_device(impl, board_type=None):
     return device
 
 
+def deploys_whole_board(impl, board_type=None):
+    """True when the inference server claims the entire board for this model, so
+    every chip slot must be reserved and recorded.
+
+    A model occupies the whole board whenever it resolves to a mesh device rather
+    than a single chip — this covers genuinely multi-chip models and media models
+    like FLUX that have no single-chip spec on a multi-chip board (e.g. p300x2),
+    even though `infer_chips_required` reports 1. Mirrors the device_id gate in
+    run_container, which omits device_id for exactly these mesh deployments."""
+    return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
+
+
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
     """Run a docker container.
 
