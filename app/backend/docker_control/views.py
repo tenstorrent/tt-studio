@@ -35,6 +35,7 @@ from .docker_utils import (
     detect_board_type,
     map_board_type_to_device_name,
     infer_inference_server_device,
+    deploys_whole_board,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
@@ -340,7 +341,17 @@ class DeployView(APIView):
 
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
-            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            board_type = detect_board_type()
+            # Media models (e.g. FLUX) can be inferred as single-chip yet deploy across
+            # a whole multi-chip board because they have no single-chip spec for the
+            # board's constituent chip. The inference server then claims the full mesh,
+            # so we must reserve and record every slot — not just slot 0.
+            mesh_whole_board = (
+                impl.model_type != ModelTypes.CHAT
+                and chips_required == 1
+                and not requested_device_ids
+                and deploys_whole_board(impl, board_type)
+            )
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
@@ -374,9 +385,10 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama or use_whole_board_deploy:
-                    # Whole-board deploy (forced QB2 Llama, or a single-chip model on a
-                    # Wormhole mesh board) takes over the entire board — reserve all slots.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
+                    # Wormhole mesh board, or a media model like FLUX with no single-chip
+                    # spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -433,7 +445,7 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy:
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -467,7 +479,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy:
+            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
