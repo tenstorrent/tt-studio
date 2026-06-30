@@ -4,9 +4,9 @@
 import axios from "axios";
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Layers, Cpu, ArrowLeft } from "lucide-react";
+import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
-import { Step, Stepper } from "./ui/stepper";
+import { Step, Stepper, useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
@@ -14,10 +14,11 @@ import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
 import {
-  isLlama31_8BModel,
-  isP300x2Board,
-  pickPreferredAvailablePair,
-} from "../utils/p300x2Placement";
+  autoPlacement,
+  fullBoardSlots,
+  getModelPlacement,
+  isMultiChipModel,
+} from "../utils/deviceFit";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -38,6 +39,16 @@ export interface Model {
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
 const QB2_BOARD_TYPES = new Set(["P300x2"]);
 
+// Reports the stepper's active step up to the card header (which renders outside
+// the stepper context) so the advanced toggle can be shown only on the deploy step.
+function StepWatcher({ onChange }: { onChange: (step: number) => void }) {
+  const { activeStep } = useStepper();
+  useEffect(() => {
+    onChange(activeStep);
+  }, [activeStep, onChange]);
+  return null;
+}
+
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -51,23 +62,16 @@ export default function StepperDemo() {
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
 
-  // For QB2 boards, hide the hardware config step by default and show a toggle instead.
-  const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
-  const [showHardwareConfig, setShowHardwareConfig] = useState(false);
+  // Model catalog (with per-board compatibility) — used to decide whether the
+  // Voice Agent solution is even deployable on this hardware. null = not loaded yet.
+  const [models, setModels] = useState<Model[] | null>(null);
 
-  // On QB2, auto-enable hardware config when a single-chip model is already deployed
-  // and there is still at least one free slot — lets the user pick which card to use
-  // without needing to find the small toggle.
-  useEffect(() => {
-    if (!isQB2 || !chipStatus) return;
-    const hasOccupiedSingleChip = chipStatus.slots.some(
-      (s) => s.status === "occupied" && !s.is_multi_chip
-    );
-    const hasAvailable = chipStatus.slots.some((s) => s.status === "available");
-    if (hasOccupiedSingleChip && hasAvailable) {
-      setShowHardwareConfig(true);
-    }
-  }, [isQB2, chipStatus]);
+  // QB2 still drives the whisper/speecht5 image-override toggle below.
+  const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
+  // Advanced hardware config is opt-in via the Step 2 toggle (multi-chip boards only).
+  const [showHardwareConfig, setShowHardwareConfig] = useState(false);
+  // Active stepper step, mirrored out via StepWatcher (0 = model selection, 1 = deploy).
+  const [activeStep, setActiveStep] = useState(0);
 
   // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
@@ -88,9 +92,16 @@ export default function StepperDemo() {
     return () => clearInterval(interval);
   }, []);
 
-  // showHardwareConfig drives the 3-step flow only for non-QB2 multi-chip boards by default,
-  // or when the user explicitly enables it via the toggle on QB2.
-  const useHardwareConfigStep = isMultiChipBoard && (!isQB2 || showHardwareConfig);
+  // Fetch the model catalog once to determine Voice Agent availability for this board.
+  useEffect(() => {
+    axios
+      .get(getModelsUrl)
+      .then((res) => setModels(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setModels([])); // on error, treat as no models → single-model only
+  }, []);
+
+  // Advanced config is reachable only after a model is chosen, on multi-chip boards.
+  const advancedActive = isMultiChipBoard && showHardwareConfig;
 
   // No-op function for removing dynamic steps (no dynamic steps in this component)
   const removeDynamicSteps = () => {
@@ -112,7 +123,6 @@ export default function StepperDemo() {
     }
   };
 
-  const [chipMode, setChipMode] = useState<"single" | "multi" | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
@@ -121,25 +131,51 @@ export default function StepperDemo() {
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
 
-  // Once the user confirms hardware config, show a summary on the completed Step 1 node.
-  const hardwareConfigSummary = chipMode
-    ? chipMode === "multi"
-      ? "All devices"
-      : selectedDeviceIds.length > 0
-        ? `Single · Device${selectedDeviceIds.length > 1 ? "s" : ""} ${selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}`
-        : "Single device"
-    : "Hardware Configuration";
+  // Chip requirement of the currently selected model (selectedModel holds the id).
+  const selectedModelChips =
+    models?.find((m) => m.id === selectedModel)?.chips_required ?? 1;
 
-  const steps = useHardwareConfigStep
-    ? [
-      { label: "Step 1", description: hardwareConfigSummary },
-      { label: "Step 2", description: "Model Selection" },
-      { label: "Final Step", description: "Deploy Model" },
-    ]
-    : [
-      { label: "Step 1", description: "Model Selection" },
-      { label: "Final Step", description: "Deploy Model" },
-    ];
+  // Supported device configurations for the selected model (single source of truth).
+  const placement = getModelPlacement(
+    selectedModelName ?? selectedModel ?? "",
+    selectedModelChips,
+    chipStatus?.board_type
+  );
+  // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
+  const isFlexible = placement.cardGroups.length > 0;
+  const allSlotsSelected =
+    selectedDeviceIds.length > 0 && selectedDeviceIds.length === (totalSlots ?? 0);
+  // In auto mode, the best currently-available placement: full board, else a free
+  // card pair (flexible), else the lowest free slot. null when nothing fits.
+  const autoPlace = advancedActive
+    ? null
+    : autoPlacement(placement, selectedModelChips, chipStatus?.slots ?? [], totalSlots ?? 4);
+  // The full-board (force_full_board) flow applies only to flexible models.
+  const fullBoardSelected =
+    isFlexible && (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
+  // Chips the deployment actually occupies (full-board takes every slot).
+  const effectiveChips = fullBoardSelected ? 4 : selectedModelChips;
+  // Devices shown in the deploy preview; undefined means the backend auto-allocates.
+  const previewDeviceIds: number[] | undefined = (() => {
+    if (!advancedActive) return autoPlace?.deviceIds;
+    const board = fullBoardSlots(totalSlots ?? 4);
+    if (placement.allowsFullBoard && !isFlexible) return board; // true multi-chip
+    if (isFlexible) {
+      return fullBoardSelected ? board : selectedDeviceIds.length ? selectedDeviceIds : undefined;
+    }
+    return selectedDeviceIds.length ? selectedDeviceIds : undefined;
+  })();
+  // Auto mode with no available configuration → block deploy with a clear reason.
+  const placementBlocked = !advancedActive && !!chipStatus && autoPlace === null;
+  // Single-device and flexible models in advanced mode need an explicit pick;
+  // true multi-chip models auto-allocate the whole board.
+  const requireDeviceSelection =
+    advancedActive && !isMultiChipModel(selectedModelChips);
+
+  const steps = [
+    { label: "Step 1", description: "Model Selection" },
+    { label: "Final Step", description: "Deploy Model" },
+  ];
 
   // Log when selectedModel changes
   useEffect(() => {
@@ -238,26 +274,13 @@ export default function StepperDemo() {
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
-    const isP300x2Llama31_8B =
-      isP300x2Board(chipStatus?.board_type) &&
-      isLlama31_8BModel(selectedModelName ?? selectedModel ?? "");
-    const shouldUseFullBoardLlamaFlow =
-      isP300x2Llama31_8B && !useHardwareConfigStep;
-    const shouldForceLlamaPair =
-      isP300x2Llama31_8B && !shouldUseFullBoardLlamaFlow;
-    if (shouldForceLlamaPair) {
-      const pair = pickPreferredAvailablePair(chipStatus?.slots);
-      if (!pair) {
-        customToast.error(
-          "Llama 3.1 8B Instruct on P300x2 needs both devices 0 and 1 free."
-        );
-        return { success: false };
-      }
-      resolvedDeviceId = pair.join(",");
-    }
-    if (shouldUseFullBoardLlamaFlow) {
-      // Simplified full-model flow runs Llama 3.1 8B Instruct as full-board p300x2.
+    // Full-board flow omits device_id (force_full_board). Otherwise, in auto mode a
+    // flexible model deploys onto its resolved card pair; manual mode already carries
+    // the picked devices in options.device_id.
+    if (fullBoardSelected) {
       resolvedDeviceId = undefined;
+    } else if (!advancedActive && isFlexible && autoPlace && autoPlace.deviceIds.length > 1) {
+      resolvedDeviceId = autoPlace.deviceIds.join(",");
     }
 
     // Only include device_id when explicitly provided — omitting it lets the backend
@@ -268,7 +291,7 @@ export default function StepperDemo() {
       host_port: options?.host_port ?? null,
       use_image_override: useImageOverride,
     };
-    if (shouldUseFullBoardLlamaFlow) {
+    if (fullBoardSelected) {
       payloadObj.force_full_board = true;
     }
     if (resolvedDeviceId !== undefined) {
@@ -356,8 +379,32 @@ export default function StepperDemo() {
     }
   };
 
+  // Wait until the model catalog is known before deciding what to offer — avoids
+  // flashing the Solutions card (or the single flow) before per-board compatibility
+  // is resolved.
+  if (models === null) {
+    return (
+      <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
+        <div className="p-8 text-sm text-gray-500 font-mono animate-pulse">
+          Detecting hardware...
+        </div>
+      </div>
+    );
+  }
+
+  // The Voice Agent solution needs a board-compatible LLM, STT and TTS model. On
+  // hardware that can't run all three (e.g. P100, where only the LLM is supported),
+  // hide the Solutions card and offer single-model deployment only.
+  const hasCompatType = (t: string) =>
+    models.some((m) => m.model_type === t && m.is_compatible === true);
+  const voiceAgentAvailable =
+    hasCompatType("chat") &&
+    hasCompatType("speech_recognition") &&
+    hasCompatType("tts");
+  const effectiveMode = voiceAgentAvailable ? deployMode : "single";
+
   // Mode selector — show when no mode chosen yet
-  if (deployMode === null) {
+  if (effectiveMode === null) {
     return (
       <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
         <ElevatedCard
@@ -419,7 +466,7 @@ export default function StepperDemo() {
   }
 
   // Solutions mode
-  if (deployMode === "solution") {
+  if (effectiveMode === "solution") {
     return (
       <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
         <ElevatedCard accent="neutral" depth="lg" hover className="h-auto py-4 px-8 md:px-12 lg:px-16">
@@ -477,62 +524,39 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* QB2 hardware config toggle — only shown on P300x2 boards */}
-        {isQB2 && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showHardwareConfig}
-            onClick={() => {
-              setShowHardwareConfig((v: boolean) => !v);
-              // Reset chip mode when toggling off
-              if (showHardwareConfig) setChipMode(null);
-            }}
-            className={`group flex items-center justify-between gap-3 w-full px-4 py-3 mb-4 rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent/50 ${
-              showHardwareConfig
-                ? "border-TT-purple-accent/70 bg-TT-purple/10 hover:bg-TT-purple/15 shadow-[0_0_18px_rgba(124,104,250,0.15)]"
-                : "border-TT-purple-accent/30 bg-TT-purple/5 hover:border-TT-purple-accent/60 hover:bg-TT-purple/10"
-            }`}
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className={`p-2 rounded-md transition-colors ${
+        {(voiceAgentAvailable || (isMultiChipBoard && activeStep === 1)) && (
+          <div className="flex items-center mb-4">
+            {voiceAgentAvailable && (
+              <button
+                onClick={() => setDeployMode(null)}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
+              </button>
+            )}
+            {isMultiChipBoard && activeStep === 1 && (
+              <button
+                type="button"
+                aria-expanded={showHardwareConfig}
+                onClick={() => {
+                  setShowHardwareConfig((v: boolean) => !v);
+                  if (showHardwareConfig) setSelectedDeviceIds([]);
+                }}
+                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${
                   showHardwareConfig
-                    ? "bg-TT-purple-accent/20 text-TT-purple-accent"
-                    : "bg-TT-purple/10 text-TT-purple-accent/80 group-hover:bg-TT-purple-accent/20 group-hover:text-TT-purple-accent"
+                    ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Cpu className="w-4 h-4" />
-              </div>
-              <div className="text-left min-w-0">
-                <div className="text-sm font-semibold text-foreground leading-tight">
-                  Advanced: Configure Hardware
-                </div>
-                <div className="text-xs text-muted-foreground leading-tight mt-0.5">
-                  Manually choose which devices this model deploys to
-                </div>
-              </div>
-            </div>
-            <span
-              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
-                showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                  showHardwareConfig ? "translate-x-4" : "translate-x-0"
-                }`}
-              />
-            </span>
-          </button>
+                <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
+                <span>Advanced device configuration</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${showHardwareConfig ? "rotate-180" : ""}`}
+                />
+              </button>
+            )}
+          </div>
         )}
-
-        <button
-          onClick={() => setDeployMode(null)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
-        </button>
         <Stepper
           variant="circle-alt"
           initialStep={0}
@@ -546,17 +570,8 @@ export default function StepperDemo() {
               description={step.description}
               className="mb-4"
             >
-              {/* Hardware config step — only in full multi-chip flow */}
-              {useHardwareConfigStep && step.label === "Step 1" && (
-                <ChipConfigStep
-                  onConfirm={(mode, slotIds) => {
-                    setChipMode(mode);
-                    setSelectedDeviceIds(slotIds);
-                  }}
-                />
-              )}
-              {/* Model selection with chipMode filter — full multi-chip flow */}
-              {useHardwareConfigStep && step.label === "Step 2" && (
+              {/* Step 1 — model selection, greying out models that can't fit free devices */}
+              {step.label === "Step 1" && (
                 <FirstStepForm
                   setSelectedModel={(modelId: string) => {
                     console.log("🔄 setSelectedModel called with:", modelId);
@@ -566,32 +581,33 @@ export default function StepperDemo() {
                   setFormError={setFormError}
                   autoDeployModel={autoDeployModel}
                   isAutoDeploying={isAutoDeploying}
-                  chipMode={chipMode ?? undefined}
+                  chipStatus={chipStatus}
                 />
               )}
-              {/* Model selection without chipMode filter — simplified flow (single-chip boards + QB2 default) */}
-              {!useHardwareConfigStep && step.label === "Step 1" && (
-                <FirstStepForm
-                  setSelectedModel={(modelId: string) => {
-                    console.log("🔄 setSelectedModel called with:", modelId);
-                    setSelectedModel(modelId);
-                  }}
-                  onModelNameChange={setSelectedModelName}
-                  setFormError={setFormError}
-                  autoDeployModel={autoDeployModel}
-                  isAutoDeploying={isAutoDeploying}
-                />
-              )}
-              {/* Deploy step — pass selectedDeviceIds only when hardware config was shown */}
+              {/* Final step — optional advanced hardware config, then deploy */}
               {step.label === "Final Step" && (
-                <DeployModelStep
-                  selectedModel={selectedModel}
-                  handleDeploy={handleDeploy}
-                  selectedDeviceIds={useHardwareConfigStep ? selectedDeviceIds : undefined}
-                />
+                <>
+                  {advancedActive && (
+                    <ChipConfigStep
+                      placement={placement}
+                      onConfirm={setSelectedDeviceIds}
+                    />
+                  )}
+                  <DeployModelStep
+                    selectedModel={selectedModel}
+                    handleDeploy={handleDeploy}
+                    selectedDeviceIds={advancedActive ? selectedDeviceIds : undefined}
+                    chipsRequired={effectiveChips}
+                    previewDeviceIds={previewDeviceIds}
+                    requireDeviceSelection={requireDeviceSelection}
+                    deviceAutoSelected={!advancedActive}
+                    placementBlocked={placementBlocked}
+                  />
+                </>
               )}
             </Step>
           ))}
+          <StepWatcher onChange={setActiveStep} />
           <div className="py-12">
             <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>

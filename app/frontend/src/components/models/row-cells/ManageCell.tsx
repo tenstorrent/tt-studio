@@ -27,6 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../../ui/tooltip";
+import { useIsResetting } from "../../../hooks/useIsResetting";
 
 interface Props {
   id: string;
@@ -59,6 +60,16 @@ export default React.memo(function ManageCell({
   isCurrentlyDeleting = false,
   onOpenLogs,
 }: Props) {
+  // A board/device reset is in progress: block destructive + log-tailing actions
+  // everywhere so the user can't fight an in-flight reset.
+  const isResetting = useIsResetting();
+  const deleteDisabled = deleteInProgress || isResetting;
+  const deleteDisabledReason = isResetting
+    ? "The board is resetting. Wait for it to finish before deleting a model."
+    : "A model is currently being deleted. Please wait for it to finish before starting another destructive action.";
+  const resettingTitle = isResetting
+    ? "Disabled while the board is resetting"
+    : undefined;
   const baseBtn =
     "group/btn rounded-full border pl-4 pr-6 py-2 text-sm font-medium transition-all duration-200 inline-flex items-center gap-2 hover:ring-1 hover:ring-current min-h-[36px] leading-none";
   const blueBtn =
@@ -107,6 +118,8 @@ export default React.memo(function ManageCell({
             icon={ScrollText}
             iconPlacement="left"
             onClick={() => onOpenLogs(id)}
+            disabled={isResetting}
+            title={resettingTitle}
             className={`${baseBtn} !border-TT-purple-accent/60 !text-TT-purple-accent/90`}
           >
             Logs
@@ -135,7 +148,7 @@ export default React.memo(function ManageCell({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-        ) : deleteInProgress ? (
+        ) : deleteDisabled ? (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -156,7 +169,7 @@ export default React.memo(function ManageCell({
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
                 <p className="text-sm">
-                  A model is currently being deleted. Please wait for it to finish before starting another destructive action.
+                  {deleteDisabledReason}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -214,6 +227,8 @@ export default React.memo(function ManageCell({
           const evt = new CustomEvent("row:logs", { detail: { id } });
           window.dispatchEvent(evt);
         }}
+        disabled={isResetting}
+        title={resettingTitle}
         className={`${baseBtn} !border-TT-purple-accent/60 !text-TT-purple-accent/90`}
       >
         Logs
@@ -241,7 +256,7 @@ export default React.memo(function ManageCell({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      ) : deleteInProgress ? (
+      ) : deleteDisabled ? (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -262,7 +277,7 @@ export default React.memo(function ManageCell({
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <p className="text-sm">
-                A model is currently being deleted. Please wait for it to finish before starting another destructive action.
+                {deleteDisabledReason}
               </p>
             </TooltipContent>
           </Tooltip>

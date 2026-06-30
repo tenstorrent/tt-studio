@@ -9,10 +9,10 @@ This directory contains development tools and utilities for the TT-Studio projec
 To run TT-Studio with minimal setup from the project root:
 
 ```bash
-python3 run.py --easy
+python3 run.py
 ```
 
-Easy mode only prompts for your Hugging Face token and uses defaults for everything else. See the [main README](../README.md) and [run.py guide](../dev-docs/run-py-guide.md) for details.
+By default the setup only prompts for your Hugging Face token and uses defaults for everything else. To interactively configure all environment variables instead, run `python3 run.py --configure-env`. See the [main README](../README.md) and [run.py guide](../dev-docs/run-py-guide.md) for details.
 
 ## SPDX Header Tool
 

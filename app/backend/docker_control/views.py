@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import os
 import asyncio
+import threading
 import concurrent.futures
 import requests
 import json
@@ -34,11 +35,14 @@ from .docker_utils import (
     detect_board_type,
     map_board_type_to_device_name,
     infer_inference_server_device,
+    deploys_whole_board,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
+    WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, resolve_deploy_image
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -304,6 +308,13 @@ class ChipStatusView(APIView):
 
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
+        # Block new deployments while a board/device reset is in progress — deploying
+        # mid-reset conflicts with the hardware re-init and model teardown.
+        if SystemResourceService.is_reset_in_progress():
+            return Response(
+                {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
@@ -330,7 +341,17 @@ class DeployView(APIView):
 
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
-            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            board_type = detect_board_type()
+            # Media models (e.g. FLUX) can be inferred as single-chip yet deploy across
+            # a whole multi-chip board because they have no single-chip spec for the
+            # board's constituent chip. The inference server then claims the full mesh,
+            # so we must reserve and record every slot — not just slot 0.
+            mesh_whole_board = (
+                impl.model_type != ModelTypes.CHAT
+                and chips_required == 1
+                and not requested_device_ids
+                and deploys_whole_board(impl, board_type)
+            )
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
@@ -344,36 +365,30 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # Stop and clean up any existing starting/running deployments of this
-            # model before deploying a new instance. Prevents stale records with
-            # wrong device_id from persisting in the UI after a re-deploy.
-            try:
-                from docker_control.models import ModelDeployment
-                from docker_control.docker_utils import stop_container
-                stale = list(ModelDeployment.objects.filter(
-                    model_name=impl.model_name,
-                    status__in=["starting", "running"],
-                ))
-                for old_dep in stale:
-                    try:
-                        stop_container(old_dep.container_id)
-                    except Exception:
-                        pass
-                    old_dep.status = "stopped"
-                    old_dep.save()
-                    logger.info(
-                        f"Cleaned up stale deployment record {old_dep.id} "
-                        f"for {impl.model_name} (container_id={old_dep.container_id})"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
+            # On Wormhole mesh boards a single-chip-capable model deploys across the whole
+            # board by default; only an explicit slot selection ("1 Device") pins it to a
+            # single constituent chip. Per-chip-default boards (e.g. P300x2) are excluded.
+            use_whole_board_deploy = (
+                impl.model_type == ModelTypes.CHAT
+                and not should_force_full_board_llama
+                and chips_required == 1
+                and not requested_device_ids
+                and board_type in WHOLE_BOARD_DEFAULT_BOARDS
+            )
+
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available. Slot allocation below enforces capacity and the
+            # canonical reconciliation frees genuinely stale records, so we must not
+            # stop existing same-model deployments here.
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama:
-                    # Simplified QB2 Llama full-board path must reserve all slots.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
+                    # Wormhole mesh board, or a media model like FLUX with no single-chip
+                    # spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -430,8 +445,8 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama:
-                    # Forced full-board Llama takes over every slot on the board.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
                     # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
@@ -464,7 +479,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama:
+            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -477,32 +492,58 @@ class DeployView(APIView):
                     device = "p300x2"
                     inference_device_id = None
                 else:
-                    if chips_required == 1:
-                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    else:
+                    if chips_required > 1 or use_whole_board_deploy:
+                        # Genuinely multi-chip model, or a single-chip model deploying
+                        # across a whole Wormhole mesh board — use the board-level device.
                         device = map_board_type_to_device_name(board_type)
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
+                    else:
+                        # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
+                        # use the single constituent chip device.
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
+                    # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
                         board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
+                        and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
-                    # For P300x2 with the whole-board p300x2 device, the inference
-                    # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
-                    # lands on its allocated slot(s).
-                    if board_type == "P300x2" and device == "p300x2":
+                    # When using a multi-chip whole-board device (e.g. t3k, p300x2,
+                    # p150x4), the inference server selects the physical chips itself —
+                    # omit device_id. Single-board devices (n300/n150/p150) and slot-pinned
+                    # constituent chips keep device_id so each model lands on its slot(s).
+                    whole_board_device = map_board_type_to_device_name(board_type)
+                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    is_multi_chip_board = whole_board_device != single_chip_device
+                    if device == whole_board_device and is_multi_chip_board:
                         inference_device_id = None
                     else:
-                        inference_device_id = device_ids_str
+                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
-                # Some Llama models need a newer image than the inference server's model_spec default 
+                # Enable vLLM tool calling for chat-completions models so coding
+                # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
+                # Only for /v1/chat/completions models with a known parser — base
+                # (/v1/completions) models and unknown families are left untouched.
+                vllm_override_args = None
+                if impl.service_route == "/v1/chat/completions":
+                    overrides = {}
+                    tool_parser = tool_call_parser_for(
+                        impl.model_name, getattr(impl, "hf_model_id", "")
+                    )
+                    if tool_parser:
+                        overrides["enable-auto-tool-choice"] = True
+                        overrides["tool-call-parser"] = tool_parser
+                    # Reasoning models: split thinking into reasoning_content.
+                    reasoning_parser = get_reasoning_parser(impl.model_name)
+                    if reasoning_parser:
+                        overrides["reasoning-parser"] = reasoning_parser
+                    if overrides:
+                        vllm_override_args = json.dumps(overrides)
+                # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None
                 if impl.model_name in {
@@ -523,6 +564,7 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     dev_mode=False,
+                    vllm_override_args=vllm_override_args,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -553,7 +595,7 @@ class DeployView(APIView):
                             model_name=impl.model_name,
                             device=device,
                             device_id=device_id,
-                            device_ids=device_ids,
+                            device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
                         )
@@ -879,6 +921,7 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 docker_log_path = progress_data.get("docker_log_file_path")
                 if docker_log_path:
                     dep.workflow_log_path = docker_log_path
@@ -1070,19 +1113,19 @@ class DeploymentProgressView(APIView):
                         status=status.HTTP_200_OK
                     )
 
-                # Based on FastAPI logs - realistic timing for each stage
+                # Based on model run logs - realistic timing for each stage
                 if elapsed_time < 3:
                     progress = 5
                     stage = "initialization"
-                    message = "Loading environment files..."  # fastapi.log (13-14)
+                    message = "Loading environment files..."  # model_run.log (13-14)
                 elif elapsed_time < 8:
                     progress = 15
                     stage = "setup"
-                    message = "Running workflow configuration..."  # fastapi.log (19-27)
+                    message = "Running workflow configuration..."  # model_run.log (19-27)
                 elif elapsed_time < 15:
                     progress = 25
                     stage = "model_preparation"
-                    message = "Checking model setup and weights..."  # fastapi.log (83-91)
+                    message = "Checking model setup and weights..."  # model_run.log (83-91)
                 elif elapsed_time < 25:
                     progress = 40
                     stage = "model_preparation"
@@ -1090,7 +1133,7 @@ class DeploymentProgressView(APIView):
                 elif elapsed_time < 35:
                     progress = 55
                     stage = "container_setup"
-                    message = "Preparing Docker configuration..."  # fastapi.log (100-113)
+                    message = "Preparing Docker configuration..."  # model_run.log (100-113)
                 elif elapsed_time < 45:
                     progress = 70
                     stage = "container_setup"
@@ -1704,39 +1747,42 @@ class DockerServiceLogsView(APIView):
             
             # Also try to get system logs if available
             try:
-                # Check if fastapi.log exists in multiple possible locations using relative paths
-                possible_fastapi_logs = [
-                    "fastapi.log",  # Current directory
-                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-                    "/app/fastapi.log",  # Container path as fallback
+                # Check if model_run.log exists in multiple possible locations using relative paths
+                possible_model_run_logs = [
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+                    "logs/model_run.log",  # Relative to current directory
+                    os.path.join(os.getcwd(), "model_run.log"),  # Current working directory
+                    "/app/model_run.log",  # Container path as fallback
+                    # Legacy fastapi.log locations (pre-rename) kept for backward compatibility
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"),
+                    "logs/fastapi.log",
+                    "fastapi.log",
+                    "/app/fastapi.log",
                 ]
-                
-                fastapi_log_found = False
-                for fastapi_log_path in possible_fastapi_logs:
-                    if os.path.exists(fastapi_log_path):
+
+                model_run_log_found = False
+                for model_run_log_path in possible_model_run_logs:
+                    if os.path.exists(model_run_log_path):
                         try:
-                            with open(fastapi_log_path, 'r') as f:
+                            with open(model_run_log_path, 'r') as f:
                                 lines = f.readlines()
                                 # Get last 8 lines and limit size
                                 log_content = ''.join(lines[-8:])
                                 if len(log_content) > 800:
                                     log_content = log_content[-800:] + "\n\n... (truncated)"
-                                logs_data["fastapi"] = log_content
-                            fastapi_log_found = True
+                                logs_data["model_run"] = log_content
+                            model_run_log_found = True
                             break
                         except Exception as read_error:
-                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                            logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
                             continue
-                
-                if not fastapi_log_found:
-                    logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
-                    
+
+                if not model_run_log_found:
+                    logs_data["model_run"] = "model_run.log not accessible from container (logs available from Docker containers above)"
+
             except Exception as e:
-                logger.error(f"Error reading fastapi.log: {str(e)}")
-                logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"
+                logger.error(f"Error reading model_run.log: {str(e)}")
+                logs_data["model_run"] = f"Error reading model_run.log: {str(e)[:500]}"
             
             # Try to get backend log file if available
             try:
@@ -2522,41 +2568,46 @@ class StopStreamView(View):
         async def generate():
             yield "retry: 1000\n\n"
             truncated = container_id[:12]
-
-            # Step 1: stop and remove the container.
-            yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
             try:
-                async for msg in _astream_stop_remove_container(container_id, truncated):
-                    yield _sse_event({"type": "log", "step": "deleting", "message": msg})
-            except _StopFailed as e:
-                yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
-                return
+                # Step 1: stop and remove the container.
+                yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+                try:
+                    async for msg in _astream_stop_remove_container(container_id, truncated):
+                        yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+                except _StopFailed as e:
+                    yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
+                    return
 
-            # Stop-only: leave the chips for a later whole-board reset.
-            if skip_device_reset:
-                await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
-                return
+                # Stop-only: leave the chips for a later whole-board reset.
+                if skip_device_reset:
+                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                    yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                    return
 
-            # Step 2: reset the chips this model occupied.
-            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
-            if not device_ids:
-                yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
-                return
+                # Step 2: reset the chips this model occupied.
+                device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+                if not device_ids:
+                    yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                    yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                    return
 
-            label = ", ".join(str(d) for d in device_ids)
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=True,
-                success_msg=f"Model deleted and device(s) {label} reset successfully",
-                partial_msg=(
-                    f"Model deleted, but reset of device(s) {label} did not complete "
-                    "successfully. Manual intervention may be required."
-                ),
-            ):
-                yield event
+                label = ", ".join(str(d) for d in device_ids)
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=True,
+                    success_msg=f"Model deleted and device(s) {label} reset successfully",
+                    partial_msg=(
+                        f"Model deleted, but reset of device(s) {label} did not complete "
+                        "successfully. Manual intervention may be required."
+                    ),
+                ):
+                    yield event
+            except Exception as e:
+                # Never let the stream die without a terminal event; the client
+                # treats an abrupt close as "Connection to stream lost".
+                logger.error(f"Stop stream for {truncated} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Stop failed: {e}"})
 
         return _sse_response(generate())
 
@@ -2573,16 +2624,174 @@ class ResetStreamView(View):
 
         async def generate():
             yield "retry: 1000\n\n"
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=False,
-                success_msg=f"Reset of {label} completed successfully",
-                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-            ):
-                yield event
+            try:
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=False,
+                    success_msg=f"Reset of {label} completed successfully",
+                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                ):
+                    yield event
+            except Exception as e:
+                # Always emit a terminal event so the client never sees an abrupt
+                # close ("Connection to stream lost") on an unexpected failure.
+                logger.error(f"Reset stream for {label} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
 
         return _sse_response(generate())
+
+
+# --- Whole-board "Reset All" as a background job (no SSE) ----------------------
+#
+# A multi-model board reset used to run as N concurrent `stop/stream` EventSources
+# followed by a `reset_board/stream`; any one stream closing surfaced as
+# "Connection to stream lost." and aborted the reset before `tt-smi -r` ran.
+# Instead, the reset now runs as a detached task: the frontend starts it with one
+# POST and polls /reset_all/status/. No EventSource → that failure mode is gone.
+# Progress is persisted to a small JSON file on the shared backend volume so a
+# status poll served by any uvicorn worker observes the same state.
+
+_RESET_ALL_STATE_PATH = Path(backend_config.backend_cache_root) / "reset_all_status.json"
+_reset_all_write_lock = threading.Lock()
+_reset_all_task = None  # holds a reference so the detached task isn't garbage-collected
+
+
+def _reset_all_read_state():
+    try:
+        with open(_RESET_ALL_STATE_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _reset_all_write_state(state):
+    from django.utils import timezone
+    state["updated_at"] = timezone.now().isoformat()
+    tmp = _RESET_ALL_STATE_PATH.with_name(_RESET_ALL_STATE_PATH.name + ".tmp")
+    with _reset_all_write_lock:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _RESET_ALL_STATE_PATH)
+
+
+async def _run_reset_all_job():
+    """Stop every deployed model (verified), then reset the whole board.
+
+    Reuses the same building blocks the per-model SSE delete path uses, writing
+    progress to the shared state file after each step.
+    """
+    from django.utils import timezone
+    state = {
+        "step": "deleting",
+        "logs": [],
+        "done": False,
+        "ok": False,
+        "error": None,
+        "deleted": [],
+        "remaining": [],
+        "started_at": timezone.now().isoformat(),
+    }
+
+    def _log(message):
+        state["logs"].append(message)
+        _reset_all_write_state(state)
+
+    _reset_all_write_state(state)
+    try:
+        # Phase 1: stop & remove every deployed model, then verify and retry any
+        # survivors so a model is never left running.
+        targets = await asyncio.to_thread(get_container_status)
+        names = {cid: info.get("name", cid[:12]) for cid, info in targets.items()}
+        _log(f"Stopping {len(targets)} deployed model(s)…")
+        for cid in list(targets):
+            try:
+                async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                    _log(msg)
+            except _StopFailed as e:
+                _log(f"{names.get(cid, cid[:12])}: {e}")
+
+        MAX_ROUNDS = 3
+        remaining = await asyncio.to_thread(get_container_status)
+        for round_no in range(1, MAX_ROUNDS + 1):
+            if not remaining:
+                break
+            _log(f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…")
+            for cid in list(remaining):
+                names.setdefault(cid, remaining[cid].get("name", cid[:12]))
+                try:
+                    async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                        _log(msg)
+                except _StopFailed as e:
+                    _log(f"{names.get(cid, cid[:12])}: {e}")
+            remaining = await asyncio.to_thread(get_container_status)
+
+        state["remaining"] = [info.get("name", cid[:12]) for cid, info in remaining.items()]
+        state["deleted"] = [n for cid, n in names.items() if cid not in remaining]
+        if remaining:
+            state["step"] = "done"
+            state["done"] = True
+            state["ok"] = False
+            state["error"] = "Could not delete: " + ", ".join(state["remaining"])
+            _reset_all_write_state(state)
+            return
+
+        # Phase 2: reset the whole board (only once every model is gone).
+        state["step"] = "resetting"
+        _log("All models stopped — resetting board…")
+        reset_ok = False
+        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+            if kind == "log":
+                _log(payload)
+            else:
+                reset_ok = bool(payload)
+
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = reset_ok
+        if not reset_ok:
+            state["error"] = "Board reset did not complete successfully. Manual intervention may be required."
+        _reset_all_write_state(state)
+    except Exception as e:
+        logger.exception("reset_all job failed")
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = False
+        state["error"] = f"Reset failed: {e}"
+        _reset_all_write_state(state)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StartResetAllView(View):
+    """Start a whole-board reset (stop all models, then `tt-smi -r`) as a detached
+    background job. Returns immediately; progress is read via ResetAllStatusView."""
+
+    async def post(self, request, *args, **kwargs):
+        global _reset_all_task
+        # Idempotent: if a reset is already in flight (fresh, not-done state),
+        # don't launch a second `tt-smi -r`.
+        existing = await asyncio.to_thread(_reset_all_read_state)
+        if existing is not None and not existing.get("done"):
+            from django.utils import timezone
+            from django.utils.dateparse import parse_datetime
+            updated = parse_datetime(existing.get("updated_at") or "")
+            if updated is not None and (timezone.now() - updated).total_seconds() < 120:
+                return JsonResponse({"status": "already_running"}, status=202)
+        _reset_all_task = asyncio.create_task(_run_reset_all_job())
+        return JsonResponse({"status": "started"}, status=202)
+
+
+class ResetAllStatusView(View):
+    """Return the current whole-board reset progress snapshot."""
+
+    def get(self, request, *args, **kwargs):
+        state = _reset_all_read_state()
+        if state is None:
+            return JsonResponse({
+                "step": "idle", "logs": [], "done": True, "ok": True,
+                "error": None, "deleted": [], "remaining": [],
+            })
+        return JsonResponse(state)
 
 
 class AvailableDevicesView(APIView):
