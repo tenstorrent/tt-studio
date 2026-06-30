@@ -48,8 +48,8 @@
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
       "inference_engine": "media",
       "status": "COMPLETE",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9",
+      "version": "0.17.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
       "env_vars": {
@@ -454,8 +454,8 @@
         "text"
       ],
       "status": "COMPLETE",
-      "version": "0.15.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix",
+      "version": "0.17.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
       "service_route": "/v1/videos/generations",
       "health_route": "/health",
       "shm_size": "32G",
