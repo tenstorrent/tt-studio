@@ -28,7 +28,7 @@ services:
     stdin_open: true
     tty: true
     environment:
-      # env vars are defined in .env file, use .env.default as template
+      # env vars come from the repo-root .env (run.py passes it via --env-file); .env.default is the template
       # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
       # be extremely slow/hang here and stall the embedding-model download on boot.
       - HF_HUB_DISABLE_XET=1
@@ -61,14 +61,18 @@ services:
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
+      # LiteLLM coding-agent gateway
+      - LITELLM_MASTER_KEY
+      - LITELLM_UPSTREAM_KEY
+      - LITELLM_PORT
     volumes:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
-      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
-      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
+      # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs
+      - ${TT_STUDIO_ROOT}/logs/model_run_logs:${TT_STUDIO_ROOT}/logs/model_run_logs:ro
       # Persist the Hugging Face cache so the embedding model (all-MiniLM-L6-v2)
       # is downloaded once and survives container recreation on subsequent run.py.
       - hf_cache:/root/.cache/huggingface
@@ -129,6 +133,32 @@ services:
       timeout: 60s
       interval: 10s
       retries: 3
+      start_period: 30s
+
+  tt_studio_litellm:
+    hostname: tt-studio-litellm
+    # Pinned by digest for reproducibility; bump intentionally (current: main-stable)
+    image: ghcr.io/berriai/litellm:main-stable@sha256:89ccaccfda9083f7693777597ca27f8ffca12045e4fa9277155fb7c5f06e68b2
+    container_name: tt_studio_litellm
+    networks:
+      - tt_studio_network
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    environment:
+      - LITELLM_MASTER_KEY
+      - LITELLM_UPSTREAM_KEY
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness').status==200 else 1)\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
       start_period: 30s
 
   tt_studio_chroma:

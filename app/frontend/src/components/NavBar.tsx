@@ -17,8 +17,10 @@ import {
   ScanFace,
   ChevronRight,
   ChevronLeft,
+  Video,
   type LucideIcon,
   History,
+  Terminal,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -171,9 +173,8 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
-          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${
-            isDisabled ? "opacity-50 cursor-not-allowed" : ""
-          } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
+          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""
+            } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
         >
           <Icon
             className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
@@ -203,7 +204,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       return onClick ? (
         <ResetIcon onReset={onClick} />
       ) : (
-        <ResetIcon onReset={() => {}} />
+        <ResetIcon onReset={() => { }} />
       );
       // HelpIcon handling removed
     } else {
@@ -258,7 +259,7 @@ export default function NavBar() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models, refreshModels, hasDeployedModels } = useModels();
+  const { models, refreshModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -285,10 +286,19 @@ export default function NavBar() {
     return hasLlm && hasStt && hasTts;
   }, [models]);
 
-  // Check if we're in Chat UI or Image Generation mode
+  // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
+  // supports native tool calling. Eligibility is decided by the backend (SSOT:
+  // shared_config.coding_agent_config) and surfaced per-deployment as a flag.
+  const isCodingAgentReady = useMemo(
+    () => models.some((m) => m.coding_agent_eligible),
+    [models],
+  );
+
+  // Check if we're in Chat UI, Image Generation, or Video Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+  const isVideoGeneration = location.pathname === "/video-generation";
+  const shouldUseVerticalNav = isChatUI || isImageGeneration || isVideoGeneration;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -367,9 +377,8 @@ export default function NavBar() {
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
 
   const getNavLinkClass = (isActive: boolean): string => {
-    return `${navLinkClass} ${
-      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
-    } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
+    return `${navLinkClass} ${isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
+      } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
   };
 
   const handleReset = (): void => {
@@ -416,7 +425,7 @@ export default function NavBar() {
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
-        return BotMessageSquare;
+        return Video;
       case ModelType.ObjectDetectionModel:
       case ModelType.CNN:
         return Eye;
@@ -487,17 +496,30 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    // Coding Agents is only shown when a coding-agent-eligible model is deployed
+    ...(isCodingAgentReady
+      ? [
+        {
+          type: "link" as const,
+          to: "/coding-agents",
+          icon: Terminal,
+          label: "Coding Agents",
+          tooltip:
+            "Connect Claude Code or any OpenAI client to your models",
+        },
+      ]
+      : []),
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
-          {
-            type: "link" as const,
-            to: "/voice-agent",
-            icon: Mic,
-            label: "Voice Agent",
-            tooltip: "Full conversational AI interface with voice chat",
-          },
-        ]
+        {
+          type: "link" as const,
+          to: "/voice-agent",
+          icon: Mic,
+          label: "Voice Agent",
+          tooltip: "Full conversational AI interface with voice chat",
+        },
+      ]
       : []),
   ];
 
@@ -620,19 +642,11 @@ export default function NavBar() {
     //   tooltipText: "Toggle Dark/Light Mode",
     //   onClick: null, // ModeToggle handles its own click
     // },
-    // Hide the board reset button while any model is deployed. Resetting
-    // interrupts running deployments, and the reset path is unreliable on
-    // some machines while a model is active, so only expose it when the
-    // board is idle (no deployed models).
-    ...(isDeployedEnabled || hasDeployedModels
-      ? []
-      : [
-          {
-            icon: ResetIcon,
-            tooltipText: "Reset Board",
-            onClick: handleReset,
-          },
-        ]),
+    {
+      icon: ResetIcon,
+      tooltipText: "Reset Board",
+      onClick: handleReset,
+    },
   ];
 
   // Render vertical navbar for chat UI mode or image generation (regardless of device)

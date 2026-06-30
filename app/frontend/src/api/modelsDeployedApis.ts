@@ -115,6 +115,7 @@ export interface CanonicalDeployment {
   device_id: number | null;
   device_ids: number[] | null;
   model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  coding_agent_eligible?: boolean;  // Backend SSOT: usable via the coding-agent gateway.
   model_impl: {
     model_name?: string;
     hf_model_id?: string;
@@ -236,8 +237,10 @@ export interface SSEResult {
 /**
  * Consume a backend SSE stream until its `complete` event.
  * Calls onLog per `log` line and onStep per `step` change; resolves with the
- * final status and full output. Rejects on connection loss or a 3-minute timeout.
+ * final status and full output. Rejects on connection loss or if the whole stream exceeds STREAM_TIMEOUT_MS.
  */
+const STREAM_TIMEOUT_MS = 300_000; // 5 min — comfortably above the worst-case reset
+
 export const consumeSSE = (
   url: string,
   onLog?: (line: string) => void,
@@ -249,7 +252,7 @@ export const consumeSSE = (
     const timer = window.setTimeout(() => {
       es.close();
       reject(new Error("Stream timed out — the backend may still be processing."));
-    }, 180_000);
+    }, STREAM_TIMEOUT_MS);
     const done = (fn: () => void) => {
       window.clearTimeout(timer);
       es.close();
@@ -296,6 +299,33 @@ export const deleteModel = async (
   }
 };
 
+/** Progress snapshot for a whole-board "Reset All" background job. */
+export interface ResetAllStatus {
+  step: string; // "idle" | "deleting" | "resetting" | "done"
+  logs: string[];
+  done: boolean;
+  ok: boolean;
+  error: string | null;
+  deleted: string[];
+  remaining: string[];
+}
+
+/**
+ * Start a whole-board reset (stop all models, then reset the board) as a backend
+ * background job. Returns immediately; poll getResetAllStatus() for progress.
+ * Plain request/response — no EventSource, so it cannot fail with
+ * "Connection to stream lost."
+ */
+export const startResetAll = async (): Promise<void> => {
+  await axios.post(`${dockerAPIURL}reset_all/`);
+};
+
+/** Read the current whole-board reset progress. */
+export const getResetAllStatus = async (): Promise<ResetAllStatus> => {
+  const { data } = await axios.get<ResetAllStatus>(`${dockerAPIURL}reset_all/status/`);
+  return data;
+};
+
 export const handleRedeploy = (modelName: string): void => {
   customToast.success(`Model ${modelName} has been redeployed.`);
 };
@@ -328,7 +358,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
-      return "/chat"; // placeholder until video UI exists
+      return "/video-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
@@ -631,6 +661,29 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
     return Object.values(models) as CatalogModel[];
   }
   return [];
+};
+
+// Coding-agent gateway (LiteLLM)
+export interface CodingAgentModel {
+  name: string;
+  type: string;
+}
+
+export interface CodingAgentsInfo {
+  litellm_enabled: boolean;
+  health: "healthy" | "unreachable" | "disabled";
+  gateway_port: number;
+  openai_base_path: string;
+  master_key: string;
+  models: CodingAgentModel[];
+}
+
+export const fetchCodingAgentsInfo = async (): Promise<CodingAgentsInfo> => {
+  const response = await axios.get<CodingAgentsInfo>(`${modelAPIURL}coding-agents/`, {
+    timeout: 10000,
+    headers: { "Cache-Control": "no-cache" },
+  });
+  return response.data;
 };
 
 // Utility to extract short model name from container name

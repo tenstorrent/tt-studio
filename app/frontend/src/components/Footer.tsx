@@ -15,7 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { getBuildInfo } from "../api/githubApi";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
 import { cn } from "../lib/utils";
@@ -54,6 +54,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const badgeWrapperRef = useRef<HTMLDivElement>(null);
   const { models } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
+  // Global, backend-sourced reset indicator — visible on every page.
+  const isResetting = deviceState?.state === "RESETTING";
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -168,7 +170,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   // starts after the 64px (w-16) sidebar instead of overlapping it.
   const hasVerticalNav =
     location.pathname === "/chat" ||
-    location.pathname === "/image-generation";
+    location.pathname === "/image-generation" ||
+    location.pathname === "/video-generation";
   const footerLeft = hasVerticalNav ? "left-16" : "left-0";
 
   // Derive board info from DeviceStateContext
@@ -409,6 +412,17 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                     />
                   </svg>
                 </a>
+                {isResetting && (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/15 dark:bg-blue-500/25"
+                    title="A board reset is in progress — destructive actions are paused"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+                    <span className="text-sm font-medium text-blue-300">
+                      Resetting…
+                    </span>
+                  </div>
+                )}
                 {boardName?.toLowerCase().includes("t3k") ? (
                   <div
                     className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"

@@ -15,6 +15,9 @@ urlpatterns = [
     path("model_weights/", views.ModelWeightsView.as_view()),
     path("image-generation/", views.ImageGenerationInferenceView.as_view()),
     path("image-generation-cloud/", views.ImageGenerationInferenceCloudView.as_view()),
+    path("video-generation/", views.VideoGenerationInferenceView.as_view()),
+    path("video-generation/status/<str:job_id>/", views.VideoGenerationStatusView.as_view()),
+    path("video-generation/download/<str:job_id>/", views.VideoGenerationDownloadView.as_view()),
     path("object-detection/", views.ObjectDetectionInferenceView.as_view()),
     path("object-detection-cloud/", views.ObjectDetectionInferenceCloudView.as_view()),
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),
@@ -29,4 +32,8 @@ urlpatterns = [
     path("inference_cloud/", views.InferenceCloudView.as_view()),
     path("logs/<str:container_id>/", views.ContainerLogsView.as_view(), name="container-logs"),
     path("api-info/", views.ModelAPIInfoView.as_view()),
+    # Coding-agent gateway (LiteLLM) — OpenAI-compatible upstream + UI helper
+    path("openai/v1/chat/completions", views.OpenAIChatCompletionsView.as_view()),
+    path("openai/v1/models", views.OpenAIModelsView.as_view()),
+    path("coding-agents/", views.CodingAgentsView.as_view()),
 ]
