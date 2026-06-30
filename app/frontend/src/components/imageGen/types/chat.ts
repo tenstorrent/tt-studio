@@ -10,5 +10,6 @@ export interface Message {
 export interface StableDiffusionChatProps {
   onBack: () => void;
   modelID: string;
+  modelName?: string | null;
   initialPrompt?: string;
 }
