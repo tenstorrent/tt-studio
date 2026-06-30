@@ -13,6 +13,7 @@ import {
   Zap,
   FlaskConical,
   AlertTriangle,
+  Copy,
 } from "lucide-react";
 
 import {
@@ -76,9 +77,10 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   CNN: { label: "CNN Models", order: 8 },
 };
 
-// Models whose automated deployment is still flaky. When one is selected we warn
-// the user and point them at the Hugging Face repo so they can pre-fetch weights
-// if the automatic download fails. Keyed by model name with its HF repo id.
+// Models whose weights are large and frequently fail/stall when Hugging Face
+// downloads them during automatic deployment. When one is selected we warn the
+// user and hand them a copy-paste command to pre-fetch the weights themselves,
+// which sidesteps the flaky in-deploy download. Keyed by model name with its HF repo id.
 const EXPERIMENTAL_DEPLOY_MODELS: Record<string, string> = {
   "FLUX.1-dev": "black-forest-labs/FLUX.1-dev",
   "FLUX.1-schnell": "black-forest-labs/FLUX.1-schnell",
@@ -540,28 +542,43 @@ export function FirstStepForm({
                 </div>
               )}
 
-              {/* Experimental-deploy warning for models with unreliable automated setup */}
+              {/* Download-reliability warning: HF often stalls fetching these large weights */}
               {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
-                <div className="mt-4 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                  <div className="space-y-1">
-                    <p className="font-semibold">This model is still experimental</p>
+                  <div className="space-y-2">
+                    <p className="font-semibold">
+                      Download the weights first to avoid a failed deploy
+                    </p>
                     <p>
-                      {field.value} may fail to deploy reliably. If automatic
-                      deployment fails, download the weights from{" "}
-                      <a
-                        href={`https://huggingface.co/${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium underline"
+                      Hugging Face often stalls downloading {field.value}'s large
+                      weights mid-deploy, which fails the deployment. Pre-fetch them
+                      first — run this, let it finish, then deploy:
+                    </p>
+                    <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
+                      <code className="flex-1 break-all">
+                        huggingface-cli download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            `huggingface-cli download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                          );
+                          customToast.success("Command copied to clipboard");
+                        }}
+                        className="flex-shrink-0 rounded p-1 hover:bg-amber-200 dark:hover:bg-amber-800"
+                        aria-label="Copy download command"
                       >
-                        {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
-                      </a>{" "}
-                      and place them in your{" "}
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-xs">
+                      Caches to ~/.cache/huggingface/hub. Gated models need{" "}
                       <code className="rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900/40">
-                        ~/.cache/huggingface/hub
+                        huggingface-cli login
                       </code>{" "}
-                      directory, then try again.
+                      (or a valid HF_TOKEN) first.
                     </p>
                   </div>
                 </div>
