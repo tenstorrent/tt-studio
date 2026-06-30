@@ -8,7 +8,7 @@
 // To support a new model or change which device configurations a model allows,
 // edit getModelPlacement() below — nothing else in the frontend needs to change.
 
-import { isLlama31_8BModel, isP300x2Board } from "./p300x2Placement";
+import { isFluxModel, isLlama31_8BModel, isP300x2Board } from "./p300x2Placement";
 
 export interface DeviceSlotLike {
   slot_id: number;
@@ -31,6 +31,17 @@ const WHOLE_BOARD_DEFAULT_BOARDS = new Set([
 
 export function isWholeBoardDefaultBoard(boardType?: string): boolean {
   return !!boardType && WHOLE_BOARD_DEFAULT_BOARDS.has(boardType.toUpperCase());
+}
+
+// Multi-chip Blackhole boards are deliberately kept out of WHOLE_BOARD_DEFAULT_BOARDS
+// so single-card models stay pinned to one card. But FLUX media models have no
+// single-card spec on these boards, so the backend deploys them across the whole
+// board anyway (see infer_inference_server_device in docker_control/docker_utils.py,
+// where FLUX resolves to the mesh device and device_id is dropped). Mirror that here.
+const MULTI_CHIP_BLACKHOLE_BOARDS = new Set(["P150X4", "P150X8", "P300X2", "P300CX4"]);
+
+function isMultiChipBlackholeBoard(boardType?: string): boolean {
+  return !!boardType && MULTI_CHIP_BLACKHOLE_BOARDS.has(boardType.toUpperCase());
 }
 
 // Models declare 1 (single device) or >1 (full board: slots 0..3).
@@ -108,6 +119,11 @@ export function getModelPlacement(
   // Multi-chip models always take the full board.
   if (isMultiChipModel(chipsRequired)) {
     return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  }
+  // FLUX has no single-card spec on multi-chip Blackhole boards, so the backend
+  // deploys it across the whole board even though chips_required is 1.
+  if (isFluxModel(modelName) && isMultiChipBlackholeBoard(boardType)) {
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [], defaultsFullBoard: true };
   }
   // Single-device models on Wormhole mesh boards deploy board-wide by default;
   // advanced config can still pin them to one constituent chip.

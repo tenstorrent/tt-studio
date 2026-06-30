@@ -20,12 +20,14 @@ import { ArrowLeft, PanelRight } from "lucide-react";
 
 interface HeaderProps {
   onBack: () => void;
+  modelName?: string | null;
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
 }
 
 export default function Header({
   onBack,
+  modelName,
   isHistoryPanelOpen,
   setIsHistoryPanelOpen,
 }: HeaderProps) {
@@ -67,7 +69,7 @@ export default function Header({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <BreadcrumbPage className="text-gray-900 dark:text-white font-bold">
-                      Stable Diffusion
+                      {modelName || "Stable Diffusion"}
                     </BreadcrumbPage>
                   </TooltipTrigger>
                   <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-white">
