@@ -557,13 +557,13 @@ export function FirstStepForm({
                     </p>
                     <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
                       <code className="flex-1 break-all">
-                        huggingface-cli download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                        hf download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
                       </code>
                       <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(
-                            `huggingface-cli download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
                           );
                           customToast.success("Command copied to clipboard");
                         }}
@@ -576,7 +576,7 @@ export function FirstStepForm({
                     <p className="text-xs">
                       Caches to ~/.cache/huggingface/hub. Gated models need{" "}
                       <code className="rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900/40">
-                        huggingface-cli login
+                        hf auth login
                       </code>{" "}
                       (or a valid HF_TOKEN) first.
                     </p>
