@@ -1211,9 +1211,9 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def _hf_check_repo(token, repo_id):
-    """Return HTTP status code for a HuggingFace repo config.json. Returns None on network error."""
-    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
+def _hf_check_repo(token, repo_id, filename="config.json"):
+    """Return HTTP status code for a HuggingFace repo file. Returns None on network error."""
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
     headers = {"User-Agent": "tt-studio"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -1233,14 +1233,17 @@ def _hf_check_repo(token, repo_id):
 
 def check_hf_access(token):
     """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
+    # diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
     repos = [
-        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
-        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
-        ("Qwen/Qwen3-32B", "Qwen3-32B"),
+        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
+        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
+        ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
+        ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
+        ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
     ]
     results = []
-    for repo_id, label in repos:
-        code = _hf_check_repo(token, repo_id)
+    for repo_id, label, filename in repos:
+        code = _hf_check_repo(token, repo_id, filename)
         results.append((label, repo_id, code))
 
     if all(c is None for _, _, c in results):
