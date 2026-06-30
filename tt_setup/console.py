@@ -23,6 +23,7 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.prompt import Confirm, Prompt
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -168,7 +169,7 @@ class _ChecklistController:
     too-short terminals fall back to plain per-phase lines (no region). The region
     is reset on every exit path via the idempotent _teardown()."""
 
-    _RESERVE = 1   # top lines held fixed for the sticky stepper
+    _RESERVE = 2   # fixed top rows: row 1 = stepper, row 2 = separator rule
 
     def __init__(self):
         self.phases = []          # list[_PhaseState]
@@ -229,9 +230,11 @@ class _ChecklistController:
                 self._teardown(final=False)
                 return
             f.write(f"\033[{self._RESERVE + 1};{self._rows}r")
-        line = self._render_ansi(self._stepper_line())
+        stepper = self._render_ansi(self._stepper_line())
+        rule = self._render_ansi(Text("─" * self._cols, style="muted"))
         f.write("\0337")                          # save cursor (relative to region)
-        f.write("\033[1;1H" + line + "\033[K")     # repaint the fixed top row
+        f.write("\033[1;1H" + stepper + "\033[K")  # row 1: the stepper
+        f.write("\033[2;1H" + rule + "\033[K")     # row 2: separator from the body
         f.write("\0338")                          # restore cursor (back into region)
         f.flush()
 
@@ -272,6 +275,10 @@ class _ChecklistController:
         p.start = time.monotonic()
         self._suspend_depth = 0
         if self._sticky_on:
+            # Delineate this phase's output in the scrolling body with a labelled
+            # rule, then repaint the fixed stepper at the top.
+            console.print(Rule(f"[bold accent]{p.title}[/bold accent]",
+                               align="left", style="muted", characters="─"))
             self._paint()
         else:
             # Fallback (non-TTY / --verbose): print the stepper inline.
@@ -326,12 +333,13 @@ class _ChecklistController:
             console.print(f"  [success]✓ {svc} built[/success]")
 
     def build_log(self, line):
-        """Show compose status lines (Container/Network …) as they scroll; skip the
-        raw BuildKit '#NN …' step chatter (the friendly milestones cover that)."""
+        """Show only meaningful compose status transitions (Started/Healthy/errors)
+        as they scroll; skip the Creating/Created/Starting/Waiting wall and the raw
+        BuildKit '#NN …' chatter (the friendly milestones cover the rest)."""
         line = line.strip()
         if not line or line.startswith("#"):
             return
-        if any(k in line for k in ("Container ", "Network ", "Volume ", "Pulling", "Pulled")):
+        if any(k in line for k in (" Started", " Healthy", " Error", " Failed", "error", "failed")):
             console.print(f"  [dim]{line}[/dim]", highlight=False)
 
     # ── rendering helpers ────────────────────────────────────────────────────────

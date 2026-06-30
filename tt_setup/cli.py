@@ -468,21 +468,24 @@ def _run(args):
         end_phase(ph)  # ── end Phase 2 · Configure
 
         # ── Phase 3 · Services ───────────────────────────────────────────────
-        # docker-control / inference-server start here; they print their own
-        # status and may sudo, so keep the spinner suspended through them.
+        # Each sub-operation collapses to a calm "✓ <op>  Ns" step line; its
+        # chatter is captured to startup.log. (sudo prompts go to the tty and are
+        # not captured, so they still show.)
         ph = begin_phase(3, 5, "Services")
-        ph.suspend()
 
-        # Start Docker Control Service BEFORE starting Docker containers
-        # This ensures the backend can connect to it when it starts
-        ph.set("Docker Control service")
+        # Start Docker Control Service BEFORE starting Docker containers so the
+        # backend can connect to it when it starts.
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
+            with step("Docker Control service", spinner=False) as s:
+                dc_ok = start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev)
+                if not dc_ok:
+                    s.fail()
+            if dc_ok:
+                startup_log.step("docker_control_service", "OK")
+            else:
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
                 console.print("[warning]Note: Backend will not be able to manage Docker containers.[/warning]")
-            else:
-                startup_log.step("docker_control_service", "OK")
         else:
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             console.print("[warning]⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used)[/warning]")
@@ -513,8 +516,8 @@ def _run(args):
                     not os.path.exists(models_json_path)
                 )
                 if should_sync:
-                    ph.set("model catalog")
-                    _sync_model_catalog()
+                    with step("Syncing model catalog", spinner=False):
+                        _sync_model_catalog()
                 elif show_detail():
                     console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
             finally:
@@ -581,15 +584,16 @@ def _run(args):
         end_phase(ph)  # ── end Phase 4 · Build
 
         # ── Phase 5 · Launch ─────────────────────────────────────────────────
-        # Inference-server env/start may prompt or sudo and print their own
-        # status, so keep the phase spinner suspended through them.
+        # Each sub-operation collapses to a calm "✓ <op>  Ns" step line.
         ph = begin_phase(5, 5, "Launch")
-        ph.suspend()
         if not args.skip_fastapi and not is_deployed_mode:
             original_dir = os.getcwd()
             try:
-                ph.set("inference server environment")
-                if not setup_fastapi_environment():
+                with step("Inference-server environment", spinner=False) as s:
+                    env_ok = setup_fastapi_environment()
+                    if not env_ok:
+                        s.fail()
+                if not env_ok:
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
                     console.print("[error]⛔ Cannot start TT Studio: inference server environment setup failed. Exiting.[/error]")
                     suggest_pip_fixes()
@@ -597,8 +601,11 @@ def _run(args):
                     startup_log.close()
                     sys.exit(1)
 
-                ph.set("starting inference server")
-                if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
+                with step("Starting inference server", spinner=False) as s:
+                    fastapi_ok = start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev)
+                    if not fastapi_ok:
+                        s.fail()
+                if not fastapi_ok:
                     startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
                     console.print("[error]⛔ Cannot start TT Studio: inference server failed to start. Exiting.[/error]")
                     console.print(f"[muted]   Check logs: tail -50 {MODEL_RUN_LOG_FILE}[/muted]")

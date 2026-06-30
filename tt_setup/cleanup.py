@@ -422,7 +422,6 @@ def cleanup_resources(args):
                     s.detail(type(e).__name__)
 
         _print_preserved_summary(has_access)
-        console.print("\n[bold success]✓ Stopped[/bold success]")
         return
 
     # --- --purge-all: build full inventory and ask once ---
@@ -624,9 +623,9 @@ def _cleanup_runtime(args, has_docker_access):
                 removed = _remove_tt_studio_network_containers(has_docker_access)
                 s.detail(f"{removed} removed") if removed else s.skip("none running")
 
-        # A live spinner only when we don't need sudo (a sudo password prompt
-        # would clash with it); otherwise a static labelled line.
-        with step("Stopping Docker containers", spinner=has_docker_access) as s:
+        # spinner=False (static line overwritten in place): the spinner path can
+        # leave a stray transient line if the compose subprocess writes to the tty.
+        with step("Stopping Docker containers", spinner=False) as s:
             docker_compose_cmd = build_docker_compose_command(
                 dev_mode=args.dev, show_hardware_info=False, quiet=True)
             docker_compose_cmd.extend(["down", "-v"])
