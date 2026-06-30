@@ -399,7 +399,7 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
     try:
         from docker_control.docker_control_client import get_docker_client
         client = get_docker_client()
-        lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
+        lines = client.tail_logs(deploy_id, tail=200, timeout=10.0)
         # Even if `lines` is empty (container hasn't logged yet, or the tail
         # was all noise upstream), still run the classifier — it'll default to
         # phases[0], and `_apply_phase_latch` promotes that to the previously

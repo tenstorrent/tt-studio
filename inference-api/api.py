@@ -301,7 +301,12 @@ MAX_LOG_MESSAGES = 100
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 # Mark a job as stalled when no run.py log/progress update arrives for this long.
-PULL_STALL_THRESHOLD_SECONDS = 120
+# Set to 10 minutes: long enough to ride out legitimate quiet gaps (HF shard
+# verification, between-batch pauses, slow HEAD requests, transient probe
+# failures) without false-flagging a healthy download, yet short enough to
+# surface a genuinely dead download (e.g. lost DNS/network) within ~10 min
+# instead of waiting out the 5-hour hard timeout.
+PULL_STALL_THRESHOLD_SECONDS = 600
 
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
@@ -947,7 +952,7 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
         headers["Authorization"] = f"Bearer {hf_token}"
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
         entries = json.loads(data.decode("utf-8"))
         if not isinstance(entries, list):
@@ -1578,7 +1583,7 @@ async def get_run_progress(job_id: str):
             "last_updated": time.time()
         })
         
-        # Add stalled detection (>120s no updates from run.py)
+        # Add stalled detection (no progress for PULL_STALL_THRESHOLD_SECONDS)
         if progress["status"] == "running" and "last_updated" in progress:
             time_since_update = time.time() - progress["last_updated"]
             if time_since_update > PULL_STALL_THRESHOLD_SECONDS:
