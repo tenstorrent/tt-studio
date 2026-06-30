@@ -42,7 +42,9 @@ _MIN_SPEED_BPS = 64 * 1024          # ignore jitter under 64 KB/s when updating 
 _EMA_ALPHA_INITIAL = 0.35           # faster convergence on first sample
 _EMA_ALPHA_LATER = 0.15
 _ETA_SMOOTH_ALPHA = 0.3             # how much new raw ETA influences smoothed ETA
-_EXEC_TIMEOUT_SECONDS = 4           # bound how long du can run before we give up
+_EXEC_TIMEOUT_SECONDS = 15          # bound how long du can run before we give up
+                                    # (a transient probe miss must not look like a
+                                    # byte stall — keep this well under the stall window)
 
 # Media (tt-media-inference-server) logs only the repo, not a target path.
 # Weights land in the HF hub cache under HF_HOME, which is set to
@@ -93,7 +95,7 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             entries = json.loads(resp.read().decode("utf-8"))
         if not isinstance(entries, list):
             total: Optional[int] = None
