@@ -61,33 +61,6 @@
       "param_count": null
     },
     {
-      "model_name": "FLUX.1-schnell",
-      "model_type": "IMAGE_GENERATION",
-      "display_model_type": "IMAGE",
-      "device_configurations": [
-        "GALAXY",
-        "P150X4",
-        "P150X8",
-        "P300",
-        "P300x2",
-        "T3K"
-      ],
-      "hf_model_id": "black-forest-labs/FLUX.1-schnell",
-      "inference_engine": "media",
-      "status": "COMPLETE",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9",
-      "service_route": "/v1/images/generations",
-      "health_route": "/health",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": null
-    },
-    {
       "model_name": "Llama-3.1-8B-Instruct",
       "model_type": "CHAT",
       "display_model_type": "LLM",
