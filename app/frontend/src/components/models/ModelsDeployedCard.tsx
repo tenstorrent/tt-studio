@@ -200,6 +200,13 @@ export default function ModelsDeployedCard(): JSX.Element {
     };
   }, [isDeleteInFlight, setIsDeleteInFlight]);
 
+  // Repoll immediately when a backgrounded delete reaches its reset phase
+  useEffect(() => {
+    if (!showDeleteModal && deleteStream.step === "resetting") {
+      refreshDeviceState();
+    }
+  }, [showDeleteModal, deleteStream.step, refreshDeviceState]);
+
   useEffect(() => {
     loadModels();
   }, [loadModels, refreshTrigger]);
