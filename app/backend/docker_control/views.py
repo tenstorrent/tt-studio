@@ -58,6 +58,11 @@ logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
 
+def _build_fastapi_url(path: str) -> str:
+    """Build a full URL for the TT Inference Server API."""
+    return f"{backend_config.tt_inference_api_url}/{path.lstrip('/')}"
+
+
 def _split_image_version(image_version: str):
     """Split an 'name:tag' image ref into (name, tag), defaulting tag to 'latest'.
 
@@ -1012,7 +1017,7 @@ class DeploymentProgressView(APIView):
 
             # First, try to get progress from FastAPI inference server
             try:
-                fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
+                fastapi_url = _build_fastapi_url(f"run/progress/{job_id}")
                 response = requests.get(fastapi_url, timeout=5)
 
                 if response.status_code == 200:
@@ -1320,7 +1325,7 @@ class DeploymentLogsView(APIView):
             
             # Try to get logs from FastAPI inference server
             try:
-                fastapi_url = f"http://172.18.0.1:8001/run/logs/{job_id}"
+                fastapi_url = _build_fastapi_url(f"run/logs/{job_id}")
                 response = requests.get(fastapi_url, timeout=5)
                 
                 if response.status_code == 200:
@@ -1359,7 +1364,7 @@ class DeploymentProgressStreamView(APIView):
             """Generator that forwards SSE events from FastAPI to frontend"""
             try:
                 # Connect to FastAPI inference server SSE endpoint
-                fastapi_url = f"http://172.18.0.1:8001/run/stream/{job_id}"
+                fastapi_url = _build_fastapi_url(f"run/stream/{job_id}")
                 logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
                 
                 # Stream the response

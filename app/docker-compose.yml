@@ -61,6 +61,7 @@ services:
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
+      - TT_INFERENCE_API_URL
       # LiteLLM coding-agent gateway
       - LITELLM_MASTER_KEY
       - LITELLM_UPSTREAM_KEY
