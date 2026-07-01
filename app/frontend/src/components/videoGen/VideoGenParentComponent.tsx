@@ -5,14 +5,12 @@ import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 import { Card } from "../ui/card";
-import ShowcaseGallery from "./ShowcaseGallery";
-import StableDiffusionChat from "./StableDiffusionChat";
+import { Button } from "../ui/button";
+import { Video } from "lucide-react";
+import VideoGenChat from "./VideoGenChat";
 
-const ImageGenParentComponent: React.FC = () => {
+const VideoGenParentComponent: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
-  const [initialPrompt, setInitialPrompt] = useState<string>("");
-
-  // model handling state
   const location = useLocation();
   const [modelID, setModelID] = useState<string>("");
   const [modelName, setModelName] = useState<string | null>(null);
@@ -28,12 +26,7 @@ const ImageGenParentComponent: React.FC = () => {
       setModelID(location.state.containerID);
       setModelName(location.state.modelName);
     }
-  }, [location.state, modelID, modelName]);
-
-  const handleImageClick = (prompt: string) => {
-    setInitialPrompt(prompt);
-    customToast.success("Prompt loaded into input area!");
-  };
+  }, [location.state]);
 
   return (
     <div
@@ -43,18 +36,31 @@ const ImageGenParentComponent: React.FC = () => {
       <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 backdrop-blur-sm">
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {showChat ? (
-            <StableDiffusionChat
+            <VideoGenChat
               onBack={() => setShowChat(false)}
               modelID={modelID}
-              modelName={modelName}
-              initialPrompt={initialPrompt}
             />
           ) : (
-            <div className="flex-1 overflow-auto">
-              <ShowcaseGallery
-                onStartGenerating={() => setShowChat(true)}
-                onImageClick={handleImageClick}
-              />
+            <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+              <div className="flex items-center justify-center h-16 w-16 rounded-full bg-[#7C68FA]/10">
+                <Video className="h-8 w-8 text-[#7C68FA]" />
+              </div>
+              <div className="text-center max-w-md">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  Video Generation
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Generate videos from text prompts using{" "}
+                  {modelName ?? "Wan2.2 T2V"}. Videos typically take 1–5
+                  minutes to generate.
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowChat(true)}
+                className="bg-[#7C68FA] hover:bg-[#7C68FA]/80 text-white px-8 py-3 rounded-lg text-lg font-semibold"
+              >
+                Start Generating
+              </Button>
             </div>
           )}
         </div>
@@ -63,4 +69,4 @@ const ImageGenParentComponent: React.FC = () => {
   );
 };
 
-export default ImageGenParentComponent;
+export default VideoGenParentComponent;

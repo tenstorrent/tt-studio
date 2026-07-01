@@ -86,6 +86,7 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 dep.save()
                 logger.info(
                     f"[deployment_sync] Updated ModelDeployment for {dep.model_name}: "

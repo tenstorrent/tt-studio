@@ -35,11 +35,14 @@ from .docker_utils import (
     detect_board_type,
     map_board_type_to_device_name,
     infer_inference_server_device,
+    deploys_whole_board,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
+    WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -343,7 +346,17 @@ class DeployView(APIView):
 
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
-            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            board_type = detect_board_type()
+            # Media models (e.g. FLUX) can be inferred as single-chip yet deploy across
+            # a whole multi-chip board because they have no single-chip spec for the
+            # board's constituent chip. The inference server then claims the full mesh,
+            # so we must reserve and record every slot — not just slot 0.
+            mesh_whole_board = (
+                impl.model_type != ModelTypes.CHAT
+                and chips_required == 1
+                and not requested_device_ids
+                and deploys_whole_board(impl, board_type)
+            )
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
@@ -357,6 +370,17 @@ class DeployView(APIView):
                     board_type,
                 )
 
+            # On Wormhole mesh boards a single-chip-capable model deploys across the whole
+            # board by default; only an explicit slot selection ("1 Device") pins it to a
+            # single constituent chip. Per-chip-default boards (e.g. P300x2) are excluded.
+            use_whole_board_deploy = (
+                impl.model_type == ModelTypes.CHAT
+                and not should_force_full_board_llama
+                and chips_required == 1
+                and not requested_device_ids
+                and board_type in WHOLE_BOARD_DEFAULT_BOARDS
+            )
+
             # Multiple concurrent instances of the same model are allowed when chip
             # capacity is available. Slot allocation below enforces capacity and the
             # canonical reconciliation frees genuinely stale records, so we must not
@@ -366,8 +390,10 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama:
-                    # Simplified QB2 Llama full-board path must reserve all slots.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
+                    # Wormhole mesh board, or a media model like FLUX with no single-chip
+                    # spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -423,9 +449,9 @@ class DeployView(APIView):
                     else:
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
-                # Full set of chip slots this model actually occupies
-                if should_force_full_board_llama:
-                    # Forced full-board Llama takes over every slot on the board.
+                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
                     # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
@@ -458,7 +484,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama:
+            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -471,10 +497,14 @@ class DeployView(APIView):
                     device = "p300x2"
                     inference_device_id = None
                 else:
-                    if chips_required == 1:
-                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    else:
+                    if chips_required > 1 or use_whole_board_deploy:
+                        # Genuinely multi-chip model, or a single-chip model deploying
+                        # across a whole Wormhole mesh board — use the board-level device.
                         device = map_board_type_to_device_name(board_type)
+                    else:
+                        # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
+                        # use the single constituent chip device.
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
                     # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
@@ -483,11 +513,14 @@ class DeployView(APIView):
                         and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
-                    # For P300x2 with the whole-board p300x2 device, the inference
-                    # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
-                    # lands on its allocated slot(s).
-                    if board_type == "P300x2" and device == "p300x2":
+                    # When using a multi-chip whole-board device (e.g. t3k, p300x2,
+                    # p150x4), the inference server selects the physical chips itself —
+                    # omit device_id. Single-board devices (n300/n150/p150) and slot-pinned
+                    # constituent chips keep device_id so each model lands on its slot(s).
+                    whole_board_device = map_board_type_to_device_name(board_type)
+                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    is_multi_chip_board = whole_board_device != single_chip_device
+                    if device == whole_board_device and is_multi_chip_board:
                         inference_device_id = None
                     else:
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)
@@ -502,13 +535,19 @@ class DeployView(APIView):
                 # (/v1/completions) models and unknown families are left untouched.
                 vllm_override_args = None
                 if impl.service_route == "/v1/chat/completions":
+                    overrides = {}
                     tool_parser = tool_call_parser_for(
                         impl.model_name, getattr(impl, "hf_model_id", "")
                     )
                     if tool_parser:
-                        vllm_override_args = json.dumps(
-                            {"enable-auto-tool-choice": True, "tool-call-parser": tool_parser}
-                        )
+                        overrides["enable-auto-tool-choice"] = True
+                        overrides["tool-call-parser"] = tool_parser
+                    # Reasoning models: split thinking into reasoning_content.
+                    reasoning_parser = get_reasoning_parser(impl.model_name)
+                    if reasoning_parser:
+                        overrides["reasoning-parser"] = reasoning_parser
+                    if overrides:
+                        vllm_override_args = json.dumps(overrides)
                 # Some Llama models need a newer image than the inference server's model_spec default
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None
@@ -561,7 +600,7 @@ class DeployView(APIView):
                             model_name=impl.model_name,
                             device=device,
                             device_id=device_id,
-                            device_ids=device_ids,
+                            device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
                         )
@@ -887,6 +926,7 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 docker_log_path = progress_data.get("docker_log_file_path")
                 if docker_log_path:
                     dep.workflow_log_path = docker_log_path

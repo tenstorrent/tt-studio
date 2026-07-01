@@ -117,6 +117,11 @@ proxyConfig["/reset-board"] = {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // The canonical env file lives at the repo root. Point Vite there so local
+  // `npm run dev` reads the same VITE_* vars as the dockerized build. Vite only
+  // exposes VITE_-prefixed vars to the client bundle, so non-VITE_ secrets in
+  // the root .env (JWT_SECRET, HF_TOKEN, ...) are never bundled.
+  envDir: path.resolve(__dirname, "../.."),
   plugins: [
     react(),
     tailwindcss(),

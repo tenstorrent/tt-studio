@@ -1,0 +1,16 @@
+{
+  "models": [
+    "mochi-1-preview",
+    "Wan2.2-T2V-A14B-Diffusers",
+    "Wan2.2-I2V-A14B-Diffusers",
+    "FLUX.1-dev",
+    "FLUX.1-schnell",
+    "Motif-Image-6B-Preview",
+    "stable-diffusion-3.5-large",
+    "stable-diffusion-xl-1.0-inpainting-0.1",
+    "stable-diffusion-xl-base-1.0",
+    "stable-diffusion-xl-base-1.0-img-2-img",
+    "Qwen-Image",
+    "Qwen-Image-2512"
+  ]
+}
