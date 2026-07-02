@@ -20,7 +20,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from shared_config.logger_config import get_logger
 from shared_config.user_config import get_hf_token
@@ -33,9 +33,53 @@ logger = get_logger(__name__)
 _state: Dict[str, Dict[str, float]] = {}
 _state_lock = threading.Lock()
 
-# total_bytes per repo is constant for a given main revision; cache it.
-_total_bytes_cache: Dict[str, Optional[int]] = {}
+# total_bytes per repo is constant for a given main revision; cache it. Keyed by
+# (repo, subset_only) because the media path fetches only a subset of the tree.
+_total_bytes_cache: Dict[Tuple[str, bool], Optional[int]] = {}
 _total_bytes_lock = threading.Lock()
+
+# This list defines non-PyTorch file extensions (like Flax, TensorFlow, and ONNX) 
+# that are intentionally skipped because the media server only loads safetensors or .bin weights. 
+# Excluding these formats prevents "dead weight" files from falsely inflating the total size denominator on the download progress bar.
+_NON_TORCH_WEIGHT_SUFFIXES = (
+    ".msgpack",     # Flax
+    ".h5",          # TensorFlow / Keras
+    ".onnx",
+    ".onnx_data",   # ONNX external data
+    ".gguf",        # llama.cpp
+    ".tflite",
+    ".mlmodel",
+    ".ot",          # rust-bert
+    ".pb",          # TF frozen graph
+)
+
+
+def _skip_for_subset(path: str, has_safetensors: bool) -> bool:
+    """True when `path` exists in the repo but `from_pretrained` won't fetch it.
+
+    Only applied to media (transformers/diffusers) downloads. Diffusers weights
+    live in per-component subfolders (unet/, vae/, transformer/…), so we only
+    exclude by folder for the dedicated `onnx/` and OpenAI `original/` trees
+    to avoid dropping weights we do need.
+    """
+    p = path.lower()
+    name = p.rsplit("/", 1)[-1]
+    parts = p.split("/")
+    if p.endswith(_NON_TORCH_WEIGHT_SUFFIXES):
+        return True
+    if "onnx" in parts[:-1] or "original" in parts[:-1]:
+        return True
+    if name.startswith("tf_model"):  # TensorFlow weights
+        return True
+    # Explicit full-precision weight variant; the default load uses the
+    # non-variant file, so the fp32 copy is never fetched. The variant token is
+    # delimited `.fp32.` for a single file or `.fp32-` when sharded
+    if name.endswith((".safetensors", ".bin")) and (".fp32." in name or ".fp32-" in name):
+        return True
+    # Prefer safetensors: the redundant .bin copy is skipped when both exist.
+    if has_safetensors and name.endswith(".bin"):
+        return True
+    return False
 
 # Tunables — keep in sync with inference-api/api.py:_weights_progress_monitor.
 _MIN_SPEED_BPS = 64 * 1024          # ignore jitter under 64 KB/s when updating EMA
@@ -78,13 +122,22 @@ def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     return client.dir_size(deploy_id, container_path, timeout=_EXEC_TIMEOUT_SECONDS)
 
 
-def _fetch_total_bytes(repo: str) -> Optional[int]:
-    """Sum file sizes from the HF model tree (best-effort; cached per repo)."""
+def _fetch_total_bytes(repo: str, subset_only: bool = False) -> Optional[int]:
+    """Sum file sizes from the HF model tree (best-effort; cached per repo).
+
+    When `subset_only` is True the repo is pulled via transformers/diffusers
+    `from_pretrained` (the media path), which fetches a single torch weight
+    format plus config/processor files — so alternate-format and redundant
+    weight copies are filtered out (see `_skip_for_subset`) to avoid inflating
+    the total. When False (the vLLM path) the whole repo is snapshot_downloaded,
+    so every file counts and no filtering is applied.
+    """
     if not repo or "/" not in repo:
         return None
+    cache_key = (repo, subset_only)
     with _total_bytes_lock:
-        if repo in _total_bytes_cache:
-            return _total_bytes_cache[repo]
+        if cache_key in _total_bytes_cache:
+            return _total_bytes_cache[cache_key]
 
     url = f"https://huggingface.co/api/models/{repo}/tree/main?recursive=true"
     headers = {"User-Agent": "tt-studio/download-progress"}
@@ -92,13 +145,12 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers, method="GET")
+    total: Optional[int] = None
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             entries = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(entries, list):
-            total: Optional[int] = None
-        else:
-            total = 0
+        if isinstance(entries, list):
+            files = []  # (path, size) for each blob in the tree
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
@@ -117,10 +169,25 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
                     top_size = entry.get("size")
                     if isinstance(top_size, int) and top_size > 0:
                         size = top_size
-                if size is not None:
-                    total += size
-            if total <= 0:
-                total = None
+                path = entry.get("path")
+                if size is not None and isinstance(path, str):
+                    files.append((path, size))
+
+            if subset_only:
+                # A usable safetensors weight means the redundant .bin copy is
+                # skipped; probe with has_safetensors=False so this pass only
+                # honours the format/variant rules, not the .bin rule.
+                has_safetensors = any(
+                    p.lower().endswith(".safetensors")
+                    and not _skip_for_subset(p, has_safetensors=False)
+                    for p, _ in files
+                )
+                summed = sum(
+                    s for p, s in files if not _skip_for_subset(p, has_safetensors)
+                )
+            else:
+                summed = sum(s for _, s in files)
+            total = summed if summed > 0 else None
     except urllib.error.HTTPError as e:
         logger.debug("download_progress: HF total-bytes HTTP %s for %s", e.code, repo)
         total = None
@@ -129,7 +196,7 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
         total = None
 
     with _total_bytes_lock:
-        _total_bytes_cache[repo] = total
+        _total_bytes_cache[cache_key] = total
     return total
 
 
@@ -158,8 +225,12 @@ def compute_download_progress(
     }
 
     # Media-server logs only the repo, not a target path. Derive the canonical
-    # HF hub cache path so we can du -sb it via the existing endpoint.
-    if not container_path and repo:
+    # HF hub cache path so we can du -sb it via the existing endpoint. The
+    # absence of a target path is also the signal that this is a media
+    # (`from_pretrained`) download, which fetches only a subset of the repo —
+    # so the total must be computed over that same subset, not the whole tree.
+    media_download = not container_path and bool(repo)
+    if media_download:
         container_path = _media_container_path(repo)
 
     if not container_path:
@@ -170,7 +241,7 @@ def compute_download_progress(
         return out
     out["downloaded_bytes"] = int(downloaded)
 
-    total = _fetch_total_bytes(repo) if repo else None
+    total = _fetch_total_bytes(repo, subset_only=media_download) if repo else None
     if total is not None:
         out["total_bytes"] = int(total)
 
