@@ -746,7 +746,11 @@ def _video_base_url(deploy_id):
     """Resolve the tt-media-server base URL for a deployed video model."""
     deploy = get_deploy_cache()[deploy_id]
     internal_url = "http://" + deploy["internal_url"]
-    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+    service_route = deploy["model_impl"].service_route
+    # Use rsplit to strip the full service_route suffix (e.g. "/v1/videos/generations/i2v")
+    # instead of replace which only strips "/v1/videos/generations" and leaves a dangling
+    # suffix like "/i2v" on the base URL.
+    return internal_url.rsplit(service_route, 1)[0].rstrip("/")
 
 
 def _normalize_video_phase(raw_status):
