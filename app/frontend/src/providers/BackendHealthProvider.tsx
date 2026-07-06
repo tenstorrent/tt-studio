@@ -13,7 +13,7 @@ import { BackendDisconnectedOverlay } from "../components/BackendDisconnectedOve
 const HEALTH_URL = "/up/";
 // How long to wait for a response before treating the poll as a failure, so a
 // hung/half-open connection (e.g. a dropped SSH tunnel) can't stall detection.
-const REQUEST_TIMEOUT_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 4_000;
 // Poll cadence: relaxed while healthy, snappier once a failure is seen so both
 // disconnect and recovery are detected quickly.
 const HEALTHY_INTERVAL_MS = 5_000;
@@ -99,10 +99,15 @@ export const BackendHealthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const value = useMemo(() => ({ status, retry }), [status, retry]);
 
+  // Hard gate: while the backend is unreachable we render only the disconnected
+  // screen and unmount the rest of the app, so no page keeps displaying (or
+  // firing its own failing requests) behind it. The app remounts automatically
+  // once the backend responds again.
   return (
     <BackendHealthContext.Provider value={value}>
-      {children}
-      {status !== "connected" && (
+      {status === "connected" ? (
+        children
+      ) : (
         <BackendDisconnectedOverlay status={status} onRetry={retry} />
       )}
     </BackendHealthContext.Provider>
