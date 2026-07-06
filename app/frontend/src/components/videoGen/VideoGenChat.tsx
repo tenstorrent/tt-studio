@@ -2,20 +2,25 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import type React from "react";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
-import { User, Camera, ChevronDown, Download } from "lucide-react";
-import { Skeleton } from "../ui/skeleton";
-import Header from "./Header";
-import ImageInputArea from "./ImageInputArea";
-import type { StableDiffusionChatProps } from "./types/chat";
-import { useChat } from "./hooks/useChat";
+import { User, Video, ChevronDown, Download, ArrowLeft } from "lucide-react";
+import { Progress } from "../ui/progress";
+import VideoInputArea from "./VideoInputArea";
+import type { VideoGenChatProps } from "./types/chat";
+import { useVideoChat } from "./hooks/useVideoChat";
 
-const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
+const formatClock = (totalSeconds: number) => {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const VideoGenChat: React.FC<VideoGenChatProps> = ({
   onBack,
   modelID,
-  modelName,
   initialPrompt = "",
 }) => {
   const {
@@ -23,6 +28,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
     textInput,
     setTextInput,
     isGenerating,
+    progress,
     isScrollButtonVisible,
     setIsScrollButtonVisible,
     viewportRef,
@@ -30,9 +36,8 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
     sendMessage,
     scrollToBottom,
     handleScroll,
-  } = useChat(modelID);
+  } = useVideoChat(modelID);
 
-  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -42,12 +47,21 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f]">
-      <Header
-        onBack={onBack}
-        modelName={modelName}
-        isHistoryPanelOpen={isHistoryPanelOpen}
-        setIsHistoryPanelOpen={setIsHistoryPanelOpen}
-      />
+      <div className="bg-white dark:bg-[#2A2A2A] border-b border-gray-200 dark:border-[#7C68FA]/20 px-6 py-3 flex items-center gap-3 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onBack}
+          className="text-gray-600 dark:text-white/80 hover:text-gray-900 dark:hover:text-white"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex items-center gap-2">
+          <Video className="h-5 w-5 text-[#7C68FA]" />
+          <span className="font-semibold text-gray-900 dark:text-white">Video Generation</span>
+        </div>
+      </div>
 
       <ScrollArea.Root className="grow overflow-hidden">
         <ScrollArea.Viewport
@@ -74,7 +88,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                       </div>
                     ) : (
                       <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
-                        <Camera className="h-5 w-5 text-white" />
+                        <Video className="h-5 w-5 text-white" />
                       </div>
                     )}
                   </div>
@@ -94,21 +108,22 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     >
                       {message.text}
                     </p>
-                    {message.image && (
+                    {message.video && (
                       <div className="relative mt-2 group">
-                        <img
-                          src={message.image || "/placeholder.svg"}
-                          alt="Generated image"
-                          className="rounded-lg w-full max-w-md h-auto max-h-80 object-contain transition-opacity duration-300 group-hover:opacity-80"
+                        <video
+                          src={message.video}
+                          controls
+                          className="rounded-lg w-full max-w-md h-auto max-h-80 object-contain"
+                          aria-label="Generated video"
                         />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <div className="mt-1 flex justify-end">
                           <a
-                            href={message.image}
-                            download={`generated-image-${message.id}.jpg`}
-                            className="bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-colors duration-300"
-                            aria-label="Download image"
+                            href={message.video}
+                            download={`generated-video-${message.id}.mp4`}
+                            className="text-xs text-[#7C68FA] flex items-center gap-1 hover:underline"
+                            aria-label="Download video"
                           >
-                            <Download className="h-6 w-6" />
+                            <Download className="h-3 w-3" /> Download
                           </a>
                         </div>
                       </div>
@@ -128,9 +143,32 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
               <div className="flex justify-start">
                 <div className="flex items-start gap-3">
                   <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
-                    <Camera className="h-5 w-5 text-white" />
+                    <Video className="h-5 w-5 text-white" />
                   </div>
-                  <Skeleton className="h-32 w-32 rounded-lg bg-gray-200 dark:bg-[#1a1c2a]" />
+                  <div className="bg-gray-100 dark:bg-TT-slate text-gray-900 dark:text-white p-3 rounded-lg w-64">
+                    <p className="text-sm font-medium">
+                      {!progress || progress.phase === "queued"
+                        ? "Queued…"
+                        : progress.percent >= 99
+                          ? "Finishing up…"
+                          : "Generating your video…"}
+                    </p>
+                    <Progress
+                      value={progress?.percent ?? 0}
+                      className="mt-2 bg-gray-300 dark:bg-[#1a1c2a]"
+                      indicatorClassName="bg-[#7C68FA]"
+                    />
+                    {progress && progress.phase === "in_progress" ? (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
+                        {formatClock(progress.elapsedSeconds)} / ~
+                        {formatClock(progress.estimatedSeconds)}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
+                        Waiting for the model…
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -158,7 +196,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
 
       <div className="p-6">
         <div className="max-w-5xl mx-auto">
-          <ImageInputArea
+          <VideoInputArea
             textInput={textInput}
             setTextInput={setTextInput}
             handleGenerate={sendMessage}
@@ -170,4 +208,4 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   );
 };
 
-export default StableDiffusionChat;
+export default VideoGenChat;

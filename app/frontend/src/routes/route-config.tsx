@@ -58,6 +58,7 @@ import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
+import VideoGenPage from "../pages/VideoGenPage";
 import CodingAgentsPage from "../pages/CodingAgentsPage";
 
 // Define route configuration type
@@ -153,6 +154,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/canvas",
       element: <CanvasPage />,
+      condition: true,
+    },
+    {
+      path: "/video-generation",
+      element: <VideoGenPage />,
       condition: true,
     },
     {

@@ -17,6 +17,7 @@ import {
   ScanFace,
   ChevronRight,
   ChevronLeft,
+  Video,
   type LucideIcon,
   History,
   Workflow,
@@ -51,7 +52,9 @@ import {
   ModelType,
   getModelTypeFromName,
   getModelTypeFromBackendType,
+  fetchModelHealth,
 } from "../api/modelsDeployedApis";
+import type { HealthStatus } from "../types/models";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -269,37 +272,78 @@ export default function NavBar() {
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
+  // A model shows up in `models` (from the deployments endpoint) as soon as its
+  // container exists, but it isn't usable until it finishes warming up. Probe the
+  // authoritative readiness endpoint (the same one HealthBadge uses) so navbar
+  // entries only appear once a model is healthy. Poll on a light interval, keyed
+  // on the set of deployed model ids so the interval isn't torn down on every
+  // 5s provider refresh.
+  const [healthById, setHealthById] = useState<Record<string, HealthStatus>>({});
+  const modelIdsKey = useMemo(
+    () => models.map((m) => m.id).sort().join(","),
+    [models]
+  );
+
+  useEffect(() => {
+    const ids = modelIdsKey ? modelIdsKey.split(",") : [];
+    if (ids.length === 0) {
+      setHealthById({});
+      return;
+    }
+    let cancelled = false;
+    const probe = async () => {
+      const entries = await Promise.all(
+        ids.map(async (id) => [id, await fetchModelHealth(id)] as const)
+      );
+      if (!cancelled) setHealthById(Object.fromEntries(entries));
+    };
+    probe();
+    const intervalId = setInterval(probe, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [modelIdsKey]);
+
+  // Only models that are actually healthy/usable should surface in the navbar.
+  const healthyModels = useMemo(
+    () => models.filter((m) => healthById[m.id] === "healthy"),
+    [models, healthById]
+  );
+
   // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
   const isVoiceAgentReady = useMemo(() => {
-    const getType = (m: (typeof models)[number]) =>
+    const getType = (m: (typeof healthyModels)[number]) =>
       m.model_type
         ? getModelTypeFromBackendType(m.model_type)
         : getModelTypeFromName(m.name, m.image);
-    const hasLlm = models.some((m) => {
+    const hasLlm = healthyModels.some((m) => {
       const t = getType(m);
       return t === ModelType.ChatModel || t === ModelType.VLM;
     });
-    const hasStt = models.some(
+    const hasStt = healthyModels.some(
       (m) => getType(m) === ModelType.SpeechRecognitionModel
     );
-    const hasTts = models.some((m) => getType(m) === ModelType.TTS);
+    const hasTts = healthyModels.some((m) => getType(m) === ModelType.TTS);
     return hasLlm && hasStt && hasTts;
-  }, [models]);
+  }, [healthyModels]);
 
   // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
   // supports native tool calling. Eligibility is decided by the backend (SSOT:
   // shared_config.coding_agent_config) and surfaced per-deployment as a flag.
   const isCodingAgentReady = useMemo(
-    () => models.some((m) => m.coding_agent_eligible),
-    [models],
+    () => healthyModels.some((m) => m.coding_agent_eligible),
+    [healthyModels],
   );
 
-  // Check if we're in Chat UI, Image Generation, Workflows, or Canvas mode
+  // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
+  const isVideoGeneration = location.pathname === "/video-generation";
   const isWorkflows = location.pathname === "/workflows";
   const isCanvas = location.pathname === "/canvas";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration || isWorkflows || isCanvas;
+  const shouldUseVerticalNav =
+    isChatUI || isImageGeneration || isVideoGeneration || isWorkflows || isCanvas;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -426,7 +470,7 @@ export default function NavBar() {
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
-        return BotMessageSquare;
+        return Video;
       case ModelType.ObjectDetectionModel:
       case ModelType.CNN:
         return Eye;
@@ -542,8 +586,11 @@ export default function NavBar() {
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
     if (isDeployedEnabled) {
-      if (models.length > 0) {
-        return models.map((model) => {
+      // In AI Playground mode, show navigation for models that are healthy and
+      // ready to use. Models still deploying/warming up are intentionally hidden.
+      if (healthyModels.length > 0) {
+        // Show navigation items for each healthy model
+        return healthyModels.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
@@ -606,7 +653,9 @@ export default function NavBar() {
         ];
       }
     } else {
-      return models.map((model) => {
+      // In TT-Studio mode, show only models that are healthy and ready to use.
+      console.log("TT-Studio mode - creating navigation for healthy models");
+      return healthyModels.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
@@ -619,11 +668,8 @@ export default function NavBar() {
             navigate(route, {
               state: { containerID: model.id, modelName: model.name },
             }),
-          isDisabled: models.length === 0,
-          tooltipText:
-            models.length > 0
-              ? `Open ${getModelPageNameFromModelType(modelType)}`
-              : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
+          isDisabled: false,
+          tooltipText: `Open ${getModelPageNameFromModelType(modelType)}`,
           route,
         };
       });

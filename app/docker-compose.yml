@@ -28,7 +28,7 @@ services:
     stdin_open: true
     tty: true
     environment:
-      # env vars are defined in .env file, use .env.default as template
+      # env vars come from the repo-root .env (run.py passes it via --env-file); .env.default is the template
       # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
       # be extremely slow/hang here and stall the embedding-model download on boot.
       - HF_HUB_DISABLE_XET=1

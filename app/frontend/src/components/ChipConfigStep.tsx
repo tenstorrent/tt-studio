@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { Cpu, Layers } from "lucide-react";
-import { useStepper } from "./ui/stepper";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
-import { Button } from "./ui/button";
+import {
+  ModelPlacement,
+  canModelFit,
+  cardGroupFor,
+  fullBoardSlots,
+} from "../utils/deviceFit";
 
 interface ChipSlot {
   slot_id: number;
@@ -23,16 +27,22 @@ interface ChipStatus {
 }
 
 interface ChipConfigStepProps {
-  onConfirm: (mode: "single" | "multi", slotIds: number[]) => void;
+  // Receives the exact slots the user chose; empty means no valid selection yet.
+  onConfirm: (slotIds: number[]) => void;
+  placement: ModelPlacement;
 }
 
-export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
-  const { nextStep } = useStepper();
+export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
     null
   );
   const [selectedSlots, setSelectedSlots] = useState<number[]>([]);
   const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
+
+  const { allowsSingle, allowsFullBoard, cardGroups } = placement;
+  const isGrouped = cardGroups.length > 0;
+  // The "pick devices" card is offered for single-device and flexible (card-pair) models.
+  const pickEnabled = allowsSingle || isGrouped;
 
   // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
@@ -50,15 +60,59 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleModeSelect = (mode: "single" | "multi") => {
-    setSelectedMode(mode);
-    setSelectedSlots([]); // reset slots when mode changes
+  // Whether the whole board is free (required to run full-board).
+  const multiBoardFree = useMemo(
+    () =>
+      chipStatus
+        ? canModelFit(4, chipStatus.slots, chipStatus.total_slots)
+        : false,
+    [chipStatus]
+  );
+  // Slots the "All Devices" choice sends: the full board for flexible models,
+  // or just the base slot for standard multi-chip models (backend allocates the rest).
+  const multiSlots = useMemo(
+    () => (isGrouped ? fullBoardSlots(chipStatus?.total_slots ?? 4) : [0]),
+    [isGrouped, chipStatus]
+  );
+
+  // Pre-select the only valid mode for this model.
+  useEffect(() => {
+    setSelectedMode(pickEnabled ? "single" : "multi");
+    setSelectedSlots([]);
+  }, [pickEnabled]);
+
+  // Keep the parent's device selection in sync; an empty selection leaves Deploy
+  // disabled until a valid device is picked.
+  useEffect(() => {
+    if (selectedMode === "multi") {
+      onConfirm(multiBoardFree ? multiSlots : []);
+    } else if (selectedMode === "single") {
+      onConfirm(selectedSlots);
+    }
+  }, [selectedMode, selectedSlots, multiBoardFree, multiSlots, onConfirm]);
+
+  const slotIsAvailable = (slotId: number) => {
+    if (!chipStatus) return false;
+    // Flexible models occupy a whole card, so every slot in the group must be free.
+    const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
+    return group.every(
+      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
+    );
   };
 
   const toggleSlot = (slotId: number) => {
-    setSelectedSlots((prev) =>
-      prev.includes(slotId) ? prev.filter((s) => s !== slotId) : [...prev, slotId]
-    );
+    if (isGrouped) {
+      const group = cardGroupFor(slotId, cardGroups);
+      setSelectedSlots((prev) => {
+        const selected = group.every((g) => prev.includes(g));
+        return selected
+          ? prev.filter((s) => !group.includes(s))
+          : Array.from(new Set([...prev, ...group]));
+      });
+      return;
+    }
+    // Single-device models pick exactly one slot.
+    setSelectedSlots([slotId]);
   };
 
   const needsSlotPicker =
@@ -66,16 +120,19 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     chipStatus !== null &&
     chipStatus.total_slots > 1;
 
-  const isConfirmDisabled =
-    !selectedMode || (needsSlotPicker && selectedSlots.length === 0);
-
-  const handleConfirm = () => {
-    if (isConfirmDisabled || !selectedMode) return;
-    // Multi-chip always uses device_id [0]; single uses the chosen slots
-    const slotIds = selectedMode === "multi" ? [0] : selectedSlots;
-    onConfirm(selectedMode, slotIds);
-    nextStep();
-  };
+  const singleDisabled = !pickEnabled;
+  const multiDisabled = !allowsFullBoard || !multiBoardFree;
+  const multiReason = !allowsFullBoard
+    ? "This model uses a single device"
+    : !multiBoardFree
+      ? `Needs all ${chipStatus ? fullBoardSlots(chipStatus.total_slots).length : 4} devices free`
+      : null;
+  const singleTitle = allowsSingle ? "1 Device" : "Single Card";
+  const singleDescription = singleDisabled
+    ? "This model requires all devices."
+    : allowsSingle
+      ? "Deploy on a single device. Best for 8B–13B parameter models."
+      : "Deploy on one card (2 devices), or pick both for the full board.";
 
   return (
     <div className="w-full px-8 py-6 space-y-8">
@@ -85,104 +142,107 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
           Choose Device Configuration
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Select how many devices to use. This determines which models are
-          available in the next step.
+          Only configurations valid for the selected model and currently free
+          devices can be chosen.
         </p>
       </div>
 
       {/* Mode selection cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* 1 Device card */}
+        {/* Single / card-pick card */}
         <button
           type="button"
-          onClick={() => handleModeSelect("single")}
+          disabled={singleDisabled}
+          onClick={() => !singleDisabled && setSelectedMode("single")}
           className={`
-            relative text-left p-6 rounded-xl border-2 transition-all duration-200 cursor-pointer
+            relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${
-              selectedMode === "single"
-                ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)]"
-                : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10"
+              singleDisabled
+                ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                : selectedMode === "single"
+                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
+                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
             }
           `}
         >
-          {selectedMode === "single" && (
+          {selectedMode === "single" && !singleDisabled && (
             <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-TT-purple-accent shadow-[0_0_8px_rgba(124,104,250,0.8)]" />
           )}
           <div className="flex items-center gap-3 mb-3">
             <div
-              className={`p-2 rounded-lg ${selectedMode === "single" ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
+              className={`p-2 rounded-lg ${selectedMode === "single" && !singleDisabled ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
             >
               <Cpu
-                className={`w-6 h-6 ${selectedMode === "single" ? "text-TT-purple-accent" : "text-gray-400"}`}
+                className={`w-6 h-6 ${selectedMode === "single" && !singleDisabled ? "text-TT-purple-accent" : "text-gray-400"}`}
               />
             </div>
             <div>
               <div
-                className={`font-mono font-bold text-base ${selectedMode === "single" ? "text-TT-purple" : "text-gray-200"}`}
+                className={`font-mono font-bold text-base ${selectedMode === "single" && !singleDisabled ? "text-TT-purple" : "text-gray-200"}`}
               >
-                1 Device
+                {singleTitle}
               </div>
             </div>
           </div>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            Deploy on a single device. Best for 8B–13B parameter models.
-          </p>
+          <p className="text-sm text-gray-400 leading-relaxed">{singleDescription}</p>
         </button>
 
         {/* All Devices card */}
         <button
           type="button"
-          onClick={() => handleModeSelect("multi")}
+          disabled={multiDisabled}
+          onClick={() => !multiDisabled && setSelectedMode("multi")}
           className={`
-            relative text-left p-6 rounded-xl border-2 transition-all duration-200 cursor-pointer
+            relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${
-              selectedMode === "multi"
-                ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)]"
-                : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10"
+              multiDisabled
+                ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                : selectedMode === "multi"
+                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
+                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
             }
           `}
         >
-          {selectedMode === "multi" && (
+          {selectedMode === "multi" && !multiDisabled && (
             <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-TT-purple-accent shadow-[0_0_8px_rgba(124,104,250,0.8)]" />
           )}
           <div className="flex items-center gap-3 mb-3">
             <div
-              className={`p-2 rounded-lg ${selectedMode === "multi" ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
+              className={`p-2 rounded-lg ${selectedMode === "multi" && !multiDisabled ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
             >
               <Layers
-                className={`w-6 h-6 ${selectedMode === "multi" ? "text-TT-purple-accent" : "text-gray-400"}`}
+                className={`w-6 h-6 ${selectedMode === "multi" && !multiDisabled ? "text-TT-purple-accent" : "text-gray-400"}`}
               />
             </div>
             <div>
               <div
-                className={`font-mono font-bold text-base ${selectedMode === "multi" ? "text-TT-purple" : "text-gray-200"}`}
+                className={`font-mono font-bold text-base ${selectedMode === "multi" && !multiDisabled ? "text-TT-purple" : "text-gray-200"}`}
               >
                 All Devices
               </div>
-              <div className="text-xs text-gray-500 font-mono">
-                4 × devices
-              </div>
+              <div className="text-xs text-gray-500 font-mono">4 × devices</div>
             </div>
           </div>
           <p className="text-sm text-gray-400 leading-relaxed">
-            Deploy across all 4 devices. Required for 70B+ large models.
+            {multiReason ?? "Deploy across all 4 devices. Required for 70B+ large models."}
           </p>
         </button>
       </div>
 
-      {/* Slot picker — only shown when "1 Device" is selected on a multi-slot board */}
+      {/* Slot picker — shown when the single/card mode is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
         <div>
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
             Select Device(s)
           </h3>
           <p className="text-xs text-gray-500 font-mono mb-3">
-            Select one or more devices — they will be passed as{" "}
-            <code className="bg-gray-800 px-1 rounded">--device-id {selectedSlots.length > 0 ? selectedSlots.slice().sort((a,b)=>a-b).join(",") : "…"}</code>
+            {isGrouped
+              ? "Select a card (2 devices), or both cards for the full board."
+              : "Select the device to deploy on."}
           </p>
           <div className="flex flex-row justify-center gap-3 flex-wrap">
             {chipStatus.slots.map((slot) => {
-              const isAvailable = slot.status === "available";
+              const isAvailable = slotIsAvailable(slot.slot_id);
               const isSelected = selectedSlots.includes(slot.slot_id);
               return (
                 <button
@@ -255,25 +315,6 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
             Fetching hardware status...
           </div>
         )}
-      </div>
-
-      {/* Confirm button */}
-      <div className="flex justify-end pt-2">
-        <Button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isConfirmDisabled}
-          className={`
-            px-6 py-2 font-mono font-semibold transition-all duration-200
-            ${
-              !isConfirmDisabled
-                ? "bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)]"
-                : "bg-gray-800 text-gray-600 cursor-not-allowed"
-            }
-          `}
-        >
-          Continue →
-        </Button>
       </div>
     </div>
   );

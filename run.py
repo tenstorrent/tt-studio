@@ -83,8 +83,11 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
-ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
-ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
+ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
+ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
+LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
+LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 # Updated: Use inference-api instead of tt-inference-server submodule
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
@@ -536,7 +539,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Configuration key missing{key_hint}',
             'detail': f"{container_name} encountered a missing env var or config key.",
-            'action': "Check app/.env for missing variables. Run: python run.py --reconfigure",
+            'action': "Check .env for missing variables. Run: python run.py --reconfigure",
         }
 
     if "permission denied" in log_lower or "permissionerror" in log_lower:
@@ -844,8 +847,7 @@ def is_placeholder(value):
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
         'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
-        'true or false to enable RAG admin'
+        '<PATH_TO_ROOT_OF_REPO>'
     ]
 
     value_str = str(value).strip().strip('"\'')
@@ -853,7 +855,7 @@ def is_placeholder(value):
 
 def write_env_var(var_name, var_value, quote_value=True):
     """
-    Update or add an environment variable to the app/.env file.
+    Update or add an environment variable to the repo-root .env file.
     """
     if not os.path.exists(ENV_FILE_PATH):
         open(ENV_FILE_PATH, 'w').close()
@@ -886,7 +888,7 @@ def write_env_var(var_name, var_value, quote_value=True):
 
 def set_app_version_env():
     """
-    Compute the running build's version from git and persist it to app/.env so
+    Compute the running build's version from git and persist it to .env so
     docker compose can inject it into the frontend as VITE_APP_VERSION /
     VITE_APP_GIT_BRANCH.
 
@@ -1209,9 +1211,9 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def _hf_check_repo(token, repo_id):
-    """Return HTTP status code for a HuggingFace repo config.json. Returns None on network error."""
-    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
+def _hf_check_repo(token, repo_id, filename="config.json"):
+    """Return HTTP status code for a HuggingFace repo file. Returns None on network error."""
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
     headers = {"User-Agent": "tt-studio"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -1231,14 +1233,17 @@ def _hf_check_repo(token, repo_id):
 
 def check_hf_access(token):
     """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
+    # diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
     repos = [
-        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
-        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
-        ("Qwen/Qwen3-32B", "Qwen3-32B"),
+        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
+        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
+        ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
+        ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
+        ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
     ]
     results = []
-    for repo_id, label in repos:
-        code = _hf_check_repo(token, repo_id)
+    for repo_id, label, filename in repos:
+        code = _hf_check_repo(token, repo_id, filename)
         results.append((label, repo_id, code))
 
     if all(c is None for _, _, c in results):
@@ -1295,8 +1300,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     if force_reconfigure:
         clear_preferences()
     
+    # One-time migration: the canonical .env moved from app/.env to the repo root.
+    # Preserve any existing secrets by copying the legacy file up and keeping a backup.
+    if os.path.exists(LEGACY_ENV_FILE_PATH):
+        if not os.path.exists(ENV_FILE_PATH):
+            print(f"{C_BLUE}📦 Migrating legacy app/.env to the repo-root .env...{C_RESET}")
+            shutil.copy(LEGACY_ENV_FILE_PATH, ENV_FILE_PATH)
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+            print(f"{C_GREEN}   ✅ Copied to repo-root .env; backed up the old file to app/.env-old{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Both repo-root .env and legacy app/.env exist; keeping the "
+                  f"repo-root .env and backing up the legacy file to app/.env-old.{C_RESET}")
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+
     env_file_exists = os.path.exists(ENV_FILE_PATH)
-    
+
     if not env_file_exists:
         if os.path.exists(ENV_FILE_DEFAULT):
             print(f"{C_BLUE}📄 No .env file found. Creating one from the default template...{C_RESET}")
@@ -2095,6 +2113,8 @@ def cleanup_resources(args):
          "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
         ("⚙️ ", ENV_FILE_PATH,
          "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+        ("⚙️ ", LEGACY_ENV_FILE_PATH, "legacy pre-consolidation env file (app/.env)"),
+        ("⚙️ ", LEGACY_ENV_BACKUP_PATH, "legacy env backup from migration (app/.env-old)"),
         ("🔧", artifacts_root,
          "downloaded inference server + workflow logs + release tarball"),
         *log_items,
@@ -2286,7 +2306,11 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     Returns:
         list: Docker Compose command with appropriate files
     """
-    compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
+    # Compose runs with cwd=app/, so it would otherwise auto-load app/.env. The canonical
+    # env file now lives at the repo root, so point compose at it explicitly. --env-file
+    # only changes variable resolution; the project directory stays app/ so relative build
+    # contexts (./backend, ./frontend, ./agent) and ${TT_STUDIO_ROOT} volume paths are kept.
+    compose_files = ["docker", "compose", "--env-file", ENV_FILE_PATH, "-f", DOCKER_COMPOSE_FILE]
 
     if dev_mode:
         if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
@@ -2812,6 +2836,11 @@ def fetch_branch_commit_sha(branch):
         return None
 
 
+def _is_commit_sha(value):
+    """Return True if value looks like a full 40-char hex commit SHA."""
+    return bool(value) and len(value) == 40 and all(c in '0123456789abcdefABCDEF' for c in value)
+
+
 def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
@@ -2850,7 +2879,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             # Instructions for changing
             f.write("  💡 To switch to a different artifact:\n")
             f.write("     • Run: python run.py --reconfigure-inference-server\n")
-            f.write("     • Or manually edit: app/.env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
+            f.write("     • Or manually edit: .env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
             f.write("\n" + "-" * 80 + "\n\n")
 
             # Technical details section
@@ -3079,7 +3108,10 @@ def setup_tt_inference_server(pull_branch=False):
                     print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
-                    if pull_branch:
+                    if _is_commit_sha(artifact_branch):
+                        # SHA is immutable — cached artifact is always current; --pull-branch is a no-op
+                        print(f"{C_GREEN}✅ TT Inference Server (commit: {artifact_branch[:7]}) (cached){C_RESET}")
+                    elif pull_branch:
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
@@ -3246,7 +3278,7 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                         _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
@@ -3289,9 +3321,12 @@ def setup_tt_inference_server(pull_branch=False):
             print(f"📦 Using existing artifact tarball: {artifact_file}")
         else:
             if os.path.exists(artifact_file) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
-                print(f"📦 Artifact directory missing; re-downloading branch to get latest commit...")
-            # Download (overwrites existing tarball if present; always gets current HEAD of branch)
-            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
+                print(f"📦 Artifact directory missing; re-downloading to get latest commit...")
+            # Download: commit SHAs use archive/{sha}.tar.gz; branch names use archive/refs/heads/{branch}.tar.gz
+            if _is_commit_sha(artifact_branch):
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/{artifact_branch}.tar.gz"
+            else:
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
                 import urllib.request
                 print(f"   Downloading from: {github_url}")
@@ -3300,14 +3335,18 @@ def setup_tt_inference_server(pull_branch=False):
             except Exception as e:
                 error_str = str(e)
                 if "404" in error_str or "Not Found" in error_str:
-                    print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
-                    print(f"   The branch name you configured does not exist.")
+                    if _is_commit_sha(artifact_branch):
+                        print(f"{C_RED}⛔ Commit SHA '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The commit SHA you configured does not exist in the repository.")
+                    else:
+                        print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The branch name you configured does not exist.")
                     print(f"   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}")
                     print(f"   Run: python run.py --reconfigure-inference-server")
                     print(f"   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches")
                 else:
-                    print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
-                    print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
+                    print(f"{C_RED}⛔ Failed to download from GitHub: {e}{C_RESET}")
+                    print(f"   Make sure the value '{artifact_branch}' exists in the repository")
                 if os.path.exists(artifact_file):
                     try:
                         os.remove(artifact_file)
@@ -3391,7 +3430,7 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                     _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
@@ -3685,6 +3724,43 @@ def setup_fastapi_environment():
     finally:
         os.chdir(original_dir)
 
+def apply_media_catalog_env_overlay():
+    """STOPGAP: overlay HF_HUB_DISABLE_XET=1 onto the extracted model-spec catalog.
+
+    Runs after the artifact is extracted and before uvicorn loads it. Uses the
+    inference-api venv interpreter because the top-level run.py has no PyYAML, while
+    the inference-api venv does (it parses these same catalog YAMLs). Non-fatal: a
+    failure here only forfeits the Xet workaround, it must not block server start.
+    See app/backend/shared_config/patch_catalog_env.py for the full rationale.
+    """
+    if not os.path.exists(INFERENCE_ARTIFACT_DIR):
+        return
+    patch_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config", "patch_catalog_env.py",
+    )
+    if not os.path.exists(patch_script):
+        print(f"{C_YELLOW}⚠️  Catalog env overlay script not found: {patch_script}{C_RESET}")
+        return
+    venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "python")
+    if OS_NAME == "Windows":
+        venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "python.exe")
+    if not os.path.exists(venv_python):
+        venv_python = sys.executable  # fall back to the launcher interpreter
+    try:
+        result = subprocess.run(
+            [venv_python, patch_script, INFERENCE_ARTIFACT_DIR],
+            capture_output=True, text=True, check=False,
+        )
+        for line in (result.stdout or "").strip().splitlines():
+            print(f"   {line}")
+        if result.returncode != 0 and (result.stderr or "").strip():
+            print(f"{C_YELLOW}⚠️  Catalog env overlay reported errors:{C_RESET}")
+            for line in result.stderr.strip().splitlines():
+                print(f"   {line}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Catalog env overlay failed (continuing): {e}{C_RESET}")
+
+
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🔧 Starting FastAPI server...")
@@ -3733,7 +3809,25 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
-    
+
+    # STOPGAP (excise when prod catalog is uplifted): pin the dev model-spec catalog so
+    # media models (e.g. Wan2.2-T2V) receive TT_DIT_CACHE_DIR. prod/video.yaml currently
+    # lacks the env_vars block; dev/video.yaml has it. Without this, an inference-api
+    # restart defaults to prod and Wan deploys uncached (and hang). Respects an explicit
+    # operator override. Real fix: add TT_DIT_CACHE_DIR to tt-inference-server
+    # prod/video.yaml (and land it on main), then delete this block.
+    # env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")  # TODO: remove this whole block once confirmed it's not needed
+
+    # STOPGAP (excise when upstream catalog carries the var): overlay
+    # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
+    # artifact. Media containers get their per-model env solely from the catalog
+    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags);
+    # the backend compose service sets HF_HUB_DISABLE_XET but that never reaches them.
+    # Without it, large media weight downloads stall on the Xet CDN and hang past the
+    # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
+    # the pin, then delete this block and patch_catalog_env.py.
+    apply_media_catalog_env_overlay()
+
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":

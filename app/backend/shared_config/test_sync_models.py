@@ -34,10 +34,15 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
 
     def test_non_image_media_models_use_enqueue(self):
-        """Non-image/non-audio media models should use /enqueue."""
-        assert map_service_route("media", "", "VIDEO") == "/enqueue"
+        """Non-image/non-audio/non-video media models should use /enqueue."""
         assert map_service_route("media", "", "CNN") == "/enqueue"
         assert map_service_route("media", "", "EMBEDDING") == "/enqueue"
+
+    def test_video_gen_media_models_use_v1_videos_generations(self):
+        """T2V video generation media models should use /v1/videos/generations."""
+        assert map_service_route("media", "Wan-AI/Wan2.2-T2V-A14B-Diffusers", "VIDEO") == "/v1/videos/generations"
+        assert map_service_route("media", "Wan-AI/Wan2.2-I2V-A14B-Diffusers", "VIDEO") == "/v1/videos/generations/i2v"
+        assert map_service_route("media", "some-org/some-T2V-model", "VIDEO") == "/v1/videos/generations"
     
     def test_forge_models_use_chat_completions(self):
         """Forge models should use /v1/chat/completions."""

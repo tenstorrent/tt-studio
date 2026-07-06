@@ -72,7 +72,7 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
 
 ## Environment
 
-`.env` lives at `app/.env`, auto-created from `app/.env.default`. Key vars:
+`.env` lives at the repo root, auto-created from `.env.default`. Key vars:
 `HF_TOKEN` (gated model downloads), `JWT_SECRET`, `DJANGO_SECRET_KEY`,
 `TAVILY_API_KEY` (agent search), `TT_INFERENCE_ARTIFACT_VERSION`, and the
 `CLOUD_*` endpoint/token vars used for deployed/remote-endpoint mode
