@@ -26,21 +26,21 @@ redirection needed.
 
 Examples:
   # Full run against a local backend (hardware present):
-  python3 ci/deploy_smoke_test.py
+  python3 ci/deploy_healthcheck.py
 
   # Deploy a specific model and give it up to 4 hours to go healthy:
-  python3 ci/deploy_smoke_test.py --model-name Wan2.2-T2V-A14B-Diffusers --timeout 4h
+  python3 ci/deploy_healthcheck.py --model-name Wan2.2-T2V-A14B-Diffusers --timeout 4h
 
   # Fire-and-forget: prints where the log/report live, then runs in the
   # background so it survives losing your SSH session.
-  python3 ci/deploy_smoke_test.py --detach
+  python3 ci/deploy_healthcheck.py --detach
 
   # Batch: deploy several models back-to-back (cleanup between each is forced).
   # Ideal for an overnight sweep — check the summary / JSON report in the morning.
-  python3 ci/deploy_smoke_test.py --models Qwen3-32B Llama-3.1-8B-Instruct FLUX.1-dev --detach
+  python3 ci/deploy_healthcheck.py --models Qwen3-32B Llama-3.1-8B-Instruct FLUX.1-dev --detach
 
   # Dry run — check connectivity + resolve the model id, deploy nothing.
-  python3 ci/deploy_smoke_test.py --dry-run
+  python3 ci/deploy_healthcheck.py --dry-run
 """
 
 import argparse
