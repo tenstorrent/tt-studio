@@ -38,6 +38,11 @@ _state_lock = threading.Lock()
 _total_bytes_cache: Dict[Tuple[str, bool], Optional[int]] = {}
 _total_bytes_lock = threading.Lock()
 
+# This is bounded by the small set of distinct models ever deployed, so it needs no pruning
+# and stays valid across redeploys. We probe both candidates only until bytes appear,
+# then track the resolved one for the rest of every download of that repo.
+_media_path_cache: Dict[str, str] = {}
+
 # This list defines non-PyTorch file extensions (like Flax, TensorFlow, and ONNX) 
 # that are intentionally skipped because the media server only loads safetensors or .bin weights. 
 # Excluding these formats prevents "dead weight" files from falsely inflating the total size denominator on the download progress bar.
@@ -88,21 +93,25 @@ _EMA_ALPHA_LATER = 0.15
 _ETA_SMOOTH_ALPHA = 0.3             # how much new raw ETA influences smoothed ETA
 _EXEC_TIMEOUT_SECONDS = 4           # bound how long du can run before we give up
 
-# Media (tt-media-inference-server) logs only the repo, not a target path.
-# Weights land in the HF hub cache under HF_HOME, which is set to
-# ${CACHE_ROOT}/huggingface by app/backend/shared_config/model_config.py:76-78.
-_MEDIA_HF_CACHE_PREFIX = "/home/container_app_user/cache_root/huggingface/hub/models--"
+# Weights land under HF_HOME, which the inference server sets for the container to
+# /home/container_app_user/cache_root/huggingface. Two on-disk layouts occur:
+#   - transformers `from_pretrained` (whisper, speecht5) → $HF_HOME/hub/models--<repo>
+#   - `snapshot_download(cache_dir=$HF_HOME)` (image/video, e.g. Z-Image-Turbo) →
+#     $HF_HOME/models--<repo> (cache_dir is used verbatim, no `hub/` segment)
+# We can't tell which a model uses up front, so we probe both at the beginning of the download.
+_MEDIA_HF_HOME = "/home/container_app_user/cache_root/huggingface"
 
 
-def _media_container_path(repo: Optional[str]) -> Optional[str]:
-    """Derive the in-container HF hub cache path for a media download.
+def _media_container_paths(repo: Optional[str]) -> list[str]:
+    """Candidate in-container HF cache dirs for a media download.
 
     Mirrors huggingface_hub's repo→path convention (slashes become "--").
-    Returns None for invalid repo strings.
+    Returns [] for invalid repo strings.
     """
     if not repo or "/" not in repo:
-        return None
-    return _MEDIA_HF_CACHE_PREFIX + repo.replace("/", "--")
+        return []
+    slug = "models--" + repo.replace("/", "--")
+    return [f"{_MEDIA_HF_HOME}/hub/{slug}", f"{_MEDIA_HF_HOME}/{slug}"]
 
 def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     """Return recursive byte count of `container_path` inside the running deploy.
@@ -231,12 +240,26 @@ def compute_download_progress(
     # so the total must be computed over that same subset, not the whole tree.
     media_download = not container_path and bool(repo)
     if media_download:
-        container_path = _media_container_path(repo)
+        # Probe both locations only until one holds bytes, then remember it (keyed by repo) so
+        # subsequent polls and future deploys of the same model do a single `du`.
+        with _state_lock:
+            resolved = _media_path_cache.get(repo)
+        candidates = [resolved] if resolved else _media_container_paths(repo)
+        downloaded = None
+        for cand in candidates:
+            sz = _container_dir_size(deploy_id, cand)
+            if sz is None:
+                continue
+            if downloaded is None or sz > downloaded:
+                downloaded, best_path = sz, cand
+        if not resolved and downloaded:
+            with _state_lock:
+                _media_path_cache[repo] = best_path
+    else:
+        if not container_path:
+            return out
+        downloaded = _container_dir_size(deploy_id, container_path)
 
-    if not container_path:
-        return out
-
-    downloaded = _container_dir_size(deploy_id, container_path)
     if downloaded is None:
         return out
     out["downloaded_bytes"] = int(downloaded)
