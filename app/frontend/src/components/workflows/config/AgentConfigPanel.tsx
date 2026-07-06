@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
+import { useEffect, useState } from "react";
 import { useWorkflowStore } from "../../../store/workflowStore";
 
 interface Props {
@@ -10,6 +11,33 @@ interface Props {
 
 export default function AgentConfigPanel({ nodeId, data }: Props) {
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+
+  // Web Search availability mirrors the real agent config: it's only usable when
+  // a valid TAVILY_API_KEY is set. Reflect that here so the toggle shows
+  // unchecked (like Code Interpreter) when the tool isn't actually available.
+  const [webSearchAvailable, setWebSearchAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/models-api/agent/status/", {
+          signal: AbortSignal.timeout(5000),
+        });
+        const d = await res.json();
+        if (!cancelled && res.ok) {
+          setWebSearchAvailable(
+            d?.backend?.tavily_configured === true ||
+              d?.agent?.capabilities?.web_search === true,
+          );
+        }
+      } catch {
+        // agent/backend unreachable — leave web search unavailable
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -41,7 +69,16 @@ export default function AgentConfigPanel({ nodeId, data }: Props) {
           Available Tools
         </p>
         <div className="flex flex-col gap-2">
-          <ToolToggle label="Web Search (Tavily)" checked disabled />
+          <ToolToggle
+            label="Web Search (Tavily)"
+            checked={webSearchAvailable}
+            disabled
+            hint={
+              webSearchAvailable
+                ? undefined
+                : "set TAVILY_API_KEY in .env to enable"
+            }
+          />
           <ToolToggle label="RAG Query" checked disabled />
           <ToolToggle label="Code Interpreter" checked={false} disabled />
         </div>
@@ -74,10 +111,12 @@ function ToolToggle({
   label,
   checked,
   disabled,
+  hint,
 }: {
   label: string;
   checked: boolean;
   disabled?: boolean;
+  hint?: string;
 }) {
   return (
     <label className="flex items-center gap-2 text-xs text-zinc-300">
@@ -89,6 +128,7 @@ function ToolToggle({
         className="accent-amber-500"
       />
       {label}
+      {hint && <span className="text-zinc-500">[{hint}]</span>}
     </label>
   );
 }
