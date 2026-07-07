@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional, Union
 
 import requests
 
+from shared_config.backend_config import backend_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,7 @@ def resolve_deploy_image(
     model_name: str,
     device: Optional[str] = None,
     *,
-    fastapi_base_url: str = "http://172.18.0.1:8001",
+    fastapi_base_url: Optional[str] = None,
     timeout_seconds: int = 5,
 ) -> Optional[str]:
     """Ask the TT Inference Server which Docker image it will actually deploy for
@@ -57,6 +59,9 @@ def resolve_deploy_image(
     from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
     ref to produce a real cache hit; callers fall back to impl.image_version on None.
     """
+    fastapi_base_url = (
+        fastapi_base_url or backend_config.tt_inference_api_url
+    ).rstrip("/")
     try:
         params = {"model": model_name}
         if device:
@@ -87,7 +92,7 @@ def start_chat_deployment(
     device: str,
     device_id: Optional[Union[int, str]] = None,
     service_port: Optional[int] = None,
-    fastapi_run_url: str = "http://172.18.0.1:8001/run",
+    fastapi_run_url: Optional[str] = None,
     timeout_seconds: int = 30,
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
@@ -100,6 +105,9 @@ def start_chat_deployment(
     This endpoint is expected to return quickly with a job_id so the UI can poll
     /run/progress/<job_id> and display explicit weights download progress.
     """
+    fastapi_run_url = (
+        fastapi_run_url or f"{backend_config.tt_inference_api_url}/run"
+    ).strip().rstrip("/")
     payload: Dict[str, Any] = {
         "model": model_name,
         "workflow": "server",
@@ -164,4 +172,3 @@ def start_chat_deployment(
         message=api_result.get("message", "Deployment started"),
         api_response=api_result,
     )
-
