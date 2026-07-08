@@ -1908,7 +1908,21 @@ class DeploymentHistoryView(APIView):
         """Return all deployments ordered by most recent first"""
         try:
             from docker_control.models import ModelDeployment
-            
+
+            # Reconcile the store against live Docker state before reading, so
+            # history reflects the same truth as the Models Deployed page
+            # (get_canonical_deployments flips stale running/starting records
+            # to stopped). If Docker can't be queried, liveness is unverifiable
+            # and non-terminal statuses are reported as "unknown" below.
+            docker_state = "ok"
+            try:
+                get_canonical_deployments()
+            except Exception as reconcile_err:
+                docker_state = "unavailable"
+                logger.warning(
+                    f"Deployment history: could not reconcile against Docker: {reconcile_err}"
+                )
+
             # Get all deployments, ordered by most recent first
             deployments = ModelDeployment.objects.all().order_by('-deployed_at')
             
@@ -1940,16 +1954,17 @@ class DeploymentHistoryView(APIView):
                     'device_id': deployment.device_id,
                     'deployed_at': deployment.deployed_at.isoformat() if deployment.deployed_at else None,
                     'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None,
-                    'status': deployment.status,
+                    'status': self._effective_status(deployment, docker_state),
                     'stopped_by_user': deployment.stopped_by_user,
                     'port': deployment.port,
                     'workflow_log_path': deployment.workflow_log_path,
                 })
-            
+
             return Response({
                 'status': 'success',
                 'deployments': deployment_data,
-                'count': len(deployment_data)
+                'count': len(deployment_data),
+                'docker_state': docker_state
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
@@ -1958,6 +1973,37 @@ class DeploymentHistoryView(APIView):
                 {'status': 'error', 'message': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @staticmethod
+    def _effective_status(deployment, docker_state):
+        """Stored status, downgraded to "unknown" when Docker liveness can't be
+        verified. Response-only: the store keeps the last verified status, so a
+        Docker outage never overwrites real state.
+        """
+        if docker_state == "ok" or deployment.status not in ("running", "starting"):
+            return deployment.status
+        if deployment.status == "starting" and deployment.deployed_at is not None:
+            # Trust fresh deploys through the same grace window the canonical
+            # reconcile uses, so a legitimate startup doesn't flash "unknown".
+            from datetime import datetime, timezone
+            from .docker_utils import (
+                _CANONICAL_STARTING_GRACE_SECONDS,
+                _CANONICAL_STARTING_GRACE_MEDIA_SECONDS,
+            )
+            impl = next(
+                (v for v in model_implmentations.values()
+                 if v.model_name == deployment.model_name),
+                None,
+            )
+            grace = (
+                _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
+                if impl and getattr(impl, "inference_engine", None) == "media"
+                else _CANONICAL_STARTING_GRACE_SECONDS
+            )
+            age = (datetime.now(timezone.utc) - deployment.deployed_at).total_seconds()
+            if age < grace:
+                return "starting"
+        return "unknown"
 
 
 class DiscoverContainersView(APIView):

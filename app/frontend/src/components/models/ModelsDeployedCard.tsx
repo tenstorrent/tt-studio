@@ -287,6 +287,9 @@ export default function ModelsDeployedCard(): JSX.Element {
     for (const d of history) {
       if (!d.container_id || d.container_id.startsWith("pending_")) continue;
       if (d.stopped_by_user) continue;
+      // "unknown" means the backend couldn't verify liveness (Docker service
+      // unreachable) — not evidence of death, so never mint a failed row.
+      if (d.status === "unknown") continue;
       // Only flag deployments we've actually seen alive this session OR that
       // are still in the live set (so a row that's currently visible can flip
       // to failed). Anything we never saw is ignored — that's history.

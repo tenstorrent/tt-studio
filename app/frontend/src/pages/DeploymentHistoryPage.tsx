@@ -50,6 +50,7 @@ interface DeploymentHistoryResponse {
   status: string;
   deployments: Deployment[];
   count: number;
+  docker_state?: "ok" | "unavailable";
 }
 
 const fetchDeploymentHistory = async (): Promise<DeploymentHistoryResponse> => {
@@ -62,6 +63,26 @@ const fetchDeploymentHistory = async (): Promise<DeploymentHistoryResponse> => {
 const getStatusBadge = (status: string, stoppedByUser: boolean) => {
   if (status === "running") {
     return <Badge className="bg-green-500">Running</Badge>;
+  }
+  if (status === "unknown") {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge className="bg-yellow-500 text-white cursor-help">
+              Unknown
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-sm">
+              The live container state can't be verified right now — the Docker
+              service is unreachable or the last refresh failed. The status
+              will update automatically once the connection recovers.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
   if (status === "stopped" && stoppedByUser) {
     return <Badge variant="outline">Stopped by User</Badge>;
@@ -129,6 +150,18 @@ export default function DeploymentHistoryPage() {
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 
+  // React Query keeps the last successful data when a background refetch
+  // fails, so a fetch error means the table below may be stale. In that case
+  // (or when the backend reports it couldn't reach Docker) we can't vouch for
+  // "running" rows and downgrade them to "unknown".
+  const liveStateUnknown = !!error || data?.docker_state === "unavailable";
+  const effectiveStatus = (deployment: Deployment) =>
+    deployment.status === "running" || deployment.status === "starting"
+      ? liveStateUnknown
+        ? "unknown"
+        : deployment.status
+      : deployment.status;
+
   const closeLogDialog = () => {
     setSelectedDeploymentId(null);
     setSelectedModelName(undefined);
@@ -184,12 +217,24 @@ export default function DeploymentHistoryPage() {
             </div>
           )}
 
-          {error && (
+          {error && !data && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Error</AlertTitle>
               <AlertDescription>
                 Failed to load deployment history. Please try again later.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {data && liveStateUnknown && (
+            <Alert className="mb-4 border-yellow-500/50 text-yellow-600 dark:text-yellow-500 [&>svg]:text-yellow-600 dark:[&>svg]:text-yellow-500">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Live status unavailable</AlertTitle>
+              <AlertDescription>
+                Can't verify which containers are actually running right now.
+                Deployments are shown as "Unknown" until the connection
+                recovers.
               </AlertDescription>
             </Alert>
           )}
@@ -236,7 +281,7 @@ export default function DeploymentHistoryPage() {
                       </TableCell>
                       <TableCell>
                         {getStatusBadge(
-                          deployment.status,
+                          effectiveStatus(deployment),
                           deployment.stopped_by_user
                         )}
                       </TableCell>
@@ -247,10 +292,13 @@ export default function DeploymentHistoryPage() {
                         {formatDate(deployment.stopped_at)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {formatDuration(
-                          deployment.deployed_at,
-                          deployment.stopped_at
-                        )}
+                        {effectiveStatus(deployment) === "unknown" &&
+                        !deployment.stopped_at
+                          ? "Unknown"
+                          : formatDuration(
+                              deployment.deployed_at,
+                              deployment.stopped_at
+                            )}
                       </TableCell>
                       <TableCell>
                         {deployment.port ? (
