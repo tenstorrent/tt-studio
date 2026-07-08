@@ -8,6 +8,12 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from tt_setup import cli as M
+# Dispatch (cleanup_resources / fix_docker_issues) now lives in the _run submodule;
+# patches must target it so _run's calls are intercepted.
+try:
+    from tt_setup.cli import _run as _cli_run
+except ImportError:
+    _cli_run = M
 
 runner = CliRunner()
 
@@ -37,7 +43,7 @@ class TestCli(unittest.TestCase):
         self.assertIn("Environment Variables Help", result.output)
 
     def test_stop_flag_dispatches_to_cleanup_resources(self):
-        with patch.object(M, "cleanup_resources") as cleanup:
+        with patch.object(_cli_run, "cleanup_resources") as cleanup:
             result = runner.invoke(M.app, ["--stop"])
         self.assertEqual(result.exit_code, 0)
         cleanup.assert_called_once()
@@ -47,7 +53,7 @@ class TestCli(unittest.TestCase):
         self.assertFalse(ns.cleanup_all)
 
     def test_purge_all_flag_dispatches_to_cleanup_resources(self):
-        with patch.object(M, "cleanup_resources") as cleanup:
+        with patch.object(_cli_run, "cleanup_resources") as cleanup:
             result = runner.invoke(M.app, ["--purge-all"])
         self.assertEqual(result.exit_code, 0)
         cleanup.assert_called_once()
@@ -57,7 +63,7 @@ class TestCli(unittest.TestCase):
         self.assertTrue(ns.cleanup)
 
     def test_deprecated_cleanup_alias_still_works_and_warns(self):
-        with patch.object(M, "cleanup_resources") as cleanup:
+        with patch.object(_cli_run, "cleanup_resources") as cleanup:
             result = runner.invoke(M.app, ["--cleanup"])
         self.assertEqual(result.exit_code, 0)
         cleanup.assert_called_once()
@@ -68,7 +74,7 @@ class TestCli(unittest.TestCase):
         self.assertIn("--stop", result.output)
 
     def test_deprecated_cleanup_all_alias_still_works_and_warns(self):
-        with patch.object(M, "cleanup_resources") as cleanup:
+        with patch.object(_cli_run, "cleanup_resources") as cleanup:
             result = runner.invoke(M.app, ["--cleanup-all"])
         self.assertEqual(result.exit_code, 0)
         cleanup.assert_called_once()
@@ -78,7 +84,7 @@ class TestCli(unittest.TestCase):
         self.assertIn("--purge-all", result.output)
 
     def test_fix_docker_flag_dispatches(self):
-        with patch.object(M, "fix_docker_issues", return_value=True) as fix:
+        with patch.object(_cli_run, "fix_docker_issues", return_value=True) as fix:
             result = runner.invoke(M.app, ["--fix-docker"])
         fix.assert_called_once()
         self.assertEqual(result.exit_code, 0)

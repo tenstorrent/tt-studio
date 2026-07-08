@@ -7,6 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from tt_setup import console as C
+# After the subpackage split, step()/download_with_progress read _real_console from
+# the _steps submodule's namespace, so patches of it must target _steps.
+from tt_setup.console import _steps as _steps_mod
 
 
 class TestStep(unittest.TestCase):
@@ -14,7 +17,7 @@ class TestStep(unittest.TestCase):
         # Force the non-spinner, captured path with a deterministic real console.
         self._buf = io.StringIO()
         self._real = C.Console(theme=C.TT_THEME, file=self._buf)  # not a TTY
-        self._p = patch.object(C, "_real_console", self._real)
+        self._p = patch.object(_steps_mod, "_real_console", self._real)
         self._p.start()
         self.addCleanup(self._p.stop)
         C.set_verbose(False)

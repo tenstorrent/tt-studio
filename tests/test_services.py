@@ -12,6 +12,12 @@ try:
 except ImportError:  # pre-refactor
     import run as M
 
+# Port helpers moved to the _ports submodule; intra-module patches must target it.
+try:
+    from tt_setup.services import _ports as _ports_mod
+except ImportError:
+    _ports_mod = M
+
 
 class TestGetFrontendConfig(unittest.TestCase):
     def test_defaults(self):
@@ -71,9 +77,9 @@ class TestPortFreeingNeverKillsDocker(unittest.TestCase):
             kill_calls.append(cmd)          # any kill / check-alive command
             return MagicMock(returncode=0, stdout="", stderr="")
 
-        with patch.object(M, "run_command", side_effect=fake_run_command), \
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
              patch("shutil.which", return_value="/usr/bin/lsof"), \
-             patch.object(M, "_process_is_docker", return_value=True):
+             patch.object(_ports_mod, "_process_is_docker", return_value=True):
             result = M.kill_process_on_port(3000, no_sudo=True, quiet=True)
 
         self.assertEqual(result, "docker")
@@ -85,8 +91,8 @@ class TestPortFreeingNeverKillsDocker(unittest.TestCase):
     def test_check_and_free_ports_treats_docker_held_as_ok(self):
         # A Docker-held port is not a failure — compose recreates our own
         # containers, so startup should proceed (ok=True, nothing reported failed).
-        with patch.object(M, "check_port_available", return_value=False), \
-             patch.object(M, "kill_process_on_port", return_value="docker"):
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "kill_process_on_port", return_value="docker"):
             ok, failed = M.check_and_free_ports([(3000, "Frontend")], no_sudo=True)
 
         self.assertTrue(ok)
@@ -94,8 +100,8 @@ class TestPortFreeingNeverKillsDocker(unittest.TestCase):
 
     def test_non_docker_holder_is_still_freed(self):
         # A genuine foreign process on the port is still killed (returns True).
-        with patch.object(M, "check_port_available", return_value=False), \
-             patch.object(M, "kill_process_on_port", return_value=True):
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "kill_process_on_port", return_value=True):
             ok, failed = M.check_and_free_ports([(8080, "Agent Service")], no_sudo=True)
 
         self.assertTrue(ok)

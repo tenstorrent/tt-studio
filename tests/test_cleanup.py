@@ -19,12 +19,22 @@ try:
 except ImportError:
     import run
 
+# Post-split, cleanup lives in submodules; intra-module patches must target the
+# submodule that actually reads the name (cleanup_resources -> _orchestrate,
+# _cleanup_runtime -> _runtime, _write_browser_cleanup_sentinel -> _resource_ops).
+try:
+    from tt_setup.cleanup import _orchestrate as _cl_orch
+    from tt_setup.cleanup import _runtime as _cl_runt
+    from tt_setup.cleanup import _resource_ops as _cl_rops
+except ImportError:
+    _cl_orch = _cl_runt = _cl_rops = run
+
 # Preference helpers (save_preference / is_first_time_setup / PREFS_FILE_PATH) live
 # in tt_setup.env_config after the refactor. The terms-acceptance gate must patch
 # and call them on that module so save_preference writes to the patched path.
 # Pre-refactor they live in the monolithic run module.
 try:
-    import tt_setup.env_config as prefs_mod
+    from tt_setup.env_config import _preferences as prefs_mod
 except ImportError:
     prefs_mod = run
 
@@ -35,20 +45,20 @@ class CleanupAllTests(unittest.TestCase):
         docker_log = root / "docker-control-service.log"
         docker_pid = root / "docker-control-service.pid"
         return (
-            patch.object(run, "TT_STUDIO_ROOT", str(root)),
-            patch.object(run, "ENV_FILE_PATH", str(root / ".env")),
-            patch.object(run, "LEGACY_ENV_FILE_PATH", str(root / "app" / ".env")),
-            patch.object(run, "LEGACY_ENV_BACKUP_PATH", str(root / "app" / ".env-old")),
-            patch.object(run, "STARTUP_LOG_FILE", str(root / "startup.log")),
-            patch.object(run, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
-            patch.object(run, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
-            patch.object(run, "MODEL_RUN_LOG_FILE", str(root / "model_run.log")),
-            patch.object(run, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
-            patch.object(run, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
-            patch.object(run, "DOCKER_CONTROL_PID_FILE", str(docker_pid)),
-            patch.object(run, "INFERENCE_API_DIR", str(root / "inference-api")),
-            patch.object(run, "DOCKER_CONTROL_SERVICE_DIR", str(root / "docker-control-service")),
-            patch.object(run, "BROWSER_CLEANUP_SENTINEL", str(sentinel)),
+            patch.object(_cl_orch, "TT_STUDIO_ROOT", str(root)),
+            patch.object(_cl_orch, "ENV_FILE_PATH", str(root / ".env")),
+            patch.object(_cl_orch, "LEGACY_ENV_FILE_PATH", str(root / "app" / ".env")),
+            patch.object(_cl_orch, "LEGACY_ENV_BACKUP_PATH", str(root / "app" / ".env-old")),
+            patch.object(_cl_orch, "STARTUP_LOG_FILE", str(root / "startup.log")),
+            patch.object(_cl_orch, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
+            patch.object(_cl_orch, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
+            patch.object(_cl_orch, "MODEL_RUN_LOG_FILE", str(root / "model_run.log")),
+            patch.object(_cl_orch, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
+            patch.object(_cl_orch, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
+            patch.object(_cl_orch, "DOCKER_CONTROL_PID_FILE", str(docker_pid)),
+            patch.object(_cl_orch, "INFERENCE_API_DIR", str(root / "inference-api")),
+            patch.object(_cl_orch, "DOCKER_CONTROL_SERVICE_DIR", str(root / "docker-control-service")),
+            patch.object(_cl_rops, "BROWSER_CLEANUP_SENTINEL", str(sentinel)),
         )
 
     def test_cleanup_helpers_handle_sizes_and_paths(self):
@@ -85,7 +95,7 @@ class CleanupAllTests(unittest.TestCase):
     def test_write_browser_cleanup_sentinel_uses_numeric_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             sentinel = Path(tmp) / "public" / ".cleanup-pending"
-            with patch.object(run, "BROWSER_CLEANUP_SENTINEL", str(sentinel)):
+            with patch.object(_cl_rops, "BROWSER_CLEANUP_SENTINEL", str(sentinel)):
                 token = run._write_browser_cleanup_sentinel()
 
             self.assertIsNotNone(token)
@@ -100,22 +110,19 @@ class CleanupAllTests(unittest.TestCase):
             with contextlib.ExitStack() as stack:
                 for patcher in self._patch_cleanup_paths(root, sentinel):
                     stack.enter_context(patcher)
-                stack.enter_context(patch.object(run, "check_docker_access", return_value=True))
-                stack.enter_context(patch.object(run, "_docker_reclaimable_bytes", return_value={
+                stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(_cl_orch, "_docker_reclaimable_bytes", return_value={
                     "images": 0, "model_volumes": 0, "anon_volumes": 0}))
                 stack.enter_context(patch("builtins.input", return_value="n"))
-                stack.enter_context(patch.object(
-                    run,
+                stack.enter_context(patch.object(_cl_orch,
                     "_cleanup_runtime",
                     side_effect=lambda *args, **kwargs: called.__setitem__("runtime", True),
                 ))
-                stack.enter_context(patch.object(
-                    run,
+                stack.enter_context(patch.object(_cl_orch,
                     "_remove_local_tt_studio_images",
                     side_effect=lambda *args, **kwargs: called.__setitem__("images", True),
                 ))
-                stack.enter_context(patch.object(
-                    run,
+                stack.enter_context(patch.object(_cl_orch,
                     "_write_browser_cleanup_sentinel",
                     side_effect=lambda: called.__setitem__("sentinel", True),
                 ))
@@ -155,18 +162,17 @@ class CleanupAllTests(unittest.TestCase):
             with contextlib.ExitStack() as stack:
                 for patcher in self._patch_cleanup_paths(root, sentinel):
                     stack.enter_context(patcher)
-                stack.enter_context(patch.object(
-                    run,
+                stack.enter_context(patch.object(_cl_orch,
                     "get_env_var",
                     side_effect=lambda name, default="": default,
                 ))
-                stack.enter_context(patch.object(run, "check_docker_access", return_value=True))
-                stack.enter_context(patch.object(run, "_docker_reclaimable_bytes", return_value={
+                stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(_cl_orch, "_docker_reclaimable_bytes", return_value={
                     "images": 0, "model_volumes": 0, "anon_volumes": 0}))
-                stack.enter_context(patch.object(run, "_cleanup_runtime"))
-                stack.enter_context(patch.object(run, "_remove_local_tt_studio_images", return_value=0))
-                stack.enter_context(patch.object(run, "_remove_tt_studio_model_volumes", return_value=0))
-                stack.enter_context(patch.object(run, "_prune_anonymous_volumes", return_value=0))
+                stack.enter_context(patch.object(_cl_orch, "_cleanup_runtime"))
+                stack.enter_context(patch.object(_cl_orch, "_remove_local_tt_studio_images", return_value=0))
+                stack.enter_context(patch.object(_cl_orch, "_remove_tt_studio_model_volumes", return_value=0))
+                stack.enter_context(patch.object(_cl_orch, "_prune_anonymous_volumes", return_value=0))
                 args = SimpleNamespace(cleanup_all=True, yes=True, no_sudo=True, dev=False)
                 with contextlib.redirect_stdout(io.StringIO()):
                     run.cleanup_resources(args)
@@ -412,11 +418,11 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
                 order.append("network_rm")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch.object(run, "_docker_daemon_status", return_value="ok"), \
-             patch.object(run, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
-             patch.object(run, "run_docker_command", side_effect=record_run_docker), \
-             patch.object(run, "cleanup_fastapi_server"), \
-             patch.object(run, "cleanup_docker_control_service"), \
+        with patch.object(_cl_runt, "_docker_daemon_status", return_value="ok"), \
+             patch.object(_cl_runt, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
+             patch.object(_cl_runt, "run_docker_command", side_effect=record_run_docker), \
+             patch.object(_cl_runt, "cleanup_fastapi_server"), \
+             patch.object(_cl_runt, "cleanup_docker_control_service"), \
              contextlib.redirect_stdout(io.StringIO()):
             run._cleanup_runtime(args, has_docker_access=True)
         return order

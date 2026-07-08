@@ -9,8 +9,13 @@ from unittest.mock import patch
 
 try:
     from tt_setup import inference_server as M
+    # After the subpackage split, get_inference_server_version() reads
+    # INFERENCE_ARTIFACT_DIR from the _metadata submodule's namespace, so patches
+    # of that constant must target _metadata (not the re-export on the package).
+    from tt_setup.inference_server import _metadata as _version_mod
 except ImportError:  # pre-refactor
     import run as M
+    _version_mod = M
 
 
 class TestValidateArtifactStructure(unittest.TestCase):
@@ -53,7 +58,7 @@ class TestGetInferenceServerVersion(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "VERSION"), "w") as f:
                 f.write("v9.9.9\n")
-            with patch.object(M, "INFERENCE_ARTIFACT_DIR", d):
+            with patch.object(_version_mod, "INFERENCE_ARTIFACT_DIR", d):
                 self.assertEqual(M.get_inference_server_version(), "v9.9.9")
 
 

@@ -13,6 +13,15 @@ try:
 except ImportError:  # pre-refactor
     import run as M
 
+# Post-split, constants/globals live in submodules; patches must target those.
+try:
+    from tt_setup.env_config import _configure as _ecfg_configure
+    from tt_setup.env_config import _dotenv as _ecfg_dotenv
+    from tt_setup.env_config import _preferences as _ecfg_prefs
+    from tt_setup.env_config import _version as _ecfg_version
+except ImportError:
+    _ecfg_dotenv = _ecfg_configure = _ecfg_prefs = _ecfg_version = M
+
 
 class TestPlaceholderAndBoolean(unittest.TestCase):
     def test_is_placeholder(self):
@@ -32,7 +41,7 @@ class TestEnvFileRoundTrip(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
         self.tmp.close()
-        self.p = patch.object(M, "ENV_FILE_PATH", self.tmp.name)
+        self.p = patch.object(_ecfg_dotenv, "ENV_FILE_PATH", self.tmp.name)
         self.p.start()
 
     def tearDown(self):
@@ -75,7 +84,7 @@ class TestConsistentQuoting(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
         self.tmp.close()
-        self.p = patch.object(M, "ENV_FILE_PATH", self.tmp.name)
+        self.p = patch.object(_ecfg_dotenv, "ENV_FILE_PATH", self.tmp.name)
         self.p.start()
 
     def tearDown(self):
@@ -118,7 +127,7 @@ class TestConsistentQuoting(unittest.TestCase):
 
 class TestShouldConfigureVar(unittest.TestCase):
     def test_force_overwrite_forces_true(self):
-        with patch.object(M, "FORCE_OVERWRITE", True):
+        with patch.object(_ecfg_configure, "FORCE_OVERWRITE", True):
             self.assertTrue(M.should_configure_var("ANY", "already-set"))
 
 
@@ -127,8 +136,8 @@ class TestPreferences(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.prefs = os.path.join(self.dir.name, "prefs.json")
         self.setup = os.path.join(self.dir.name, "setup.json")
-        self.p1 = patch.object(M, "PREFS_FILE_PATH", self.prefs)
-        self.p2 = patch.object(M, "SETUP_CONFIG_FILE_PATH", self.setup)
+        self.p1 = patch.object(_ecfg_prefs, "PREFS_FILE_PATH", self.prefs)
+        self.p2 = patch.object(_ecfg_version, "SETUP_CONFIG_FILE_PATH", self.setup)
         self.p1.start()
         self.p2.start()
 

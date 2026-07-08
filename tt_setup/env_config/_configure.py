@@ -1,25 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-"""Environment-variable, preference, and interactive configuration management."""
+"""Interactive environment configuration flow (+ the FORCE_OVERWRITE gate and
+the lazy inference-server-artifact wrapper that breaks the import cycle)."""
 
 import os
-import sys
-import shutil
-import re
-import json
 import secrets
-import subprocess
-try:
-    import requests
-    HAS_REQUESTS = True
-except ImportError:
-    import urllib.request
-    HAS_REQUESTS = False
-from dotenv import set_key, dotenv_values
-from rich.markup import escape as escape_markup
 from tt_setup.constants import *
-from tt_setup.console import add_note, ask, confirm, console, in_phase, is_verbose, secret
+from tt_setup.console import ask, confirm, console, in_phase, secret
+from tt_setup.env_config._values import is_placeholder, parse_boolean_env
+from tt_setup.env_config._dotenv import get_env_var, get_existing_env_vars, write_env_var
+from tt_setup.env_config._preferences import clear_preferences, get_preference, is_first_time_setup, save_preference
+from tt_setup.env_config._hf_access import check_hf_access, render_hf_access
 
 
 def configure_inference_server_artifact(*args, **kwargs):
@@ -29,130 +21,6 @@ def configure_inference_server_artifact(*args, **kwargs):
 
 
 FORCE_OVERWRITE = False
-
-
-def is_placeholder(value):
-    """Check for common placeholder or empty values."""
-    if not value or str(value).strip() == "":
-        return True
-
-    placeholder_patterns = [
-        'django-insecure-default', 'tvly-xxx', 'hf_***',
-        'tt-studio-rag-admin-password', 'cloud llama chat ui url',
-        'cloud llama chat ui auth token', 'test-456',
-        'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
-        '<PATH_TO_ROOT_OF_REPO>'
-    ]
-
-    value_str = str(value).strip().strip('"\'')
-    return value_str in placeholder_patterns
-
-
-def write_env_var(var_name, var_value, quote_value=None):
-    """
-    Update or add a variable in the repo-root .env using ONE consistent format.
-
-    Uses python-dotenv (the standard .env library) and writes values unquoted
-    (quote_mode="never"), so the file never mixes `KEY="value"` and `KEY=value`
-    styles. This matches .env.default and avoids docker-compose treating
-    surrounding quotes as literal characters. `quote_value` is accepted for
-    backwards compatibility but intentionally ignored.
-    """
-    if not os.path.exists(ENV_FILE_PATH):
-        open(ENV_FILE_PATH, 'w').close()
-    value = "" if var_value is None else str(var_value)
-    set_key(ENV_FILE_PATH, var_name, value, quote_mode="never")
-
-
-def comment_out_env_var(var_name):
-    """Comment out an environment variable in the .env file (VAR=val → # VAR=val)."""
-    if not os.path.exists(ENV_FILE_PATH):
-        return
-    with open(ENV_FILE_PATH, 'r') as f:
-        lines = f.readlines()
-    for i, line in enumerate(lines):
-        if re.match(f"^{re.escape(var_name)}=", line):
-            lines[i] = f"# {line}"
-            break
-    with open(ENV_FILE_PATH, 'w') as f:
-        f.writelines(lines)
-
-
-def get_env_var(var_name, default=""):
-    """Safely get a variable from app/.env (quotes handled by python-dotenv)."""
-    if not os.path.exists(ENV_FILE_PATH):
-        return default
-    value = dotenv_values(ENV_FILE_PATH, interpolate=False).get(var_name)
-    return default if value is None else value
-
-
-def parse_boolean_env(raw_value):
-    """Parse boolean values from .env file"""
-    return str(raw_value).lower().strip().strip('"\'') in ['true', '1', 't', 'y', 'yes']
-
-
-def get_existing_env_vars():
-    """Read all existing environment variables from app/.env (via python-dotenv)."""
-    if not os.path.exists(ENV_FILE_PATH):
-        return {}
-    return {
-        key: value
-        for key, value in dotenv_values(ENV_FILE_PATH, interpolate=False).items()
-        if value is not None
-    }
-
-
-def set_app_version_env():
-    """
-    Compute the running build's version from git and persist it to .env so
-    docker compose can inject it into the frontend as VITE_APP_VERSION /
-    VITE_APP_GIT_BRANCH.
-
-    Releases are plain git tags (e.g. v2.6.0) with no package.json bump, so git is
-    the source of truth for "what build is this":
-      - If HEAD sits exactly on a release tag, that tag is the official version and
-        VITE_APP_VERSION is set to it.
-      - Otherwise this is an unofficial build; VITE_APP_VERSION is cleared and the
-        frontend falls back to showing the branch name (VITE_APP_GIT_BRANCH).
-    """
-    def _git(git_args):
-        try:
-            result = subprocess.run(
-                ["git", "-C", TT_STUDIO_ROOT] + git_args,
-                capture_output=True, text=True, check=False,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except Exception:
-            pass
-        return ""
-
-    # An exact tag match on the current commit => official release build.
-    version = _git(["describe", "--tags", "--exact-match"])
-    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
-    if branch == "HEAD":
-        # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
-        branch = _git(["rev-parse", "--short", "HEAD"])
-
-    write_env_var("VITE_APP_VERSION", version)
-    write_env_var("VITE_APP_GIT_BRANCH", branch)
-
-    # Low-priority provenance: show a muted one-liner for official releases;
-    # the unofficial-branch note is detail, shown only with --verbose.
-    if version:
-        console.print(f"[muted]Build {version} · official release[/muted]")
-    elif branch and is_verbose():
-        console.print(f"[muted]Build {branch} · unofficial build[/muted]")
-
-
-def save_setup_config(config_dict):
-    """Save the quick-setup configuration snapshot to JSON file"""
-    try:
-        with open(SETUP_CONFIG_FILE_PATH, 'w') as f:
-            json.dump(config_dict, f, indent=2)
-        # Silent — no need to show config file path to user
-    except Exception as e:
-        console.print(f"[warning]⚠️  Warning: Could not save setup configuration: {e}[/warning]")
 
 
 def should_configure_var(var_name, current_value):
@@ -172,55 +40,6 @@ def should_configure_var(var_name, current_value):
     
     # Otherwise, skip configuration (keep existing non-placeholder value)
     return False
-
-
-def load_preferences():
-    """Load user preferences from JSON file."""
-    if os.path.exists(PREFS_FILE_PATH):
-        try:
-            with open(PREFS_FILE_PATH, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
-
-
-def save_preferences(prefs):
-    """Save user preferences to JSON file."""
-    try:
-        with open(PREFS_FILE_PATH, 'w') as f:
-            json.dump(prefs, f, indent=2)
-    except IOError as e:
-        console.print(f"[warning]Warning: Could not save preferences: {e}[/warning]")
-
-
-def save_preference(key, value):
-    """Save a single preference key-value pair."""
-    prefs = load_preferences()
-    prefs[key] = value
-    save_preferences(prefs)
-
-
-def get_preference(key, default=None):
-    """Get a preference value by key, returning default if not found."""
-    prefs = load_preferences()
-    return prefs.get(key, default)
-
-
-def clear_preferences():
-    """Clear all user preferences by deleting the preferences file."""
-    if os.path.exists(PREFS_FILE_PATH):
-        try:
-            os.remove(PREFS_FILE_PATH)
-            return True
-        except IOError:
-            return False
-    return True
-
-
-def is_first_time_setup():
-    """Check if this is the first time setup by checking if preferences exist."""
-    return not os.path.exists(PREFS_FILE_PATH)
 
 
 def display_first_time_welcome():
@@ -353,107 +172,6 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
         console.print()
     save_preference("configuration_mode", "keep_existing")
     return False
-
-
-def _hf_check_repo(token, repo_id, filename="config.json"):
-    """Return HTTP status code for a HuggingFace repo file. Returns None on network error."""
-    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
-    headers = {"User-Agent": "tt-studio"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        if HAS_REQUESTS:
-            return requests.get(url, headers=headers, timeout=10, allow_redirects=True).status_code
-        else:
-            req = urllib.request.Request(url, headers=headers)
-            try:
-                urllib.request.urlopen(req, timeout=10)
-                return 200
-            except urllib.error.HTTPError as e:
-                return e.code
-    except Exception:
-        return None
-
-
-def check_hf_access(token):
-    """Check if the HF token can access the gated model repos.
-
-    Returns (status, results):
-      - status: True if any repo is accessible, False if the token is
-        invalid/denied, None if HuggingFace was unreachable for every repo.
-      - results: list of (label, repo_id, http_code) per repo (code None =
-        unreachable). The caller renders this — one calm line by default, the
-        full per-repo breakdown on failure or with --verbose.
-    """
-    # diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
-    repos = [
-        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
-        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
-        ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
-        ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
-        ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
-    ]
-    results = [(label, repo_id, _hf_check_repo(token, repo_id, filename)) for repo_id, label, filename in repos]
-
-    codes = [code for _, _, code in results]
-    if all(c is None for c in codes):
-        return (None, results)
-    if any(c == 401 for c in codes) or any(c == 403 for c in codes):
-        return (False, results)
-    if any(c == 200 for c in codes):
-        return (True, results)
-    return (None, results)
-
-
-def render_hf_access(status, results):
-    """Render check_hf_access() output through the theme: one ✓ line when all
-    good (unless --verbose); otherwise a per-model breakdown that names which
-    gated models you can't access yet, with a link to request access on each."""
-    ok_labels = [label for label, _, code in results if code == 200]
-    if all(code is None for _, _, code in results):
-        console.print("[muted]🤗 HuggingFace: couldn't reach to verify access — continuing[/muted]")
-        return
-    if status and not is_verbose():
-        # Inside a collapsing phase the single phase line covers this; only print
-        # the standalone confirmation when not folded into a phase.
-        if not in_phase():
-            console.print(f"[success]✓[/success] HuggingFace access [muted]· {', '.join(ok_labels)}[/muted]")
-        return
-
-    console.print("[info]🤗 HuggingFace access:[/info]")
-    blocked = []          # (label, repo_id) — gated models this token can't reach
-    token_problem = False  # a 401 means the token itself is invalid/expired
-    for label, repo_id, code in results:
-        if code == 200:
-            console.print(f"  [success]✓[/success] {label}: access confirmed")
-        elif code == 401:
-            console.print(f"  [error]✗[/error] {label}: [bold]no access[/bold] — token invalid or expired (401)")
-            blocked.append((label, repo_id))
-            token_problem = True
-        elif code == 403:
-            console.print(f"  [error]✗[/error] {label}: [bold]no access[/bold] — gate not accepted for this model (403)")
-            blocked.append((label, repo_id))
-        elif code is None:
-            console.print(f"  [warning]…[/warning] {label}: couldn't reach HuggingFace")
-        else:
-            console.print(f"  [warning]…[/warning] {label}: unexpected HTTP {code}")
-
-    if blocked:
-        console.print()
-        console.print("[warning]Request access for these gated models, then re-run TT Studio:[/warning]")
-        for label, repo_id in blocked:
-            console.print(f"  [muted]{label}[/muted]  →  https://huggingface.co/{repo_id}")
-        console.print("  [muted]Open each link, click “Agree and access repository” (sign in first), then run: python run.py[/muted]")
-        if token_problem:
-            console.print("  [muted]If your token is invalid/expired, create a new one: https://huggingface.co/settings/tokens[/muted]")
-
-        # Also record it for the end-of-run recap — per-phase collapse clears the
-        # inline copy above, so the user needs the links surfaced again at the end.
-        add_note("[warning]HuggingFace — request access, then re-run:[/warning]")
-        for label, repo_id in blocked:
-            add_note(f"  [muted]{label}[/muted]  →  https://huggingface.co/{repo_id}")
-        if token_problem:
-            add_note("  [muted]Token invalid/expired — new one: https://huggingface.co/settings/tokens[/muted]")
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
@@ -856,3 +574,4 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     if not in_phase():  # folded into the "Set up" phase line when run inside a phase
         console.print("[success]✓[/success] Environment configured")
+
