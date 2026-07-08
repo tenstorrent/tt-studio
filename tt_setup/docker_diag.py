@@ -191,7 +191,7 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
     pulse + "✓ <svc> built" lines show, to keep it minimal. Returns
     (returncode, full_output_string).
     """
-    from tt_setup.console import build_event, build_log, is_verbose, start_pulse, stop_pulse
+    from tt_setup.console import build_activity, build_event, build_log, is_verbose, start_pulse, stop_pulse
 
     verbose_build = dev_mode or is_verbose()
 
@@ -214,6 +214,8 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
     step_svc = {}     # BuildKit step number -> short svc name
 
     start_pulse()   # animate the active node for the whole build (both modes)
+    # Generic apt-style bottom-line label; refined to the live step in dev/-v below.
+    build_activity("Building & starting containers…")
     try:
         for line in process.stdout:
             output_lines.append(line)
@@ -227,7 +229,9 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
                 short = _short_service(svc)
                 step_svc[n] = short
                 if verbose_build:
-                    build_event('step', svc=short, x=x, y=y, label=friendly_build_label(desc))
+                    label = friendly_build_label(desc)
+                    build_event('step', svc=short, x=x, y=y, label=label)
+                    build_activity(f"{short} · {label}")   # track the live step (dev/-v)
             elif parsed[0] == 'cached':
                 short = step_svc.get(parsed[1])
                 if short and verbose_build:

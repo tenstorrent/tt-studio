@@ -188,6 +188,8 @@ class _ChecklistController:
         self._cleared_once = False  # collapse: clear the body on every phase after the first
         self._pulse_frame = 0       # rotating-spinner frame for the active node
         self._pulse_active = False  # animate the active node (during the build)
+        self._build_active = False  # paint the apt-style bottom activity row (build only)
+        self._build_activity = ""   # bottom-row label (e.g. "frontend · installing JS deps")
         self._awaiting_input = False  # active node turns red while blocked on a prompt
         # Serializes every terminal write to the fixed header with build-time body
         # prints, so the background pulse ticker never interleaves with them.
@@ -203,7 +205,9 @@ class _ChecklistController:
     def _capable(self):
         if not self._enabled():
             return False
-        return shutil.get_terminal_size(fallback=(80, 24)).lines > self._RESERVE + 3
+        # +4 (not +3): row 1 stepper, row 2 rule, the bottom activity row, and at
+        # least a couple of body rows for the scrolling output in between.
+        return shutil.get_terminal_size(fallback=(80, 24)).lines > self._RESERVE + 4
 
     def sticky_active(self):
         return self._sticky_on
@@ -228,7 +232,10 @@ class _ChecklistController:
         with self._paint_lock:
             f = _real_console.file
             f.write("\033[2J\033[H")                          # clear screen, cursor home
-            f.write(f"\033[{self._RESERVE + 1};{self._rows}r")  # scroll region below row 1
+            # Scroll region sits BELOW the header (rows 1-2) and ABOVE the bottom
+            # activity row (row N), so neither the header nor the pinned bottom
+            # spinner ever scrolls with the body.
+            f.write(f"\033[{self._RESERVE + 1};{self._rows - 1}r")
             f.write(f"\033[{self._RESERVE + 1};1H")            # cursor into the scroll region
             f.flush()
         self._sticky_on = True
@@ -244,15 +251,27 @@ class _ChecklistController:
             if (size.columns, size.lines) != (self._cols, self._rows):
                 # Resize: recompute the region (or drop to plain if too short).
                 self._cols, self._rows = size.columns, size.lines
-                if self._rows <= self._RESERVE + 3:
+                if self._rows <= self._RESERVE + 4:
                     self._teardown(final=False)
                     return
-                f.write(f"\033[{self._RESERVE + 1};{self._rows}r")
+                f.write(f"\033[{self._RESERVE + 1};{self._rows - 1}r")
             stepper = self._render_ansi(self._stepper_line())
             rule = self._render_ansi(Text("─" * self._cols, style="muted"))
             f.write("\0337")                          # save cursor (relative to region)
             f.write("\033[1;1H" + stepper + "\033[K")  # row 1: the stepper
             f.write("\033[2;1H" + rule + "\033[K")     # row 2: separator from the body
+            # Row N: apt-style bottom activity spinner during the build, else blank.
+            # Cropped (no_wrap) so a long label never wraps and breaks the row.
+            # Built via .append (not markup) since _build_activity comes from Docker
+            # output and could contain literal [brackets] that markup would mis-parse.
+            if self._build_active:
+                glyph = self._PULSE[self._pulse_frame % len(self._PULSE)]
+                t = Text()
+                t.append(f"{glyph} ", style="accent")
+                t.append(self._build_activity, style="muted")
+                f.write(f"\033[{self._rows};1H" + self._render_ansi(t) + "\033[K")
+            else:
+                f.write(f"\033[{self._rows};1H\033[2K")
             f.write("\0338")                          # restore cursor (back into region)
             f.flush()
 
@@ -269,6 +288,7 @@ class _ChecklistController:
         if not self._sticky_on or self._ticker is not None:
             return
         self._pulse_active = True
+        self._build_active = True   # also show the apt-style bottom activity row
         self._ticker_stop = threading.Event()
         self._ticker = threading.Thread(target=self._pulse_loop, daemon=True)
         self._ticker.start()
@@ -282,7 +302,9 @@ class _ChecklistController:
             stop.wait(0.1)   # ~10 fps
 
     def stop_pulse(self):
-        """Stop the ticker and settle the active node back to a static marker."""
+        """Stop the ticker, settle the active node to a static marker, and blank the
+        bottom activity row (via the trailing _paint, which clears row N when the
+        build is no longer active)."""
         if self._ticker_stop is not None:
             self._ticker_stop.set()
         # Don't join from within the ticker thread itself (e.g. a resize-triggered
@@ -293,6 +315,7 @@ class _ChecklistController:
             self._ticker = None
             self._ticker_stop = None
         self._pulse_active = False
+        self._build_active = False
         self._paint()
 
     def _clear_body(self):
@@ -316,6 +339,7 @@ class _ChecklistController:
         with self._paint_lock:
             if self._sticky_on:
                 f = _real_console.file
+                f.write(f"\033[{self._rows};1H\033[2K")  # wipe the bottom activity row
                 f.write("\033[r")                      # reset scroll region to full screen
                 f.write(f"\033[{self._rows};1H\n")     # drop below everything, clean line
                 f.flush()
@@ -464,6 +488,23 @@ class _ChecklistController:
 _checklist = _ChecklistController()
 
 
+def _terminal_lock():
+    """The RLock that serializes every raw escape write to the terminal (header
+    repaints, the bottom activity row, and step()'s spinner frames), so a
+    background ticker can never interleave with a repaint mid-escape-sequence."""
+    return _checklist._paint_lock
+
+
+def _stdout_isatty():
+    """True only when the REAL stdout is a genuine tty. Used to gate hand-rolled
+    spinners — stricter than Rich's is_terminal (which a forced-color CI can flip
+    true on a pipe), so piped/redirected output stays free of escape codes."""
+    try:
+        return bool(sys.__stdout__) and sys.__stdout__.isatty()
+    except Exception:
+        return False
+
+
 class _PhaseHandle:
     """Thin handle over the checklist controller for one phase. Update the active
     step with .set(activity) and mark failure with .fail(). suspend()/resume()/
@@ -582,6 +623,12 @@ def build_event(kind, svc=None, x=None, y=None, label=None):
 def build_log(line):
     """Feed a raw build-output line into the Build row's rolling tail."""
     _checklist.build_log(line)
+
+
+def build_activity(text):
+    """Set the label on the apt-style bottom activity row shown during the build
+    (e.g. 'frontend · installing JS deps'). Re-cropped to width on every repaint."""
+    _checklist._build_activity = text or ""
 
 
 def start_pulse():
@@ -926,7 +973,10 @@ def step(label, spinner=True):
         _real_console.print(_render_result(label, handle))
         return
 
-    use_spinner = spinner and _real_console.is_terminal
+    # Gate on the REAL stdout being a tty (stricter than Rich's is_terminal), and
+    # never spin while the build pulse ticker owns fd 1 (they never overlap in
+    # practice — build is Phase 4, steps are Phases 3/5 + --stop — but stay safe).
+    use_spinner = spinner and _stdout_isatty() and not _checklist._pulse_active
     buf = io.StringIO()
 
     def _emit_result():
@@ -939,18 +989,49 @@ def step(label, spinner=True):
             _log_detail(label, buf.getvalue())
 
     if use_spinner:
-        # Context-managed status so Rich reliably clears the transient spinner
-        # line on exit — manual start()/stop() could leave a stray "⠸ label…"
-        # above the collapsed result line.
+        # A deterministic hand-rolled single-line spinner. A background ticker writes
+        # `\r\033[2K{frame} label…` (erase-the-whole-row every frame, so any stray
+        # foreign write to fd 1 under the spinner self-heals next tick) with NO
+        # trailing newline; on exit we erase the row with `\r\033[2K` and print the
+        # ✓/○/✗ result. step() captures all stdout/stderr, so the spinner owns its
+        # row uncontested. This replaces Rich's Live(transient=True), whose relative
+        # cursor-walk transient-clear mis-clears — leaving a stray "⠋ label…" — the
+        # moment anything scrolls fd 1 beneath it (the --stop dangling-line bug).
+        stop_evt = threading.Event()
+
+        def _spin():
+            frame = 0
+            f = _real_console.file
+            while not stop_evt.is_set():
+                glyph = _ChecklistController._PULSE[frame % len(_ChecklistController._PULSE)]
+                # .append (not markup): `label` is code-literal, but keep the same
+                # crop-safe path as the header so a long label never wraps the row.
+                t = Text()
+                t.append(f"{glyph} ", style="accent")
+                t.append(f"{label}…", style="muted")
+                with _terminal_lock():
+                    f.write("\r\033[2K" + _checklist._render_ansi(t))
+                    f.flush()
+                frame += 1
+                stop_evt.wait(0.1)
+
+        ticker = threading.Thread(target=_spin, daemon=True)
+        ticker.start()
         try:
-            with _real_console.status(f"[muted]{label}…[/muted]", spinner="dots"):
-                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-                    yield handle
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                yield handle
         except BaseException:
             handle.failed = True
-            _emit_result()
             raise
-        _emit_result()
+        finally:
+            # Stop the ticker and erase its row deterministically BEFORE the result
+            # prints — covers normal exit, exception, and Ctrl-C mid-spinner alike.
+            stop_evt.set()
+            ticker.join(timeout=0.5)
+            with _terminal_lock():
+                _real_console.file.write("\r\033[2K")
+                _real_console.file.flush()
+            _emit_result()
         return
 
     # Non-spinner: static "label…" line, overwritten in place on completion.
