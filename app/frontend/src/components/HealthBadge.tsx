@@ -15,9 +15,36 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 
+export interface StartupPhase {
+  phase: string;
+  phase_label: string;
+  progress: number;
+  message: string;
+  last_heartbeat_seconds: number | null;
+  warmup_seq_len: number | null;
+  trace_count: number;
+  classified_at: number;
+  // Populated by Django `_get_startup_phase` when phase === "downloading_weights"
+  // (see app/backend/model_control/download_progress.py).
+  weights_repo?: string | null;
+  weights_cached?: boolean;
+  downloaded_bytes?: number | null;
+  total_bytes?: number | null;
+  speed_bps?: number | null;
+  eta_seconds?: number | null;
+  // Category-aware phase template. LLM and media-server models walk through
+  // different sequences (LLM has compile + KV alloc, media has worker pool +
+  // warmup), so the backend tells the frontend which phases to render in the
+  // PhaseTrack instead of the frontend hardcoding the LLM list.
+  category?: "llm" | "media";
+  phases?: string[];
+  phase_labels?: Record<string, string>;
+  phase_base_pct?: Record<string, number>;
+}
+
 interface HealthBadgeProps {
   deployId: string;
-  onHealthChange?: (status: HealthStatus) => void;
+  onHealthChange?: (status: HealthStatus, phase?: StartupPhase | null) => void;
 }
 
 export interface HealthBadgeRef {
@@ -29,6 +56,7 @@ type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unkn
 const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
   ({ deployId, onHealthChange }, ref) => {
     const [health, setHealth] = useState<HealthStatus>("unknown");
+    const [phase, setPhase] = useState<StartupPhase | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isMonitoring, setIsMonitoring] = useState(false);
 
@@ -43,15 +71,25 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
 
         if (response.status === 200) {
           setHealth("healthy");
+          setPhase(null);
         } else if (response.status === 202) {
           setHealth("starting");
+          try {
+            const body = await response.json();
+            setPhase((body?.phase as StartupPhase) ?? null);
+          } catch {
+            setPhase(null);
+          }
         } else if (response.status === 503) {
           setHealth("unavailable");
+          setPhase(null);
         } else {
           setHealth("unknown");
+          setPhase(null);
         }
       } catch (e) {
         setHealth("unknown");
+        setPhase(null);
       } finally {
         setIsLoading(false);
       }
@@ -122,8 +160,8 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
     }, [isMonitoring, fetchHealth, deployId]);
 
     useEffect(() => {
-      onHealthChange?.(health);
-    }, [health, onHealthChange]);
+      onHealthChange?.(health, phase);
+    }, [health, phase, onHealthChange]);
 
     const getStatusColor = () => {
       switch (health) {

@@ -8,7 +8,7 @@ TT Studio requires all source files to include SPDX license headers:
 
 ```javascript
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
 
 We provide **two complementary approaches** to ensure headers are added:

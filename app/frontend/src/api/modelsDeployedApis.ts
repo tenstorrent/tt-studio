@@ -5,12 +5,13 @@ import axios from "axios";
 import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
 import { type Model } from "../contexts/ModelsContext";
+import { type HealthStatus } from "../types/models";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
 const statusURl = `${dockerAPIURL}status/`;
-const stopModelsURL = `${dockerAPIURL}stop/`;
 const deployedModelsURL = `${modelAPIURL}deployed/`;
+const deploymentsURL = `${dockerAPIURL}deployments/`;
 
 interface PortBinding {
   HostIp: string;
@@ -34,18 +35,6 @@ interface ContainerData {
   device_ids?: number[];
   /** Set when status is enriched from deploy cache; used for navbar routing. */
   model_type?: string;
-}
-
-interface StopResponse {
-  status: string;
-  stop_response: {
-    status: string;
-    output?: string;
-  };
-  reset_response?: {
-    status: string;
-    output?: string;
-  };
 }
 
 interface DeployedModelInfo {
@@ -107,6 +96,72 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.CNN;
     default:
       return ModelType.ChatModel;
+  }
+};
+
+/**
+ * One canonical row per deployed-or-pending model, returned by
+ * /docker-api/deployments/. This is the SoT view backed by deployment_store
+ * reconciled against live Docker. Every UI surface should prefer this over fetchModels()/fetchDeployedModelsInfo(), which remain as thin shims.
+ */
+export interface CanonicalDeployment {
+  id: string; // Docker container_id (or "pending-<deployment_id>" during placeholder window).
+  name: string;
+  status: string;
+  health: string;
+  image_name: string | null;
+  image_id: string | null;
+  port_bindings: { [key: string]: PortBinding[] | null };
+  networks: { [key: string]: Network };
+  device_id: number | null;
+  device_ids: number[] | null;
+  model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  coding_agent_eligible?: boolean;  // Backend SSOT: usable via the coding-agent gateway.
+  model_impl: {
+    model_name?: string;
+    hf_model_id?: string;
+    model_type?: string;
+    param_count?: number | null;
+    [key: string]: unknown;
+  } | null;
+  internal_url: string | null;
+  health_url: string | null;
+  source: "managed" | "docker_only";
+  is_pending: boolean;
+  deployed_at: string | null;
+  stopped_by_user: boolean;
+  deployment_id?: number;
+  deployment_model_name?: string;
+}
+
+// Fetch the current deployed models from the canonical endpoint, which is the single source of truth for current deployed models.
+export const fetchDeployments = async (): Promise<CanonicalDeployment[]> => {
+  const response = await axios.get<{ [containerId: string]: Omit<CanonicalDeployment, "id"> }>(
+    deploymentsURL,
+    {
+      timeout: 10000,
+      headers: { "Cache-Control": "no-cache" },
+    },
+  );
+  const data = response.data || {};
+  return Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
+};
+
+// Probe a single deployment's real readiness via the same endpoint HealthBadge
+// uses. 200 = ready to serve, 202 = still warming up, 503 = unavailable. This is
+// the authoritative "usable" signal; the deployments `health` field only carries
+// Docker's raw container health, which is not a readiness signal.
+export const fetchModelHealth = async (
+  deployId: string,
+): Promise<HealthStatus> => {
+  try {
+    const response = await fetch(`${modelAPIURL}health/?deploy_id=${deployId}`);
+    if (response.status === 200) return "healthy";
+    if (response.status === 202) return "starting";
+    if (response.status === 503) return "unavailable";
+    return "unknown";
+  } catch {
+    return "unknown";
   }
 };
 
@@ -192,24 +247,102 @@ export const fetchModels = async (): Promise<Model[]> => {
   }
 };
 
-export const deleteModel = async (modelId: string): Promise<StopResponse> => {
-  const payload = JSON.stringify({ container_id: modelId });
+export interface SSEResult {
+  status: string;
+  output: string;
+  message: string;
+}
 
-  const response = await axios.post<StopResponse>(stopModelsURL, payload, {
-    headers: {
-      "Content-Type": "application/json",
-    },
+/**
+ * Consume a backend SSE stream until its `complete` event.
+ * Calls onLog per `log` line and onStep per `step` change; resolves with the
+ * final status and full output. Rejects on connection loss or if the whole stream exceeds STREAM_TIMEOUT_MS.
+ */
+const STREAM_TIMEOUT_MS = 300_000; // 5 min — comfortably above the worst-case reset
+
+export const consumeSSE = (
+  url: string,
+  onLog?: (line: string) => void,
+  onStep?: (step: string) => void,
+): Promise<SSEResult> =>
+  new Promise((resolve, reject) => {
+    const es = new EventSource(url, { withCredentials: true });
+    let output = "";
+    const timer = window.setTimeout(() => {
+      es.close();
+      reject(new Error("Stream timed out — the backend may still be processing."));
+    }, STREAM_TIMEOUT_MS);
+    const done = (fn: () => void) => {
+      window.clearTimeout(timer);
+      es.close();
+      fn();
+    };
+
+    es.onmessage = (event) => {
+      let data: { type?: string; step?: string; status?: string; message?: string };
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (data.type === "step" && data.step) {
+        onStep?.(data.step);
+      } else if (data.type === "log" && data.message) {
+        output += `${data.message}\n`;
+        onLog?.(data.message);
+      } else if (data.type === "complete") {
+        done(() =>
+          resolve({ status: data.status ?? "error", output, message: data.message ?? "" }),
+        );
+      }
+    };
+
+    es.onerror = () => done(() => reject(new Error("Connection to stream lost.")));
   });
 
-  if (
-    response.data.status !== "success" ||
-    !response.data.stop_response ||
-    response.data.stop_response.status !== "success"
-  ) {
-    throw new Error("Failed to stop the container");
-  }
+/** Stream a board/device reset (`tt-smi -r`), forwarding log lines to onLog. */
+export const streamResetAction = consumeSSE;
 
-  return response.data;
+/**
+ * Stop (and optionally reset) a model via the streaming stop endpoint.
+ * Resolves once the stream completes; throws if the stop did not succeed.
+ */
+export const deleteModel = async (
+  modelId: string,
+  skipDeviceReset: boolean = false,
+): Promise<void> => {
+  const url = `${dockerAPIURL}stop/stream/${modelId}/?skip_device_reset=${skipDeviceReset}`;
+  const { status, message } = await consumeSSE(url);
+  if (status !== "success") {
+    throw new Error(message || "Failed to stop the container");
+  }
+};
+
+/** Progress snapshot for a whole-board "Reset All" background job. */
+export interface ResetAllStatus {
+  step: string; // "idle" | "deleting" | "resetting" | "done"
+  logs: string[];
+  done: boolean;
+  ok: boolean;
+  error: string | null;
+  deleted: string[];
+  remaining: string[];
+}
+
+/**
+ * Start a whole-board reset (stop all models, then reset the board) as a backend
+ * background job. Returns immediately; poll getResetAllStatus() for progress.
+ * Plain request/response — no EventSource, so it cannot fail with
+ * "Connection to stream lost."
+ */
+export const startResetAll = async (): Promise<void> => {
+  await axios.post(`${dockerAPIURL}reset_all/`);
+};
+
+/** Read the current whole-board reset progress. */
+export const getResetAllStatus = async (): Promise<ResetAllStatus> => {
+  const { data } = await axios.get<ResetAllStatus>(`${dockerAPIURL}reset_all/status/`);
+  return data;
 };
 
 export const handleRedeploy = (modelName: string): void => {
@@ -244,7 +377,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
-      return "/chat"; // placeholder until video UI exists
+      return "/video-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
@@ -547,6 +680,29 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
     return Object.values(models) as CatalogModel[];
   }
   return [];
+};
+
+// Coding-agent gateway (LiteLLM)
+export interface CodingAgentModel {
+  name: string;
+  type: string;
+}
+
+export interface CodingAgentsInfo {
+  litellm_enabled: boolean;
+  health: "healthy" | "unreachable" | "disabled";
+  gateway_port: number;
+  openai_base_path: string;
+  master_key: string;
+  models: CodingAgentModel[];
+}
+
+export const fetchCodingAgentsInfo = async (): Promise<CodingAgentsInfo> => {
+  const response = await axios.get<CodingAgentsInfo>(`${modelAPIURL}coding-agents/`, {
+    timeout: 10000,
+    headers: { "Cache-Control": "no-cache" },
+  });
+  return response.data;
 };
 
 // Utility to extract short model name from container name

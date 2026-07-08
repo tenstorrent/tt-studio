@@ -11,14 +11,17 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Plus } from "lucide-react";
+import { AlertCircle, Plus, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
+import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
 import NoModelsRunning from "./NoModelsRunning";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
+import { useIsResetting } from "../../hooks/useIsResetting";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
@@ -49,10 +52,22 @@ import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
+const deviceIdsForRow = (
+  row?: { device_ids?: number[]; device_id?: number | null },
+): number[] | undefined => {
+  if (!row) return undefined;
+  if (Array.isArray(row.device_ids) && row.device_ids.length > 0) return row.device_ids;
+  if (row.device_id != null) return [row.device_id];
+  return undefined;
+};
+
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel } = useModels();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
+  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
+  // True while any board/device reset is in progress (global, backend-sourced).
+  const isResetting = useIsResetting();
+  const { refresh: refreshDeviceState } = useDeviceState();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -171,13 +186,33 @@ export default function ModelsDeployedCard(): JSX.Element {
   // Delete state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  // Snapshot at confirm time so the in-flight dialog keeps its device list even
+  // after the row leaves the table mid-reset.
+  const [deleteDeviceIds, setDeleteDeviceIds] = useState<number[] | undefined>(undefined);
   const deleteStream = useDeleteStream();
+  const isDeleteInFlight = deleteStream.status === "running";
+
+  useEffect(() => {
+    setIsDeleteInFlight(isDeleteInFlight);
+    return () => {
+      // Clear flag on unmount so we don't leave the rest of the app in a stuck disabled state
+      setIsDeleteInFlight(false);
+    };
+  }, [isDeleteInFlight, setIsDeleteInFlight]);
+
+  // Repoll immediately when a backgrounded delete reaches its reset phase
+  useEffect(() => {
+    if (!showDeleteModal && deleteStream.step === "resetting") {
+      refreshDeviceState();
+    }
+  }, [showDeleteModal, deleteStream.step, refreshDeviceState]);
 
   useEffect(() => {
     loadModels();
   }, [loadModels, refreshTrigger]);
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
+  const [phaseMap, setPhaseMap] = useState<Record<string, StartupPhase | null>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
 
   // Cross-reference with deployment history so we can detect containers that
@@ -198,9 +233,6 @@ export default function ModelsDeployedCard(): JSX.Element {
     workflow_log_path: string | null;
   };
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  // IDs the user has explicitly dismissed from the UI. Hide immediately so the
-  // user gets feedback even before the backend stop endpoint flips state.
-  const [dismissedFailedIds, setDismissedFailedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
     const fetchHistory = async () => {
@@ -240,12 +272,21 @@ export default function ModelsDeployedCard(): JSX.Element {
     }
   }, [liveContainerIds]);
 
+  // After a full board reset (Reset All), forget the dead containers seen this
+  // session so their "Died Unexpectedly" rows clear — the board no longer has
+  // them. A single model reset/delete does NOT bump resetAllNonce, so those
+  // rows stay until the user clicks that row's own Remove & Reset.
+  const lastResetAllNonce = useRef(resetAllNonce);
+  if (resetAllNonce !== lastResetAllNonce.current) {
+    lastResetAllNonce.current = resetAllNonce;
+    seenLiveIdsRef.current.clear();
+  }
+
   const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
     const next: Record<string, FailedDeploymentInfo> = {};
     for (const d of history) {
       if (!d.container_id || d.container_id.startsWith("pending_")) continue;
       if (d.stopped_by_user) continue;
-      if (dismissedFailedIds.has(d.container_id)) continue;
       // Only flag deployments we've actually seen alive this session OR that
       // are still in the live set (so a row that's currently visible can flip
       // to failed). Anything we never saw is ignored — that's history.
@@ -280,7 +321,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       Object.keys(next),
     );
     return next;
-  }, [history, liveContainerIds, dismissedFailedIds]);
+  }, [history, liveContainerIds]);
 
   // Build synthetic rows ONLY for failed containers that were alive in this
   // session but have since disappeared from /docker-api/status/. This keeps
@@ -304,7 +345,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       });
     }
     return out;
-  }, [history, failedMap, liveContainerIds]);
+  }, [history, failedMap, liveContainerIds, resetAllNonce]);
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
@@ -347,15 +388,13 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const rows: ModelRow[] = useMemo(() => {
     const baseRows = models as ModelRow[];
-    // Hide rows the user has explicitly dismissed.
-    const visibleBase = baseRows.filter((r: ModelRow) => !dismissedFailedIds.has(r.id));
     // Append synthetic rows for failed deployments whose live container is gone.
-    const baseIds = new Set(visibleBase.map((r: ModelRow) => r.id));
+    const baseIds = new Set(baseRows.map((r: ModelRow) => r.id));
     const extras = syntheticFailedRows.filter(
-      (r: ModelRow) => !baseIds.has(r.id) && !dismissedFailedIds.has(r.id),
+      (r: ModelRow) => !baseIds.has(r.id),
     );
-    return [...visibleBase, ...extras];
-  }, [models, syntheticFailedRows, dismissedFailedIds]);
+    return [...baseRows, ...extras];
+  }, [models, syntheticFailedRows]);
 
   const preparingModels = useMemo(() => {
     return rows.filter((r) => healthMap[r.id] === "starting");
@@ -413,13 +452,14 @@ export default function ModelsDeployedCard(): JSX.Element {
 
     setShowDeleteModal(false);
     setDeleteTargetId(null);
+    setDeleteDeviceIds(undefined);
     deleteStream.reset();
   }, [deleteStream, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
 
   // Auto-close the dialog once deletion finishes successfully
   const autoCloseTimerRef = useRef<number | null>(null);
   useEffect(() => {
-    if (deleteStream.status === "success" && showDeleteModal) {
+    if (deleteStream.status === "success") {
       localStorage.setItem("hasEverDeployed", "true");
       setUserStoppedModel(true);
       autoCloseTimerRef.current = window.setTimeout(() => {
@@ -428,6 +468,7 @@ export default function ModelsDeployedCard(): JSX.Element {
         window.setTimeout(() => refreshAllHealth(), 1000);
         setShowDeleteModal(false);
         setDeleteTargetId(null);
+        setDeleteDeviceIds(undefined);
         deleteStream.reset();
       }, 1500);
     }
@@ -507,6 +548,29 @@ export default function ModelsDeployedCard(): JSX.Element {
     [register]
   );
 
+  // Rendered above the early returns so an in-flight delete survives the table
+  // collapsing to the empty state when its last model is removed.
+  const deleteDialog = (
+    <DeleteModelDialog
+      open={showDeleteModal}
+      modelId={deleteTargetId || ""}
+      deviceIds={deleteDeviceIds}
+      totalDevices={chipStatus?.total_slots}
+      boardType={chipStatus?.board_type}
+      isLoading={deleteStream.status === "running"}
+      deleteStep={deleteStream.step}
+      streamStatus={deleteStream.status}
+      stepLogs={deleteStream.stepLogs}
+      errorMessage={deleteStream.errorMessage}
+      onConfirm={handleConfirmDelete}
+      onMinimize={() => {
+        setShowDeleteModal(false);
+        refreshDeviceState();
+      }}
+      onCancel={handleCloseDeleteModal}
+    />
+  );
+
   if (loading) {
     return <ModelsDeployedSkeleton />;
   }
@@ -532,11 +596,17 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsRunning userStopped={userStoppedModel} />;
+    return (
+      <>
+        {deleteDialog}
+        <NoModelsRunning userStopped={userStoppedModel} />
+      </>
+    );
   }
 
   return (
     <>
+      {deleteDialog}
       <ElevatedCard accent="neutral" depth="lg" hover>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between gap-3">
@@ -546,6 +616,8 @@ export default function ModelsDeployedCard(): JSX.Element {
               variant="outline"
               size="sm"
               onClick={() => setShowRegisterDialog(true)}
+              disabled={isResetting}
+              title={isResetting ? "Disabled while the board is resetting" : undefined}
             >
               <Plus className="w-4 h-4 mr-1" />
               Register Model
@@ -626,11 +698,22 @@ export default function ModelsDeployedCard(): JSX.Element {
           </TooltipProvider>
         )}
 
+        {/* Board reset in progress — make it obvious; destructive actions are paused. */}
+        {isResetting && (
+          <div className="mx-6 mb-4 flex items-center gap-3 rounded-lg border border-blue-500/40 bg-blue-900/30 px-5 py-3 text-blue-200">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+            <span className="text-sm font-medium">
+              Board reset in progress — model actions are paused until it completes.
+            </span>
+          </div>
+        )}
+
         {/* Model preparing banner */}
         {!preparingBannerDismissed && preparingModels.length > 0 && (
           <ModelPreparingBanner
             models={preparingModels}
-            onViewLogs={(id) => setSelectedContainerId(id)}
+            phaseMap={phaseMap}
+            onViewLogs={(id: string) => setSelectedContainerId(id)}
             onDismiss={() => setPreparingBannerDismissed(true)}
           />
         )}
@@ -658,6 +741,8 @@ export default function ModelsDeployedCard(): JSX.Element {
                   hideDeviceId={false}
                   healthMap={effectiveHealthMap}
                   failedMap={failedMap}
+                  deleteInProgress={isDeleteInFlight}
+                  deletingTargetId={isDeleteInFlight ? deleteTargetId : null}
                   onOpenLogs={(id: string) => {
                     const failed = failedMap[id];
                     if (failed) {
@@ -668,31 +753,9 @@ export default function ModelsDeployedCard(): JSX.Element {
                     }
                   }}
                   onDelete={(id: string) => {
-                    if (failedMap[id]) {
-                      // Quick remove for failed/died containers: hide row
-                      // immediately. The container is already dead, but we still
-                      // fire the stop endpoint in the background to clean up
-                      // any chip slot reservation and update the DB record.
-                      setDismissedFailedIds((prev: Set<string>) => {
-                        const next = new Set(prev);
-                        next.add(id);
-                        return next;
-                      });
-                      seenLiveIdsRef.current.delete(id);
-                      customToast.success("Removed failed deployment");
-                      axios
-                        .post(`/docker-api/stop/`, { container_id: id })
-                        .catch(() => {
-                          // best-effort cleanup; the row is already hidden
-                        })
-                        .finally(() => {
-                          refreshModels();
-                          window.setTimeout(() => refreshAllHealth(), 500);
-                        });
-                    } else {
-                      setDeleteTargetId(id);
-                      setShowDeleteModal(true);
-                    }
+                    setDeleteTargetId(id);
+                    setDeleteDeviceIds(deviceIdsForRow(rows.find((r) => r.id === id)));
+                    setShowDeleteModal(true);
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
                   onNavigateToModel={(id: string, name: string) => {
@@ -739,18 +802,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           }}
         />
 
-        <DeleteModelDialog
-          open={showDeleteModal}
-          modelId={deleteTargetId || ""}
-          isLoading={deleteStream.status === "running"}
-          deleteStep={deleteStream.step}
-          streamStatus={deleteStream.status}
-          stepLogs={deleteStream.stepLogs}
-          errorMessage={deleteStream.errorMessage}
-          onConfirm={handleConfirmDelete}
-          onCancel={handleCloseDeleteModal}
-        />
-
         <RegisterModelDialog
           open={showRegisterDialog}
           onClose={() => setShowRegisterDialog(false)}
@@ -768,9 +819,14 @@ export default function ModelsDeployedCard(): JSX.Element {
             <HealthCell
               id={row.id}
               register={mirroredRegister}
-              onHealthChange={(id: string, h: HealthStatus) =>
-                setHealthMap((prev) => ({ ...prev, [id]: h }))
-              }
+              onHealthChange={(
+                id: string,
+                h: HealthStatus,
+                phase?: StartupPhase | null,
+              ) => {
+                setHealthMap((prev) => ({ ...prev, [id]: h }));
+                setPhaseMap((prev) => ({ ...prev, [id]: phase ?? null }));
+              }}
             />
           </Fragment>
         ))}

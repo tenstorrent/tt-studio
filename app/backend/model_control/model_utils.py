@@ -30,7 +30,11 @@ AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
-    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+    limits=httpx.Limits(
+        max_connections=50,
+        max_keepalive_connections=20,
+        keepalive_expiry=3600.0,
+    ),
 )
 _cloud_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
@@ -162,16 +166,39 @@ def health_check(url, json_data, timeout=5):
             content = {}
         return True, content
 
-    # 503 with "not ready" means model is still loading (media-server models)
+    # Detect transient "still warming up" responses. The media-server stack
+    # raises HTTPException at multiple layers and the same logical state can
+    # surface as different status codes:
+    #   - scheduler raises HTTPException(405, "Model is not ready") before
+    #     warmup completes
+    #   - tt_maintenance_api.health() catches that and re-raises as 500
+    #     "Health check failed: 405: Model is not ready"
+    #   - if the service worker reports model_ready=False at a later stage,
+    #     /health raises HTTPException(503, "Model not ready") directly
+    # The canonical signal is "not ready" somewhere in the response body, so
+    # look for that first and treat it as "starting" regardless of status.
+    body_detail = ""
+    try:
+        body_json = response.json() if response.content else {}
+        if isinstance(body_json, dict):
+            body_detail = str(body_json.get("detail", "")) or str(body_json.get("message", ""))
+    except Exception:
+        body_detail = ""
+    body_text = (body_detail or response.text or "").lower()
+
+    if "not ready" in body_text or "still loading" in body_text or "starting up" in body_text:
+        logger.info(
+            f"Health check: model not ready yet (starting): "
+            f"{response.status_code} {body_detail or response.text[:200]}"
+        )
+        return None, body_detail or response.text[:200]
+
+    # Bare 503 from /health (no explicit detail) — only legitimate reason for
+    # the inference server to emit this is "service warming up", so treat as
+    # starting rather than failed.
     if response.status_code == 503:
-        try:
-            body = response.json()
-        except Exception:
-            body = {}
-        detail = body.get("detail", "")
-        if "not ready" in detail.lower():
-            logger.info(f"Health check: model not ready yet (starting): {detail}")
-            return None, detail
+        logger.info(f"Health check: 503 from {url} — treating as starting")
+        return None, body_detail or response.text[:200]
 
     logger.error(f"Health check failed: {response.status_code} {response.text[:200]}")
     return False, response.text[:200]
@@ -326,6 +353,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
 
+    from model_control.connection_warmer import note_inference_loop
+    note_inference_loop()
+
     # Coerce and forward parameters
     temperature = json_data.get("temperature")
     top_k = json_data.get("top_k")
@@ -383,7 +413,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
                             )
                             if delta_reasoning:
                                 tracker.record_thinking_token()
-                            delta_content = delta.get("content", "")
+                            # chat completions: choices[0].delta.content
+                            # base/completions:  choices[0].text
+                            delta_content = delta.get("content") or choices[0].get("text") or ""
                             if delta_content:
                                 tracker.record_content_token()
                                 logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
@@ -404,5 +436,34 @@ async def stream_response_from_external_api(url: str, json_data: dict):
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"RequestError: {str(e)}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+
+async def stream_openai_passthrough(url: str, json_data: dict):
+    """Clean OpenAI SSE passthrough for the coding-agent gateway.
+
+    Forwards the upstream vLLM stream verbatim — no injected
+    `stream_options`/`include_usage`, no TT-Studio TTFT/TPOT stats trailer, no
+    param coercion. This keeps the bytes spec-compliant OpenAI streaming chunks
+    so downstream Anthropic adapters (e.g. LiteLLM's /v1/messages, whose
+    streaming iterator does `chunk.choices[0]`) don't choke on the empty-`choices`
+    usage/stats chunks that `stream_response_from_external_api` emits for the
+    in-app chat UI.
+    """
+    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    try:
+        async with _vllm_client.stream(
+            "POST", url, json=json_data, headers=headers
+        ) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_text():
+                if chunk:
+                    yield chunk
+    except httpx.HTTPStatusError as e:
+        body = e.response.text if e.response is not None else "(no body)"
+        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    except httpx.RequestError as e:
+        logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 

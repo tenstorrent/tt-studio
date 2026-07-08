@@ -57,6 +57,8 @@ import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import WelcomePage from "../pages/WelcomePage";
+import VideoGenPage from "../pages/VideoGenPage";
+import CodingAgentsPage from "../pages/CodingAgentsPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -143,6 +145,16 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/tts",
       element: <TTSPage />,
+      condition: true,
+    },
+    {
+      path: "/video-generation",
+      element: <VideoGenPage />,
+      condition: true,
+    },
+    {
+      path: "/coding-agents",
+      element: <CodingAgentsPage />,
       condition: true,
     },
     {

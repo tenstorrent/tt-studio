@@ -104,13 +104,17 @@ def test_model_life_cycle():
     # logger.info(f"response json:= {data}")
     assert deployed_container_id in data.keys()
     logger.info(f"got status.")
-    # 5. stop echo model
-    stop_route = f"{backend_host}docker/stop/"
+    # 5. stop echo model (consume the SSE stop stream until its `complete` event)
+    stop_route = f"{backend_host}docker/stop/stream/{deployed_container_id}/"
     logger.info(f"calling: {stop_route}")
-    response = requests.post(stop_route, json={"container_id": deployed_container_id})
-    data = response.json()
-    # logger.info(f"response json:= {data}")
-    assert data["status"] == "success"
+    response = requests.get(stop_route, stream=True)
+    final = None
+    for line in response.iter_lines():
+        if line and line.startswith(b"data: "):
+            event = json.loads(line[len(b"data: "):])
+            if event.get("type") == "complete":
+                final = event
+    assert final is not None and final["status"] == "success"
     logger.info(f"stopped container: {deployed_container_id}")
 
 

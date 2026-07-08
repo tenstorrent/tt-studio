@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
 import { BugReportModal } from "./BugReportModal";
@@ -25,33 +26,35 @@ export function BugReportButton({
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={variant === "icon" ? "navbar" : "ghost"}
-            size={variant === "icon" ? "icon" : "sm"}
-            onClick={() => setOpen(true)}
-            className={
-              variant === "full"
-                ? `border border-red-200 hover:border-red-300 hover:bg-red-50 dark:border-red-800 dark:hover:border-red-700 dark:hover:bg-red-950/50 text-red-600 dark:text-red-400 ${className ?? ""}`
-                : `relative inline-flex items-center justify-center rounded-full p-2 transition-all duration-300 ease-in-out hover:text-red-500 ${className ?? ""}`
-            }
-            aria-label="Report a bug"
-          >
-            <Bug
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={variant === "icon" ? "navbar" : "ghost"}
+              size={variant === "icon" ? "icon" : "sm"}
+              onClick={() => setOpen(true)}
               className={
-                variant === "icon"
-                  ? "h-5 w-5 transition-colors duration-300 ease-in-out"
-                  : "mr-2 h-4 w-4"
+                variant === "full"
+                  ? `border border-red-200 hover:border-red-300 hover:bg-red-50 dark:border-red-800 dark:hover:border-red-700 dark:hover:bg-red-950/50 text-red-600 dark:text-red-400 ${className ?? ""}`
+                  : `relative inline-flex items-center justify-center rounded-full p-2 transition-all duration-300 ease-in-out hover:text-red-500 ${className ?? ""}`
               }
-            />
-            {variant === "full" && "Report Bug"}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p>Report a bug — collects logs automatically</p>
-        </TooltipContent>
-      </Tooltip>
+              aria-label="Report a bug"
+            >
+              <Bug
+                className={
+                  variant === "icon"
+                    ? "h-5 w-5 transition-colors duration-300 ease-in-out"
+                    : "mr-2 h-4 w-4"
+                }
+              />
+              {variant === "full" && "Report Bug"}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>Report a bug — collects logs automatically</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       <BugReportModal open={open} onOpenChange={setOpen} />
     </>

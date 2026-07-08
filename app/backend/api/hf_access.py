@@ -11,15 +11,18 @@ import requests
 from typing import List, Dict, Optional
 
 
+# diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
 HF_GATED_MODELS = [
-    ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
-    ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
-    ("Qwen/Qwen3-32B", "Qwen3-32B"),
+    ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
+    ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
+    ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
+    ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
+    ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
 ]
 
 
-def _check_repo(token: str, repo_id: str) -> Optional[int]:
-    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
+def _check_repo(token: str, repo_id: str, filename: str = "config.json") -> Optional[int]:
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
     headers = {"User-Agent": "tt-studio"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -44,8 +47,8 @@ def _status_from_code(code: Optional[int]) -> str:
 def check_hf_access(token: str) -> List[Dict]:
     """Return one row per gated model with normalized status."""
     results: List[Dict] = []
-    for repo, label in HF_GATED_MODELS:
-        code = _check_repo(token, repo)
+    for repo, label, filename in HF_GATED_MODELS:
+        code = _check_repo(token, repo, filename)
         results.append({
             "label": label,
             "repo": repo,

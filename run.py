@@ -32,6 +32,8 @@ import platform
 import argparse
 import shutil
 import re
+import secrets
+import fnmatch
 import getpass
 import webbrowser
 import socket
@@ -48,6 +50,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+from startup_checks import check_startup_freshness
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -80,22 +83,37 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
-ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
-ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
+ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
+ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
+LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
+LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 # Updated: Use inference-api instead of tt-inference-server submodule
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
 # These will be read from .env file or environment variables
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
-FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
-FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+# All host-side runtime logs and PID files live under a single logs/ directory so
+# they don't clutter the repo root. Created eagerly because StartupLogger opens
+# startup.log at import time (below).
+LOGS_DIR = os.path.join(TT_STUDIO_ROOT, "logs")
+try:
+    os.makedirs(LOGS_DIR, exist_ok=True)
+except OSError:
+    # Keep run.py importable even if logs/ can't be created.
+    LOGS_DIR = TT_STUDIO_ROOT
+
+FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
+MODEL_RUN_LOG_FILE = os.path.join(LOGS_DIR, "model_run.log")
+MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
-DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
-DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
+DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
+DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
-EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
-STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
+SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
+LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
+STARTUP_LOG_FILE = os.path.join(LOGS_DIR, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
 # Container names vary by mode: tt_studio_backend_api_prod, tt_studio_frontend_dev, etc.
@@ -521,7 +539,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Configuration key missing{key_hint}',
             'detail': f"{container_name} encountered a missing env var or config key.",
-            'action': "Check app/.env for missing variables. Run: python run.py --reconfigure",
+            'action': "Check .env for missing variables. Run: python run.py --reconfigure",
         }
 
     if "permission denied" in log_lower or "permissionerror" in log_lower:
@@ -828,8 +846,8 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
-        'true or false to enable RAG admin'
+        'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
+        '<PATH_TO_ROOT_OF_REPO>'
     ]
 
     value_str = str(value).strip().strip('"\'')
@@ -837,7 +855,7 @@ def is_placeholder(value):
 
 def write_env_var(var_name, var_value, quote_value=True):
     """
-    Update or add an environment variable to the app/.env file.
+    Update or add an environment variable to the repo-root .env file.
     """
     if not os.path.exists(ENV_FILE_PATH):
         open(ENV_FILE_PATH, 'w').close()
@@ -867,6 +885,46 @@ def write_env_var(var_name, var_value, quote_value=True):
 
     with open(ENV_FILE_PATH, 'w') as f:
         f.writelines(lines)
+
+def set_app_version_env():
+    """
+    Compute the running build's version from git and persist it to .env so
+    docker compose can inject it into the frontend as VITE_APP_VERSION /
+    VITE_APP_GIT_BRANCH.
+
+    Releases are plain git tags (e.g. v2.6.0) with no package.json bump, so git is
+    the source of truth for "what build is this":
+      - If HEAD sits exactly on a release tag, that tag is the official version and
+        VITE_APP_VERSION is set to it.
+      - Otherwise this is an unofficial build; VITE_APP_VERSION is cleared and the
+        frontend falls back to showing the branch name (VITE_APP_GIT_BRANCH).
+    """
+    def _git(git_args):
+        try:
+            result = subprocess.run(
+                ["git", "-C", TT_STUDIO_ROOT] + git_args,
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
+    # An exact tag match on the current commit => official release build.
+    version = _git(["describe", "--tags", "--exact-match"])
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    if branch == "HEAD":
+        # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
+        branch = _git(["rev-parse", "--short", "HEAD"])
+
+    write_env_var("VITE_APP_VERSION", version)
+    write_env_var("VITE_APP_GIT_BRANCH", branch)
+
+    if version:
+        print(f"{C_GREEN}✅ Build version: {version} (official release){C_RESET}")
+    elif branch:
+        print(f"{C_CYAN}ℹ️  Build version: {branch} branch (unofficial build){C_RESET}")
 
 def comment_out_env_var(var_name):
     """Comment out an environment variable in the .env file (VAR=val → # VAR=val)."""
@@ -909,25 +967,14 @@ def get_existing_env_vars():
                     env_vars[key] = value.strip('"\'')
     return env_vars
 
-def save_easy_config(config_dict):
-    """Save easy mode configuration to JSON file"""
+def save_setup_config(config_dict):
+    """Save the quick-setup configuration snapshot to JSON file"""
     try:
-        with open(EASY_CONFIG_FILE_PATH, 'w') as f:
+        with open(SETUP_CONFIG_FILE_PATH, 'w') as f:
             json.dump(config_dict, f, indent=2)
         # Silent — no need to show config file path to user
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not save easy mode configuration: {e}{C_RESET}")
-
-def load_easy_config():
-    """Load easy mode configuration from JSON file"""
-    if os.path.exists(EASY_CONFIG_FILE_PATH):
-        try:
-            with open(EASY_CONFIG_FILE_PATH, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"{C_YELLOW}⚠️  Warning: Could not load easy mode configuration: {e}{C_RESET}")
-            return None
-    return None
+        print(f"{C_YELLOW}⚠️  Warning: Could not save setup configuration: {e}{C_RESET}")
 
 def should_configure_var(var_name, current_value):
     """
@@ -1018,6 +1065,7 @@ def display_first_time_welcome():
             sys.exit(0)
         elif response in ['y', 'yes']:
             print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            save_preference("terms_accepted", True)
             break
         else:
             print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
@@ -1167,7 +1215,7 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
 # not in the CLI. See app/backend/api/hf_access.py.
 
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=True, reconfigure_inference=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
@@ -1175,7 +1223,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
         force_reconfigure (bool): If True, force reconfiguration and clear preferences
-        easy_mode (bool): If True, use minimal prompts and defaults for quick setup
+        quick_setup (bool): If True, use minimal prompts and defaults for quick setup
         reconfigure_inference (bool): If True, force reconfiguration of inference server artifact only
     """
     global FORCE_OVERWRITE
@@ -1188,8 +1236,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     if force_reconfigure:
         clear_preferences()
     
+    # One-time migration: the canonical .env moved from app/.env to the repo root.
+    # Preserve any existing secrets by copying the legacy file up and keeping a backup.
+    if os.path.exists(LEGACY_ENV_FILE_PATH):
+        if not os.path.exists(ENV_FILE_PATH):
+            print(f"{C_BLUE}📦 Migrating legacy app/.env to the repo-root .env...{C_RESET}")
+            shutil.copy(LEGACY_ENV_FILE_PATH, ENV_FILE_PATH)
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+            print(f"{C_GREEN}   ✅ Copied to repo-root .env; backed up the old file to app/.env-old{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Both repo-root .env and legacy app/.env exist; keeping the "
+                  f"repo-root .env and backing up the legacy file to app/.env-old.{C_RESET}")
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+
     env_file_exists = os.path.exists(ENV_FILE_PATH)
-    
+
     if not env_file_exists:
         if os.path.exists(ENV_FILE_DEFAULT):
             print(f"{C_BLUE}📄 No .env file found. Creating one from the default template...{C_RESET}")
@@ -1200,7 +1261,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
         print(f"{C_GREEN}⚙️  Configure Env Mode: Full interactive setup for all variables{C_RESET}")
         if dev_mode:
@@ -1211,17 +1272,17 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # Get existing variables
     existing_vars = get_existing_env_vars()
     
-    # Only ask about overwrite preference if .env file existed before (skip for easy mode)
-    if not easy_mode and env_file_exists and existing_vars:
+    # Only ask about overwrite preference if .env file existed before (skip for quick setup)
+    if not quick_setup and env_file_exists and existing_vars:
         FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, force_prompt=force_reconfigure)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
-            if not easy_mode:
+            if not quick_setup:
                 print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
             FORCE_OVERWRITE = True
-        elif easy_mode:
-            # In easy mode with existing .env, don't force overwrite - let individual checks handle it
+        elif quick_setup:
+            # In quick setup with existing .env, don't force overwrite - let individual checks handle it
             if env_file_exists and existing_vars:
                 FORCE_OVERWRITE = False
             else:
@@ -1230,21 +1291,30 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
             FORCE_OVERWRITE = True
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
-    if not easy_mode:
+    # LiteLLM gateway: generate strong random keys so the network-published port
+    # is never protected by a predictable shared secret.
+    if should_configure_var("LITELLM_MASTER_KEY", get_env_var("LITELLM_MASTER_KEY")):
+        write_env_var("LITELLM_MASTER_KEY", f"sk-tt-studio-{secrets.token_urlsafe(32)}", quote_value=False)
+    if should_configure_var("LITELLM_UPSTREAM_KEY", get_env_var("LITELLM_UPSTREAM_KEY")):
+        write_env_var("LITELLM_UPSTREAM_KEY", secrets.token_urlsafe(32), quote_value=False)
+    if should_configure_var("LITELLM_PORT", get_env_var("LITELLM_PORT")):
+        write_env_var("LITELLM_PORT", "4000", quote_value=False)
+
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
 
     # JWT_SECRET (optional; auto-generated by backend on first run if unset.
     # Configurable later from the TT Studio Settings UI.)
     current_jwt = get_env_var("JWT_SECRET")
-    if easy_mode:
-        # Skip prompting in easy mode; backend will auto-generate.
+    if quick_setup:
+        # Skip prompting in quick setup; backend will auto-generate.
         pass
     elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
@@ -1262,12 +1332,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         else:
             print("✅ Skipped — backend will auto-generate JWT_SECRET on first start.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ JWT_SECRET already configured (keeping existing value).")
 
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
             write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
@@ -1293,7 +1363,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
             write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
@@ -1307,12 +1377,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
 
     # DOCKER_CONTROL_JWT_SECRET
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
             write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
@@ -1331,19 +1401,19 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
 
     # TAVILY_API_KEY and HF_TOKEN are UI-managed. The Welcome screen in the
     # web app captures them on first run; they're editable later in Settings.
     pass
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
             write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
     elif should_configure_var("VITE_APP_TITLE", current_title):
@@ -1352,15 +1422,15 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("VITE_APP_TITLE", val)
         print("✅ VITE_APP_TITLE saved.")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_APP_TITLE already configured: {current_title}")
 
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
 
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
             write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
@@ -1375,16 +1445,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
 
     is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
 
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
             write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
     elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
@@ -1399,16 +1469,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
 
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
-    if not easy_mode:
+    if not quick_setup:
         print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
 
-    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in easy mode)
+    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in quick setup)
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
-    if easy_mode:
+    if quick_setup:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password", quote_value=False)
     elif is_rag_admin_enabled:
@@ -1441,7 +1511,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
     ]
     
-    if easy_mode:
+    if quick_setup:
         for var_name, _, _ in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
@@ -1463,11 +1533,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             else:
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
-        if not easy_mode:
+        if not quick_setup:
             print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
 
-    # Frontend configuration (always set in easy mode, optional otherwise)
-    if easy_mode:
+    # Frontend configuration (always set in quick setup, optional otherwise)
+    if quick_setup:
         current_frontend_host = get_env_var("FRONTEND_HOST")
         current_frontend_port = get_env_var("FRONTEND_PORT")
         current_frontend_timeout = get_env_var("FRONTEND_TIMEOUT")
@@ -1480,9 +1550,9 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
 
     # TT Inference Server Artifact Configuration
-    if not easy_mode:
+    if not quick_setup:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
-    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure, reconfigure_inference)
+    configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
 
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
@@ -1522,13 +1592,537 @@ def display_welcome_banner():
     print(f"{C_TT_PURPLE}{'=' * 68}{C_RESET}")
     print()
 
+def _format_bytes(size):
+    """Format a byte count as a human-readable string."""
+    if size is None or size < 0:
+        return "?"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    f = float(size)
+    for u in units:
+        if f < 1024.0 or u == units[-1]:
+            return f"{f:.1f} {u}" if u != "B" else f"{int(f)} {u}"
+        f /= 1024.0
+    return f"{f:.1f} {units[-1]}"
+
+
+def _path_size(path):
+    """Best-effort recursive size of a file or directory in bytes; 0 if unreadable."""
+    try:
+        if not os.path.exists(path):
+            return 0
+        if os.path.isfile(path) or os.path.islink(path):
+            try:
+                return os.path.getsize(path)
+            except OSError:
+                return 0
+        total = 0
+        for root, dirs, files in os.walk(path, onerror=lambda _: None):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    if not os.path.islink(fp):
+                        total += os.path.getsize(fp)
+                except OSError:
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+def _remove_path(path, no_sudo=False):
+    """Remove a file or directory, falling back to sudo on PermissionError when allowed.
+
+    Returns True if removed (or did not exist), False otherwise.
+    """
+    if not os.path.exists(path) and not os.path.islink(path):
+        return True
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        return True
+    except PermissionError:
+        if no_sudo:
+            print(f"{C_YELLOW}⚠️  Permission denied removing {path} (no sudo).{C_RESET}")
+            return False
+        try:
+            subprocess.run(["sudo", "rm", "-rf", path], check=True)
+            return True
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Failed to remove {path} with sudo: {e}{C_RESET}")
+            return False
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Failed to remove {path}: {e}{C_RESET}")
+        return False
+
+
+def _remove_directory_contents(path, preserve_names=None, no_sudo=False):
+    """Remove generated contents from a directory while keeping named entries."""
+    if not os.path.isdir(path):
+        return True
+    preserve_names = set(preserve_names or [])
+    ok = True
+    for name in os.listdir(path):
+        if name in preserve_names:
+            continue
+        if not _remove_path(os.path.join(path, name), no_sudo=no_sudo):
+            ok = False
+    try:
+        if not os.listdir(path):
+            os.rmdir(path)
+    except OSError:
+        pass
+    return ok
+
+
+# Image reference patterns wiped by --cleanup-all. Covers the three TT Studio
+# images (backend/frontend/agent), every model-deployment image pulled from the
+# tt-inference-server registry path (vLLM, yolov4, stable-diffusion, …), the
+# tt-media-inference-server image (flat repo, separate from tt-inference-server),
+# and the chroma image declared in docker-compose.yml.
+_CLEANUP_IMAGE_REFS = (
+    "ghcr.io/tenstorrent/tt-studio/*",
+    "ghcr.io/tenstorrent/tt-inference-server/*",
+    "ghcr.io/tenstorrent/tt-media-inference-server",
+    "chromadb/chroma",
+)
+
+# Docker named-volume prefix used by model deployments. The inference-server side
+# names volumes `volume_{model_id}` where model_id defaults to
+# `id_{impl_id}-{model_name}-v{version}` — see app/backend/shared_config/model_config.py.
+# These hold model weights and are distinct from the bind-mounted persistent volume.
+_CLEANUP_VOLUME_PREFIX = "volume_id_"
+
+
+def _parse_size_to_bytes(s):
+    """Parse a docker-formatted size string (e.g. "39.42GB", "545kB", "32B") to bytes.
+
+    Docker reports sizes in SI units (base 1000) via go-units, so this is the
+    inverse of `_format_bytes` but decimal — used only to total the daemon's own
+    numbers, not for display. Returns 0 on anything unparseable.
+    """
+    if not s:
+        return 0
+    m = re.match(r"\s*([0-9]*\.?[0-9]+)\s*([kKMGTP]?B)\s*$", s)
+    if not m:
+        return 0
+    value, unit = float(m.group(1)), m.group(2).upper()
+    factor = {"B": 1, "KB": 10**3, "MB": 10**6,
+              "GB": 10**9, "TB": 10**12, "PB": 10**15}.get(unit, 1)
+    return int(value * factor)
+
+
+def _docker_reclaimable_bytes(has_docker_access):
+    """Best-effort size of the Docker objects --cleanup-all removes.
+
+    Reads `docker system df -v --format json` (the daemon already computes exact
+    sizes) and sums the images and volumes cleanup-all actually deletes:
+      - images whose Repository matches `_CLEANUP_IMAGE_REFS`
+        (same set `_remove_local_tt_studio_images` removes),
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+        plus dangling anonymous volumes (`_prune_anonymous_volumes`).
+    Build cache is intentionally excluded — cleanup-all does not prune it.
+    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
+    docker is unavailable, so the reclaim total degrades to the host-side paths
+    just like before.
+    """
+    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return zero
+
+    sizes = dict(zero)
+    for img in data.get("Images") or []:
+        repo = img.get("Repository", "")
+        if any(fnmatch.fnmatch(repo, ref) for ref in _CLEANUP_IMAGE_REFS):
+            sizes["images"] += _parse_size_to_bytes(img.get("Size", ""))
+
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+            sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
+            sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+
+    return sizes
+
+
+def _remove_local_tt_studio_images(has_docker_access):
+    """Remove TT Studio + inference-server + chroma images. Returns count removed."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    ids = []
+    try:
+        for ref in _CLEANUP_IMAGE_REFS:
+            result = subprocess.run(
+                sudo_prefix + ["docker", "image", "ls", "--filter",
+                               f"reference={ref}", "-q"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in result.stdout.splitlines() if line.strip())
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return 0
+        subprocess.run(
+            sudo_prefix + ["docker", "image", "rm", "-f", *ids],
+            capture_output=True, check=False,
+        )
+        return len(ids)
+    except Exception:
+        return 0
+
+
+def _remove_tt_studio_model_volumes(has_docker_access):
+    """Remove docker named volumes that hold model weights (volume_id_*).
+
+    Deployment containers attach to volumes named via
+    `volume_{model_id}` (see app/backend/shared_config/model_config.py); each
+    one stores weights for one model. These survive `compose down -v` because
+    they are not declared in docker-compose.yml — they are created by the
+    inference-server side of the deployment pipeline. Callers must stop the
+    containers using them first or `volume rm` will fail with "in use".
+    Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "--filter",
+                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        # `--filter name=foo` is substring match; double-check the prefix in
+        # Python so we never delete an unrelated volume that happens to contain
+        # "volume_id_" mid-name.
+        names = [n for n in (line.strip() for line in result.stdout.splitlines())
+                 if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+        if not names:
+            return 0
+        subprocess.run(
+            sudo_prefix + ["docker", "volume", "rm", "-f", *names],
+            capture_output=True, check=False,
+        )
+        return len(names)
+    except Exception:
+        return 0
+
+
+def _remove_tt_studio_network_containers(has_docker_access):
+    """Force-remove every container attached to tt_studio_network + its anon volumes.
+
+    Deployment containers (vLLM, YOLO, stable-diffusion, …) are spawned outside
+    docker-compose by the backend via docker-control-service, so `compose down`
+    never sees them. They all join `tt_studio_network`, which makes the network
+    a reliable filter. `-v` ensures anonymous volumes (e.g. the frontend dev
+    container's `/app/node_modules` anon volume from docker-compose.dev-mode.yml)
+    don't orphan when we remove the container before `compose down -v` gets a
+    chance to clean them. Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "ps", "-aq", "--filter", "network=tt_studio_network"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        # Media (TTS/STT) containers don't always join tt_studio_network reliably —
+        # the post-deploy network-connect hook in inference-api/api.py is best-effort.
+        # Fall back to image-ancestor so cleanup catches them anyway. See issue #825.
+        for ref in _CLEANUP_IMAGE_REFS:
+            anc = subprocess.run(
+                sudo_prefix + ["docker", "ps", "-aq", "--filter", f"ancestor={ref}"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in anc.stdout.splitlines() if line.strip())
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return 0
+        subprocess.run(
+            sudo_prefix + ["docker", "rm", "-fv", *ids],
+            capture_output=True, check=False,
+        )
+        return len(ids)
+    except Exception:
+        return 0
+
+
+def _prune_anonymous_volumes(has_docker_access):
+    """Defensive sweep for dangling anonymous volumes left by prior runs.
+
+    `docker volume prune` (without `--all`) only targets anonymous unused
+    volumes — named volumes from other projects on the same host are safe.
+    Catches orphans created before `_remove_tt_studio_network_containers`
+    started using `-v` (e.g. the frontend dev container's node_modules anon
+    volume that survived earlier cleanup attempts). Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        before = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        before_set = {line.strip() for line in before.stdout.splitlines() if line.strip()}
+
+        subprocess.run(
+            sudo_prefix + ["docker", "volume", "prune", "--force"],
+            capture_output=True, check=False,
+        )
+
+        after = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        after_set = {line.strip() for line in after.stdout.splitlines() if line.strip()}
+        return len(before_set - after_set)
+    except Exception:
+        return 0
+
+
+# Sentinel served at `/.cleanup-pending` by Vite (dev) or nginx (prod).
+# Frontend reads this on startup, wipes browser state once per token, then
+# records the token in localStorage to avoid re-wiping on every load.
+BROWSER_CLEANUP_SENTINEL = os.path.join(
+    TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"
+)
+
+
+def _write_browser_cleanup_sentinel():
+    """Write a fresh cleanup token so the frontend wipes IndexedDB + localStorage on next load."""
+    try:
+        os.makedirs(os.path.dirname(BROWSER_CLEANUP_SENTINEL), exist_ok=True)
+        token = str(int(time.time() * 1000))
+        with open(BROWSER_CLEANUP_SENTINEL, "w") as f:
+            f.write(token)
+        return token
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not write browser cleanup sentinel: {e}{C_RESET}")
+        return None
+
+
 def cleanup_resources(args):
-    """Clean up Docker resources"""
-    print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+    """Clean up TT Studio Docker resources, and (with --cleanup-all) all persistent state."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+    assume_yes = bool(getattr(args, "yes", False))
 
+    if not full_cleanup:
+        print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+        _cleanup_runtime(args, check_docker_access())
+
+        # Unset the Welcome flag so the next bring-up re-runs first-run setup.
+        # Normal path: rewrite user_config.env in place without the SETUP_COMPLETE
+        # line to preserve saved secrets (HF token, etc.). If the file is owned by
+        # root (Docker wrote it on the host volume), fall back via _remove_path so
+        # the backend regenerates a fresh user_config.env on next start.
+        host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
+            os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
+        backend_volume = os.path.join(host_persistent_volume, "backend_volume")
+        user_config_path = os.path.join(backend_volume, "user_config.env")
+        # Legacy JSON from before the .env migration: remove it outright so the
+        # backend re-runs Welcome (its setup_complete flag must not survive).
+        legacy_json_path = os.path.join(backend_volume, "user_config.json")
+        if not os.path.exists(user_config_path) and os.path.exists(legacy_json_path):
+            if _remove_path(legacy_json_path, no_sudo=args.no_sudo):
+                print(f"  {C_GREEN}✅ Reset Welcome flag (removed legacy user_config.json){C_RESET}")
+            else:
+                print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag (permission denied).{C_RESET}")
+        if os.path.exists(user_config_path):
+            try:
+                with open(user_config_path, "r") as f:
+                    lines = f.readlines()
+                kept = [ln for ln in lines if not ln.strip().startswith("SETUP_COMPLETE")]
+                if len(kept) != len(lines):
+                    with open(user_config_path, "w") as f:
+                        f.writelines(kept)
+                    print(f"  {C_GREEN}✅ Reset Welcome flag (SETUP_COMPLETE){C_RESET}")
+            except PermissionError:
+                print(f"  {C_CYAN}🔐 user_config.env is root-owned; removing so Welcome re-runs...{C_RESET}")
+                if _remove_path(user_config_path, no_sudo=args.no_sudo):
+                    print(f"  {C_GREEN}✅ Reset Welcome flag (removed root-owned user_config.env){C_RESET}")
+                else:
+                    print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag (permission denied).{C_RESET}")
+            except Exception as e:
+                print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag: {e}{C_RESET}")
+
+        print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+        return
+
+    # --- --cleanup-all: build full inventory and ask once ---
+    host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
+        os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
+    artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+
+    # All host-side runtime logs + PID files now live under logs/, so the whole
+    # directory is removed in one shot (it is always a proper subdir of the repo,
+    # never the repo root itself). The repo-root entries that follow clear logs
+    # left behind by TT Studio versions from before the logs/ consolidation +
+    # rename — and the degenerate case where logs/ couldn't be created and the
+    # files fell back to the repo root.
+    logs_dir = os.path.join(TT_STUDIO_ROOT, "logs")
+    log_items = [
+        ("📜", logs_dir, "host-side runtime logs & PID files (startup, model run, docker-control)"),
+    ]
+    log_items += [
+        ("📜", os.path.join(TT_STUDIO_ROOT, name), "legacy host-side log (pre-consolidation)")
+        for name in (
+            "model_run.log", "model_run_logs",
+            "fastapi.log", "fastapi.pid", "fastapi_logs",
+            "startup.log", "docker-control-service.log", "docker-control-service.pid",
+        )
+    ]
+
+    items = [
+        ("📁", host_persistent_volume,
+         "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
+        ("⚙️ ", ENV_FILE_PATH,
+         "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+        ("⚙️ ", LEGACY_ENV_FILE_PATH, "legacy pre-consolidation env file (app/.env)"),
+        ("⚙️ ", LEGACY_ENV_BACKUP_PATH, "legacy env backup from migration (app/.env-old)"),
+        ("🔧", artifacts_root,
+         "downloaded inference server + workflow logs + release tarball"),
+        *log_items,
+        ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
+        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
+        ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch output"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch output"),
+        ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
+         "inference-api Python virtualenv"),
+        ("🐍", os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv"),
+         "docker-control-service Python virtualenv"),
+        ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
+         "workflow Python virtualenvs"),
+    ]
+
+    existing = [(emoji, path, desc, _path_size(path))
+                for emoji, path, desc in items if os.path.exists(path) or os.path.islink(path)]
+    host_bytes = sum(sz for _, _, _, sz in existing)
+
+    # Measure the Docker objects we are about to remove while they still exist,
+    # so both the estimate and the final "Reclaimed approximately X" reflect the
+    # model volumes + images (tens of GB), not just the host-side files.
     has_docker_access = check_docker_access()
+    docker_sizes = _docker_reclaimable_bytes(has_docker_access)
+    total_bytes = host_bytes + sum(docker_sizes.values())
 
-    # Stop and remove containers
+    print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
+    print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
+
+    if existing:
+        path_w = max(len(os.path.relpath(p, TT_STUDIO_ROOT)) for _, p, _, _ in existing)
+        path_w = min(max(path_w, 32), 56)
+        for emoji, path, desc, size in existing:
+            rel = os.path.relpath(path, TT_STUDIO_ROOT)
+            size_str = _format_bytes(size) if size > 0 else "—"
+            print(f"  {emoji} {rel:<{path_w}}  {size_str:>10}")
+            print(f"       └─ {C_CYAN}{desc}{C_RESET}")
+    else:
+        print(f"  {C_CYAN}(no host-side state found){C_RESET}")
+
+    def _docker_size(key):
+        return f"  ({_format_bytes(docker_sizes[key])})" if docker_sizes[key] > 0 else ""
+
+    print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
+    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)"
+          f"{_docker_size('model_volumes')}")
+    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)"
+          f"{_docker_size('anon_volumes')}")
+    print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
+          f"tt-media-inference-server, chromadb/chroma{_docker_size('images')}")
+    print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
+
+    if total_bytes > 0:
+        print(f"  {C_BOLD}Estimated disk to reclaim: {_format_bytes(total_bytes)}{C_RESET}")
+
+    print(f"\n{C_RED}{C_BOLD}This CANNOT be undone.{C_RESET}")
+
+    if not assume_yes:
+        try:
+            confirm = input(f"\n{C_YELLOW}Proceed? [y/N]: {C_RESET}").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n{C_YELLOW}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
+            return
+        if confirm not in ("y", "yes"):
+            print(f"\n{C_CYAN}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
+            return
+    else:
+        print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
+
+    print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+    _cleanup_runtime(args, has_docker_access)
+
+    # Volumes must come before images: removing a volume while its image is
+    # gone is fine; removing an image while a volume's container is gone is
+    # also fine — but we want both done before the host-state wipe so the
+    # final "Reclaimed approximately X" total is honest.
+    sys.stdout.write(f"  Removing model volumes...  ")
+    sys.stdout.flush()
+    removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed_vols} volume(s))")
+
+    sys.stdout.write(f"  Pruning anon volumes...    ")
+    sys.stdout.flush()
+    removed_anon = _prune_anonymous_volumes(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed_anon} volume(s))")
+
+    sys.stdout.write(f"  Removing local images...   ")
+    sys.stdout.flush()
+    removed = _remove_local_tt_studio_images(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed} image(s))")
+
+    sys.stdout.write(f"  Removing host state...     ")
+    sys.stdout.flush()
+    removed_paths = 0
+    for _, path, _, _ in existing:
+        if path == os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"):
+            removed = _remove_directory_contents(
+                path,
+                preserve_names={".venv_bootstrap_uv"},
+                no_sudo=args.no_sudo,
+            )
+        else:
+            removed = _remove_path(path, no_sudo=args.no_sudo)
+        if removed:
+            removed_paths += 1
+    print(f"{C_GREEN}done{C_RESET}  ({removed_paths}/{len(existing)} path(s))")
+
+    sys.stdout.write(f"  Arming browser wipe...     ")
+    sys.stdout.flush()
+    token = _write_browser_cleanup_sentinel()
+    print(f"{C_GREEN}done{C_RESET}" if token else f"{C_YELLOW}skipped{C_RESET}")
+
+    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+    if total_bytes > 0:
+        print(f"   Reclaimed approximately {C_BOLD}{_format_bytes(total_bytes)}{C_RESET} from disk.")
+    print(f"\n{C_CYAN}🌐 Browser data (chat history, theme, login) will auto-clear the")
+    print(f"   next time you open http://localhost:3000.")
+    print(f"   To clear immediately: DevTools → Application → Storage → Clear site data.{C_RESET}")
+
+
+def _cleanup_runtime(args, has_docker_access):
+    """Tear down host services and compose containers. Deployment containers
+    (vLLM, TTS, STT, …) survive a plain ``--cleanup`` so loaded models keep
+    serving across a TT Studio restart; ``--cleanup-all`` still removes them
+    as part of the full reset."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+
+    if full_cleanup:
+        # Deployment containers (vLLM, etc.) live outside compose — kill them first
+        # so the subsequent network removal and weight-directory deletion aren't
+        # blocked by running processes holding bind mounts open.
+        sys.stdout.write(f"  Stopping deployments...    ")
+        sys.stdout.flush()
+        deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+        print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    else:
+        sys.stdout.write(f"  Preserving deployments...  ")
+        sys.stdout.flush()
+        print(f"{C_GREEN}done{C_RESET}  (use --cleanup-all to remove)")
+
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
     try:
@@ -1539,78 +2133,29 @@ def cleanup_resources(args):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    # Remove network
-    try:
-        sys.stdout.write(f"  Removing network...        ")
-        sys.stdout.flush()
-        run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                            use_sudo=not has_docker_access, capture_output=True)
-        print(f"{C_GREEN}done{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}skipped{C_RESET}")
+    # Skip explicit network removal when deployments are preserved — they stay
+    # attached to ``tt_studio_network`` and need it for DNS resolution so the
+    # backend can reconnect after restart. ``compose down`` also tries to
+    # remove the network and fails silently when external containers hold it.
+    if full_cleanup:
+        try:
+            sys.stdout.write(f"  Removing network...        ")
+            sys.stdout.flush()
+            run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                use_sudo=not has_docker_access, capture_output=True)
+            print(f"{C_GREEN}done{C_RESET}")
+        except Exception:
+            print(f"{C_YELLOW}skipped{C_RESET}")
 
-    # Clean up FastAPI server
     sys.stdout.write(f"  Stopping FastAPI server... ")
     sys.stdout.flush()
     cleanup_fastapi_server(no_sudo=args.no_sudo)
     print(f"{C_GREEN}done{C_RESET}")
 
-    # Clean up Docker Control Service
     sys.stdout.write(f"  Stopping Docker Control... ")
     sys.stdout.flush()
     cleanup_docker_control_service(no_sudo=args.no_sudo)
     print(f"{C_GREEN}done{C_RESET}")
-
-    if args.cleanup_all:
-        print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
-        
-        # Remove persistent volume
-        host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        if os.path.exists(host_persistent_volume):
-            try:
-                confirm = input(f"{C_YELLOW}📁 Remove persistent storage at {host_persistent_volume}? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Persistent storage kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Basic cleanup completed successfully.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(host_persistent_volume)
-                print(f"{C_GREEN}✅ Removed persistent storage.{C_RESET}")
-            else:
-                print(f"{C_CYAN}📁 Keeping persistent storage.{C_RESET}")
-        
-        # Remove .env file
-        if os.path.exists(ENV_FILE_PATH):
-            try:
-                confirm = input(f"{C_YELLOW}⚙️  Remove .env configuration file? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Configuration file kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                os.remove(ENV_FILE_PATH)
-                print(f"{C_GREEN}✅ Removed .env file.{C_RESET}")
-            else:
-                print(f"{C_CYAN}⚙️  Keeping .env file.{C_RESET}")
-        
-        # Remove artifact directory if it exists
-        if os.path.exists(INFERENCE_ARTIFACT_DIR):
-            try:
-                confirm = input(f"{C_YELLOW}🔧 Remove TT Inference Server artifact directory at {INFERENCE_ARTIFACT_DIR}? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Artifact directory kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-                print(f"{C_GREEN}✅ Removed artifact directory.{C_RESET}")
-            else:
-                print(f"{C_CYAN}🔧 Keeping artifact directory.{C_RESET}")
-    
-    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
 
 def detect_tt_hardware():
     """Detect if Tenstorrent hardware is available."""
@@ -1628,7 +2173,11 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     Returns:
         list: Docker Compose command with appropriate files
     """
-    compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
+    # Compose runs with cwd=app/, so it would otherwise auto-load app/.env. The canonical
+    # env file now lives at the repo root, so point compose at it explicitly. --env-file
+    # only changes variable resolution; the project directory stays app/ so relative build
+    # contexts (./backend, ./frontend, ./agent) and ${TT_STUDIO_ROOT} volume paths are kept.
+    compose_files = ["docker", "compose", "--env-file", ENV_FILE_PATH, "-f", DOCKER_COMPOSE_FILE]
 
     if dev_mode:
         if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
@@ -1817,7 +2366,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "ChromaDB": "docker logs -f tt_studio_chroma",
             "Backend API": "docker logs -f tt_studio_backend",
             "Frontend": "docker logs -f tt_studio_frontend",
-            "FastAPI Server": f"tail -f {FASTAPI_LOG_FILE}",
+            "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
             "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
         }
         print(f"\n{C_CYAN}📋 Check logs:{C_RESET}")
@@ -1991,21 +2540,21 @@ def is_valid_git_repo(path):
             return False
     return False  # Exists but not a git repo
 
-def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False, reconfigure_inference=False):
+def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force_reconfigure=False, reconfigure_inference=False):
     """
     Configure TT Inference Server artifact source (release version or branch).
 
     Args:
         dev_mode: Development mode flag
-        easy_mode: Easy mode flag
+        quick_setup: Quick setup flag (minimal prompts, defaults)
         force_reconfigure: Force reconfiguration of all options
         reconfigure_inference: Force reconfiguration of inference server artifact only
     """
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
 
-    # In easy mode with no reconfigure request: silently default to 'latest' if not already set
-    if easy_mode and not (force_reconfigure or reconfigure_inference):
+    # In quick setup with no reconfigure request: silently default to 'latest' if not already set
+    if quick_setup and not (force_reconfigure or reconfigure_inference):
         if not (current_version or current_branch):
             write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "latest", quote_value=False)
         return
@@ -2040,8 +2589,8 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
     print(f"  1. Release version (stable, recommended for production)")
     print(f"  2. Branch (latest development code, may have new features)")
     
-    if easy_mode:
-        # In easy mode, default to latest release but still allow choice
+    if quick_setup:
+        # In quick setup, default to latest release but still allow choice
         while True:
             choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
             if choice in ["1", "2"]:
@@ -2154,6 +2703,11 @@ def fetch_branch_commit_sha(branch):
         return None
 
 
+def _is_commit_sha(value):
+    """Return True if value looks like a full 40-char hex commit SHA."""
+    return bool(value) and len(value) == 40 and all(c in '0123456789abcdefABCDEF' for c in value)
+
+
 def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
@@ -2192,7 +2746,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             # Instructions for changing
             f.write("  💡 To switch to a different artifact:\n")
             f.write("     • Run: python run.py --reconfigure-inference-server\n")
-            f.write("     • Or manually edit: app/.env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
+            f.write("     • Or manually edit: .env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
             f.write("\n" + "-" * 80 + "\n\n")
 
             # Technical details section
@@ -2421,7 +2975,10 @@ def setup_tt_inference_server(pull_branch=False):
                     print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
-                    if pull_branch:
+                    if _is_commit_sha(artifact_branch):
+                        # SHA is immutable — cached artifact is always current; --pull-branch is a no-op
+                        print(f"{C_GREEN}✅ TT Inference Server (commit: {artifact_branch[:7]}) (cached){C_RESET}")
+                    elif pull_branch:
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
@@ -2442,8 +2999,13 @@ def setup_tt_inference_server(pull_branch=False):
                             branch_mismatch = True
                         elif current_sha and stored_sha:
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        elif current_sha and not stored_sha:
+                            # Artifact was downloaded without recording a commit SHA — re-fetch
+                            # so we can record the SHA for future freshness checks.
+                            print(f"{C_YELLOW}⚠️  No stored commit SHA for '{artifact_branch}' — re-fetching to record current commit ({current_sha[:7]}){C_RESET}")
+                            branch_mismatch = True
                         else:
-                            # API unreachable or no stored SHA — fall back gracefully
+                            # GitHub unreachable and no stored SHA — fall back gracefully
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
@@ -2583,7 +3145,8 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        _sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                 return True
@@ -2625,9 +3188,12 @@ def setup_tt_inference_server(pull_branch=False):
             print(f"📦 Using existing artifact tarball: {artifact_file}")
         else:
             if os.path.exists(artifact_file) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
-                print(f"📦 Artifact directory missing; re-downloading branch to get latest commit...")
-            # Download (overwrites existing tarball if present; always gets current HEAD of branch)
-            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
+                print(f"📦 Artifact directory missing; re-downloading to get latest commit...")
+            # Download: commit SHAs use archive/{sha}.tar.gz; branch names use archive/refs/heads/{branch}.tar.gz
+            if _is_commit_sha(artifact_branch):
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/{artifact_branch}.tar.gz"
+            else:
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
                 import urllib.request
                 print(f"   Downloading from: {github_url}")
@@ -2636,14 +3202,18 @@ def setup_tt_inference_server(pull_branch=False):
             except Exception as e:
                 error_str = str(e)
                 if "404" in error_str or "Not Found" in error_str:
-                    print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
-                    print(f"   The branch name you configured does not exist.")
+                    if _is_commit_sha(artifact_branch):
+                        print(f"{C_RED}⛔ Commit SHA '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The commit SHA you configured does not exist in the repository.")
+                    else:
+                        print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The branch name you configured does not exist.")
                     print(f"   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}")
                     print(f"   Run: python run.py --reconfigure-inference-server")
                     print(f"   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches")
                 else:
-                    print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
-                    print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
+                    print(f"{C_RED}⛔ Failed to download from GitHub: {e}{C_RESET}")
+                    print(f"   Make sure the value '{artifact_branch}' exists in the repository")
                 if os.path.exists(artifact_file):
                     try:
                         os.remove(artifact_file)
@@ -2727,7 +3297,7 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                     _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
@@ -3021,6 +3591,43 @@ def setup_fastapi_environment():
     finally:
         os.chdir(original_dir)
 
+def apply_media_catalog_env_overlay():
+    """STOPGAP: overlay HF_HUB_DISABLE_XET=1 onto the extracted model-spec catalog.
+
+    Runs after the artifact is extracted and before uvicorn loads it. Uses the
+    inference-api venv interpreter because the top-level run.py has no PyYAML, while
+    the inference-api venv does (it parses these same catalog YAMLs). Non-fatal: a
+    failure here only forfeits the Xet workaround, it must not block server start.
+    See app/backend/shared_config/patch_catalog_env.py for the full rationale.
+    """
+    if not os.path.exists(INFERENCE_ARTIFACT_DIR):
+        return
+    patch_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config", "patch_catalog_env.py",
+    )
+    if not os.path.exists(patch_script):
+        print(f"{C_YELLOW}⚠️  Catalog env overlay script not found: {patch_script}{C_RESET}")
+        return
+    venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "python")
+    if OS_NAME == "Windows":
+        venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "python.exe")
+    if not os.path.exists(venv_python):
+        venv_python = sys.executable  # fall back to the launcher interpreter
+    try:
+        result = subprocess.run(
+            [venv_python, patch_script, INFERENCE_ARTIFACT_DIR],
+            capture_output=True, text=True, check=False,
+        )
+        for line in (result.stdout or "").strip().splitlines():
+            print(f"   {line}")
+        if result.returncode != 0 and (result.stderr or "").strip():
+            print(f"{C_YELLOW}⚠️  Catalog env overlay reported errors:{C_RESET}")
+            for line in result.stderr.strip().splitlines():
+                print(f"   {line}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Catalog env overlay failed (continuing): {e}{C_RESET}")
+
+
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🔧 Starting FastAPI server...")
@@ -3033,7 +3640,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
 
     # Create PID and log files
     
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             # Create files as regular user
             with open(file_path, 'w') as f:
@@ -3069,7 +3676,25 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
-    
+
+    # STOPGAP (excise when prod catalog is uplifted): pin the dev model-spec catalog so
+    # media models (e.g. Wan2.2-T2V) receive TT_DIT_CACHE_DIR. prod/video.yaml currently
+    # lacks the env_vars block; dev/video.yaml has it. Without this, an inference-api
+    # restart defaults to prod and Wan deploys uncached (and hang). Respects an explicit
+    # operator override. Real fix: add TT_DIT_CACHE_DIR to tt-inference-server
+    # prod/video.yaml (and land it on main), then delete this block.
+    # env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")  # TODO: remove this whole block once confirmed it's not needed
+
+    # STOPGAP (excise when upstream catalog carries the var): overlay
+    # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
+    # artifact. Media containers get their per-model env solely from the catalog
+    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags);
+    # the backend compose service sets HF_HUB_DISABLE_XET but that never reaches them.
+    # Without it, large media weight downloads stall on the Xet CDN and hang past the
+    # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
+    # the pin, then delete this block and patch_catalog_env.py.
+    apply_media_catalog_env_overlay()
+
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":
@@ -3131,7 +3756,7 @@ cd "$1"
         os.chmod(temp_script_path, 0o755)
         
         # Start server
-        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
         process = subprocess.Popen(cmd, env=env)
         
         # Health check (silent — only prints on success or failure)
@@ -3142,14 +3767,14 @@ cd "$1"
             if process.poll() is not None:
                 print(f"{C_RED}⛔ FastAPI server process died{C_RESET}")
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
                 except:
                     pass
                 try:
-                    with open(FASTAPI_LOG_FILE, 'r') as f:
+                    with open(MODEL_RUN_LOG_FILE, 'r') as f:
                         if "address already in use" in f.read():
                             print(f"{C_YELLOW}   Port 8001 still in use. Try: python run.py --cleanup && python run.py{C_RESET}")
                 except:
@@ -3176,7 +3801,7 @@ cd "$1"
 
             if i == health_check_retries:
                 print(f"{C_RED}⛔ FastAPI server failed to start{C_RESET}")
-                print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                 return False
 
             time.sleep(health_check_delay)
@@ -3241,7 +3866,7 @@ def cleanup_fastapi_server(no_sudo=False):
     kill_process_on_port(8001, no_sudo=no_sudo, quiet=True)
 
     # Remove PID and log files
-    for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+    for file_path in [FASTAPI_PID_FILE, MODEL_RUN_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -3347,7 +3972,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
     env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
     env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
-    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
+    env["MODEL_RUN_LOG_FILE"] = MODEL_RUN_LOG_FILE
 
     # Start the service using uvicorn
     try:
@@ -3591,7 +4216,7 @@ def remove_artifact_with_sudo(directory_path, description="artifact directory"):
         print(f"\n{C_YELLOW}   Sudo removal cancelled by user.{C_RESET}")
         return False
 
-def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
+def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
@@ -3600,7 +4225,7 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
     
     Args:
         force_prompt (bool): If True, always prompt user even if preference exists
-        easy_mode (bool): If True, automatically skip npm installation without prompting
+        quick_setup (bool): If True, automatically skip npm installation without prompting
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -3619,8 +4244,8 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
 
     try:
         if has_local_npm:
-            # In easy mode, automatically skip npm installation
-            if easy_mode:
+            # In quick setup, automatically skip npm installation
+            if quick_setup:
                 save_preference("npm_install_locally", 'n')
                 return True
             
@@ -4043,6 +4668,8 @@ def main():
                            help="🧹 Clean up Docker containers and networks")
         parser.add_argument("--cleanup-all", action="store_true", 
                            help="🗑️  Clean up everything including persistent data and .env file")
+        parser.add_argument("--yes", "-y", action="store_true",
+                           help="✅ Skip the confirmation prompt for --cleanup-all (non-interactive)")
         parser.add_argument("--help-env", action="store_true", 
                            help="📚 Show detailed help for environment variables")
         parser.add_argument("--reconfigure", action="store_true",
@@ -4121,8 +4748,8 @@ def main():
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
-  {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
-  {C_CYAN}python run.py --easy{C_RESET}                 Easy setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
@@ -4154,6 +4781,23 @@ def main():
             return
         
         display_welcome_banner()
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+
+        # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
+        # rc-*/release-*). Feature branches just warn and continue so dev work
+        # isn't interrupted by stale remote tracking.
+        # Hard-stop on release branches that are behind origin. The warning
+        # itself (with the git pull hint) is already printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+
+        # Outdated artifact: warning + "auto-fetching" hint are already in
+        # startup_checks; just flip the flag so the download runs.
+        if freshness.get("artifact_behind") and not args.pull_branch:
+            args.pull_branch = True
 
         # Get git hash for startup log
         try:
@@ -4175,13 +4819,13 @@ def main():
         startup_log.step("docker_install_check", "OK")
 
         startup_log.step("configure_environment", "START")
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
-        # Save easy mode configuration to JSON if not in --configure-env mode
+        # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
         if not args.configure_env:
-            easy_config = {
-                "mode": "easy",
+            setup_config = {
+                "mode": "quick",
                 "setup_timestamp": datetime.now().isoformat(),
                 "jwt_secret_default": "test-secret-456",
                 "django_secret_key_default": "django-insecure-default",
@@ -4192,7 +4836,7 @@ def main():
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
-            save_easy_config(easy_config)
+            save_setup_config(setup_config)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
@@ -4278,7 +4922,7 @@ def main():
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=not args.configure_env)
+        ensure_frontend_dependencies(force_prompt=args.reconfigure, quick_setup=not args.configure_env)
 
         # Check if all required ports are available
 
@@ -4355,27 +4999,27 @@ def main():
                         print()
                         sys.exit(1)
 
-        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # Ensure model_run_logs/ exists and is owned by the invoking user before
         # inference-api writes per-deployment log files into it. If a prior
         # sudo'd process created this dir, writes from the non-root uvicorn
-        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
-        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
-        if not os.path.exists(fastapi_logs_dir):
+        # process will fail with EACCES (see inference-api/api.py:get_model_run_logs_dir).
+        model_run_logs_dir = MODEL_RUN_LOGS_DIR
+        if not os.path.exists(model_run_logs_dir):
             try:
-                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+                os.makedirs(model_run_logs_dir, mode=0o755, exist_ok=True)
             except Exception as e:
-                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+                print(f"{C_YELLOW}⚠️  Could not create model_run_logs directory: {e}{C_RESET}")
         elif OS_NAME != "Windows":
             current_user_uid = os.getuid()
-            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
-                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+            if os.stat(model_run_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  model_run_logs directory is owned by another user, fixing permissions...{C_RESET}")
                 try:
-                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
-                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                    os.chown(model_run_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed model_run_logs directory ownership{C_RESET}")
                 except (OSError, PermissionError) as e:
-                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_RED}⛔ Could not fix model_run_logs permissions: {e}{C_RESET}")
                     print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
-                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {model_run_logs_dir}{C_RESET}")
                     input("Press Enter once you've run the command above to continue...")
 
         # Start Docker Control Service BEFORE starting Docker containers
@@ -4445,6 +5089,10 @@ def main():
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
 
+        # Stamp the frontend build with the current git version (official tag or
+        # branch name) so the footer shows what's actually running.
+        set_app_version_env()
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
@@ -4489,9 +5137,9 @@ def main():
                     sys.exit(1)
 
                 if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
-                    startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
+                    startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
-                    print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                    print(f"   Check logs: tail -50 {MODEL_RUN_LOG_FILE}")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
@@ -4528,7 +5176,7 @@ def main():
         print(f"{C_CYAN}📋 Logs:{C_RESET}")
         print(f"  Docker containers: cd app && docker compose logs -f")
         if fastapi_enabled:
-            print(f"  FastAPI server:    tail -f {FASTAPI_LOG_FILE}")
+            print(f"  FastAPI server:    tail -f {MODEL_RUN_LOG_FILE}")
         if docker_control_enabled:
             print(f"  Docker Control:    tail -f {DOCKER_CONTROL_LOG_FILE}")
         print()
@@ -4584,10 +5232,10 @@ def main():
                 cwd=os.path.join(TT_STUDIO_ROOT, "app")
             )
             
-            # Also check for FastAPI server logs
-            fastapi_logs_process = None
-            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_LOG_FILE):
-                fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+            # Also check for model run logs
+            model_run_logs_process = None
+            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(MODEL_RUN_LOG_FILE):
+                model_run_logs_process = subprocess.Popen(["tail", "-f", MODEL_RUN_LOG_FILE])
             
             try:
                 # Wait for Ctrl+C
@@ -4599,8 +5247,8 @@ def main():
                 # Clean up processes
                 if docker_logs_process:
                     docker_logs_process.terminate()
-                if fastapi_logs_process:
-                    fastapi_logs_process.terminate()
+                if model_run_logs_process:
+                    model_run_logs_process.terminate()
 
     except KeyboardInterrupt:
         print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")

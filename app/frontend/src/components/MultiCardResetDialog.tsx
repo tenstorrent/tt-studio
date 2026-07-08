@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useCallback, useEffect } from "react";
-import axios from "axios";
 import {
   CheckCircle,
   XCircle,
@@ -23,38 +22,37 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
+import { fetchModels, streamResetAction, startResetAll, getResetAllStatus } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
+import { useRefresh } from "../hooks/useRefresh";
+import type { Model } from "../contexts/ModelsContext";
 import BoardBadge from "./BoardBadge";
+import StreamingLogPanel from "./StreamingLogPanel";
+import ResetStepRow from "./ResetStepRow";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DeviceStep = "idle" | "deleting" | "resetting" | "done" | "failed";
+type UnitStep = "idle" | "deleting" | "resetting" | "done" | "failed";
 
-interface DeviceResetState {
-  step: DeviceStep;
+interface UnitResetState {
+  step: UnitStep;
   error: string | null;
   cmdOutput: string | null;
   showOutput: boolean;
 }
 
-export interface ChipSlot {
-  slot_id: number;
-  status: "occupied" | "available";
-  model_name?: string;
-  deployment_id?: number;
-  is_multi_chip?: boolean;
-  port?: number;
-}
+// A reset target: a deployed model (resets every chip it occupies as one action,
+// so a multi-chip model is never half-reset) or a single free chip.
+type ResetUnit =
+  | { kind: "model"; id: string; model: Model; slots: number[] }
+  | { kind: "empty"; id: string; slot: number };
 
-export interface ChipStatusData {
-  board_type: string;
+interface ChipStatusData {
   total_slots: number;
-  slots: ChipSlot[];
 }
 
-export type ChipStatusFetchState =
+type ChipStatusFetchState =
   | { status: "loading" }
   | { status: "success"; data: ChipStatusData; fetchedAt: Date }
   | { status: "error"; message: string };
@@ -65,151 +63,82 @@ interface MultiCardResetDialogProps {
   onReset?: () => void;
 }
 
-// ── Shared step-row ───────────────────────────────────────────────────────────
-function StepRow({
-  number,
-  icon,
-  label,
-  sublabel,
+const IDLE_STATE: UnitResetState = { step: "idle", error: null, cmdOutput: null, showOutput: false };
+
+// ── Slot grouping ───────────────────────────────────────────────────────────────
+
+function modelSlots(m: Model): number[] {
+  const ids =
+    m.device_ids && m.device_ids.length > 0
+      ? m.device_ids
+      : m.device_id != null
+        ? [m.device_id]
+        : [];
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
+// Group the board's chips into reset units: each deployed model owns all its
+// chips as one unit; every remaining chip is its own unit. Units are keyed by
+// their first slot so a unit's progress survives a model refresh.
+function buildUnits(models: Model[], totalSlots: number): ResetUnit[] {
+  const owner = new Map<number, Model>();
+  for (const m of models) {
+    for (const slot of modelSlots(m)) {
+      if (slot < totalSlots) owner.set(slot, m);
+    }
+  }
+
+  const units: ResetUnit[] = [];
+  const consumed = new Set<number>();
+  for (let slot = 0; slot < totalSlots; slot++) {
+    if (consumed.has(slot)) continue;
+    const m = owner.get(slot);
+    if (!m) {
+      units.push({ kind: "empty", id: `slot-${slot}`, slot });
+      continue;
+    }
+    const slots = modelSlots(m).filter((s) => s < totalSlots);
+    slots.forEach((s) => consumed.add(s));
+    units.push({ kind: "model", id: `slot-${slots[0]}`, model: m, slots });
+  }
+  return units;
+}
+
+function formatSlots(slots: number[]): string {
+  if (slots.length === 1) return `${slots[0]}`;
+  const contiguous = slots.every((s, i) => i === 0 || s === slots[i - 1] + 1);
+  return contiguous ? `${slots[0]}–${slots[slots.length - 1]}` : slots.join(", ");
+}
+
+// ── Reset unit card ─────────────────────────────────────────────────────────────
+function UnitCard({
+  unit,
   state,
-}: {
-  number: number;
-  icon: React.ReactNode;
-  label: string;
-  sublabel?: string;
-  state: "pending" | "active" | "done" | "skipped";
-}) {
-  return (
-    <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${
-        state === "active"
-          ? "bg-blue-900/30 border-blue-500/40"
-          : state === "done"
-            ? "bg-green-900/20 border-green-600/30"
-            : state === "skipped"
-              ? "bg-stone-800/30 border-stone-700/30"
-              : "bg-stone-800/50 border-stone-700/40"
-      }`}
-    >
-      <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-        {state === "active" ? (
-          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-        ) : state === "done" ? (
-          <CheckCircle className="w-5 h-5 text-green-400" />
-        ) : state === "skipped" ? (
-          <CheckCircle className="w-5 h-5 text-stone-500" />
-        ) : (
-          <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
-            {number}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${
-            state === "pending" || state === "skipped" ? "text-stone-400" : "text-white"
-          }`}
-        >
-          {icon}
-          {label}
-        </div>
-        {sublabel && state === "active" && (
-          <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
-        )}
-        {state === "done" && (
-          <div className="text-xs text-green-400 mt-0.5">Completed</div>
-        )}
-        {state === "skipped" && (
-          <div className="text-xs text-stone-500 mt-0.5">No model deployed — skipped</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Model info section shown per card ─────────────────────────────────────────
-function ModelInfo({
-  slot,
-  fetchState,
-}: {
-  slot: ChipSlot;
-  fetchState: ChipStatusFetchState;
-}) {
-  if (fetchState.status === "loading") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-stone-400 animate-pulse mt-1.5">
-        <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-        <span>Checking deployed models…</span>
-      </div>
-    );
-  }
-
-  if (fetchState.status === "error") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-yellow-400 mt-1.5">
-        <AlertTriangle className="w-3 h-3 shrink-0" />
-        <span>Model info unavailable — proceed with caution</span>
-      </div>
-    );
-  }
-
-  if (slot.status === "occupied" && slot.model_name) {
-    const portLabel = slot.port ? ` · port ${slot.port}` : "";
-    const multiLabel = slot.is_multi_chip ? " · all chips" : "";
-    return (
-      <div className="mt-1.5 space-y-0.5">
-        <div className="text-xs text-stone-500">Will stop:</div>
-        <div className="flex items-start gap-1.5 text-xs text-amber-300">
-          <Trash2 className="w-3 h-3 shrink-0 mt-0.5" />
-          <span className="font-medium break-words min-w-0">
-            {slot.model_name}
-            <span className="text-stone-400 font-normal whitespace-nowrap">{portLabel}{multiLabel}</span>
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1.5 text-xs text-stone-500 mt-1.5">
-      <CheckCircle className="w-3 h-3 shrink-0" />
-      <span>No model deployed</span>
-    </div>
-  );
-}
-
-// ── Individual device card ─────────────────────────────────────────────────────
-function DeviceCard({
-  slot,
-  deviceState: ds,
-  fetchState,
   onReset,
   onToggleOutput,
-  isAnyResetting,
+  disabled,
 }: {
-  slot: ChipSlot;
-  deviceState: DeviceResetState;
-  fetchState: ChipStatusFetchState;
-  onReset: (slotId: number) => void;
-  onToggleOutput: (slotId: number) => void;
-  isAnyResetting: boolean;
+  unit: ResetUnit;
+  state: UnitResetState;
+  onReset: (unit: ResetUnit) => void;
+  onToggleOutput: (unitId: string) => void;
+  disabled: boolean;
 }) {
-  const { step, error, cmdOutput, showOutput } = ds;
+  const { step, error, cmdOutput, showOutput } = state;
+  const isModel = unit.kind === "model";
   const isActive = step === "deleting" || step === "resetting";
   const isDone = step === "done";
   const isFailed = step === "failed";
   const isIdle = step === "idle";
-  const hasModel = slot.status === "occupied" && !!slot.model_name;
 
-  const step1State: "pending" | "active" | "done" | "skipped" =
-    step === "deleting"
-      ? "active"
-      : step === "resetting" || step === "done" || step === "failed"
-        ? hasModel ? "done" : "skipped"
-        : "pending";
+  const slots = isModel ? unit.slots : [unit.slot];
+  const slotLabel = formatSlots(slots);
+  const resetArgs = slots.join(" ");
 
-  const step2State: "pending" | "active" | "done" | "skipped" =
-    step === "resetting" ? "active" : step === "done" ? "done" : "pending";
+  const stopState: "pending" | "active" | "done" | "skipped" =
+    step === "deleting" ? "active" : isActive || isDone || isFailed ? "done" : "pending";
+  const resetState: "pending" | "active" | "done" | "skipped" =
+    step === "resetting" ? "active" : isDone ? "done" : "pending";
 
   const borderCls = isActive
     ? "border-blue-500/40"
@@ -217,7 +146,7 @@ function DeviceCard({
       ? "border-green-600/30"
       : isFailed
         ? "border-red-500/40"
-        : slot.status === "occupied"
+        : isModel
           ? "border-amber-500/25"
           : "border-stone-700/40";
 
@@ -234,8 +163,8 @@ function DeviceCard({
     : isFailed
       ? "Reset failed"
       : isActive
-        ? step === "deleting" ? "Stopping model…" : "Resetting chip…"
-        : slot.status === "occupied"
+        ? step === "deleting" ? "Stopping model…" : "Resetting…"
+        : isModel
           ? "Model running"
           : "Available";
 
@@ -245,25 +174,27 @@ function DeviceCard({
       ? "text-red-400"
       : isActive
         ? "text-blue-400"
-        : slot.status === "occupied"
+        : isModel
           ? "text-amber-400"
           : "text-stone-500";
 
   return (
-    <div className={`flex flex-col rounded-xl border p-5 transition-all duration-300 ${bgCls} ${borderCls}`}>
-      {/* Header row */}
+    <div
+      style={slots.length > 1 ? { gridColumn: `span ${Math.min(slots.length, 4)}` } : undefined}
+      className={`flex flex-col rounded-xl border p-5 transition-all duration-300 ${bgCls} ${borderCls}`}
+    >
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              isActive
-                ? "bg-blue-900/50"
-                : isDone
-                  ? "bg-green-900/50"
-                  : isFailed
-                    ? "bg-red-900/50"
-                    : "bg-stone-700/50"
-            }`}
+            className={`w-8 h-8 rounded-full flex items-center justify-center ${isActive
+              ? "bg-blue-900/50"
+              : isDone
+                ? "bg-green-900/50"
+                : isFailed
+                  ? "bg-red-900/50"
+                  : "bg-stone-700/50"
+              }`}
           >
             {isActive ? (
               <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
@@ -276,7 +207,9 @@ function DeviceCard({
             )}
           </div>
           <div>
-            <div className="text-sm font-semibold text-white">Device {slot.slot_id}</div>
+            <div className="text-sm font-semibold text-white">
+              {slots.length > 1 ? `Devices ${slotLabel}` : `Device ${slotLabel}`}
+            </div>
             <div className={`text-xs ${statusColor}`}>{statusLabel}</div>
           </div>
         </div>
@@ -284,8 +217,8 @@ function DeviceCard({
         {isIdle && (
           <Button
             size="sm"
-            onClick={() => onReset(slot.slot_id)}
-            disabled={isAnyResetting || fetchState.status === "loading"}
+            onClick={() => onReset(unit)}
+            disabled={disabled}
             className="text-xs h-7 px-2.5 bg-red-700/80 hover:bg-red-600 border border-red-500/30 text-white disabled:opacity-40"
           >
             <RotateCcw className="w-3 h-3 mr-1" />
@@ -294,26 +227,48 @@ function DeviceCard({
         )}
       </div>
 
-      {/* Model info — shown when idle */}
-      {isIdle && <ModelInfo slot={slot} fetchState={fetchState} />}
+      {/* Idle info */}
+      {isIdle && isModel && (
+        <div className="mt-1.5 space-y-0.5">
+          <div className="text-xs text-stone-500">Will stop:</div>
+          <div className="flex items-start gap-1.5 text-xs text-amber-300">
+            <Trash2 className="w-3 h-3 shrink-0 mt-0.5" />
+            <span className="font-medium break-words min-w-0">
+              {unit.model.name}
+              {slots.length > 1 && (
+                <span className="text-stone-400 font-normal"> · all {slots.length} devices</span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+      {isIdle && !isModel && (
+        <div className="flex items-center gap-1.5 text-xs text-stone-500 mt-1.5">
+          <CheckCircle className="w-3 h-3 shrink-0" />
+          <span>No model deployed</span>
+        </div>
+      )}
 
       {/* Progress steps — during/after reset */}
       {(isActive || isDone || isFailed) && (
         <div className="space-y-2.5 mt-3">
-          <StepRow
-            number={1}
-            icon={<Trash2 className="w-3 h-3" />}
-            label={hasModel ? `Stop ${slot.model_name}` : "Stop model"}
-            sublabel="Sending stop signal…"
-            state={step1State}
-          />
-          <StepRow
-            number={2}
+          {isModel && (
+            <ResetStepRow
+              number={1}
+              icon={<Trash2 className="w-3 h-3" />}
+              label={`Stop ${unit.model.name}`}
+              sublabel="Sending stop signal…"
+              state={stopState}
+            />
+          )}
+          <ResetStepRow
+            number={isModel ? 2 : 1}
             icon={<RotateCcw className="w-3 h-3" />}
-            label={`Reset chip (tt-smi -r ${slot.slot_id})`}
-            sublabel="Running chip reset, may take 10–30s…"
-            state={step2State}
+            label={`Reset device${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
+            sublabel="Running device reset, may take 10–30s…"
+            state={resetState}
           />
+          {isActive && cmdOutput && <StreamingLogPanel output={cmdOutput} />}
         </div>
       )}
 
@@ -329,20 +284,17 @@ function DeviceCard({
         <>
           <button
             type="button"
-            onClick={() => onToggleOutput(slot.slot_id)}
+            onClick={() => onToggleOutput(unit.id)}
             className="mt-2 flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 transition-colors"
           >
-            <ChevronDown
-              className={`w-3 h-3 transition-transform ${showOutput ? "rotate-180" : ""}`}
-            />
+            <ChevronDown className={`w-3 h-3 transition-transform ${showOutput ? "rotate-180" : ""}`} />
             {showOutput ? "Hide" : "Show"} output
           </button>
           {showOutput && (
             <ScrollArea className="mt-1 h-24 rounded border border-stone-700">
               <pre
-                className={`p-2 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${
-                  isDone ? "text-green-400" : "text-red-300"
-                }`}
+                className={`p-2 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${isDone ? "text-green-400" : "text-red-300"
+                  }`}
               >
                 {cmdOutput}
               </pre>
@@ -362,11 +314,12 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
 }) => {
   const { refreshModels } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
+  const { triggerResetAll } = useRefresh();
 
   const boardType = deviceState?.board_type ?? "unknown";
   const deviceStateName = deviceState?.state ?? "UNKNOWN";
 
-  const [deviceStates, setDeviceStates] = useState<Record<number, DeviceResetState>>({});
+  const [unitStates, setUnitStates] = useState<Record<string, UnitResetState>>({});
   const [boardStep, setBoardStep] = useState<
     "idle" | "deleting" | "resetting" | "done" | "failed" | null
   >(null);
@@ -374,14 +327,19 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
   const [boardOutput, setBoardOutput] = useState<string | null>(null);
   const [showBoardOutput, setShowBoardOutput] = useState(false);
   const [chipFetch, setChipFetch] = useState<ChipStatusFetchState>({ status: "loading" });
+  const [units, setUnits] = useState<ResetUnit[]>([]);
 
-  const fetchChipStatus = useCallback(async () => {
+  // Snapshot the chips and their owning models. Taken only on open and manual
+  // refresh, so an in-flight reset's card never regroups when its model is removed.
+  const loadGrid = useCallback(async () => {
     setChipFetch({ status: "loading" });
     try {
       const res = await fetch("/docker-api/chip-status/");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: ChipStatusData = await res.json();
+      const models = await fetchModels();
       setChipFetch({ status: "success", data, fetchedAt: new Date() });
+      setUnits(buildUnits(models, data.total_slots));
     } catch (err) {
       setChipFetch({
         status: "error",
@@ -390,121 +348,83 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     }
   }, []);
 
-  // Re-fetch and reset local state when dialog opens (but not while in-progress)
+  const isAnyUnitResetting = Object.values(unitStates).some(
+    (s) => s.step === "deleting" || s.step === "resetting"
+  );
+  const isBoardResetting = boardStep === "deleting" || boardStep === "resetting";
+  const isAnyResetting = isAnyUnitResetting || isBoardResetting;
+  const isResettingContext = deviceStateName === "RESETTING";
+
+  // Re-fetch chips/models and clear local state when the dialog opens (unless a reset is mid-flight).
   useEffect(() => {
     if (!open) return;
-    const anyActive = Object.values(deviceStates).some(
-      (s) => s.step === "deleting" || s.step === "resetting"
-    );
-    const boardActive = boardStep === "deleting" || boardStep === "resetting";
-    if (!anyActive && !boardActive) {
-      setDeviceStates({});
+    if (!isAnyResetting) {
+      setUnitStates({});
       setBoardStep(null);
       setBoardError(null);
       setBoardOutput(null);
       setShowBoardOutput(false);
     }
-    fetchChipStatus();
+    loadGrid();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const isAnyDeviceResetting = Object.values(deviceStates).some(
-    (s) => s.step === "deleting" || s.step === "resetting"
-  );
-  const isBoardResetting = boardStep === "deleting" || boardStep === "resetting";
-  const isAnyResetting = isAnyDeviceResetting || isBoardResetting;
-  const isResettingContext = deviceStateName === "RESETTING";
-
-  // ── Helpers for streaming reset output ──────────────────────────────────────
-  const readStreamOutput = async (blob: Blob): Promise<{ output: string; success: boolean }> => {
-    const reader = blob.stream().getReader();
-    const decoder = new TextDecoder();
-    let output = "";
-    let success = true;
-    const failMarkers = ["Command failed", "No Tenstorrent devices detected", "Error"];
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      output += chunk;
-      if (failMarkers.some((m) => chunk.includes(m))) success = false;
-    }
-    const tail = decoder.decode();
-    if (tail) {
-      output += tail;
-      if (failMarkers.some((m) => tail.includes(m))) success = false;
-    }
-    return { output, success };
-  };
-
-  // ── Individual device reset ──────────────────────────────────────────────────
-  const executeDeviceReset = useCallback(
-    async (slotId: number) => {
-      const patchDevice = (patch: Partial<DeviceResetState>) =>
-        setDeviceStates((prev) => ({
+  // ── Per-unit reset: stop+reset a whole model, or reset a single free chip ──────
+  const resetUnit = useCallback(
+    async (unit: ResetUnit) => {
+      const patch = (p: Partial<UnitResetState>) =>
+        setUnitStates((prev) => ({
           ...prev,
-          [slotId]: { ...prev[slotId], ...patch } as DeviceResetState,
+          [unit.id]: { ...(prev[unit.id] ?? IDLE_STATE), ...p },
         }));
 
-      setDeviceStates((prev) => ({
-        ...prev,
-        [slotId]: { step: "deleting", error: null, cmdOutput: null, showOutput: false },
-      }));
+      patch({
+        step: unit.kind === "model" ? "deleting" : "resetting",
+        error: null,
+        cmdOutput: null,
+        showOutput: false,
+      });
 
       try {
-        // Step 1 — stop only the model(s) on this slot
-        const slot =
-          chipFetch.status === "success"
-            ? chipFetch.data.slots.find((s) => s.slot_id === slotId)
-            : undefined;
+        // A model's stop stream stops the container then resets all its chips at
+        // once; a free chip just runs tt-smi -r on itself.
+        const url =
+          unit.kind === "model"
+            ? `/docker-api/stop/stream/${unit.model.id}/`
+            : `/docker-api/reset_device/stream/${unit.slot}/`;
 
-        if (slot?.status === "occupied") {
-          const currentModels = await fetchModels();
-          const toStop = currentModels.filter((m) => {
-            if (m.device_id !== undefined && m.device_id !== null) {
-              return m.device_id === slotId;
-            }
-            // Multi-chip models have device_id 0 and occupy all slots
-            if (slot.is_multi_chip) return true;
-            return false;
-          });
-          for (const model of toStop) {
-            await deleteModel(model.id);
-          }
-          await refreshModels();
-        }
-
-        // Step 2 — chip-level reset
-        patchDevice({ step: "resetting" });
-        const response = await axios.post<Blob>(
-          `/docker-api/reset_device/${slotId}/`,
-          null,
-          { responseType: "blob" }
+        let output = "";
+        const { status } = await streamResetAction(
+          url,
+          (line) => {
+            output += `${line}\n`;
+            patch({ cmdOutput: output });
+          },
+          (step) => {
+            if (step === "deleting" || step === "resetting") patch({ step });
+          },
         );
-        const { output, success } = await readStreamOutput(response.data);
 
-        if (!success) throw new Error("Chip reset failed. See command output for details.");
+        if (status !== "success") throw new Error("Reset failed. See output for details.");
 
-        patchDevice({ step: "done", cmdOutput: output });
+        patch({ step: "done", cmdOutput: output });
+        refreshModels();
         refreshDeviceState();
-        fetchChipStatus();
         if (onReset) onReset();
       } catch (err) {
-        patchDevice({
+        patch({
           step: "failed",
           error: err instanceof Error ? err.message : "An unknown error occurred.",
         });
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chipFetch, refreshModels, refreshDeviceState, fetchChipStatus, onReset]
+    [refreshModels, refreshDeviceState, onReset]
   );
 
-  const toggleDeviceOutput = useCallback((slotId: number) => {
-    setDeviceStates((prev) => ({
+  const toggleUnitOutput = useCallback((unitId: string) => {
+    setUnitStates((prev) => ({
       ...prev,
-      [slotId]: { ...prev[slotId], showOutput: !prev[slotId]?.showOutput },
+      [unitId]: { ...(prev[unitId] ?? IDLE_STATE), showOutput: !prev[unitId]?.showOutput },
     }));
   }, []);
 
@@ -516,45 +436,46 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     setShowBoardOutput(false);
 
     try {
-      const currentModels = await fetchModels();
-      for (const model of currentModels) {
-        await deleteModel(model.id);
+      // Drive the whole-board reset as a backend job and poll its status. No
+      // EventSource is involved, so "Connection to stream lost." cannot occur;
+      // the backend stops every model (verified gone) before resetting the board.
+      await startResetAll();
+      // Flip the global RESETTING lock immediately for this session instead of
+      // waiting for the next device-state poll (other sessions catch up on their poll).
+      refreshDeviceState();
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await getResetAllStatus();
+        if (status.step === "deleting" || status.step === "resetting") {
+          setBoardStep(status.step);
+        }
+        if (status.logs.length) setBoardOutput(status.logs.join("\n"));
+        if (status.done) {
+          if (!status.ok) {
+            throw new Error(status.error || "Board reset failed. See output for details.");
+          }
+          break;
+        }
       }
       await refreshModels();
-
-      setBoardStep("resetting");
-      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-        responseType: "blob",
-      });
-      const { output, success } = await readStreamOutput(response.data);
-
-      setBoardOutput(output);
-      if (!success) throw new Error("Board reset failed. See command output for details.");
-
       setBoardStep("done");
+
       refreshDeviceState();
-      fetchChipStatus();
+      // The whole board was reset — let views drop stale "Died Unexpectedly" rows.
+      triggerResetAll();
       if (onReset) onReset();
     } catch (err) {
       setBoardError(err instanceof Error ? err.message : "An unknown error occurred.");
       setBoardStep("failed");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshModels, refreshDeviceState, fetchChipStatus, onReset]);
+  }, [refreshModels, refreshDeviceState, onReset, triggerResetAll]);
 
   // ── Derived values ───────────────────────────────────────────────────────────
-  const slots: ChipSlot[] =
-    chipFetch.status === "success"
-      ? chipFetch.data.slots
-      : Array.from({ length: 4 }, (_, i) => ({
-          slot_id: i,
-          status: "available" as const,
-        }));
-
-  const totalSlots = chipFetch.status === "success" ? chipFetch.data.total_slots : slots.length;
-  const allDevicesDone =
-    Object.keys(deviceStates).length > 0 &&
-    Object.values(deviceStates).every((s) => s.step === "done" || s.step === "failed");
+  const totalSlots = chipFetch.status === "success" ? chipFetch.data.total_slots : 4;
+  const allUnitsDone =
+    Object.keys(unitStates).length > 0 &&
+    Object.values(unitStates).every((s) => s.step === "done" || s.step === "failed");
 
   const showDeviceGrid = boardStep === null;
 
@@ -566,19 +487,18 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                  isBoardResetting || isAnyDeviceResetting
-                    ? "bg-blue-900/50"
-                    : boardStep === "done" || allDevicesDone
-                      ? "bg-green-900/50"
-                      : boardStep === "failed"
-                        ? "bg-red-900/50"
-                        : "bg-yellow-900/50"
-                }`}
+                className={`w-9 h-9 rounded-full flex items-center justify-center ${isBoardResetting || isAnyUnitResetting
+                  ? "bg-blue-900/50"
+                  : boardStep === "done" || allUnitsDone
+                    ? "bg-green-900/50"
+                    : boardStep === "failed"
+                      ? "bg-red-900/50"
+                      : "bg-yellow-900/50"
+                  }`}
               >
-                {isBoardResetting || isAnyDeviceResetting ? (
+                {isBoardResetting || isAnyUnitResetting ? (
                   <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
-                ) : boardStep === "done" || allDevicesDone ? (
+                ) : boardStep === "done" || allUnitsDone ? (
                   <CheckCircle className="h-5 w-5 text-green-400" />
                 ) : boardStep === "failed" ? (
                   <XCircle className="h-5 w-5 text-red-400" />
@@ -591,7 +511,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                   {isBoardResetting
                     ? boardStep === "deleting"
                       ? "Removing all deployed models…"
-                      : "Resetting all chips…"
+                      : "Resetting all devices…"
                     : boardStep === "done"
                       ? "Full board reset complete"
                       : boardStep === "failed"
@@ -599,7 +519,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                         : "Reset Card"}
                 </DialogTitle>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
                 </p>
               </div>
             </div>
@@ -636,7 +556,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             </div>
             <button
               type="button"
-              onClick={fetchChipStatus}
+              onClick={loadGrid}
               disabled={isAnyResetting}
               className="flex items-center gap-1 text-stone-400 hover:text-stone-200 disabled:opacity-40 transition-colors"
             >
@@ -645,43 +565,41 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             </button>
           </div>
 
-          {/* ── Already resetting banner ── */}
-          {isResettingContext && (
-            <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
-              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
-              <span>Board is already resetting…</span>
+          {/* ── Already resetting banner -─ Only when the board is being reset *elsewhere* (another tab/user).*/}
+          {isResettingContext && !isAnyResetting && boardStep === null && (
+            <div className="flex items-start gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
+              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-blue-100">Board reset in progress</p>
+                <p className="text-blue-200/90">
+                  Stopping all models and re-initializing the board — about a minute or
+                  two. Actions are paused; you can close this dialog and the reset will
+                  finish in the background.
+                </p>
+              </div>
             </div>
           )}
 
           {/* ── Device cards grid ── */}
           {showDeviceGrid && (
-            <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-              {slots.map((slot) => {
-                const ds: DeviceResetState = deviceStates[slot.slot_id] ?? {
-                  step: "idle",
-                  error: null,
-                  cmdOutput: null,
-                  showOutput: false,
-                };
-                return (
-                  <DeviceCard
-                    key={slot.slot_id}
-                    slot={slot}
-                    deviceState={ds}
-                    fetchState={chipFetch}
-                    onReset={executeDeviceReset}
-                    onToggleOutput={toggleDeviceOutput}
-                    isAnyResetting={isAnyResetting || isResettingContext}
-                  />
-                );
-              })}
+            <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
+              {units.map((unit) => (
+                <UnitCard
+                  key={unit.id}
+                  unit={unit}
+                  state={unitStates[unit.id] ?? IDLE_STATE}
+                  onReset={resetUnit}
+                  onToggleOutput={toggleUnitOutput}
+                  disabled={isAnyResetting || isResettingContext || chipFetch.status === "loading"}
+                />
+              ))}
             </div>
           )}
 
           {/* ── Full-board reset progress ── */}
           {boardStep !== null && (
             <div className="space-y-2">
-              <StepRow
+              <ResetStepRow
                 number={1}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
                 label="Stop all deployed models"
@@ -694,10 +612,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                       : "pending"
                 }
               />
-              <StepRow
+              <ResetStepRow
                 number={2}
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Reset all chips (tt-smi -r)"
+                label="Reset all devices (tt-smi -r)"
                 sublabel="Running full board reset, may take 10–30 seconds…"
                 state={
                   boardStep === "resetting"
@@ -707,6 +625,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                       : "pending"
                 }
               />
+
+              {boardStep === "resetting" && boardOutput && (
+                <StreamingLogPanel output={boardOutput} />
+              )}
 
               {boardStep === "failed" && boardError && (
                 <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
@@ -730,9 +652,8 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                   {showBoardOutput && (
                     <ScrollArea className="h-36 rounded-lg border border-stone-700">
                       <pre
-                        className={`p-3 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${
-                          boardStep === "done" ? "text-green-400" : "text-red-300"
-                        }`}
+                        className={`p-3 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${boardStep === "done" ? "text-green-400" : "text-red-300"
+                          }`}
                       >
                         {boardOutput}
                       </pre>
@@ -744,24 +665,25 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           )}
 
           {/* ── Warnings (idle state only) ── */}
-          {showDeviceGrid && !isAnyDeviceResetting && !allDevicesDone && (
+          {showDeviceGrid && !isAnyUnitResetting && !allUnitsDone && (
             <div className="space-y-2">
-              {/* Per-chip warning */}
+              {/* Per-unit warning */}
               <div className="flex items-start gap-2 p-3 bg-red-950/40 border border-red-500/25 rounded-lg text-red-200 text-sm">
                 <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
                 <span>
-                  <strong className="text-red-300">Warning:</strong> Resetting a chip will
-                  interrupt any ongoing processes on that device.
+                  <strong className="text-red-300">Warning:</strong> Resetting interrupts any
+                  ongoing processes on the affected devices. Multi-device models are stopped and reset
+                  as a whole.
                 </span>
               </div>
               {/* Reset All specific warning */}
               <div className="flex items-start gap-2 p-3 bg-orange-950/40 border border-orange-500/25 rounded-lg text-orange-200 text-sm">
                 <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
                 <span>
-                  <strong className="text-orange-300">Reset All Chips</strong> will stop{" "}
+                  <strong className="text-orange-300">Reset All Devices</strong> will stop{" "}
                   <strong className="text-orange-300">every deployed model</strong> and interrupt{" "}
                   <strong className="text-orange-300">all processes</strong> across all{" "}
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} simultaneously.
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} simultaneously.
                 </span>
               </div>
             </div>
@@ -771,7 +693,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
         {/* ── FOOTER ── */}
         <DialogFooter className="mt-6 flex justify-between items-center gap-2">
           <div>
-            {showDeviceGrid && !isAnyDeviceResetting && !allDevicesDone && (
+            {showDeviceGrid && !isAnyUnitResetting && !allUnitsDone && (
               <Button
                 variant="outline"
                 onClick={executeBoardReset}
@@ -779,7 +701,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                 className="border-red-700/50 text-red-300 hover:bg-red-900/30 hover:text-red-200 disabled:opacity-40"
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Reset All Chips
+                Reset All Devices
               </Button>
             )}
           </div>

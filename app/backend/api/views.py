@@ -120,7 +120,7 @@ class HfCheckView(APIView):
                             "status": "no_token",
                             "url": f"https://huggingface.co/{repo}",
                         }
-                        for repo, label in HF_GATED_MODELS
+                        for repo, label, _filename in HF_GATED_MODELS
                     ],
                 },
                 status=200,

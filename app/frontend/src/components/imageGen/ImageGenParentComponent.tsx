@@ -46,6 +46,7 @@ const ImageGenParentComponent: React.FC = () => {
             <StableDiffusionChat
               onBack={() => setShowChat(false)}
               modelID={modelID}
+              modelName={modelName}
               initialPrompt={initialPrompt}
             />
           ) : (

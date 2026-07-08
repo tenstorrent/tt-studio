@@ -17,7 +17,6 @@ from rest_framework.views import APIView
 from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
-    stream_response_from_external_api,
 )
 from shared_config.logger_config import get_logger
 
@@ -117,14 +116,31 @@ class VoicePipelineView(APIView):
             llm_first_chunk_time = None
             llm_chunk_count = 0
             try:
-                for chunk in stream_response_from_external_api(llm_url, llm_payload):
-                    if isinstance(chunk, bytes):
-                        chunk = chunk.decode("utf-8")
-                    if llm_first_chunk_time is None and chunk.strip():
-                        llm_first_chunk_time = time.time()
-                    llm_chunk_count += 1
-                    llm_full_text += chunk
-                    yield f"data: {json.dumps({'type': 'llm_chunk', 'text': chunk})}\n\n"
+                with requests.post(
+                    llm_url, json=llm_payload, headers=headers, stream=True, timeout=120
+                ) as llm_resp:
+                    llm_resp.raise_for_status()
+                    for line in llm_resp.iter_lines(decode_unicode=True):
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data = line[len("data: "):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            choices = json.loads(data).get("choices") or []
+                        except json.JSONDecodeError:
+                            continue
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+                        text = delta.get("content") or choices[0].get("text") or ""
+                        if not text:
+                            continue
+                        if llm_first_chunk_time is None:
+                            llm_first_chunk_time = time.time()
+                        llm_chunk_count += 1
+                        llm_full_text += text
+                        yield f"data: {json.dumps({'type': 'llm_chunk', 'text': text})}\n\n"
             except Exception as exc:
                 logger.error(f"LLM step failed: {exc}")
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'llm', 'message': str(exc)})}\n\n"

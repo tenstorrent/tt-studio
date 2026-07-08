@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Background sync thread for CHAT model deployment lifecycle management.
@@ -23,16 +23,16 @@ This module gives Django full ownership of the transition:
 
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import requests as _requests
 
+from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
 
-_FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+_FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 _POLL_INTERVAL_SECONDS = 5
 _SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
@@ -80,11 +80,29 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
         if job_status == "completed":
             real_container_id = progress_data.get("container_id")
             real_container_name = progress_data.get("container_name")
+            # User stopped/deleted this deployment mid-startup: don't resurrect it.
+            # Remove the container FastAPI just created and keep the record stopped.
+            if getattr(dep, "stopped_by_user", False):
+                if real_container_id:
+                    try:
+                        from docker_control.docker_utils import stop_container
+                        stop_container(real_container_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"[deployment_sync] Cleanup of user-stopped job {job_id} failed: {e}"
+                        )
+                dep.status = "stopped"
+                dep.save()
+                logger.info(
+                    f"[deployment_sync] Job {job_id} completed but was user-stopped; cleaned up"
+                )
+                return
             if real_container_id:
                 dep.container_id = real_container_id
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 dep.save()
                 logger.info(
                     f"[deployment_sync] Updated ModelDeployment for {dep.model_name}: "
@@ -101,9 +119,12 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 )
 
         elif job_status in ("error", "failed", "cancelled", "timeout", "not_found"):
+            from django.utils import timezone as dj_timezone
+
             reason, raw_msg = _classify_failure(progress_data.get("message"))
             dep.status = "stopped"
-            dep.stopped_at = datetime.now(timezone.utc)
+            if dep.stopped_at is None:
+                dep.stopped_at = dj_timezone.now()
             if dep.failure_reason is None:
                 dep.failure_reason = reason
                 dep.failure_message = raw_msg

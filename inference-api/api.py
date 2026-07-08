@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
 import sys
 import os
+import inspect
 import logging
 import time
 import docker
@@ -15,15 +16,17 @@ import uuid
 import re
 import json
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 import math
+import shlex
 import urllib.request
 import urllib.error
 
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
-# Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default);
-# otherwise fall back to tt-inference-server directory next to inference-api (e.g. git submodule).
+# Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default artifact location);
+# otherwise fall back to tt-inference-server/ at repo root (manual local dev checkout).
 _tt_studio_root = Path(__file__).resolve().parent.parent
 _candidates = []
 if os.getenv("TT_INFERENCE_ARTIFACT_PATH"):
@@ -107,6 +110,40 @@ workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 if artifact_path:
     workflows_utils.default_dotenv_path = Path(artifact_path) / ".env"
 
+    # workflows.utils.load_dotenv / write_dotenv freeze `default_dotenv_path` as a default
+    # argument value at import time (Python evaluates defaults once, at definition time),
+    # which resolved to the tt-studio repo root. Reassigning the module attribute above does
+    # NOT rebind those already-frozen defaults, so the artifact's no-arg load_dotenv()/
+    # write_dotenv() calls would still read/write a stray .env at the tt-studio repo root
+    # (GitHub issue #820). Rebind the frozen `dotenv_path` default in place so every caller —
+    # including the artifact's own run.py, which imports the same function objects — targets
+    # the artifact's .env instead.
+    _artifact_dotenv = Path(artifact_path) / ".env"
+    for _fn_name in ("load_dotenv", "write_dotenv"):
+        try:
+            _fn = getattr(workflows_utils, _fn_name, None)
+            if _fn is None or not getattr(_fn, "__defaults__", None):
+                continue
+            _params = list(inspect.signature(_fn).parameters.values())
+            # Defaults align to the trailing parameters that have defaults.
+            _defaulted = [p for p in _params if p.default is not inspect.Parameter.empty]
+            _new_defaults = list(_fn.__defaults__)
+            _rebound = False
+            for _idx, _param in enumerate(_defaulted):
+                if _param.name == "dotenv_path":
+                    _new_defaults[_idx] = _artifact_dotenv
+                    _rebound = True
+            if _rebound:
+                _fn.__defaults__ = tuple(_new_defaults)
+            else:
+                logging.warning(
+                    "workflows.utils.%s has no 'dotenv_path' parameter to rebind; "
+                    "a stray .env may still be written to the repo root.",
+                    _fn_name,
+                )
+        except Exception as exc:  # pragma: no cover - defensive: never block import
+            logging.warning("Could not rebind default dotenv path for %s: %s", _fn_name, exc)
+
 # Patch setup_run_logger so run_log file handler is always present even when
 # other handlers were attached to run_log before run_main() executes.
 import workflows.log_setup as workflows_log_setup  # noqa: E402
@@ -141,6 +178,27 @@ def _patched_setup_run_logger(logger, run_id, run_log_path, log_level=logging.DE
 
 workflows_log_setup.setup_run_logger = _patched_setup_run_logger
 
+# Isolate docker subprocess invocations from this uvicorn process's signal cascade.
+# The artifact's run_docker_server.py uses `subprocess.Popen(["docker", "run", ...])`
+# in foreground (no -d, with --rm), so when this FastAPI process gets killed/restarted
+# by run.py (`--cleanup` or `--dev` re-entry on port 8001), the docker-run client
+# inherits the signal and tears down its container. start_new_session=True puts the
+# child in its own session/process group, immune to the parent's signal-group death.
+# Media containers happen to survive today without this; LLM containers don't.
+# See issue #825.
+import subprocess as _subprocess  # noqa: E402
+_orig_popen = _subprocess.Popen
+
+
+def _isolated_popen(*args, **kwargs):
+    argv = args[0] if args else kwargs.get("args")
+    if isinstance(argv, (list, tuple)) and argv and argv[0] == "docker":
+        kwargs.setdefault("start_new_session", True)
+    return _orig_popen(*args, **kwargs)
+
+
+_subprocess.Popen = _isolated_popen
+
 # Import from tt-inference-server
 try:
     from run import main as run_main, WorkflowType, DeviceTypes  # noqa: E402
@@ -151,6 +209,51 @@ except ImportError as e:
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
 
+# Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
+# HF cache snapshots. The original method globs for any *.safetensors and returns True
+# if found, but a prior interrupted download can leave some shards complete (as symlinks
+# in the snapshot dir) while earlier shards are still in-progress .incomplete blobs two
+# levels up in blobs/. Without this patch, setup skips the download and launches the
+# container with missing shards → FileNotFoundError crash.
+#
+# Only overrides True → False (never the reverse). Fails open on any exception so a
+# permission error or unexpected path layout never blocks a valid deploy.
+import workflows.setup_host as _setup_host_module  # noqa: E402
+_orig_check_model_weights_dir = _setup_host_module.HostSetupManager.check_model_weights_dir
+
+
+def _patched_check_model_weights_dir(self, host_weights_dir):
+    result = _orig_check_model_weights_dir(self, host_weights_dir)
+    if not result or host_weights_dir is None:
+        return result
+    # Navigate to the HF cache blobs/ dir (two levels above the snapshot dir).
+    # Layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
+    try:
+        blobs_dir = host_weights_dir.parent.parent / "blobs"
+    except Exception:
+        return result
+    if not blobs_dir.is_dir():
+        return result  # not an HF cache layout (host-volume, local dir, etc.)
+    try:
+        incomplete = list(blobs_dir.glob("*.incomplete"))
+    except Exception as exc:
+        _patched_check_model_weights_dir_logger = logging.getLogger(__name__)
+        _patched_check_model_weights_dir_logger.warning(
+            "check_model_weights_dir: cannot scan blobs dir %s: %s", blobs_dir, exc
+        )
+        return result
+    if incomplete:
+        logging.getLogger(__name__).warning(
+            "check_model_weights_dir: %d incomplete blob(s) in %s — "
+            "re-download required. Files: %s",
+            len(incomplete), blobs_dir, [f.name for f in incomplete],
+        )
+        return False
+    return True
+
+
+_setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
+
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
 # Instead, configure logging manually
@@ -159,15 +262,15 @@ logger.setLevel(logging.DEBUG)  # Set level on the logger itself
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
-def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to fastapi.log at TT Studio root"""
+def setup_model_run_file_logging():
+    """Set up file logging for FastAPI - writes to logs/model_run.log under TT Studio root"""
     try:
-        # Put the log file at TT Studio root:
-        # <tt_studio_root>/fastapi.log
+        # Put the log file under the consolidated logs/ directory:
+        # <tt_studio_root>/logs/model_run.log
         tt_studio_root = Path(__file__).parent.parent.resolve()
-        root_log_dir = tt_studio_root
+        root_log_dir = tt_studio_root / "logs"
         root_log_dir.mkdir(parents=True, exist_ok=True)
-        root_log_file = root_log_dir / "fastapi.log"
+        root_log_file = root_log_dir / "model_run.log"
 
         # Keep append mode here. run.py also streams uvicorn output to this file,
         # so truncate mode can create confusing interleaving/overwrite artifacts.
@@ -214,7 +317,7 @@ def setup_fastapi_file_logging():
 
         # Try to write error to a local fallback log
         try:
-            fallback_log = Path(__file__).parent / "fastapi_setup_error.log"
+            fallback_log = Path(__file__).parent / "model_run_setup_error.log"
             with open(fallback_log, "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
                 f.write(traceback.format_exc())
@@ -222,7 +325,7 @@ def setup_fastapi_file_logging():
             pass  # If even fallback fails, just continue
 
 # Initialize file logging
-setup_fastapi_file_logging()
+setup_model_run_file_logging()
 
 # Global progress store with thread-safe access
 progress_store: Dict[str, Dict[str, Any]] = {}
@@ -247,15 +350,37 @@ _DOCKER_RUN_NAME_RE = re.compile(r"--name\s+(?P<name>[^\s]+)")
 _RUN_LOG_PATH_RE = re.compile(r"This log file is saved on local machine at:\s*(?P<path>\S+)")
 _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log file:\s*(?P<path>\S+)")
 
-# Host-setup / weights download hints (from tt-inference-server logs)
-_HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
-_HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+# Host-setup / weights download hints (from tt-inference-server logs).
+# setup_host.py emits "Downloading model to host volume: {repo}" or
+# "Downloading model to host HF cache: {repo}" right before invoking `hf download`.
+_HF_DOWNLOAD_REPO_RE = re.compile(
+    r"Downloading model (?:to host (?:volume|HF cache)|from Hugging Face):\s*(?P<repo>[^\s]+)"
+)
+# setup_host.py:388 emits "✅ HF_HOME set to {path}" (no "HOST_" prefix).
+_HOST_HF_HOME_RE = re.compile(r"HF_HOME set to\s*(?P<path>\S+)")
 _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist for\s*(?P<model>.+?)\.")
+# setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
+_HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
 _DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES = {
     "qwen3-32b": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
+}
+_HF_CACHE_MODELS_CONFIG_PATH = Path(__file__).with_name("hf_cache_models.json")
+_DEFAULT_HF_CACHE_MODEL_ALLOWLIST = {
+    "mochi-1-preview",
+    "wan2.2-t2v-a14b-diffusers",
+    "wan2.2-i2v-a14b-diffusers",
+    "flux.1-dev",
+    "flux.1-schnell",
+    "motif-image-6b-preview",
+    "stable-diffusion-3.5-large",
+    "stable-diffusion-xl-1.0-inpainting-0.1",
+    "stable-diffusion-xl-base-1.0",
+    "stable-diffusion-xl-base-1.0-img-2-img",
+    "qwen-image",
+    "qwen-image-2512",
 }
 
 
@@ -337,6 +462,58 @@ def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
 _HOST_VOLUME_MODEL_ALLOWLIST, _HOST_VOLUME_DIRECTORY_OVERRIDES = (
     _load_host_volume_model_config()
 )
+
+
+def _load_hf_cache_model_config() -> set[str]:
+    try:
+        raw_config = json.loads(_HF_CACHE_MODELS_CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config not found at %s; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+    except json.JSONDecodeError as exc:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is invalid JSON (%s); using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            exc,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    configured_models = raw_config.get("models")
+    if not isinstance(configured_models, list):
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is missing a 'models' list; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    normalized_models = {
+        str(model_name).strip().lower()
+        for model_name in configured_models
+        if str(model_name).strip()
+    }
+    if not normalized_models:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s did not contain any usable model names; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    logging.getLogger(__name__).info(
+        "Loaded HF-cache model allowlist from %s: %s",
+        _HF_CACHE_MODELS_CONFIG_PATH,
+        sorted(normalized_models),
+    )
+    return normalized_models
+
+
+_HF_CACHE_MODEL_ALLOWLIST = _load_hf_cache_model_config()
 
 
 def _resolve_preferred_host_volume(
@@ -491,6 +668,36 @@ def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
 
 
+def _model_uses_host_hf_cache(model_name: str) -> bool:
+    return (model_name or "").strip().lower() in _HF_CACHE_MODEL_ALLOWLIST
+
+
+# ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
+def _stage_preloaded_version_symlink(model, device, impl, override_dir, root, job_id):
+    """Link volume_id_<impl>-<model>-v{model_spec.version} -> the preloaded
+    -vqb2_launch override dir, so `--host-volume <root>` reuse lands on the
+    preloaded data instead of re-downloading.
+
+    The version is resolved with the SAME get_runtime_model_spec(model, device,
+    impl) that run.py/setup_host use, so the symlink name matches what setup_host
+    requests for any model/impl/device (the dir version is the per-model
+    catalog-pinned model_spec.version, not the repo VERSION). Excise this fn +
+    its call when the preloaded data is re-staged under the release name.
+    """
+    if not override_dir:
+        return
+    try:
+        ms, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        target = Path(root) / f"volume_id_{ms.impl.impl_id}-{ms.model_name}-v{ms.version}"
+        if target.exists() or target.is_symlink():  # never clobber; idempotent
+            return
+        os.symlink(Path(override_dir).resolve(), target)  # resolve() avoids symlink-to-symlink
+        logger.info("Job %s: linked %s -> %s", job_id, target.name, Path(override_dir).name)
+    except Exception as exc:
+        logger.warning("Job %s: could not stage preloaded host-volume symlink: %s", job_id, exc)
+# ─── end TEMP (QB2 workaround) ────────────────────────────────────────────────
+
+
 def _strip_cli_option(argv: list[str], option: str) -> list[str]:
     """Return argv without a single `--option value` pair."""
     stripped_argv: list[str] = []
@@ -561,6 +768,16 @@ def _extract_repo_and_hf_home_from_job_logs(job_id: str) -> Tuple[Optional[str],
     return repo, hf_home
 
 
+def _job_logs_contain(job_id: str, pattern: re.Pattern) -> bool:
+    """True if any captured run.py log message for this job matches `pattern`."""
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    for e in entries:
+        if pattern.search(str(e.get("message", ""))):
+            return True
+    return False
+
+
 def _default_hf_home() -> Path:
     # Mirror tt-inference-server defaulting behavior (HOST_HF_HOME -> HF_HOME -> ~/.cache/huggingface)
     return Path(
@@ -604,6 +821,146 @@ def _dir_size_bytes(path: Path) -> int:
         return 0
 
 
+def _dir_size_bytes_recursive(path: Path) -> int:
+    """Recursive size sum (walks subdirs). Used for `hf download --local-dir` layouts."""
+    try:
+        if not path.exists() or not path.is_dir():
+            return 0
+        total = 0
+        for root, _dirs, files in os.walk(path, followlinks=False):
+            for fname in files:
+                fp = os.path.join(root, fname)
+                try:
+                    total += os.stat(fp, follow_symlinks=False).st_size
+                except FileNotFoundError:
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+@dataclass
+class WeightsLocation:
+    """Where the weights-progress monitor should read downloaded bytes from.
+
+    read_mode:
+      - "host_fs": scan host_path directly (host bind-mount layout).
+      - "docker_volume": exec `du -sb` inside an ephemeral container against
+        a named Docker volume (the named-volume default path the user can't
+        read directly because /var/lib/docker/volumes/ is root-only).
+      - "hf_cache": legacy HF-hub layout under host_path/hub/models--<repo>/.
+    """
+    read_mode: str
+    host_path: Optional[Path] = None
+    volume_name: Optional[str] = None
+    volume_subpath: Optional[str] = None  # path inside the mounted volume to scan
+
+
+def _resolve_weights_location(
+    model_name: str, device: str, impl: Optional[str]
+) -> Optional[WeightsLocation]:
+    """Pick the right read strategy for this deployment.
+
+    The host-volume allowlist (currently just qwen3-32b) uses a host-readable
+    bind mount. Everything else lands in a Docker named volume named
+    `volume_id_{impl_id}-{model_name}` per generate_docker_volume_name() in
+    tt-inference-server/workflows/run_docker_server.py.
+    """
+    # Host-volume allowlist path: weights live at a bind-mount we can read.
+    if _model_uses_preferred_host_volume(model_name):
+        (
+            preferred_host_volume,
+            _expected_volume_dir,
+            expected_weights_dir,
+            _expected_tt_metal_cache_dir,
+            _reason,
+        ) = _resolve_preferred_host_volume(model_name, device, impl)
+        if preferred_host_volume and expected_weights_dir:
+            return WeightsLocation(
+                read_mode="host_fs",
+                host_path=expected_weights_dir,
+            )
+
+    # Default path: Docker named volume.
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not resolve model spec for %s/%s/%s: %s",
+            model_name, device, impl, exc,
+        )
+        return None
+    volume_name = f"volume_id_{model_spec.impl.impl_id}-{model_spec.model_name}"
+    # setup_host.setup_weights_huggingface writes to {host_model_volume_root}/weights/{model_name}/
+    return WeightsLocation(
+        read_mode="docker_volume",
+        volume_name=volume_name,
+        volume_subpath=f"weights/{model_spec.model_name}",
+    )
+
+
+_DU_HELPER_IMAGE = "alpine:3"
+
+
+def _du_bytes_in_volume(volume_name: str, subpath: str) -> int:
+    """Return recursive byte count of `subpath` inside a Docker named volume.
+
+    Uses an ephemeral alpine container so the FastAPI process doesn't need
+    root access to /var/lib/docker/volumes/. Returns 0 on any error (e.g.
+    volume not yet populated, daemon hiccup) so the monitor keeps polling.
+    """
+    if not volume_name or not subpath:
+        return 0
+    safe_target = "/v/" + subpath.lstrip("/")
+    cmd = ["sh", "-c", f"du -sb {shlex.quote(safe_target)} 2>/dev/null | cut -f1"]
+    try:
+        client = docker.from_env()
+        out = client.containers.run(
+            image=_DU_HELPER_IMAGE,
+            command=cmd,
+            volumes={volume_name: {"bind": "/v", "mode": "ro"}},
+            remove=True,
+            detach=False,
+            network_disabled=True,
+            stdout=True,
+            stderr=False,
+        )
+        if isinstance(out, bytes):
+            text = out.decode("utf-8", errors="ignore").strip()
+        else:
+            text = str(out).strip()
+        if not text:
+            return 0
+        # `du` may emit multiple lines if the target is missing; take the first integer.
+        first = text.splitlines()[0].strip()
+        return int(first) if first.isdigit() else 0
+    except docker.errors.ImageNotFound:
+        logger.debug("weights-monitor: %s missing; will be pulled at startup", _DU_HELPER_IMAGE)
+        return 0
+    except Exception as exc:
+        logger.debug("weights-monitor: du in volume %s failed: %s", volume_name, exc)
+        return 0
+
+
+def _downloaded_bytes_for_location(
+    hf_home: Optional[Path], repo_id: Optional[str], location: Optional[WeightsLocation]
+) -> int:
+    """Dispatch to the right reader for the resolved weights location.
+
+    Falls back to the legacy HF-hub cache layout if no WeightsLocation was
+    resolved (best-effort for unusual deployments that set HF_HOME via logs).
+    """
+    if location is not None:
+        if location.read_mode == "host_fs" and location.host_path:
+            return _dir_size_bytes_recursive(location.host_path)
+        if location.read_mode == "docker_volume" and location.volume_name and location.volume_subpath:
+            return _du_bytes_in_volume(location.volume_name, location.volume_subpath)
+    # Legacy fallback (hf_home discovered via log scrape).
+    if hf_home is not None and repo_id:
+        return _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+    return 0
+
+
 def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
     """Estimate downloaded bytes by summing HF cache blobs (and temp/incomplete) sizes."""
     repo_root = _hf_cache_repo_root(hf_home, repo_id)
@@ -615,11 +972,16 @@ def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
     return blobs + tmp
 
 
-def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterable[str]) -> Optional[int]:
-    """Fetch total expected bytes from Hugging Face model metadata (best-effort)."""
+def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
+    """Fetch total expected bytes from Hugging Face repo tree (best-effort).
+
+    The tree endpoint returns `{type, path, size, oid, lfs?}` per entry. For LFS
+    files we prefer `lfs.size` (always the resolved blob size); historic API
+    responses returned the LFS pointer size at the top-level `size` field.
+    """
     if not repo_id or "/" not in repo_id:
         return None
-    url = f"https://huggingface.co/api/models/{repo_id}"
+    url = f"https://huggingface.co/api/models/{repo_id}/tree/main?recursive=true"
     headers = {"User-Agent": "tt-studio/weights-progress"}
     if hf_token:
         headers["Authorization"] = f"Bearer {hf_token}"
@@ -627,16 +989,25 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()
-        payload = json.loads(data.decode("utf-8"))
-        siblings = payload.get("siblings", [])
+        entries = json.loads(data.decode("utf-8"))
+        if not isinstance(entries, list):
+            return None
         total = 0
-        for s in siblings:
+        for entry in entries:
             try:
-                name = s.get("rfilename") or ""
-                if any(name.startswith(pfx) for pfx in exclude_prefixes):
+                if entry.get("type") != "file":
                     continue
-                size = s.get("size")
-                if isinstance(size, int) and size > 0:
+                lfs = entry.get("lfs")
+                size: Optional[int] = None
+                if isinstance(lfs, dict):
+                    lfs_size = lfs.get("size")
+                    if isinstance(lfs_size, int) and lfs_size > 0:
+                        size = lfs_size
+                if size is None:
+                    top_size = entry.get("size")
+                    if isinstance(top_size, int) and top_size > 0:
+                        size = top_size
+                if size is not None:
                     total += size
             except Exception:
                 continue
@@ -649,18 +1020,44 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
         return None
 
 
-def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
-    """Background monitor: converts HF cache growth into % + ETA and updates progress_store.
+def _weights_progress_monitor(
+    job_id: str,
+    stop_event: threading.Event,
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    impl: Optional[str] = None,
+) -> None:
+    """Background monitor: converts download progress into % + ETA and updates progress_store.
 
     This is designed to cover long-running `hf download <repo>` operations where tt-inference-server
     does not emit structured per-file progress events.
+
+    Path resolution: when model_name/device are provided, we derive the exact
+    Docker named volume (or host bind-mount path) the deployment writes to.
+    Otherwise we fall back to log-scraped HF_HOME (legacy path).
     """
     last_bytes = 0
     last_t = time.time()
     ema_speed_bps: Optional[float] = None
+    stable_speed_bps: Optional[float] = None
+    stagnant_polls = 0
+    MAX_STAGNANT_POLLS = 15  # 15s grace period
+    MIN_SPEED_BPS = 64 * 1024  # Ignore tiny fluctuations under 64KB/s
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
-    exclude_prefixes = ("original/",)
+    total_bytes: Optional[int] = None
+    total_bytes_attempted = False
+    cached_announced_at: Optional[float] = None
+    CACHED_LINGER_SECONDS = 1.8
+
+    weights_location: Optional[WeightsLocation] = None
+    if model_name and device:
+        weights_location = _resolve_weights_location(model_name, device, impl)
+        if weights_location:
+            logger.info(
+                "Job %s: weights-monitor resolved location: %s",
+                job_id, weights_location,
+            )
 
     # Poll at 1s cadence; keep it lightweight (single dir scan).
     while not stop_event.is_set():
@@ -687,21 +1084,64 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
         if hf_home is None:
             hf_home = _default_hf_home()
 
+        # Cache-hit short-circuit: setup_host logs "Weights already exist in host volume..."
+        # when nothing needs to be downloaded. Show a brief "cached" state then exit.
+        if cached_announced_at is None and _job_logs_contain(job_id, _HF_CACHED_RE):
+            cached_announced_at = time.time()
+            with progress_lock:
+                cur = progress_store.get(job_id)
+                if cur and cur.get("stage") not in {"container_setup", "finalizing", "complete"}:
+                    progress_val = max(cur.get("progress", 0) or 0, 39)
+                    cur.update({
+                        "status": "running",
+                        "stage": "model_preparation",
+                        "progress": progress_val,
+                        "message": "Weights already cached — skipping download",
+                        "downloaded_bytes": total_bytes,
+                        "total_bytes": total_bytes,
+                        "speed_bps": None,
+                        "eta_seconds": 0,
+                        "last_updated": time.time(),
+                    })
+        if cached_announced_at is not None and (time.time() - cached_announced_at) >= CACHED_LINGER_SECONDS:
+            return
+
         if repo_id:
-            downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+            if not total_bytes_attempted:
+                total_bytes_attempted = True
+                total_bytes = _fetch_hf_total_bytes(repo_id, os.getenv("HF_TOKEN") or "")
+            downloaded = _downloaded_bytes_for_location(hf_home, repo_id, weights_location)
             now = time.time()
             dt = max(1e-3, now - last_t)
             delta = downloaded - last_bytes
-            if delta > 0:
+           
+            if delta > MIN_SPEED_BPS:
+                stagnant_polls = 0
+
                 inst_speed = delta / dt
-                # Exponential moving average to stabilize ETA.
+
+                # Faster convergence early, slower later
+                alpha = 0.35 if ema_speed_bps is None else 0.15
+
                 if ema_speed_bps is None:
                     ema_speed_bps = inst_speed
                 else:
-                    alpha = 0.2
                     ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
+
+                stable_speed_bps = ema_speed_bps
+
                 last_bytes = downloaded
                 last_t = now
+            else:
+                stagnant_polls += 1
+
+                # Hold previous speed briefly during shard verification/unpacking
+                if stagnant_polls < MAX_STAGNANT_POLLS:
+                    ema_speed_bps = stable_speed_bps
+                else:
+                    # Slowly decay speed instead of hard-dropping
+                    if ema_speed_bps is not None:
+                        ema_speed_bps *= 0.92
 
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
@@ -722,7 +1162,26 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                     progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
                     speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
-                    msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
+                    
+                    if total_bytes and downloaded >= total_bytes:
+                        msg = "Finalizing model weights and cache..."
+                        eta_seconds = None
+                    else:
+                        msg = f"Downloading weights: {_format_bytes(downloaded)} / {_format_bytes(total_bytes) if total_bytes else '?'} • {speed_txt}"
+
+                    eta_seconds: Optional[float] = None
+                    if (
+                        total_bytes is not None
+                        and ema_speed_bps is not None
+                        and ema_speed_bps > 0
+                        and total_bytes > downloaded
+                    ):
+                        raw_eta = (total_bytes - downloaded) / ema_speed_bps
+                        # Clamp unrealistic spikes/jitter
+                        if eta_seconds is None:
+                            eta_seconds = raw_eta
+                        else:
+                            eta_seconds = (0.7 * eta_seconds) + (0.3 * raw_eta)
 
                     cur.update(
                         {
@@ -733,7 +1192,9 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                             "last_updated": time.time(),
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
+                            "total_bytes": int(total_bytes) if total_bytes is not None else None,
                             "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                            "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
                         }
                     )
 
@@ -850,16 +1311,20 @@ class ProgressHandler(logging.Handler):
             progress = 0
             status = "running"
         
-            # Based on the fastapi.log patterns, parse deployment stages
+            # Based on the model_run.log patterns, parse deployment stages
             if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
                 stage = "initialization"
                 progress = 5
             elif any(keyword in message.lower() for keyword in ["setup_host", "setting up python venv", "loaded environment"]):
                 stage = "setup"
                 progress = 15
-            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download", "setup already completed"]):
+            elif "setup already completed" in message.lower():
+                stage = "setup"
+                progress = 16
+                message = "Environment ready..."
+            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
                 stage = "model_preparation"
-                progress = 40
+                progress = 28
             # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
             elif "fetching" in message.lower() and "files" in message.lower():
                 stage = "model_preparation"
@@ -882,23 +1347,34 @@ class ProgressHandler(logging.Handler):
                     self._pull_layers_complete += 1
                 if self._pull_layers_total > 0:
                     ratio = min(1.0, self._pull_layers_complete / self._pull_layers_total)
-                    progress = 30 + int(ratio * 30)  # ramp 30 -> 60 during pull
+                    progress = 20 + int(ratio * 12)  # ramp 20 -> 32 during pull
                     message = (
                         f"Pulling container image layers "
                         f"({self._pull_layers_complete}/{self._pull_layers_total})..."
                     )
                 else:
-                    progress = 30
+                    progress = 20
                     message = "Pulling container image layers..."
+            elif any(keyword in message.lower() for keyword in ["docker image pulled successfully", "docker image available locally"]):
+                stage = "image_ready"
+                progress = 34
+                message = "Container image ready."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
-                progress = 70
+                progress = 42
+                message = "Creating and starting the container..."
+            elif "created docker container id" in message.lower():
+                stage = "container_started"
+                progress = 60
+                message = "Container is running..."
             elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
-                stage = "finalizing"
-                progress = 85
+                stage = "container_started"
+                progress = 64
+                message = "Locating the container..."
             elif any(keyword in message.lower() for keyword in ["connected container", "tt_studio_network"]):
-                stage = "finalizing"
-                progress = 90
+                stage = "network_setup"
+                progress = 84
+                message = "Connecting to the network..."
             elif "renamed container" in message.lower():
                 # This is the KEY indicator that deployment is complete!
                 stage = "complete"
@@ -978,6 +1454,32 @@ logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
 logger.debug("Debug logging test message")
 
+
+@app.on_event("startup")
+def _prepull_weights_monitor_helper_image() -> None:
+    """Pre-pull the alpine helper image used by _du_bytes_in_volume.
+
+    Doing this once at boot avoids a multi-second stall on the first poll of
+    the first deployment after a fresh install. Failures are non-fatal —
+    the helper itself retries on each call.
+    """
+    try:
+        client = docker.from_env()
+        try:
+            client.images.get(_DU_HELPER_IMAGE)
+            logger.info("weights-monitor helper image already present: %s", _DU_HELPER_IMAGE)
+            return
+        except docker.errors.ImageNotFound:
+            pass
+        logger.info("weights-monitor: pulling helper image %s", _DU_HELPER_IMAGE)
+        client.images.pull(_DU_HELPER_IMAGE)
+        logger.info("weights-monitor: helper image ready")
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not pre-pull %s (%s); the monitor will retry per poll.",
+            _DU_HELPER_IMAGE, exc,
+        )
+
 class RunRequest(BaseModel):
     model: str
     workflow: str
@@ -1012,21 +1514,21 @@ def normalize_device_alias(device: str) -> str:
     }
     return alias_map.get(device.strip().lower(), device)
 
-def get_fastapi_logs_dir():
-    """Get the FastAPI logs directory at TT Studio root"""
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
     tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "fastapi_logs"
-    fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
-    return fastapi_logs_dir
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    fastapi_logs_dir = get_fastapi_logs_dir()
-    
-    # Create log file with pattern: fastapi_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
-    log_filename = f"fastapi_{timestamp}_{model}_{device}_server.log"
-    log_file_path = fastapi_logs_dir / log_filename
+    model_run_logs_dir = get_model_run_logs_dir()
+
+    # Create log file with pattern: model_run_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
+    log_filename = f"model_run_{timestamp}_{model}_{device}_server.log"
+    log_file_path = model_run_logs_dir / log_filename
     
     # Create file handler
     file_handler = logging.FileHandler(log_file_path, mode='w')
@@ -1100,7 +1602,7 @@ async def test_logging():
     logger.warning("Warning level test message")
     return {
         "message": "Logging test completed", 
-        "check": "fastapi.log file for log messages",
+        "check": "model_run.log file for log messages",
         "timestamp": time.time()
     }
 
@@ -1217,8 +1719,8 @@ def sync_tokens_from_tt_studio():
     if not tt_studio_root:
         logger.warning("TT_STUDIO_ROOT environment variable not set, cannot sync tokens")
         return
-    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
-    
+    tt_studio_env = Path(tt_studio_root) / ".env"
+
     # Use artifact directory for inference server .env if available, otherwise use TT Studio root
     if artifact_path:
         inference_server_env = Path(artifact_path) / ".env"
@@ -1245,7 +1747,7 @@ def sync_tokens_from_tt_studio():
     else:
         logger.warning(f"TT Studio .env file not found at {tt_studio_env}")
 
-    # Prefer the UI-managed hf_token from user_config.env over app/.env so
+    # Prefer the UI-managed hf_token from user_config.env over the root .env so
     # changes saved via the Settings dialog apply on every /run.
     ui_hf = _get_hf_token_from_user_config()
     if ui_hf:
@@ -1372,7 +1874,8 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -1456,6 +1959,16 @@ async def run_inference(request: RunRequest):
             )
         if preferred_host_volume:
             initial_argv.extend(["--host-volume", preferred_host_volume])
+            # ─── TEMP (QB2 workaround) — remove with _stage_preloaded_version_symlink ──
+            _stage_preloaded_version_symlink(
+                request.model,
+                normalized_device,
+                request.impl,
+                expected_host_volume_dir,
+                preferred_host_volume,
+                job_id,
+            )
+            # ─── end TEMP (QB2 workaround) ────────────────────────────────────────────
             logger.info(
                 "Job %s: Qwen preloaded host-volume directory accepted: %s; using --host-volume %s (%s)",
                 job_id,
@@ -1469,6 +1982,43 @@ async def run_inference(request: RunRequest):
                 job_id,
                 host_volume_resolution_reason,
             )
+        # Media (DiT) models reuse the host's already-downloaded HF weights via
+        # --host-hf-cache. This is mutually exclusive with the Qwen --host-volume
+        # path: Qwen uses host-volume, media uses hf-cache; they shouldn't combine.
+        if _model_uses_host_hf_cache(request.model) and "--host-volume" not in initial_argv:
+            host_hf_cache_path = str(_default_hf_home())
+            # Ensure the HF cache dir exists. tt-inference-server's
+            # validate_bind_mount_permissions() ValueErrors on a non-existent
+            # --host-hf-cache path, which forces a baseline (in-container XET)
+            # fallback that stalls on large media weights. setup_host() will
+            # populate this dir via `hf download` once the mount validates.
+            try:
+                Path(host_hf_cache_path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "Job %s: could not create HF cache dir %s (%s); "
+                    "deploy may fall back to baseline startup",
+                    job_id,
+                    host_hf_cache_path,
+                    exc,
+                )
+            initial_argv.extend(["--host-hf-cache", host_hf_cache_path])
+            logger.info(
+                "Job %s: media model %s accepted for HF-cache reuse; using --host-hf-cache %s",
+                job_id,
+                request.model,
+                host_hf_cache_path,
+            )
+        else:
+            if not _model_uses_host_hf_cache(request.model):
+                host_hf_cache_skip_reason = "model not in HF-cache allowlist"
+            else:
+                host_hf_cache_skip_reason = "--host-volume already selected"
+            logger.info(
+                "Job %s: using baseline startup without host-hf-cache (%s)",
+                job_id,
+                host_hf_cache_skip_reason,
+            )
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
@@ -1477,7 +2027,7 @@ async def run_inference(request: RunRequest):
                 # Start weights progress monitor (keeps progress moving during long hf downloads)
                 threading.Thread(
                     target=_weights_progress_monitor,
-                    args=(job_id, weights_stop_event),
+                    args=(job_id, weights_stop_event, request.model, normalized_device, request.impl),
                     daemon=True,
                 ).start()
 
@@ -1536,6 +2086,9 @@ async def run_inference(request: RunRequest):
                             if "--host-volume" in retry_argv:
                                 retry_argv = _strip_cli_option(retry_argv, "--host-volume")
                                 retry_reason_parts.append("baseline startup without --host-volume")
+                            if "--host-hf-cache" in retry_argv:
+                                retry_argv = _strip_cli_option(retry_argv, "--host-hf-cache")
+                                retry_reason_parts.append("baseline startup without --host-hf-cache")
                             if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                                 retry_argv.append("--skip-system-sw-validation")
                                 retry_reason_parts.append("--skip-system-sw-validation")
@@ -1684,6 +2237,25 @@ async def run_inference(request: RunRequest):
                         "message": "Deployment completed successfully",
                     }
 
+                    # Advance the deploy-progress bar through the post-run milestones
+                    # (locate container → connect network → rename). Monotonic: never
+                    # lowers progress, never overrides a terminal status.
+                    def _advance(stage_name: str, pct: int, msg: str) -> None:
+                        with progress_lock:
+                            cur = progress_store.get(job_id)
+                            if not cur or cur.get("status") in ("completed", "failed", "cancelled", "error"):
+                                return
+                            cur.update({
+                                "status": "running",
+                                "stage": stage_name,
+                                "progress": max(cur.get("progress", 0), pct),
+                                "message": msg,
+                                "last_updated": time.time(),
+                            })
+
+                    # Container process is up; we're now locating it to wire up networking.
+                    _advance("container_started", 60, "Container started, locating it...")
+
                     # Best-effort: connect to tt_studio_network and rename container
                     try:
                         client = docker.from_env()
@@ -1725,11 +2297,13 @@ async def run_inference(request: RunRequest):
                             original_name = new_container.name
                             if new_container.id:
                                 response_data["container_id"] = new_container.id
+                            _advance("network_setup", 72, "Connecting to the network...")
                             try:
                                 network = client.networks.get("tt_studio_network")
                                 network.connect(new_container)
                             except Exception:
                                 pass
+                            _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
                             model_name = request.model.replace("/", "-")
                             if original_name != model_name:
@@ -1738,6 +2312,7 @@ async def run_inference(request: RunRequest):
                                     response_data["container_name"] = model_name
                                 except Exception:
                                     pass
+                            _advance("finalizing", 95, "Finalizing the deployment...")
                     except Exception as e:
                         logger.error(f"Job {job_id}: post-run docker ops failed: {e}")
 
@@ -1876,6 +2451,21 @@ async def run_inference(request: RunRequest):
         else:
             # If job_id wasn't created yet, raise HTTPException
             raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/resolve-image")
+async def resolve_image(model: str, device: str, impl: Optional[str] = None):
+    """Return the exact Docker image this server would deploy for (model, device).
+
+    The deployed image comes from the server's own model_spec (and may differ from
+    any image ref a client has cached), so callers that want to pre-pull the image
+    must resolve it here with the same device /run uses.
+    """
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        return {"status": "success", "model": model, "device": device, "docker_image": model_spec.docker_image}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Could not resolve image for model={model}, device={device}: {e}")
+
 
 @app.get("/models")
 async def get_available_models():

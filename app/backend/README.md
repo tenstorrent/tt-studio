@@ -1,5 +1,15 @@
 # API Backend
 
+Django REST API for TT-Studio. Handles model deployment, RAG, and metadata.
+
+## Docker access
+
+The backend **does not mount `/var/run/docker.sock`** and **does not run as root**. All Docker operations go through the [`docker-control-service`](../../docker-control-service/README.md) over HTTP with JWT auth (`DOCKER_CONTROL_SERVICE_URL`, `DOCKER_CONTROL_JWT_SECRET`).
+
+See [dev-docs/DOCKER_SOCKET_MIGRATION.md](../../dev-docs/DOCKER_SOCKET_MIGRATION.md) for the architecture and rationale. Older code paths in this directory that import the Docker SDK directly are being migrated — new code should call the control service.
+
+## API reference
+
 $api_host: on the host default is `0.0.0.0:8000`, on the Docker bridge network (within containers) this is is proxied through the frontend app which is defaulted to localhost:3000`.
 
 ### GET $api_host/docker/get_containers
@@ -92,22 +102,22 @@ format: JSON
 }
 ```
 
-### POST $api_host/docker/stop
+### GET $api_host/docker/stop/stream/<container_id>/
 
-- **Description**: Stop a running container by container_id, the id can be found from `status` API call.
-- **Parameters**: container_id [str]: the docker container uuid.
+- **Description**: Stop and remove a running container by container_id (found from the `status` API call), streaming progress as Server-Sent Events. The chips the model occupied are reset unless `?skip_device_reset=true` is passed.
+- **Parameters**: container_id [str, path]: the docker container uuid. skip_device_reset [bool, query, optional]: stop only, leaving a later whole-board reset to run.
 - **Example request**:
 
 ```
-curl -X POST -H "Content-Type: application/json" -d '{"container_id":"1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1"}' http://0.0.0.0:8000/docker/stop/
+curl -N http://0.0.0.0:8000/docker/stop/stream/1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1/
 ```
 
 - **Response**:
-format: JSON
-```json
-{
-    "status": "success"
-}
+format: Server-Sent Events (`text/event-stream`). `log` events stream progress; a final `complete` event carries the outcome.
+```
+data: {"type": "step", "step": "deleting", "message": "Stopping model 1d1a274a7126…"}
+data: {"type": "log", "step": "deleting", "message": "Container removed"}
+data: {"type": "complete", "status": "success", "message": "Model deleted and device(s) 0 reset successfully"}
 ```
 ### POST $api_host/docker/redeploy
 

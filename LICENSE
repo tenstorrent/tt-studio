@@ -200,3 +200,31 @@ distributed as part of the software:
 - Docker [License available here](https://github.com/docker/docs/blob/main/LICENSE)
 - shadcn/ui [License available here](https://github.com/shadcn/ui/blob/main/LICENSE.md)
 - Third Party Libraries used in Frontend Product [License available here](app/frontend/third-party-licenses.txt)
+- openWakeWord (Apache-2.0) [License available here](https://github.com/dscripka/openWakeWord/blob/main/LICENSE)
+- Silero VAD (MIT) [License available here](https://github.com/snakers4/silero-vad/blob/master/LICENSE)
+- @ricky0123/vad-web (ISC) [License available here](https://github.com/ricky0123/vad/blob/master/LICENSE)
+- Google speech_embedding model (Apache-2.0, bundled by openWakeWord) [License available here](https://github.com/dscripka/openWakeWord/blob/main/LICENSE)
+
+-------------------------------------------------------------------------------
+Wake-Word Model Training Data:
+
+The bundled wake-word model ("hey_quiet_box") was trained by Tenstorrent AI ULC
+using the openWakeWord pipeline (Apache-2.0). Its weights are a derivative of the
+following CC BY 4.0 datasets, credited here as required by that license:
+
+- MUSAN corpus — used for background augmentation and negative/validation data.
+  D. Snyder, G. Chen, D. Povey, "MUSAN: A Music, Speech, and Noise Corpus,"
+  arXiv:1510.08484, 2015. Licensed under CC BY 4.0
+  [License](https://creativecommons.org/licenses/by/4.0/). Modified: audio
+  features were extracted from the corpus for model training.
+- LibriTTS-R — underlying corpus of the Piper TTS voice (en_US-libritts_r-medium)
+  used to synthesize positive/adversarial training samples. Y. Koizumi et al.,
+  "LibriTTS-R: A Restored Multi-Speaker Text-to-Speech Corpus," Interspeech 2023,
+  arXiv:2305.18802. Licensed under CC BY 4.0
+  [License](https://creativecommons.org/licenses/by/4.0/).
+
+Training tools (used to produce the model, not distributed as part of it):
+openWakeWord (Apache-2.0), piper-sample-generator (MIT, https://github.com/rhasspy/piper-sample-generator),
+pyroomacoustics (MIT). Room impulse responses used for augmentation were
+synthetically generated with pyroomacoustics and are not derived from any
+copyrighted recording.

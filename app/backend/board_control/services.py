@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import subprocess
 import json
@@ -7,9 +7,12 @@ import os
 import psutil
 import signal
 import time
+from pathlib import Path
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.core.cache import cache
 from shared_config.logger_config import get_logger
+from shared_config.backend_config import backend_config
 from .models import HardwareSnapshot, DeviceTelemetry, HardwareAlert
 
 logger = get_logger(__name__)
@@ -26,7 +29,38 @@ class SystemResourceService:
     # Device state cache keys
     DEVICE_STATE_CACHE_KEY = "device_state_v2"
     DEVICE_RESETTING_KEY = "device_resetting"
-    
+
+    # Filename the docker_control whole-board reset job writes its progress to,
+    # on the shared backend volume (see docker_control.views._run_reset_all_job).
+    RESET_ALL_STATE_FILENAME = "reset_all_status.json"
+
+    @staticmethod
+    def _board_reset_job_active():
+        """True while a whole-board reset job (docker_control reset_all) is running.
+
+        Read from the shared status file (not the per-process cache) so device-state
+        reports RESETTING across all uvicorn workers, and for the WHOLE job — including
+        the model-stopping phase that precedes the tt-smi reset.
+        """
+        try:
+            path = Path(backend_config.backend_cache_root) / SystemResourceService.RESET_ALL_STATE_FILENAME
+            with open(path) as f:
+                state = json.load(f)
+            if state.get("done"):
+                return False
+            updated = parse_datetime(state.get("updated_at") or "")
+            return updated is not None and (timezone.now() - updated).total_seconds() < 120
+        except Exception:
+            return False
+
+    @staticmethod
+    def is_reset_in_progress():
+        """True if any board/device reset is active — the single-device reset cache
+        flag or the whole-board reset job. Used to report RESETTING and to block
+        conflicting actions (e.g. new deployments)."""
+        return bool(cache.get(SystemResourceService.DEVICE_RESETTING_KEY)) or \
+            SystemResourceService._board_reset_job_active()
+
     @staticmethod
     def get_tt_smi_data(timeout=30):
         """Get raw tt-smi data with caching to reduce expensive calls"""
@@ -153,16 +187,16 @@ class SystemResourceService:
                                 else:
                                     board_type = "N300"
                             
-                            # Blackhole devices (P300c has 2 chips per card)
+                            # Blackhole devices (P300 has 2 chips per card)
                             elif "p300" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P300Cx4"  # 8 chips = 4 cards
                                 elif num_devices >= 4:
-                                    board_type = "P300Cx2"  # 4 chips = 2 cards
+                                    board_type = "P300x2"   # 4 chips = 2 cards
                                 elif num_devices == 2:
-                                    board_type = "P300c"    # 2 chips = 1 card
+                                    board_type = "P300"     # 2 chips = 1 card
                                 else:
-                                    board_type = "P300c"    # Single chip fallback
+                                    board_type = "P300"     # Single chip fallback
                             elif "p150" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P150X8"
@@ -278,7 +312,7 @@ class SystemResourceService:
                         
                         system_status["devices"] = devices
                         
-                        # Determine primary board name using detected board type (supports P300Cx2/X4)
+                        # Determine primary board name using detected board type (supports P300x2/P300Cx4)
                         detected_board_type = SystemResourceService.get_board_type()
                         system_status["board_name"] = detected_board_type
                 else:
@@ -461,8 +495,8 @@ class SystemResourceService:
             if num_devices >= 8:
                 return "P300Cx4"
             if num_devices >= 4:
-                return "P300Cx2"
-            return "P300c"
+                return "P300x2"
+            return "P300"
         if "p150" in raw_lower:
             if num_devices >= 8:
                 return "P150X8"
@@ -518,8 +552,11 @@ class SystemResourceService:
           NOT_PRESENT — /dev/tenstorrent path does not exist
           UNKNOWN     — can't determine (startup / tt-smi missing)
         """
-        # RESETTING takes priority — check before cache
-        if cache.get(SystemResourceService.DEVICE_RESETTING_KEY):
+        # RESETTING takes priority — check before cache. Covers single-device resets
+        # (DEVICE_RESETTING_KEY cache flag) and the whole-board reset job, which is
+        # tracked in a shared file so it's visible across workers and during its
+        # model-stopping phase.
+        if SystemResourceService.is_reset_in_progress():
             return {
                 "state": "RESETTING",
                 "board_type": "unknown",

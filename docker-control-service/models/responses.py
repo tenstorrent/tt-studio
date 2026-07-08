@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Pydantic Response Models for Docker Control Service
@@ -33,6 +33,13 @@ class ContainerListResponse(BaseModel):
     """Response model for listing containers"""
     status: str
     containers: List[Dict[str, Any]]
+
+
+class ContainerDirSizeResponse(BaseModel):
+    """Response model for a recursive byte-count of a container directory."""
+    status: str
+    bytes: Optional[int] = Field(None, description="Total bytes (None if path missing or exec failed)")
+    message: Optional[str] = None
 
 
 class ContainerDetailsResponse(BaseModel):

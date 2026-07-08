@@ -5,7 +5,9 @@
 # model_control/views.py
 import os
 from pathlib import Path
+from typing import Optional
 import asyncio
+import base64
 import threading
 import requests
 from PIL import Image
@@ -43,13 +45,86 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
         return (renderers[0], renderers[0].media_type)
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
+from .log_classifier import classify_startup_phase
+
+
+# Module-level latch: tracks the highest phase + cached state we've ever seen
+# for each deploy_id. Without this, the classifier can briefly regress (e.g.
+# Llama hits `device_init` then the tail rotates and only `container_starting`
+# markers remain → bar jumps back to 2%). Also catches the "weights cached"
+# flag during the brief window when the cached log line is in the tail, and
+# remembers it across later polls when that line has scrolled out.
+_phase_latch_lock = threading.Lock()
+_phase_latch: dict[str, dict] = {}
+
+
+def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
+    """Merge in the highest phase + sticky fields seen for this deploy.
+
+    Phase ordering comes from `phase_dict["phases"]`. Three independent
+    monotonic guarantees:
+      1. `phase` can only advance forward (or stay).
+      2. `progress` (numeric percent) can never regress, even within the same
+         phase. This protects against substep-counter drops when an earlier
+         marker scrolls out of the 200-line tail.
+      3. `weights_cached` / `weights_repo` are sticky once seen.
+    """
+    phases = phase_dict.get("phases") or []
+    current = phase_dict.get("phase")
+    with _phase_latch_lock:
+        prev = _phase_latch.get(deploy_id) or {}
+        prev_phase = prev.get("phase")
+        prev_max_progress = int(prev.get("max_progress", 0))
+
+        # Resolve max phase by index in the (stable) phases list. If categories
+        # changed mid-deploy we play it safe and skip the comparison.
+        new_phase = current
+        if prev_phase and current and prev_phase in phases and current in phases:
+            if phases.index(prev_phase) > phases.index(current):
+                new_phase = prev_phase
+                labels = phase_dict.get("phase_labels") or {}
+                base_pct = phase_dict.get("phase_base_pct") or {}
+                phase_dict["phase"] = prev_phase
+                phase_dict["phase_label"] = labels.get(prev_phase, prev_phase)
+                phase_dict["progress"] = max(
+                    phase_dict.get("progress", 0), base_pct.get(prev_phase, 0)
+                )
+
+        # Floor progress at the maximum ever recorded for this deploy so the
+        # bar can never visually go backwards.
+        cur_progress = int(phase_dict.get("progress", 0) or 0)
+        if cur_progress < prev_max_progress:
+            phase_dict["progress"] = prev_max_progress
+        new_max_progress = max(prev_max_progress, int(phase_dict.get("progress", 0) or 0))
+
+        # Sticky cached/repo so the badge persists across tail rotations.
+        if prev.get("weights_cached") and not phase_dict.get("weights_cached"):
+            phase_dict["weights_cached"] = True
+        if prev.get("weights_repo") and not phase_dict.get("weights_repo"):
+            phase_dict["weights_repo"] = prev["weights_repo"]
+
+        _phase_latch[deploy_id] = {
+            "phase": new_phase,
+            "max_progress": new_max_progress,
+            "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
+            "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
+        }
+    return phase_dict
+
+
+def _drop_phase_latch(deploy_id: str) -> None:
+    """Forget latched state for a deploy (e.g. when it becomes healthy or is removed)."""
+    with _phase_latch_lock:
+        _phase_latch.pop(deploy_id, None)
 from model_control.model_utils import (
     encoded_jwt,
+    _vllm_client,
     get_deploy_cache,
     get_model_name_from_container,
     get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
+    stream_openai_passthrough,
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
@@ -237,35 +312,186 @@ class ModelHealthView(APIView):
             if check_passed is True:
                 ret_status = status.HTTP_200_OK
                 content = {"message": "Healthy", "details": health_content}
+                # Container is healthy — release the latched startup state.
+                _drop_phase_latch(deploy_id)
             elif check_passed is None:
                 ret_status = status.HTTP_202_ACCEPTED
                 content = {"message": "Starting", "details": health_content}
+                # Enrich the "starting" response with real phase info parsed from
+                # the container's stdout. Best-effort: if anything fails we still
+                # return the basic 202 so the badge logic is unaffected.
+                content["phase"] = _get_startup_phase(deploy_id)
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}
+                # Permanently unavailable — release the latch so a fresh deploy
+                # with the same id doesn't inherit stale phase state.
+                _drop_phase_latch(deploy_id)
             return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _resolve_model_identity(deploy_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Look up (model_type, model_name) for a deploy_id from the deploy cache.
+
+    Used by `_get_startup_phase` so the classifier can pick the right phase
+    template (LLM vs MEDIA). Returns (None, None) if the cache miss — the
+    classifier then falls back to name-regex routing or defaults to LLM.
+    """
+    try:
+        cache = get_deploy_cache() or {}
+        entry = cache.get(deploy_id) or {}
+        model_impl = entry.get("model_impl")
+        if model_impl is None:
+            return (None, None)
+        mtype = getattr(getattr(model_impl, "model_type", None), "value", None)
+        mname = getattr(model_impl, "model_name", None)
+        return (mtype, mname)
+    except Exception as e:
+        logger.debug(f"_resolve_model_identity({deploy_id[:12]}) failed: {e}")
+        return (None, None)
+
+
+def _refine_download_progress(phase_dict: dict, dl: dict) -> None:
+    """Mutate phase_dict in-place: layer byte-ratio refinement on top of the
+    coarse base_pct, using whichever phase template is in effect."""
+    base_pct = phase_dict.get("phase_base_pct") or {}
+    phases = phase_dict.get("phases") or []
+    dl_start = base_pct.get("downloading_weights")
+    if dl_start is None:
+        return
+    # Find the next phase to bound the download band. Leave a 2-pct gap so
+    # the boundary nudges visibly when phase advances.
+    try:
+        idx = phases.index("downloading_weights")
+        next_key = phases[idx + 1] if idx + 1 < len(phases) else None
+    except ValueError:
+        next_key = None
+    next_pct = base_pct.get(next_key) if next_key else None
+    band_end = (next_pct - 2) if next_pct is not None else (dl_start + 20)
+    band_end = max(band_end, dl_start)
+
+    total = dl.get("total_bytes")
+    downloaded = dl.get("downloaded_bytes")
+    if total and downloaded is not None and total > 0:
+        ratio = min(1.0, max(0.0, downloaded / total))
+        phase_dict["progress"] = int(round(dl_start + ratio * (band_end - dl_start)))
+    elif dl.get("weights_cached"):
+        # No total_bytes available but we know it's cached — pin to the top
+        # of the band so the bar doesn't read as "starting from scratch".
+        phase_dict["progress"] = max(phase_dict.get("progress", 0), band_end)
+
+
+def _get_startup_phase(deploy_id: str) -> dict | None:
+    """Tail the container's recent logs and run the phase classifier.
+
+    Picks the LLM or MEDIA phase template based on the deploy's model_type.
+    When the classifier reports `downloading_weights`, also reads byte counts
+    from the container via the docker-control-service dir-size endpoint and
+    merges byte / speed / ETA fields into the response so the Preparing banner
+    can render a live progress bar — see download_progress.py.
+
+    Returns None if the tail fails — callers should treat None as "no phase
+    info available", not as an error.
+    """
+    model_type, model_name = _resolve_model_identity(deploy_id)
+
+    try:
+        from docker_control.docker_control_client import get_docker_client
+        client = get_docker_client()
+        lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
+        # Even if `lines` is empty (container hasn't logged yet, or the tail
+        # was all noise upstream), still run the classifier — it'll default to
+        # phases[0], and `_apply_phase_latch` promotes that to the previously
+        # latched maximum so the bar never reports null mid-warmup.
+        phase_dict = classify_startup_phase(
+            lines or [], model_type=model_type, model_name=model_name,
+        )
+        phase_dict = _apply_phase_latch(deploy_id, phase_dict)
+    except Exception as e:
+        logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
+        return None
+
+    try:
+        if phase_dict.get("phase") == "downloading_weights":
+            from .download_progress import compute_download_progress
+            dl = compute_download_progress(
+                deploy_id=deploy_id,
+                repo=phase_dict.get("weights_repo"),
+                container_path=phase_dict.get("weights_target_path"),
+                cached=bool(phase_dict.get("weights_cached")),
+            )
+            phase_dict.update(dl)
+            _refine_download_progress(phase_dict, dl)
+            # Surface a richer message when we have a repo to name.
+            repo = dl.get("weights_repo")
+            downloaded = dl.get("downloaded_bytes")
+            total = dl.get("total_bytes")
+            if dl.get("weights_cached"):
+                phase_dict["message"] = (
+                    f"Weights cached — skipping download ({repo})" if repo
+                    else "Weights cached — skipping download"
+                )
+            elif repo:
+                from_b = _format_bytes(downloaded) if downloaded is not None else "—"
+                to_b = _format_bytes(total) if total else "?"
+                phase_dict["message"] = f"Downloading {repo}: {from_b} / {to_b}"
+    except Exception as e:
+        logger.debug(f"download_progress merge failed for {deploy_id[:12]}: {e}")
+
+    return phase_dict
+
+
+def _format_bytes(n: int | float | None) -> str:
+    """Compact human-readable byte size (matches the frontend formatter)."""
+    if n is None or n < 0:
+        return "—"
+    if n == 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    v = float(n)
+    u = 0
+    while v >= 1024 and u < len(units) - 1:
+        v /= 1024
+        u += 1
+    if v >= 100 or u == 0:
+        return f"{int(v)} {units[u]}"
+    if v >= 10:
+        return f"{v:.1f} {units[u]}"
+    return f"{v:.2f} {units[u]}"
+
+
 class DeployedModelsView(APIView):
+    """Thin shim over get_canonical_deployments() preserving the existing
+    response shape: dict keyed by container_id, every entry has a serialized
+    model_impl (asdict, enums rendered as .value), env_vars and docker_config stripped for security.
+
+    Filters to fully-deployed managed containers only (source="managed" and not is_pending) — matches the historical behaviour where this endpoint only surfaced models that had reached the running state.
+    """
+
     def get(self, request, *args, **kwargs):
-        """user filtered version of deploy_cache, add more data as needed."""
-        deployed_data = get_deploy_cache()
-        for k, v in deployed_data.items():
-            # serialize
-            v["model_impl"] = v["model_impl"].asdict()
-            v["model_impl"]["device_configurations"] = [
-                e.name for e in v["model_impl"]["device_configurations"]
-            ]
-            # Convert enum values to their string representations for JSON serialization
-            if hasattr(v["model_impl"]["model_type"], 'value'):
-                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
-            if hasattr(v["model_impl"]["setup_type"], 'value'):
-                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
-            # for security reasons remove variables
-            del v["model_impl"]["docker_config"]
-            del v["env_vars"]
+        from docker_control.docker_utils import (
+            get_canonical_deployments,
+            serialize_canonical_entry_for_http,
+        )
+
+        canonical = get_canonical_deployments()
+        deployed_data = {}
+        for con_id, entry in canonical.items():
+            if entry.get("source") != "managed":
+                continue
+            if entry.get("is_pending"):
+                continue
+            if entry.get("model_impl") is None:
+                continue
+            serialized = serialize_canonical_entry_for_http(entry)
+            # Existing consumers don't expect these internal markers.
+            serialized.pop("source", None)
+            serialized.pop("is_pending", None)
+            serialized.pop("deployment_id", None)
+            serialized.pop("deployment_model_name", None)
+            deployed_data[con_id] = serialized
 
         logger.info(f"deployed_data:={deployed_data}")
         return Response(deployed_data, status=status.HTTP_200_OK)
@@ -391,34 +617,51 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                data = {"prompt": prompt}
-                inference_data = requests.post(internal_url, json=data, headers=headers, timeout=5)
-                inference_data.raise_for_status()
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
 
-                # begin fetch status loop
-                ready_latest = False
-                task_id = inference_data.json().get("task_id")
-                get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
-                while (not ready_latest):
-                    latest_prompt = requests.get(get_status_url, headers=headers)
-                    if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
-                        latest_prompt.raise_for_status()
-                        if latest_prompt.json()["status"] == "Completed":
-                            ready_latest = True
-                    time.sleep(1)
+                if "/v1/images/generations" in internal_url:
+                    # Synchronous OpenAI-compatible API — returns base64 JSON immediately
+                    inference_data = requests.post(
+                        internal_url,
+                        json={"prompt": prompt},
+                        headers=headers,
+                        timeout=2000,
+                    )
+                    inference_data.raise_for_status()
+                    resp_json = inference_data.json()
+                    if "images" in resp_json:
+                        b64_image = resp_json["images"][0]
+                    else:
+                        b64_image = resp_json["data"][0]["b64_json"]
+                    image_bytes = base64.b64decode(b64_image)
+                    django_response = HttpResponse(image_bytes, content_type="image/jpeg")
+                    django_response["Content-Disposition"] = "attachment; filename=image.jpg"
+                    return django_response
+                else:
+                    # Legacy enqueue/poll/fetch API
+                    inference_data = requests.post(
+                        internal_url, json={"prompt": prompt}, headers=headers, timeout=5
+                    )
+                    inference_data.raise_for_status()
 
-                # call get_image to get image
-                get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                latest_image = requests.get(get_image_url, headers=headers, stream=True)
-                latest_image.raise_for_status()
-                content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
-                content_disposition = f'attachment; filename=image.png'
-                
-                # Create a Django HttpResponse with the content of the file from Flask
-                django_response = HttpResponse(latest_image.content, content_type=content_type)
-                django_response['Content-Disposition'] = content_disposition
-                return django_response
+                    ready_latest = False
+                    task_id = inference_data.json().get("task_id")
+                    get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
+                    while not ready_latest:
+                        latest_prompt = requests.get(get_status_url, headers=headers)
+                        if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                            latest_prompt.raise_for_status()
+                            if latest_prompt.json()["status"] == "Completed":
+                                ready_latest = True
+                        time.sleep(1)
+
+                    get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
+                    latest_image = requests.get(get_image_url, headers=headers, stream=True)
+                    latest_image.raise_for_status()
+                    content_type = latest_image.headers.get("Content-Type", "application/octet-stream")
+                    django_response = HttpResponse(latest_image.content, content_type=content_type)
+                    django_response["Content-Disposition"] = "attachment; filename=image.png"
+                    return django_response
 
             except requests.exceptions.HTTPError as http_err:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
@@ -430,6 +673,157 @@ class ImageGenerationInferenceView(APIView):
 
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class VideoGenerationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for tt-media-server T2V API."""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        prompt = data.get("prompt")
+        if not prompt:
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+
+        payload = {"prompt": prompt}
+        if data.get("seed") is not None:
+            try:
+                payload["seed"] = int(data["seed"])
+            except (TypeError, ValueError):
+                pass
+        if data.get("num_inference_steps") is not None:
+            try:
+                payload["num_inference_steps"] = int(data["num_inference_steps"])
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp.raise_for_status()
+
+            # Sync mode: server returned video bytes directly (use_async_video=False)
+            if init_resp.status_code == status.HTTP_200_OK:
+                content_type = init_resp.headers.get("Content-Type", "video/mp4")
+                django_response = HttpResponse(init_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                return django_response
+
+            # Async mode: server returned 202 with job_id — return it immediately so the
+            # frontend can poll status (see VideoGenerationStatusView) and then download
+            # (VideoGenerationDownloadView). The blocking poll loop used to live here.
+            job_data = init_resp.json()
+            job_id = job_data.get("job_id") or job_data.get("id")
+            if not job_id:
+                logger.error(f"No job_id in async response: {job_data}")
+                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationInferenceView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = 0
+            if err_status == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif err_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _video_base_url(deploy_id):
+    """Resolve the tt-media-server base URL for a deployed video model."""
+    deploy = get_deploy_cache()[deploy_id]
+    internal_url = "http://" + deploy["internal_url"]
+    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+
+
+def _normalize_video_phase(raw_status):
+    """Map the tt-media-server status string to a coarse phase for the frontend."""
+    s = (raw_status or "").lower()
+    if s in ("completed", "complete", "done", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "canceled", "cancelling", "canceling"):
+        return "cancelled"
+    if s in ("in_progress", "running", "processing"):
+        return "in_progress"
+    return "queued"
+
+
+class VideoGenerationStatusView(APIView):
+    """Proxy the tt-media-server video job status so the frontend can poll progress."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+            poll_resp.raise_for_status()
+
+            phase = _normalize_video_phase(poll_resp.json().get("status"))
+            return Response({"phase": phase}, status=status.HTTP_200_OK)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationStatusView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VideoGenerationDownloadView(APIView):
+    """Proxy the finished video file from the tt-media-server."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationDownloadView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class SpeechRecognitionInferenceView(APIView):
@@ -1179,7 +1573,14 @@ class ModelAPIInfoView(APIView):
                 # Create curl examples for both chat completions and completions APIs
                 chat_curl_example = self._get_chat_curl_example(chat_completions_url, encoded_jwt, deploy_info)
                 completions_curl_example = self._get_completions_curl_example(completions_url, encoded_jwt, deploy_info)
-                
+
+                # For non-LLM models the container does not serve /v1/chat/completions,
+                # so expose the matching TT-Studio backend proxy route instead. The route
+                # is relative (the frontend prepends its own origin) because behind the
+                # proxy the backend cannot resolve a host-reachable absolute URL.
+                proxy_path = self._get_endpoint_path(model_type)
+                inference_route = f"/models-api{proxy_path}" if proxy_path else None
+
                 api_info[deploy_id] = {
                     "model_name": model_name,
                     "model_type": model_type,
@@ -1197,6 +1598,7 @@ class ModelAPIInfoView(APIView):
                         "health": health_endpoint_url,
                         "tt_studio_backend": f"{base_url}/models-api/inference/"
                     },
+                    "inference_route": inference_route,
                     "deploy_info": {
                         "model_impl": {
                             "model_name": getattr(model_impl, "model_name", None) if model_impl else None,
@@ -1218,15 +1620,19 @@ class ModelAPIInfoView(APIView):
             )
     
     def _get_endpoint_path(self, model_type):
-        """Get the appropriate endpoint path based on model type"""
+        """Get the backend proxy route for a non-LLM model type.
+
+        Keys are ModelTypes enum values. Returns None for chat-like models
+        (chat/vlm/mock), which keep the direct-container chat/completions flow.
+        """
         endpoint_map = {
-            "ChatModel": "/inference/",
-            "ImageGeneration": "/image-generation/",
-            "ObjectDetectionModel": "/object-detection/",
-            "SpeechRecognitionModel": "/speech-recognition/"
+            "image_generation": "/image-generation/",
+            "object_detection": "/object-detection/",
+            "speech_recognition": "/speech-recognition/",
+            "tts": "/tts/",
         }
-        return endpoint_map.get(model_type, "/inference/")
-    
+        return endpoint_map.get(model_type)
+
     def _get_example_payload(self, model_type, deploy_info):
         """Get example payload based on model type"""
         # Get the actual deploy_id for this specific model
@@ -1356,3 +1762,229 @@ class ModelAPIInfoView(APIView):
   -H "Content-Type: application/json" \\
   -d '{json_payload}'
 """
+
+
+# Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
+# is the SSOT in shared_config.coding_agent_config.
+from shared_config.coding_agent_config import (  # noqa: E402
+    is_coding_agent_eligible,
+    get_gateway_model_names,
+    resolve_thinking_variant,
+)
+
+LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
+LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
+LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
+LITELLM_INTERNAL_URL = os.environ.get("LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000")
+
+# Round-robin cursor per model_name for multi-chip / duplicate deployments
+_rr_lock = threading.Lock()
+_rr_counters: dict[str, int] = {}
+
+
+def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
+    """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
+
+    Eligibility is decided by is_coding_agent_eligible (shared_config SSOT).
+    Resilient to deploy-cache failures (e.g. docker-control-service down): logs
+    and returns an empty list so callers degrade gracefully instead of 500ing.
+    """
+    out = []
+    try:
+        cache = get_deploy_cache()
+    except Exception as e:
+        logger.warning(f"coding-agents: deploy cache unavailable: {e}")
+        return out
+    for deploy_id, entry in cache.items():
+        impl = entry.get("model_impl")
+        if not entry.get("internal_url") or not is_coding_agent_eligible(impl):
+            continue
+        out.append((deploy_id, entry))
+    return out
+
+
+def _resolve_deploy_by_model_name(model_name: str):
+    """Find a running CHAT/VLM deployment whose friendly model_name matches.
+
+    Matches the catalog `model_impl.model_name` (what the UI shows and the user
+    types), falling back to `cached_model_name`/`hf_model_id`. Round-robins
+    across duplicates (e.g. the same model deployed on multiple chips).
+    """
+    matches = [
+        entry
+        for _, entry in _running_coding_agent_deploys()
+        if model_name
+        in (
+            getattr(entry.get("model_impl"), "model_name", None),
+            entry.get("cached_model_name"),
+            getattr(entry.get("model_impl"), "hf_model_id", None),
+        )
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    with _rr_lock:
+        idx = _rr_counters.get(model_name, 0)
+        _rr_counters[model_name] = (idx + 1) % len(matches)
+    return matches[idx % len(matches)]
+
+
+def _check_upstream_auth(request) -> bool:
+    """Validate the LiteLLM -> backend shared secret. True if authorized."""
+    if not LITELLM_UPSTREAM_KEY:
+        return True
+    auth = request.headers.get("Authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    return token == LITELLM_UPSTREAM_KEY
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OpenAIChatCompletionsView(View):
+    """OpenAI-compatible /v1/chat/completions upstream for the LiteLLM gateway.
+
+    Resolves the OpenAI `model` field (a friendly catalog name) to a running
+    deployment and proxies to its vLLM container, reusing the same streaming
+    machinery as the in-app chat (`stream_response_from_external_api`).
+    """
+
+    async def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return JsonResponse({"error": {"message": "Unauthorized"}}, status=401)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
+
+        # Reasoning models are exposed as both "<name>" and "<name>-thinking";
+        # both resolve to the same deployment but flip vLLM's enable_thinking flag.
+        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
+        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
+        if deploy is None:
+            return JsonResponse(
+                {"error": {"message": f"No running model named '{base_model}'.",
+                           "type": "model_not_found"}},
+                status=404,
+            )
+        if enable_thinking is not None:
+            ctk_raw = data.get("chat_template_kwargs")
+            ctk = ctk_raw if isinstance(ctk_raw, dict) else {}
+            ctk["enable_thinking"] = enable_thinking
+            data["chat_template_kwargs"] = ctk
+
+        internal_url = "http://" + deploy["internal_url"]
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+        )
+
+        # Clamp max_tokens to 75% of the context window (same policy as InferenceView).
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
+            deploy["model_impl"].param_count
+        )
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # Base/completion models: convert messages -> prompt and route accordingly.
+        service_route = deploy["model_impl"].service_route
+        if service_route == "/v1/completions":
+            messages = data.pop("messages", [])
+            data["prompt"] = messages_to_prompt(messages)
+            data.pop("stream_options", None)
+
+        stream = bool(data.get("stream", False))
+
+        if stream:
+            async def generate():
+                try:
+                    # Clean OpenAI SSE passthrough (no injected stream_options /
+                    # stats trailer) so the gateway emits spec-compliant chunks.
+                    async for chunk in stream_openai_passthrough(internal_url, data):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"OpenAIChatCompletionsView stream error: {e}")
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+            response["Cache-Control"] = "no-cache"
+            response["X-Accel-Buffering"] = "no"
+            return response
+
+        # Non-streaming: proxy the JSON response from vLLM verbatim via the shared
+        # pooled client (avoids a fresh connection pool per request).
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        try:
+            upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
+            return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
+        except Exception as e:
+            logger.error(f"OpenAIChatCompletionsView non-stream error: {e}")
+            return JsonResponse({"error": {"message": str(e)}}, status=502)
+
+
+class OpenAIModelsView(APIView):
+    """OpenAI-compatible /v1/models listing of deployed chat models.
+
+    Powers LiteLLM `check_provider_endpoint` discovery (and therefore Claude
+    Code's `/model` picker via CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).
+    """
+
+    def get(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        seen = set()
+        data = []
+        for _, entry in _running_coding_agent_deploys():
+            name = getattr(entry.get("model_impl"), "model_name", None)
+            if not name:
+                continue
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                data.append({"id": exposed, "object": "model", "owned_by": "tt-studio"})
+        return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
+
+
+class CodingAgentsView(APIView):
+    """Info for the frontend 'Coding Agents' page: gateway health, key, models.
+
+    Returns host-relative info only; the frontend builds absolute URLs from
+    window.location.hostname so remote / port-forwarded access works.
+    """
+
+    def get(self, request, *args, **kwargs):
+        health = "disabled"
+        if LITELLM_MASTER_KEY:
+            try:
+                resp = requests.get(f"{LITELLM_INTERNAL_URL}/health/liveliness", timeout=2)
+                health = "healthy" if resp.status_code == 200 else "unreachable"
+            except requests.RequestException:
+                health = "unreachable"
+
+        models = []
+        seen = set()
+        for _, entry in _running_coding_agent_deploys():
+            impl = entry.get("model_impl")
+            name = getattr(impl, "model_name", None)
+            if not name:
+                continue
+            mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                models.append({"name": exposed, "type": mtype})
+
+        return Response(
+            {
+                "litellm_enabled": bool(LITELLM_MASTER_KEY),
+                "health": health,
+                "gateway_port": LITELLM_PORT,
+                "openai_base_path": "/v1",
+                "master_key": LITELLM_MASTER_KEY,
+                "models": models,
+            },
+            status=status.HTTP_200_OK,
+        )

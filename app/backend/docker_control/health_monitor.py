@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import threading
 import time
@@ -128,21 +128,31 @@ def check_container_health():
         logger.error(f"Error in check_container_health: {e}")
 
 
+_HEALTH_POLL_INTERVAL_SECONDS = 5
+
+
 def health_monitoring_loop():
-    """Background thread that continuously monitors container health"""
+    """Background thread that continuously monitors container health.
+
+    Polls every _HEALTH_POLL_INTERVAL_SECONDS (5 s by default). Read-time
+    reconciliation in get_canonical_deployments now catches dead containers on the next status fetch regardless of this loop, so this thread is the persistence layer (writing status="dead" / etc. to the store) rather than the sole detection path. 
+    A 5s interval keeps the persistent store roughly current at negligible CPU cost.
+    """
     global _stop_monitoring
-    
-    logger.info("Starting container health monitoring service")
-    
+
+    logger.info(
+        "Starting container health monitoring service (interval=%ss)",
+        _HEALTH_POLL_INTERVAL_SECONDS,
+    )
+
     while not _stop_monitoring:
         try:
             check_container_health()
         except Exception as e:
             logger.error(f"Error in health monitoring loop: {e}")
-        
-        # Wait 60 seconds before next check
-        time.sleep(60)
-    
+
+        time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
+
     logger.info("Container health monitoring service stopped")
 
 

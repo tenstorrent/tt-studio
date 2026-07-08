@@ -14,7 +14,7 @@ import {
 import { useTheme } from "../../hooks/useTheme";
 import { motion } from "framer-motion";
 import MarkdownComponent from "@/src/components/chatui/MarkdownComponent";
-import type { Conversation, ConversationMessage } from "./types";
+import type { Conversation, ConversationMessage, PipelineStage } from "./types";
 
 function cleanLlmText(text: string): string {
   return text
@@ -33,6 +33,7 @@ interface MainContentProps {
   selectedConversation: string | null;
   isStreaming?: boolean;
   isTTSGenerating?: boolean;
+  stage?: PipelineStage;
 }
 
 export function MainContent({
@@ -40,6 +41,7 @@ export function MainContent({
   selectedConversation,
   isStreaming = false,
   isTTSGenerating = false,
+  stage = "idle",
 }: MainContentProps) {
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const { theme } = useTheme();
@@ -151,17 +153,43 @@ export function MainContent({
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full min-h-[200px] sm:min-h-[300px] gap-3 sm:gap-4">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center bg-TT-purple-accent/10">
-              <Mic className="w-6 h-6 sm:w-7 sm:h-7 lg:w-8 lg:h-8 text-TT-purple-accent opacity-60" />
-            </div>
-            <p
-              className={cn(
-                "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium",
-                theme === "dark" ? "text-gray-500" : "text-gray-400"
-              )}
-            >
-              Press the microphone to start
-            </p>
+            {stage === "recording" ? (
+              <>
+                <div className="relative w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 flex items-center justify-center">
+                  <span className="absolute inset-0 rounded-full bg-TT-red-accent/30 animate-ping" />
+                  <span className="relative w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full bg-TT-red-accent" />
+                </div>
+                <p
+                  className={cn(
+                    "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium text-TT-red-accent"
+                  )}
+                >
+                  Listening...
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center bg-TT-purple-accent/10">
+                  <Mic className="w-6 h-6 sm:w-7 sm:h-7 lg:w-8 lg:h-8 text-TT-purple-accent opacity-60" />
+                </div>
+                <p
+                  className={cn(
+                    "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium",
+                    theme === "dark" ? "text-gray-500" : "text-gray-400"
+                  )}
+                >
+                  Press the microphone to start
+                </p>
+                <p
+                  className={cn(
+                    "text-xs sm:text-sm font-mono tracking-wide",
+                    theme === "dark" ? "text-gray-600" : "text-gray-400/80"
+                  )}
+                >
+                  or say <span className="text-TT-purple-accent font-semibold">"Hey Quiet Box"</span>
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>

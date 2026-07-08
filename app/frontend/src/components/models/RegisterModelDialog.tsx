@@ -513,7 +513,7 @@ export default function RegisterModelDialog({
                     >
                       <Cpu className="h-4 w-4 shrink-0 text-TT-purple-accent" />
                       <div>
-                        <div className="font-medium text-white">Single Chip</div>
+                        <div className="font-medium text-white">Single Device</div>
                         <div className="text-[10px] text-muted-foreground">1 device slot</div>
                       </div>
                     </button>
@@ -533,7 +533,7 @@ export default function RegisterModelDialog({
                     >
                       <Layers className="h-4 w-4 shrink-0 text-TT-purple-accent" />
                       <div>
-                        <div className="font-medium text-white">Multi-Chip</div>
+                        <div className="font-medium text-white">Multi-Device</div>
                         <div className="text-[10px] text-muted-foreground">All {chipStatus.total_slots} slots</div>
                       </div>
                     </button>
@@ -545,7 +545,7 @@ export default function RegisterModelDialog({
                   <div className="flex items-start gap-2 rounded-md bg-amber-950/40 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
                     <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                     <span>
-                      Multi-chip requires all slots to be free. Currently occupied:{" "}
+                      Multi-device requires all slots to be free. Currently occupied:{" "}
                       {multiChipConflicts
                         .map((s) => `slot ${s.slot_id} (${s.model_name ?? "unknown"})`)
                         .join(", ")}

@@ -17,13 +17,18 @@ function toSortedUnique(ids: number[]): number[] {
 }
 
 export function isP300x2Board(boardType?: string | null): boolean {
-  return boardType === "P300Cx2";
+  return boardType === "P300x2";
 }
 
 export function isLlama31_8BModel(modelNameOrId?: string | null): boolean {
   if (!modelNameOrId) return false;
   const token = normalizeToken(modelNameOrId);
   return token.includes("llama-3.1-8b") || token.includes("llama3.18b");
+}
+
+export function isFluxModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  return normalizeToken(modelNameOrId).includes("flux");
 }
 
 export function parseDeviceIds(deviceId?: string | number): number[] {

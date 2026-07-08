@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 SPDX Header Addition Tool
@@ -22,7 +22,7 @@ DIRECTORIES PROCESSED:
 
 EXCLUDED DIRECTORIES:
 - node_modules/ (external dependencies)
-- tt-inference-server/ (submodule)
+- tt-inference-server/ (artifact extraction directory, not owned source)
 
 HOW TO RUN:
 1. From the project root directory (tt-studio/):
@@ -54,7 +54,7 @@ NOTES:
 - The script is safe to run multiple times (won't add duplicate headers)
 - Files are processed in-place (backed up versions are not created)
 - UTF-8 encoding is assumed for all files
-- Automatically excludes node_modules and submodules
+- Automatically excludes node_modules and artifact directories
 """
 
 from pathlib import Path
