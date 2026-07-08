@@ -184,13 +184,14 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
     """
     Run docker compose, streaming build progress.
 
-    The active phase node "pulses" (via console.pulse()) as output flows, so the
-    build never looks frozen. In dev mode (or --verbose) the full per-service
-    milestones ("<svc> · installing Python deps…") + compose status scroll below;
-    in plain (non-dev) mode only the pulse + "✓ <svc> built" lines show, to keep
-    it minimal. Returns (returncode, full_output_string).
+    The active phase node "pulses" continuously (a background ticker) for the whole
+    build, so it never looks frozen even during a long step that prints nothing. In
+    dev mode (or --verbose) the full per-service milestones ("<svc> · installing
+    Python deps…") + compose status scroll below; in plain (non-dev) mode only the
+    pulse + "✓ <svc> built" lines show, to keep it minimal. Returns
+    (returncode, full_output_string).
     """
-    from tt_setup.console import build_event, build_log, is_verbose, pulse
+    from tt_setup.console import build_event, build_log, is_verbose, start_pulse, stop_pulse
 
     verbose_build = dev_mode or is_verbose()
 
@@ -212,26 +213,29 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
     output_lines = []
     step_svc = {}     # BuildKit step number -> short svc name
 
-    for line in process.stdout:
-        output_lines.append(line)
-        pulse()   # top-node liveness (both modes)
-        if verbose_build:
-            build_log(line)   # compose status lines scroll (dev/-v only)
-        parsed = parse_build_line(line)
-        if parsed is None:
-            continue
-        if parsed[0] == 'step':
-            _, n, svc, x, y, desc = parsed
-            short = _short_service(svc)
-            step_svc[n] = short
+    start_pulse()   # animate the active node for the whole build (both modes)
+    try:
+        for line in process.stdout:
+            output_lines.append(line)
             if verbose_build:
-                build_event('step', svc=short, x=x, y=y, label=friendly_build_label(desc))
-        elif parsed[0] == 'cached':
-            short = step_svc.get(parsed[1])
-            if short and verbose_build:
-                build_event('cached', svc=short)
-        elif parsed[0] == 'built':
-            build_event('built', svc=_short_service(parsed[1]))   # ✓ line: both modes
+                build_log(line)   # compose status lines scroll (dev/-v only)
+            parsed = parse_build_line(line)
+            if parsed is None:
+                continue
+            if parsed[0] == 'step':
+                _, n, svc, x, y, desc = parsed
+                short = _short_service(svc)
+                step_svc[n] = short
+                if verbose_build:
+                    build_event('step', svc=short, x=x, y=y, label=friendly_build_label(desc))
+            elif parsed[0] == 'cached':
+                short = step_svc.get(parsed[1])
+                if short and verbose_build:
+                    build_event('cached', svc=short)
+            elif parsed[0] == 'built':
+                build_event('built', svc=_short_service(parsed[1]))   # ✓ line: both modes
+    finally:
+        stop_pulse()
 
     process.wait()
     full_output = ''.join(output_lines)

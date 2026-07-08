@@ -16,6 +16,7 @@ import contextlib
 import io
 import shutil
 import sys
+import threading
 import time
 
 from rich import box
@@ -38,6 +39,10 @@ TT_THEME = Theme({
     # Brand accent — matches the legacy C_TT_PURPLE (\033[38;5;99m). Used for
     # panel borders/titles so the launcher reads as one cohesive theme.
     "accent": "color(99)",
+    # Bold accent as a single theme style. Rich can't resolve the markup combo
+    # "[bold accent]" (a bold modifier + a *theme* style name), so use this named
+    # style where a bold-accent span is needed (e.g. the active stepper node).
+    "accent.bold": "bold color(99)",
 })
 
 console = Console(theme=TT_THEME)
@@ -183,7 +188,12 @@ class _ChecklistController:
         self._cleared_once = False  # collapse: clear the body on every phase after the first
         self._pulse_frame = 0       # rotating-spinner frame for the active node
         self._pulse_active = False  # animate the active node (during the build)
-        self._last_pulse = 0.0      # throttle repaints
+        self._awaiting_input = False  # active node turns red while blocked on a prompt
+        # Serializes every terminal write to the fixed header with build-time body
+        # prints, so the background pulse ticker never interleaves with them.
+        self._paint_lock = threading.RLock()
+        self._ticker = None         # daemon thread animating the active node
+        self._ticker_stop = None    # threading.Event to stop the ticker
 
     _PULSE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # active-node spinner frames (the phase "pulse")
 
@@ -215,11 +225,12 @@ class _ChecklistController:
             return
         size = shutil.get_terminal_size(fallback=(80, 24))
         self._cols, self._rows = size.columns, size.lines
-        f = _real_console.file
-        f.write("\033[2J\033[H")                          # clear screen, cursor home
-        f.write(f"\033[{self._RESERVE + 1};{self._rows}r")  # scroll region below row 1
-        f.write(f"\033[{self._RESERVE + 1};1H")            # cursor into the scroll region
-        f.flush()
+        with self._paint_lock:
+            f = _real_console.file
+            f.write("\033[2J\033[H")                          # clear screen, cursor home
+            f.write(f"\033[{self._RESERVE + 1};{self._rows}r")  # scroll region below row 1
+            f.write(f"\033[{self._RESERVE + 1};1H")            # cursor into the scroll region
+            f.flush()
         self._sticky_on = True
         self._torn_down = False
         self._paint()
@@ -227,35 +238,61 @@ class _ChecklistController:
     def _paint(self):
         if not self._sticky_on:
             return
-        size = shutil.get_terminal_size(fallback=(80, 24))
-        f = _real_console.file
-        if (size.columns, size.lines) != (self._cols, self._rows):
-            # Resize: recompute the region (or drop to plain if it got too short).
-            self._cols, self._rows = size.columns, size.lines
-            if self._rows <= self._RESERVE + 3:
-                self._teardown(final=False)
-                return
-            f.write(f"\033[{self._RESERVE + 1};{self._rows}r")
-        stepper = self._render_ansi(self._stepper_line())
-        rule = self._render_ansi(Text("─" * self._cols, style="muted"))
-        f.write("\0337")                          # save cursor (relative to region)
-        f.write("\033[1;1H" + stepper + "\033[K")  # row 1: the stepper
-        f.write("\033[2;1H" + rule + "\033[K")     # row 2: separator from the body
-        f.write("\0338")                          # restore cursor (back into region)
-        f.flush()
+        with self._paint_lock:
+            size = shutil.get_terminal_size(fallback=(80, 24))
+            f = _real_console.file
+            if (size.columns, size.lines) != (self._cols, self._rows):
+                # Resize: recompute the region (or drop to plain if too short).
+                self._cols, self._rows = size.columns, size.lines
+                if self._rows <= self._RESERVE + 3:
+                    self._teardown(final=False)
+                    return
+                f.write(f"\033[{self._RESERVE + 1};{self._rows}r")
+            stepper = self._render_ansi(self._stepper_line())
+            rule = self._render_ansi(Text("─" * self._cols, style="muted"))
+            f.write("\0337")                          # save cursor (relative to region)
+            f.write("\033[1;1H" + stepper + "\033[K")  # row 1: the stepper
+            f.write("\033[2;1H" + rule + "\033[K")     # row 2: separator from the body
+            f.write("\0338")                          # restore cursor (back into region)
+            f.flush()
 
-    def pulse(self):
-        """Advance the active node's spinner and repaint the header, so the current
-        phase visibly 'pulses' (used by the build stream). Throttled; no-op unless
-        the sticky header is installed."""
-        if not self._sticky_on:
+    def set_awaiting(self, waiting):
+        """Mark the run blocked on user input → the active node renders red until
+        the prompt is answered."""
+        self._awaiting_input = bool(waiting)
+        self._paint()
+
+    def start_pulse(self):
+        """Begin animating the active phase node via a background ticker, so it
+        spins continuously (even while a long build step produces no output).
+        No-op unless the sticky header is installed / already ticking."""
+        if not self._sticky_on or self._ticker is not None:
             return
-        now = time.monotonic()
-        if now - self._last_pulse < 0.12:
-            return
-        self._last_pulse = now
         self._pulse_active = True
-        self._pulse_frame += 1
+        self._ticker_stop = threading.Event()
+        self._ticker = threading.Thread(target=self._pulse_loop, daemon=True)
+        self._ticker.start()
+
+    def _pulse_loop(self):
+        stop = self._ticker_stop
+        while stop is not None and not stop.is_set():
+            with self._paint_lock:
+                self._pulse_frame += 1
+                self._paint()
+            stop.wait(0.1)   # ~10 fps
+
+    def stop_pulse(self):
+        """Stop the ticker and settle the active node back to a static marker."""
+        if self._ticker_stop is not None:
+            self._ticker_stop.set()
+        # Don't join from within the ticker thread itself (e.g. a resize-triggered
+        # teardown fired from _pulse_loop) — that would raise. The stop event
+        # already tells the loop to exit.
+        if self._ticker is not None and self._ticker is not threading.current_thread():
+            self._ticker.join(timeout=0.5)
+            self._ticker = None
+            self._ticker_stop = None
+        self._pulse_active = False
         self._paint()
 
     def _clear_body(self):
@@ -264,22 +301,25 @@ class _ChecklistController:
         screen. The fixed header rows are untouched."""
         if not self._sticky_on:
             return
-        f = _real_console.file
-        f.write(f"\033[{self._RESERVE + 1};1H")  # top of the scroll region
-        f.write("\033[J")                          # clear from cursor to end of screen
-        f.flush()
+        with self._paint_lock:
+            f = _real_console.file
+            f.write(f"\033[{self._RESERVE + 1};1H")  # top of the scroll region
+            f.write("\033[J")                          # clear from cursor to end of screen
+            f.flush()
 
     def _teardown(self, final=False):
         """Reset the scroll region — idempotent, safe from every exit path."""
+        self.stop_pulse()   # never leave the ticker writing to a torn-down region
         if self._torn_down:
             return
         self._torn_down = True
-        if self._sticky_on:
-            f = _real_console.file
-            f.write("\033[r")                      # reset scroll region to full screen
-            f.write(f"\033[{self._rows};1H\n")     # drop below everything, clean line
-            f.flush()
-            self._sticky_on = False
+        with self._paint_lock:
+            if self._sticky_on:
+                f = _real_console.file
+                f.write("\033[r")                      # reset scroll region to full screen
+                f.write(f"\033[{self._rows};1H\n")     # drop below everything, clean line
+                f.flush()
+                self._sticky_on = False
         if final:
             console.print(self._stepper_line())    # permanent final record
 
@@ -361,13 +401,17 @@ class _ChecklistController:
         self._teardown(final=True)
 
     # ── build progress (scrolling milestones beneath the sticky stepper) ─────────
+    # These print to the body while the pulse ticker repaints the header; the
+    # shared _paint_lock keeps their escape sequences from interleaving.
     def build_event(self, kind, svc=None, x=None, y=None, label=None):
         if kind == "step" and svc and label:
             if self._build_last.get(svc) != label:
                 self._build_last[svc] = label
-                console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
+                with self._paint_lock:
+                    console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
         elif kind == "built" and svc:
-            console.print(f"  [success]✓ {svc} built[/success]")
+            with self._paint_lock:
+                console.print(f"  [success]✓ {svc} built[/success]")
 
     def build_log(self, line):
         """Show only meaningful compose status transitions (Started/Healthy/errors)
@@ -377,7 +421,8 @@ class _ChecklistController:
         if not line or line.startswith("#"):
             return
         if any(k in line for k in (" Started", " Healthy", " Error", " Failed", "error", "failed")):
-            console.print(f"  [dim]{line}[/dim]", highlight=False)
+            with self._paint_lock:
+                console.print(f"  [dim]{line}[/dim]", highlight=False)
 
     # ── rendering helpers ────────────────────────────────────────────────────────
     def _phase_dur(self, p):
@@ -386,20 +431,31 @@ class _ChecklistController:
         return _fmt_duration(p.end - p.start)
 
     def _stepper_line(self):
-        """A horizontal stepper: ✓ done ── ◉ current ── ○ pending ── ✗ failed, with
-        the current phase emphasized so 'where am I' reads at a glance."""
-        segs = []
-        for p in self.phases:
+        """A horizontal stepper that reads as a progress bar via color:
+        green = done (node + trailing connector fill in), accent = current
+        (pulsing), red = waiting-on-input / failed, dim = pending."""
+        n = len(self.phases)
+        parts = []
+        for i, p in enumerate(self.phases):
             if p.status == "done":
-                segs.append(f"[success]✓[/success] [muted]{p.title}[/muted]")
+                parts.append(f"[success]✓ {p.title}[/success]")
             elif p.status == "active":
-                node = self._PULSE[self._pulse_frame % len(self._PULSE)] if self._pulse_active else "◉"
-                segs.append(f"[bold accent]{node} {p.title}[/bold accent]")
+                if self._awaiting_input:
+                    parts.append(f"[error]◉ {p.title}[/error]")   # red (bold): needs you
+                elif self._pulse_active:
+                    frame = self._PULSE[self._pulse_frame % len(self._PULSE)]
+                    parts.append(f"[accent.bold]{frame} {p.title}[/accent.bold]")
+                else:
+                    parts.append(f"[accent.bold]◉ {p.title}[/accent.bold]")
             elif p.status == "failed":
-                segs.append(f"[bold error]✗ {p.title}[/bold error]")
+                parts.append(f"[error]✗ {p.title}[/error]")
             else:
-                segs.append(f"[dim]○ {p.title}[/dim]")
-        line = Text.from_markup("[dim] ── [/dim]".join(segs))
+                parts.append(f"[dim]○ {p.title}[/dim]")
+            if i < n - 1:
+                # Connector fills green once the phase it follows is done → the
+                # bar visibly "completes" left-to-right as progress is made.
+                parts.append("[success] ── [/success]" if p.status == "done" else "[dim] ── [/dim]")
+        line = Text.from_markup("".join(parts))
         line.no_wrap = True
         line.overflow = "crop"
         return line
@@ -528,9 +584,14 @@ def build_log(line):
     _checklist.build_log(line)
 
 
-def pulse():
-    """Advance the active phase node's spinner (the top-of-screen 'pulse')."""
-    _checklist.pulse()
+def start_pulse():
+    """Start continuously animating the active phase node (top-of-screen 'pulse')."""
+    _checklist.start_pulse()
+
+
+def stop_pulse():
+    """Stop the active-node pulse animation."""
+    _checklist.stop_pulse()
 
 
 def stop_active_phase():
@@ -722,8 +783,10 @@ def notice_panel(title, lines, border_style="accent"):
 @contextlib.contextmanager
 def _prompt_guard():
     """Suspend any active phase spinner for the duration of a prompt so the live
-    display doesn't fight the input line, then resume it."""
+    display doesn't fight the input line, then resume it. Flags the active phase
+    node red while blocked on input, so a waiting prompt is obvious up top."""
     ph = _active_phase
+    _checklist.set_awaiting(True)
     if ph is not None:
         ph.suspend()
     try:
@@ -731,6 +794,7 @@ def _prompt_guard():
     finally:
         if ph is not None:
             ph.resume()
+        _checklist.set_awaiting(False)
 
 
 def ask(prompt, default=None, choices=None, password=False):
