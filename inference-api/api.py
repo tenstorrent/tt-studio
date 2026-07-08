@@ -48,16 +48,36 @@ if artifact_path is None:
     )
 
 def _get_hf_token_from_user_config() -> Optional[str]:
-    """Read hf_token from TT Studio's persistent user_config.json (set via the
+    """Read HF_TOKEN from TT Studio's persistent user_config.env (set via the
     Settings UI). Returns None if absent so callers can fall back to .env."""
     root = os.getenv("TT_STUDIO_ROOT")
     if not root:
         return None
-    cfg_path = Path(root) / "tt_studio_persistent_volume" / "backend_volume" / "user_config.json"
-    if not cfg_path.exists():
+    volume_dir = Path(root) / "tt_studio_persistent_volume" / "backend_volume"
+    env_path = volume_dir / "user_config.env"
+    if env_path.exists():
+        try:
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() != "HF_TOKEN":
+                    continue
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+        except OSError:
+            return None
+        return None
+    # Legacy user_config.json from before the .env migration; the backend
+    # converts and deletes it on its next load.
+    legacy_path = volume_dir / "user_config.json"
+    if not legacy_path.exists():
         return None
     try:
-        with cfg_path.open("r") as f:
+        with legacy_path.open("r") as f:
             data = json.load(f)
         if isinstance(data, dict):
             val = data.get("hf_token")
@@ -1225,7 +1245,7 @@ def sync_tokens_from_tt_studio():
     else:
         logger.warning(f"TT Studio .env file not found at {tt_studio_env}")
 
-    # Prefer the UI-managed hf_token from user_config.json over app/.env so
+    # Prefer the UI-managed hf_token from user_config.env over app/.env so
     # changes saved via the Settings dialog apply on every /run.
     ui_hf = _get_hf_token_from_user_config()
     if ui_hf:
@@ -1366,7 +1386,7 @@ async def run_inference(request: RunRequest):
         # so changes apply without restarting inference-api or redeploying anything.
         ui_hf = _get_hf_token_from_user_config()
         if ui_hf:
-            logger.info("Setting HF_TOKEN from TT Studio user_config.json")
+            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
             env_vars_to_set["HF_TOKEN"] = ui_hf
         elif request.hf_token and not os.getenv("HF_TOKEN"):
             logger.info("Setting HF_TOKEN from request")

@@ -34,21 +34,49 @@ from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 
 
+def _read_user_config_env_value(path: Path, env_key: str) -> Optional[str]:
+    """Parse a KEY=VALUE dotenv file and return the value for env_key, or None."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != env_key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        return value or None
+    return None
+
+
 def _resolve_tavily_api_key() -> Optional[str]:
-    """Read TAVILY_API_KEY fresh from the shared user_config.json (with env fallback)
+    """Read TAVILY_API_KEY fresh from the shared user_config.env (with env fallback)
     so UI changes apply without restarting the agent container."""
     base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
     if base:
-        path = Path(base) / "backend_volume" / "user_config.json"
-        try:
-            if path.exists():
-                with path.open("r") as f:
-                    data = json.load(f)
-                val = data.get("tavily_api_key") if isinstance(data, dict) else None
-                if val:
-                    return val
-        except (OSError, json.JSONDecodeError):
-            pass
+        env_path = Path(base) / "backend_volume" / "user_config.env"
+        if env_path.exists():
+            val = _read_user_config_env_value(env_path, "TAVILY_API_KEY")
+            if val:
+                return val
+        else:
+            # Legacy user_config.json from before the .env migration; the
+            # backend converts and deletes it on its next load.
+            legacy = Path(base) / "backend_volume" / "user_config.json"
+            try:
+                if legacy.exists():
+                    with legacy.open("r") as f:
+                        data = json.load(f)
+                    val = data.get("tavily_api_key") if isinstance(data, dict) else None
+                    if val:
+                        return val
+            except (OSError, json.JSONDecodeError):
+                pass
     return os.environ.get("TAVILY_API_KEY") or None
 
 
@@ -363,7 +391,7 @@ def initialize_agent_components():
         # Initialize tools
         tools = []
 
-        # Add search tool — reads the API key from shared user_config.json on each
+        # Add search tool — reads the API key from shared user_config.env on each
         # call so UI changes apply without restarting the agent container.
         search = DynamicTavilySearch(
             max_results=2,
