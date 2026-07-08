@@ -4,13 +4,12 @@
 
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
-import { useStepper } from "./ui/stepper";
 import { StepperFormActions } from "./StepperFormActions";
-import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
-import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
-import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
+import { DeploymentProgress } from "./ui/DeploymentProgress";
+import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
+import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -24,6 +23,9 @@ export function DeployModelStep({
   requireDeviceSelection,
   deviceAutoSelected,
   placementBlocked,
+  registerDeployment,
+  activeDeployment,
+  activeProgress,
 }: {
   selectedModel: string | null;
   handleDeploy: (options?: {
@@ -40,9 +42,18 @@ export function DeployModelStep({
   deviceAutoSelected?: boolean;
   // True when no valid device configuration is currently free (auto mode).
   placementBlocked?: boolean;
+  // Registers a fired deploy with the session-wide tracker (progress tray + reservations).
+  registerDeployment: (d: {
+    jobId: string;
+    modelId: string;
+    modelName: string;
+    deviceIds: number[];
+  }) => void;
+  // Set when the selected model already has a deploy in flight — we resume its
+  // progress bar here instead of offering the deploy button again.
+  activeDeployment?: ActiveDeployment;
+  activeProgress?: DeploymentProgressData | null;
 }) {
-  const { nextStep, isLastStep } = useStepper();
-  const { refreshModels } = useModels();
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
   // Block deployment while a board/device reset is in progress.
@@ -57,119 +68,6 @@ export function DeployModelStep({
     availableSlots: 0,
     occupiedDetails: [],
   });
-
-  // Track deployment error state that persists even after deployment stops
-  const [deploymentError, setDeploymentError] = useState<{
-    hasError: boolean;
-    message: string;
-  }>({
-    hasError: false,
-    message: "",
-  });
-
-  // Track the current job_id to monitor progress
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [shouldPoll, setShouldPoll] = useState(true);
-  // Track if deployment is in progress to prevent blocking UI during deployment
-  const [isDeploymentInProgress, setIsDeploymentInProgress] = useState(false);
-
-  // Add state for logs
-  const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
-  const [showLogs, setShowLogs] = useState(false);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-
-  // Add function to fetch logs
-  const fetchDeploymentLogs = useCallback(async (jobId: string) => {
-    // Toggle logs if already shown
-    if (showLogs) {
-      setShowLogs(false);
-      return;
-    }
-
-    setLoadingLogs(true);
-    try {
-      const response = await fetch(`/docker-api/deploy/logs/${jobId}/`);
-      if (response.ok) {
-        const data = await response.json();
-        // Format logs for display
-        const formattedLogs = data.logs?.map((log: any) => {
-          const timestamp = log.timestamp ? new Date(log.timestamp * 1000).toLocaleString() : '';
-          return `[${timestamp}] [${log.level}] ${log.message}`;
-        }) || [];
-        setDeploymentLogs(formattedLogs);
-        setShowLogs(true);
-      }
-    } catch (error) {
-      console.error("Error fetching deployment logs:", error);
-    } finally {
-      setLoadingLogs(false);
-    }
-  }, [showLogs]);
-
-  // Poll for deployment progress to detect errors (sequential + spaced: avoids overlapping requests)
-  useEffect(() => {
-    if (!currentJobId || !shouldPoll) return;
-
-    let cancelled = false;
-    let notFoundCount = 0;
-    const MAX_NOT_FOUND = 10;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const pollProgress = async () => {
-      try {
-        const response = await fetch(`/docker-api/deploy/progress/${currentJobId}/`);
-        if (response.ok) {
-          const progressData = await response.json();
-
-          // 'not_found' during active deployment is expected (job may not be registered yet)
-          if (progressData.status === 'not_found') {
-            notFoundCount += 1;
-            if (notFoundCount <= MAX_NOT_FOUND) {
-              return;
-            }
-          } else {
-            notFoundCount = 0;
-          }
-
-          if (progressData.status === 'error' || progressData.status === 'failed' || progressData.status === 'timeout') {
-            let errorMessage = progressData.message || "Deployment failed";
-            if (errorMessage.startsWith("exception: ")) {
-              errorMessage = errorMessage.substring("exception: ".length);
-            }
-
-            setDeploymentError({
-              hasError: true,
-              message: errorMessage,
-            });
-
-            setShouldPoll(false);
-            setIsDeploymentInProgress(false);
-          } else if (progressData.status === 'completed') {
-            setShouldPoll(false);
-            setCurrentJobId(null);
-          }
-        }
-      } catch (error) {
-        console.error("Error polling deployment progress:", error);
-      }
-    };
-
-    const tick = async () => {
-      if (cancelled) return;
-      await pollProgress();
-      if (cancelled) return;
-      timer = setTimeout(() => {
-        void tick();
-      }, DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS);
-    };
-
-    void tick();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [currentJobId, shouldPoll]);
 
   useEffect(() => {
     const fetchModelName = async () => {
@@ -193,12 +91,6 @@ export function DeployModelStep({
   }, [selectedModel]);
 
   useEffect(() => {
-    // Don't check slot status while deployment is in progress
-    // This prevents the blocking UI from showing immediately after a successful deployment
-    if (isDeploymentInProgress) {
-      return;
-    }
-
     const fetchSlotStatus = async () => {
       try {
         const response = await axios.get("/docker-api/chip-status/");
@@ -222,7 +114,7 @@ export function DeployModelStep({
     };
 
     fetchSlotStatus();
-  }, [isDeploymentInProgress]);
+  }, []);
 
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
@@ -252,84 +144,107 @@ export function DeployModelStep({
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
 
-    // Mark deployment as in progress to prevent blocking UI
-    setIsDeploymentInProgress(true);
-
-    // Optimistically mark a slot as taken to prevent blocking UI during deployment
-    setSlotInfo((prev) => ({
-      ...prev,
-      availableSlots: Math.max(0, prev.availableSlots - 1),
-    }));
-
-    // Reset error state and polling flag when starting a new deployment
-    setDeploymentError({
-      hasError: false,
-      message: "",
-    });
-    setShouldPoll(true);
-
     const deployOptions: { device_id?: number | string; host_port?: number | null } = {};
     if (selectedDeviceIds !== undefined && selectedDeviceIds.length > 0) {
       const sorted = selectedDeviceIds.slice().sort((a, b) => a - b);
       deployOptions.device_id = sorted.length === 1 ? sorted[0] : sorted.join(",");
     }
-    const deployResult = await handleDeploy(deployOptions);
+    return handleDeploy(deployOptions);
+  }, [handleDeploy, isDeployDisabled, selectedDeviceIds]);
 
-    // Store job_id for progress tracking
-    if (deployResult.job_id) {
-      setCurrentJobId(deployResult.job_id);
-    }
-
-    if (deployResult.success) {
-      // Don't refresh models immediately - wait until deployment completes
-      // This prevents the blocking UI from showing while deployment is in progress
-      // The refresh will happen after navigation in onDeploymentComplete
-    } else {
-      // Reset deployment in progress on immediate failure
-      setIsDeploymentInProgress(false);
-    }
-    return deployResult;
-  }, [
-    handleDeploy,
-    refreshModels,
-    triggerRefresh,
-    triggerHardwareRefresh,
-    isDeployDisabled,
-    selectedDeviceIds,
-  ]);
-
-  const onDeploymentComplete = useCallback(() => {
-    setTimeout(() => {
-      // If we're on the last step, navigate to deployed models page instead of calling nextStep()
-      // Calling nextStep() on the last step causes the UI to break (activeStep exceeds step count)
-      if (isLastStep) {
-        navigate("/models-deployed");
-      } else {
-        nextStep();
-      }
-      // Reset after navigation to prevent blocking UI from appearing
-      // The deployed models page will refresh automatically when it loads
-      setIsDeploymentInProgress(false);
-    }, 1500); // Show success message briefly
-  }, [nextStep, isLastStep, navigate]);
+  // Hand a fired deploy to the session tracker, then let refresh hooks update
+  // the rest of the app (models list / hardware view) in the background.
+  const onDeployStarted = useCallback(
+    (jobId: string) => {
+      if (!selectedModel) return;
+      registerDeployment({
+        jobId,
+        modelId: selectedModel,
+        modelName: modelName ?? selectedModel,
+        deviceIds: previewDeviceIds ?? [],
+      });
+      triggerRefresh();
+      triggerHardwareRefresh();
+    },
+    [selectedModel, modelName, previewDeviceIds, registerDeployment, triggerRefresh, triggerHardwareRefresh]
+  );
 
   const handleGoToDeployedModels = () => {
     navigate("/models-deployed");
   };
 
-  const handleRetryDeploy = () => {
-    // Reset error state to allow retry
-    setDeploymentError({
-      hasError: false,
-      message: "",
-    });
-    // Note: The AnimatedDeployButton will reset its state when onDeploy is called again
-  };
+  // The selected model just finished — briefly confirm then hand off to the Models Deployed page.
+  const isDeploymentComplete = activeDeployment?.status === "completed";
+  useEffect(() => {
+    if (!isDeploymentComplete) return;
+    const timer = setTimeout(() => navigate("/models-deployed"), 1500);
+    return () => clearTimeout(timer);
+  }, [isDeploymentComplete, navigate]);
 
   // Show blocking warning when the selected model can't fit the free devices
-  const showSlotsFullWarning = cannotFit && !isDeploymentInProgress;
+  const showSlotsFullWarning = cannotFit;
   // Show informational status when some slots are in use but the model still fits
-  const showSlotInfo = !cannotFit && slotInfo.occupiedDetails.length > 0 && !isDeploymentInProgress;
+  const showSlotInfo = !cannotFit && slotInfo.occupiedDetails.length > 0;
+
+  // The selected model just finished — confirm success and redirect
+  if (activeDeployment && isDeploymentComplete) {
+    return (
+      <>
+        <div className="flex flex-col items-center justify-center p-6 text-center" style={{ minHeight: "200px" }}>
+          <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
+          <h3 className="text-lg font-semibold text-green-700 dark:text-green-300 mb-1">
+            {activeDeployment.modelName} deployed
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Taking you to the Deployed Models page…
+          </p>
+        </div>
+        <StepperFormActions removeDynamicSteps={() => { }} />
+      </>
+    );
+  }
+
+  // The selected model is already deploying — resume its progress bar in place of
+  // the deploy button so the user reconnects to the exact run they started.
+  if (activeDeployment) {
+    return (
+      <>
+        <div className="flex flex-col items-center justify-center p-6" style={{ minHeight: "200px" }}>
+          <div className="w-full max-w-md">
+            <div className="flex items-center gap-2 mb-1">
+              <Cpu className="h-4 w-4 text-TT-purple-accent" />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                {activeDeployment.modelName}
+              </span>
+            </div>
+            <DeploymentProgress
+              progress={
+                activeProgress ?? {
+                  status: "starting",
+                  stage: "starting",
+                  progress: 0,
+                  message: "Starting deployment…",
+                }
+              }
+              startTime={activeDeployment.startedAt}
+              imagePulled={activeDeployment.hadImagePull}
+            />
+            <p className="mt-3 text-xs text-muted-foreground text-center">
+              This model is already deploying. Go back to deploy another model in parallel,
+              or view it on the Deployed Models page.
+            </p>
+            <div className="mt-3 flex justify-center">
+              <Button variant="outline" size="sm" onClick={handleGoToDeployedModels}>
+                <ExternalLink className="h-3 w-3 mr-1.5" />
+                Manage Deployed Models
+              </Button>
+            </div>
+          </div>
+        </div>
+        <StepperFormActions removeDynamicSteps={() => { }} />
+      </>
+    );
+  }
 
   return (
     <>
@@ -407,60 +322,9 @@ export function DeployModelStep({
                 <Info className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
                 <span className="text-sm text-blue-700 dark:text-blue-300">
                   {slotInfo.occupiedDetails.length}/{slotInfo.totalSlots} device{slotInfo.occupiedDetails.length > 1 ? "s" : ""} in use
-                  {" \u2014 "}
+                  {" — "}
                   {slotInfo.availableSlots} available
                 </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Show prominent error alert when deployment fails */}
-        {deploymentError.hasError && (
-          <div className="w-full max-w-2xl mb-6">
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 text-center">
-              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
-                Deployment Failed
-              </h3>
-              <div className="bg-white dark:bg-gray-800 border border-red-200 dark:border-red-700 rounded p-4 mb-4 max-h-48 overflow-y-auto">
-                <p className="text-sm text-red-700 dark:text-red-300 text-left whitespace-pre-wrap break-words">
-                  {deploymentError.message}
-                </p>
-              </div>
-
-              {/* Add View Logs button */}
-              {currentJobId && (
-                <div className="mb-4">
-                  <Button
-                    onClick={() => fetchDeploymentLogs(currentJobId)}
-                    disabled={loadingLogs}
-                    variant="outline"
-                    className="border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/30"
-                  >
-                    {loadingLogs ? "Loading..." : showLogs ? "Hide API Logs" : "View API Logs"}
-                  </Button>
-                </div>
-              )}
-
-              {/* Display logs if available */}
-              {showLogs && deploymentLogs.length > 0 && (
-                <div className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto text-left mb-4">
-                  {deploymentLogs.map((log, index) => (
-                    <div key={index} className="whitespace-pre-wrap break-words">
-                      {log}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex justify-center gap-2">
-                <Button
-                  onClick={handleRetryDeploy}
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Try Again
-                </Button>
               </div>
             </div>
           </div>
@@ -471,7 +335,7 @@ export function DeployModelStep({
           changeText={<span>Deploying Model...</span>}
           onDeploy={onDeploy}
           disabled={isDeployDisabled}
-          onDeploymentComplete={onDeploymentComplete}
+          onDeployStarted={onDeployStarted}
         />
         <div className="mt-6 flex flex-col items-start justify-center space-y-2">
           {modelName && (

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import axios from "axios";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
@@ -13,6 +13,8 @@ import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
+import { DeploymentTray } from "./DeploymentTray";
+import { useActiveDeployments } from "../hooks/useActiveDeployments";
 import {
   autoPlacement,
   fullBoardSlots,
@@ -57,7 +59,7 @@ export default function StepperDemo() {
   const [chipStatus, setChipStatus] = useState<{
     board_type: string;
     total_slots: number;
-    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
+    slots: { slot_id: number; status: "available" | "occupied"; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
   } | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
@@ -73,24 +75,54 @@ export default function StepperDemo() {
   // Active stepper step, mirrored out via StepWatcher (0 = model selection, 1 = deploy).
   const [activeStep, setActiveStep] = useState(0);
 
-  // Fetch chip status on mount and poll every 7 minutes
-  useEffect(() => {
-    const fetchChipStatus = () => {
-      axios
-        .get("/docker-api/chip-status/")
-        .then((res) => {
-          setChipStatus(res.data);
-          setTotalSlots(res.data.total_slots ?? 1);
-        })
-        .catch(() => {
-          setChipStatus(null);
-          setTotalSlots(1); // safe fallback to single-chip
-        });
-    };
-    fetchChipStatus();
-    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
-    return () => clearInterval(interval);
+  const fetchChipStatus = useCallback(() => {
+    axios
+      .get("/docker-api/chip-status/")
+      .then((res) => {
+        setChipStatus(res.data);
+        setTotalSlots(res.data.total_slots ?? 1);
+      })
+      .catch(() => {
+        setChipStatus(null);
+        setTotalSlots(1); // safe fallback to single-chip
+      });
   }, []);
+
+  // Session-wide tracker for in-flight deploys. Refresh chip-status whenever one
+  // resolves so a freed (failed) or newly-claimed (completed) slot is reflected.
+  const { deployments, progressByJob, addDeployment, removeDeployment, reservedDeviceIds } =
+    useActiveDeployments({ onResolved: () => fetchChipStatus() });
+  const hasActiveDeployments = deployments.some((d) => d.status === "active");
+
+  // Poll chip status faster while deploys are in flight (a pending slot must grey
+  // out promptly), and idle-poll otherwise.
+  useEffect(() => {
+    fetchChipStatus();
+    const interval = setInterval(fetchChipStatus, hasActiveDeployments ? 5000 : 7 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchChipStatus, hasActiveDeployments]);
+
+  // Overlay reserved devices onto chip-status so the model list greys out
+  // configurations a pending deploy already claimed — before the backend
+  // (which only reserves media slots once their image pull finishes) catches up.
+  const effectiveChipStatus = useMemo(() => {
+    if (!chipStatus || reservedDeviceIds.length === 0) return chipStatus;
+    const reserved = new Set(reservedDeviceIds);
+    const nameByDevice = new Map<number, string>();
+    deployments
+      .filter((d) => d.status === "active")
+      .forEach((d) => d.deviceIds.forEach((id) => {
+        if (!nameByDevice.has(id)) nameByDevice.set(id, d.modelName);
+      }));
+    return {
+      ...chipStatus,
+      slots: chipStatus.slots.map((s) =>
+        reserved.has(s.slot_id) && s.status !== "occupied"
+          ? { ...s, status: "occupied" as const, model_name: s.model_name ?? nameByDevice.get(s.slot_id) }
+          : s
+      ),
+    };
+  }, [chipStatus, reservedDeviceIds, deployments]);
 
   // Fetch the model catalog once to determine Voice Agent availability for this board.
   useEffect(() => {
@@ -139,17 +171,18 @@ export default function StepperDemo() {
   const placement = getModelPlacement(
     selectedModelName ?? selectedModel ?? "",
     selectedModelChips,
-    chipStatus?.board_type
+    effectiveChipStatus?.board_type
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
   const allSlotsSelected =
     selectedDeviceIds.length > 0 && selectedDeviceIds.length === (totalSlots ?? 0);
-  // In auto mode, the best currently-available placement: full board, else a free
-  // card pair (flexible), else the lowest free slot. null when nothing fits.
+  // In auto mode, the best currently-available placement (accounting for in-flight
+  // reservations): full board, else a free card pair (flexible), else the lowest
+  // free slot. null when nothing fits.
   const autoPlace = advancedActive
     ? null
-    : autoPlacement(placement, selectedModelChips, chipStatus?.slots ?? [], totalSlots ?? 4);
+    : autoPlacement(placement, selectedModelChips, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
   // The full-board (force_full_board) flow applies only to flexible models.
   const fullBoardSelected =
     isFlexible && (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
@@ -171,6 +204,22 @@ export default function StepperDemo() {
   // true multi-chip models auto-allocate the whole board.
   const requireDeviceSelection =
     advancedActive && !isMultiChipModel(selectedModelChips);
+
+  // Models with a deploy already in flight — stay selectable (so the user can
+  // reconnect to their progress) rather than being greyed by their own reservation.
+  const deployingModelIds = useMemo(
+    () => new Set(deployments.filter((d) => d.status === "active").map((d) => d.modelId)),
+    [deployments]
+  );
+  // The deploy (if any) for the currently selected model — resumed in the deploy
+  // step. Prefer the active run; fall back to a just-completed one so the deploy
+  // step can show success and redirect instead of reverting to the button.
+  const deploymentForSelected =
+    deployments.find((d) => d.modelId === selectedModel && d.status === "active") ??
+    deployments.find((d) => d.modelId === selectedModel && d.status === "completed");
+  const progressForSelected = deploymentForSelected
+    ? progressByJob[deploymentForSelected.jobId] ?? null
+    : null;
 
   const steps = [
     { label: "Step 1", description: "Model Selection" },
@@ -581,7 +630,8 @@ export default function StepperDemo() {
                   setFormError={setFormError}
                   autoDeployModel={autoDeployModel}
                   isAutoDeploying={isAutoDeploying}
-                  chipStatus={chipStatus}
+                  chipStatus={effectiveChipStatus}
+                  deployingModelIds={deployingModelIds}
                 />
               )}
               {/* Final step — optional advanced hardware config, then deploy */}
@@ -591,6 +641,7 @@ export default function StepperDemo() {
                     <ChipConfigStep
                       placement={placement}
                       onConfirm={setSelectedDeviceIds}
+                      chipStatus={effectiveChipStatus}
                     />
                   )}
                   <DeployModelStep
@@ -602,6 +653,9 @@ export default function StepperDemo() {
                     requireDeviceSelection={requireDeviceSelection}
                     deviceAutoSelected={!advancedActive}
                     placementBlocked={placementBlocked}
+                    registerDeployment={(d) => addDeployment({ ...d, startedAt: Date.now() })}
+                    activeDeployment={deploymentForSelected}
+                    activeProgress={progressForSelected}
                   />
                 </>
               )}
@@ -613,6 +667,16 @@ export default function StepperDemo() {
           </div>
         </Stepper>
       </ElevatedCard>
+
+      {/* Floating, minimizable deployment banner (fixed, bottom-right). Stays
+          mounted across Prev/Next so parallel deploys remain visible regardless of
+          the active step. Lists every deploy — including the one whose detailed bar
+          is also open in the deploy step. */}
+      <DeploymentTray
+        deployments={deployments}
+        progressByJob={progressByJob}
+        onDismiss={removeDeployment}
+      />
     </div>
   );
 }

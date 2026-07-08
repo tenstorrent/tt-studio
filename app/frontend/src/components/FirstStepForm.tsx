@@ -100,6 +100,7 @@ export function FirstStepForm({
   chipMode,
   onModelNameChange,
   chipStatus,
+  deployingModelIds,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
@@ -112,6 +113,9 @@ export function FirstStepForm({
     total_slots: number;
     slots: { slot_id: number; status: string; model_name?: string }[];
   } | null;
+  // Model ids with a deploy already in flight — kept selectable so the user can
+  // reconnect to their progress rather than being blocked by their own reservation.
+  deployingModelIds?: Set<string>;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -327,10 +331,13 @@ export function FirstStepForm({
   const renderModelItem = (model: Model, dotClass: string) => {
     const chips = model.chips_required ?? 1;
     const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+    // A model already deploying stays selectable so the user can reopen its progress.
+    const isDeploying = deployingModelIds?.has(model.id) ?? false;
     const fits =
+      isDeploying ||
       !chipStatus ||
       autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
-    const reason = chipStatus
+    const reason = !isDeploying && chipStatus
       ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
       : null;
     return (
@@ -343,10 +350,16 @@ export function FirstStepForm({
         <div className="flex items-center w-full">
           <span className={`${dotClass} mr-2 text-xs`}>●</span>
           <span className="flex-1">{model.name}</span>
-          {!fits && reason && (
-            <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-              {reason}
+          {isDeploying ? (
+            <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
+              Deploying…
             </span>
+          ) : (
+            !fits && reason && (
+              <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                {reason}
+              </span>
+            )
           )}
         </div>
       </SelectItem>
