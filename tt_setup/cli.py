@@ -12,7 +12,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, ensure_region_reset, is_verbose, notice_panel, ready_panel, register_setup_phases, set_verbose, show_detail, step, steps_panel, stop_active_phase
+from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, ensure_region_reset, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, set_verbose, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, run_preflight_checks
@@ -477,7 +477,7 @@ def _run(args):
         # backend can connect to it when it starts.
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            with step("Docker Control service", spinner=False) as s:
+            with step("Docker Control service", spinner=True) as s:
                 dc_ok = start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev)
                 if not dc_ok:
                     s.fail()
@@ -516,7 +516,7 @@ def _run(args):
                     not os.path.exists(models_json_path)
                 )
                 if should_sync:
-                    with step("Syncing model catalog", spinner=False):
+                    with step("Syncing model catalog", spinner=True):
                         _sync_model_catalog()
                 elif show_detail():
                     console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
@@ -589,7 +589,7 @@ def _run(args):
         if not args.skip_fastapi and not is_deployed_mode:
             original_dir = os.getcwd()
             try:
-                with step("Inference-server environment", spinner=False) as s:
+                with step("Inference-server environment", spinner=True) as s:
                     env_ok = setup_fastapi_environment()
                     if not env_ok:
                         s.fail()
@@ -601,7 +601,7 @@ def _run(args):
                     startup_log.close()
                     sys.exit(1)
 
-                with step("Starting inference server", spinner=False) as s:
+                with step("Starting inference server", spinner=True) as s:
                     fastapi_ok = start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev)
                     if not fastapi_ok:
                         s.fail()
@@ -675,6 +675,18 @@ def _run(args):
         console.print()
         console.print(ready_panel("TT Studio is ready", rows, footer))
         console.print()
+
+        # Recap actionable notes (HF-access blocks, warnings) that per-phase
+        # collapse cleared from the scroll, so they're easy to get back. Full
+        # per-step detail lives in the startup log.
+        notes = get_notes()
+        if notes:
+            console.print(notice_panel(
+                "[bold]⚠  Needs attention[/bold]",
+                notes + ["", f"[muted]Full detail · {STARTUP_LOG_FILE}[/muted]"],
+                border_style="warning",
+            ))
+            console.print()
 
         startup_log.step("startup_complete", "OK")
         startup_log.summary(exit_code=0)

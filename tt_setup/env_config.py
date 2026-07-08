@@ -19,7 +19,7 @@ except ImportError:
 from dotenv import set_key, dotenv_values
 from rich.markup import escape as escape_markup
 from tt_setup.constants import *
-from tt_setup.console import ask, confirm, console, in_phase, is_verbose, secret
+from tt_setup.console import add_note, ask, confirm, console, in_phase, is_verbose, secret
 
 
 def configure_inference_server_artifact(*args, **kwargs):
@@ -446,6 +446,14 @@ def render_hf_access(status, results):
         console.print("  [muted]Open each link, click “Agree and access repository” (sign in first), then run: python run.py[/muted]")
         if token_problem:
             console.print("  [muted]If your token is invalid/expired, create a new one: https://huggingface.co/settings/tokens[/muted]")
+
+        # Also record it for the end-of-run recap — per-phase collapse clears the
+        # inline copy above, so the user needs the links surfaced again at the end.
+        add_note("[warning]HuggingFace — request access, then re-run:[/warning]")
+        for label, repo_id in blocked:
+            add_note(f"  [muted]{label}[/muted]  →  https://huggingface.co/{repo_id}")
+        if token_problem:
+            add_note("  [muted]Token invalid/expired — new one: https://huggingface.co/settings/tokens[/muted]")
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):

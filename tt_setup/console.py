@@ -180,6 +180,7 @@ class _ChecklistController:
         self._cols = 0
         self._rows = 0
         self._build_last = {}     # svc -> last friendly label printed (dedupe)
+        self._cleared_once = False  # collapse: clear the body on every phase after the first
 
     def _enabled(self):
         return console.is_terminal and not VERBOSE
@@ -238,6 +239,17 @@ class _ChecklistController:
         f.write("\0338")                          # restore cursor (back into region)
         f.flush()
 
+    def _clear_body(self):
+        """Wipe the scrolling body (everything below the fixed stepper), so a
+        finished phase's detail is dismissed and the next phase starts on a clean
+        screen. The fixed header rows are untouched."""
+        if not self._sticky_on:
+            return
+        f = _real_console.file
+        f.write(f"\033[{self._RESERVE + 1};1H")  # top of the scroll region
+        f.write("\033[J")                          # clear from cursor to end of screen
+        f.flush()
+
     def _teardown(self, final=False):
         """Reset the scroll region — idempotent, safe from every exit path."""
         if self._torn_down:
@@ -275,6 +287,11 @@ class _ChecklistController:
         p.start = time.monotonic()
         self._suspend_depth = 0
         if self._sticky_on:
+            # Collapse: dismiss the previous phase's detail (but keep the banner +
+            # steps panel visible during the very first phase).
+            if self._cleared_once:
+                self._clear_body()
+            self._cleared_once = True
             # Delineate this phase's output in the scrolling body with a labelled
             # rule, then repaint the fixed stepper at the top.
             console.print(Rule(f"[bold accent]{p.title}[/bold accent]",
@@ -433,6 +450,22 @@ def sticky_active():
     """True while the sticky top stepper region is installed (so the banner skips
     its own screen-clear, which would reset the region)."""
     return _checklist.sticky_active()
+
+
+# Actionable notes collected during a run (HF-access blocks, warnings) so they can
+# be recapped at the end — after per-phase collapse has cleared the inline copy.
+_notes = []
+
+
+def add_note(markup):
+    """Record an actionable note (Rich markup) to re-show in the end-of-run
+    'Needs attention' recap."""
+    _notes.append(markup)
+
+
+def get_notes():
+    """The actionable notes collected this run (for the end recap)."""
+    return list(_notes)
 
 
 def begin_phase(index, total, title):
@@ -805,34 +838,46 @@ def step(label, spinner=True):
 
     use_spinner = spinner and _real_console.is_terminal
     buf = io.StringIO()
-    status = _real_console.status(f"[muted]{label}…[/muted]", spinner="dots") if use_spinner else None
-    if status is not None:
-        status.start()
-    else:
-        # static line (overwritten in place on a TTY by _finish)
-        _real_console.print(f"[muted]{label}…[/muted]")
 
-    def _finish():
-        if status is not None:
-            status.stop()
-        elif _real_console.is_terminal:
-            # overwrite the static "label…" line in place
+    def _emit_result():
+        # Print the ✓/○/✗ line; surface captured output on failure, else log it.
+        _real_console.print(_render_result(label, handle))
+        if handle.failed:
+            sys.__stdout__.write(buf.getvalue())
+            sys.__stdout__.flush()
+        else:
+            _log_detail(label, buf.getvalue())
+
+    if use_spinner:
+        # Context-managed status so Rich reliably clears the transient spinner
+        # line on exit — manual start()/stop() could leave a stray "⠸ label…"
+        # above the collapsed result line.
+        try:
+            with _real_console.status(f"[muted]{label}…[/muted]", spinner="dots"):
+                with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                    yield handle
+        except BaseException:
+            handle.failed = True
+            _emit_result()
+            raise
+        _emit_result()
+        return
+
+    # Non-spinner: static "label…" line, overwritten in place on completion.
+    _real_console.print(f"[muted]{label}…[/muted]")
+
+    def _overwrite():
+        if _real_console.is_terminal:
             _real_console.file.write("\033[A\033[2K")
             _real_console.file.flush()
-        _real_console.print(_render_result(label, handle))
 
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             yield handle
     except BaseException:
         handle.failed = True
-        _finish()
-        sys.__stdout__.write(buf.getvalue())
-        sys.__stdout__.flush()
+        _overwrite()
+        _emit_result()
         raise
-    _finish()
-    if handle.failed:
-        sys.__stdout__.write(buf.getvalue())
-        sys.__stdout__.flush()
-    else:
-        _log_detail(label, buf.getvalue())
+    _overwrite()
+    _emit_result()

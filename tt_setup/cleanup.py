@@ -625,9 +625,12 @@ def _cleanup_runtime(args, has_docker_access):
                 removed = _remove_tt_studio_network_containers(has_docker_access)
                 s.detail(f"{removed} removed") if removed else s.skip("none running")
 
-        # spinner=False (static line overwritten in place): the spinner path can
-        # leave a stray transient line if the compose subprocess writes to the tty.
-        with step("Stopping Docker containers", spinner=False) as s:
+        # Animated spinner so the ~5s `docker compose down` shows it's working
+        # (not a frozen line). Pre-authenticate sudo up-front when needed so its
+        # password prompt doesn't clash with the live spinner.
+        if not has_docker_access:
+            subprocess.run(["sudo", "-v"], check=False)
+        with step("Stopping Docker containers", spinner=True) as s:
             docker_compose_cmd = build_docker_compose_command(
                 dev_mode=args.dev, show_hardware_info=False, quiet=True)
             docker_compose_cmd.extend(["down", "-v"])
@@ -649,7 +652,18 @@ def _cleanup_runtime(args, has_docker_access):
         console.print("[muted]Docker isn't running — stopping host services only "
                       "(no containers to stop).[/muted]")
 
-    with step("Stopping inference API", spinner=False):
+    # Stopping a root-owned host process (started via sudo in a prior run) needs
+    # sudo. Its password prompt would otherwise appear un-announced under a step's
+    # spinner and read as a hang. Announce + pre-authenticate up-front, but ONLY
+    # when a listener on :8001/:8002 is actually root-owned — so users whose
+    # processes are their own (the common case) are never prompted.
+    if (not args.no_sudo and os.geteuid() != 0 and console.is_terminal
+            and (_port_owned_by_root(8001) or _port_owned_by_root(8002))):
+        console.print("[warning]TT Studio needs your password to stop a root-owned "
+                      "host service (ports 8001/8002).[/warning]")
+        subprocess.run(["sudo", "-v"], check=False)
+
+    with step("Stopping inference API", spinner=True):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
-    with step("Stopping Docker control", spinner=False):
+    with step("Stopping Docker control", spinner=True):
         cleanup_docker_control_service(no_sudo=args.no_sudo)

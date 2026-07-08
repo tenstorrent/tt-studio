@@ -210,23 +210,30 @@ def run_docker_compose_with_progress(cmd, cwd):
     output_lines = []
     step_svc = {}     # BuildKit step number -> short svc name
 
-    for line in process.stdout:
-        output_lines.append(line)
-        build_log(line)   # compose status lines scroll; BuildKit '#' noise filtered
-        parsed = parse_build_line(line)
-        if parsed is None:
-            continue
-        if parsed[0] == 'step':
-            _, n, svc, x, y, desc = parsed
-            short = _short_service(svc)
-            step_svc[n] = short
-            build_event('step', svc=short, x=x, y=y, label=friendly_build_label(desc))
-        elif parsed[0] == 'cached':
-            short = step_svc.get(parsed[1])
-            if short:
-                build_event('cached', svc=short)
-        elif parsed[0] == 'built':
-            build_event('built', svc=_short_service(parsed[1]))
+    # A single live spinner shows the current activity ("<svc> · installing Python
+    # deps…") so a long step never looks frozen — apt/npm-style. Milestones and
+    # "✓ svc built" lines (same console) render above it. On a non-TTY the status
+    # is inert and those lines just scroll plainly.
+    with console.status("[info]building containers…[/info]", spinner="dots") as status:
+        for line in process.stdout:
+            output_lines.append(line)
+            build_log(line)   # compose status lines scroll; BuildKit '#' noise filtered
+            parsed = parse_build_line(line)
+            if parsed is None:
+                continue
+            if parsed[0] == 'step':
+                _, n, svc, x, y, desc = parsed
+                short = _short_service(svc)
+                step_svc[n] = short
+                label = friendly_build_label(desc)
+                build_event('step', svc=short, x=x, y=y, label=label)
+                status.update(f"[info]{short} · {label}…[/info]")
+            elif parsed[0] == 'cached':
+                short = step_svc.get(parsed[1])
+                if short:
+                    build_event('cached', svc=short)
+            elif parsed[0] == 'built':
+                build_event('built', svc=_short_service(parsed[1]))
 
     process.wait()
     full_output = ''.join(output_lines)
