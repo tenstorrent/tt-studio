@@ -26,6 +26,11 @@ export function isLlama31_8BModel(modelNameOrId?: string | null): boolean {
   return token.includes("llama-3.1-8b") || token.includes("llama3.18b");
 }
 
+export function isFluxModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  return normalizeToken(modelNameOrId).includes("flux");
+}
+
 export function parseDeviceIds(deviceId?: string | number): number[] {
   if (deviceId === undefined || deviceId === null) {
     return [];

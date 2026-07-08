@@ -330,7 +330,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Configuration key missing{key_hint}',
             'detail': f"{container_name} encountered a missing env var or config key.",
-            'action': "Check app/.env for missing variables. Run: python run.py --reconfigure",
+            'action': "Check .env for missing variables. Run: python run.py --reconfigure",
         }
 
     if "permission denied" in log_lower or "permissionerror" in log_lower:

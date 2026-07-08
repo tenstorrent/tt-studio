@@ -12,6 +12,7 @@ export interface Model {
   health: string;
   ports: string;
   model_type?: string;
+  coding_agent_eligible?: boolean;
   device_id?: number | null;
   device_ids?: number[];
 }

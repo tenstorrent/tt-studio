@@ -169,6 +169,11 @@ def fetch_branch_commit_sha(branch):
         return None
 
 
+def _is_commit_sha(value):
+    """Return True if value looks like a full 40-char hex commit SHA."""
+    return bool(value) and len(value) == 40 and all(c in '0123456789abcdefABCDEF' for c in value)
+
+
 def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
@@ -207,7 +212,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             # Instructions for changing
             f.write("  💡 To switch to a different artifact:\n")
             f.write("     • Run: python run.py --reconfigure-inference-server\n")
-            f.write("     • Or manually edit: app/.env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
+            f.write("     • Or manually edit: .env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
             f.write("\n" + "-" * 80 + "\n\n")
 
             # Technical details section
@@ -432,7 +437,11 @@ def setup_tt_inference_server(pull_branch=False):
                     console.print(f"[warning]⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'[/warning]")
                 
                 if not branch_mismatch:
-                    if pull_branch:
+                    if _is_commit_sha(artifact_branch):
+                        # SHA is immutable — cached artifact is always current; --pull-branch is a no-op
+                        if show_detail():
+                            console.print(f"[success]✅ TT Inference Server (commit: {artifact_branch[:7]}) (cached)[/success]")
+                    elif pull_branch:
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         console.print(f"[info]🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...[/info]")
@@ -601,7 +610,7 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                         _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
@@ -644,9 +653,12 @@ def setup_tt_inference_server(pull_branch=False):
             console.print(f"[muted]📦 Using existing artifact tarball: {artifact_file}[/muted]")
         else:
             if os.path.exists(artifact_file) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
-                console.print("[muted]📦 Artifact directory missing; re-downloading branch to get latest commit...[/muted]")
-            # Download (overwrites existing tarball if present; always gets current HEAD of branch)
-            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
+                console.print("[muted]📦 Artifact directory missing; re-downloading to get latest commit...[/muted]")
+            # Download: commit SHAs use archive/{sha}.tar.gz; branch names use archive/refs/heads/{branch}.tar.gz
+            if _is_commit_sha(artifact_branch):
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/{artifact_branch}.tar.gz"
+            else:
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
                 from tt_setup.console import download_with_progress
                 console.print(f"[muted]   Downloading from: {github_url}[/muted]")
@@ -654,14 +666,18 @@ def setup_tt_inference_server(pull_branch=False):
             except Exception as e:
                 error_str = str(e)
                 if "404" in error_str or "Not Found" in error_str:
-                    console.print(f"[error]⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).[/error]")
-                    console.print("[muted]   The branch name you configured does not exist.[/muted]")
+                    if _is_commit_sha(artifact_branch):
+                        console.print(f"[error]⛔ Commit SHA '{artifact_branch}' not found on GitHub (HTTP 404).[/error]")
+                        console.print("[muted]   The commit SHA you configured does not exist in the repository.[/muted]")
+                    else:
+                        console.print(f"[error]⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).[/error]")
+                        console.print("[muted]   The branch name you configured does not exist.[/muted]")
                     console.print(f"[muted]   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}[/muted]")
                     console.print("[muted]   Run: python run.py --reconfigure-inference-server[/muted]")
                     console.print("[muted]   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches[/muted]")
                 else:
-                    console.print(f"[error]⛔ Failed to download from GitHub branch: {e}[/error]")
-                    console.print(f"[muted]   Make sure the branch name '{artifact_branch}' exists in the repository[/muted]")
+                    console.print(f"[error]⛔ Failed to download from GitHub: {e}[/error]")
+                    console.print(f"[muted]   Make sure the value '{artifact_branch}' exists in the repository[/muted]")
                 if os.path.exists(artifact_file):
                     try:
                         os.remove(artifact_file)
@@ -749,7 +765,7 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                     _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
@@ -839,7 +855,7 @@ def setup_tt_inference_server(pull_branch=False):
 
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                         # "latest" used main branch, so record branch not version
-                        commit_sha = fetch_branch_commit_sha(artifact_branch)
+                        commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
                         _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                         return True
                     else:

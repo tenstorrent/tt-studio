@@ -374,7 +374,7 @@ def _print_preserved_summary(has_docker_access):
 
     rows = [
         ("Model deployments", models),
-        ("Config & secrets", "app/.env"),
+        ("Config & secrets", ".env"),
         ("Saved data", "model weights, chat history, RAG"),
     ]
     footer = ["[muted]Remove these too →[/muted]  [accent]python run.py --purge-all[/accent]"]
@@ -453,6 +453,8 @@ def cleanup_resources(args):
          "HF token, deploy history, RAG DB, model weights"),
         ("⚙️ ", ENV_FILE_PATH,
          "config & secrets (Django key, tokens)"),
+        ("⚙️ ", LEGACY_ENV_FILE_PATH, "legacy pre-consolidation env file (app/.env)"),
+        ("⚙️ ", LEGACY_ENV_BACKUP_PATH, "legacy env backup from migration (app/.env-old)"),
         ("🔧", artifacts_root,
          "inference-server download + tarball"),
         *log_items,

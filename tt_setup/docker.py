@@ -246,8 +246,10 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
         list: Docker Compose command with appropriate files
     """
     compose_files = ["docker", "compose"]
-    # Explicitly pass app/.env so the environment is loaded regardless of the
-    # working directory (rather than relying on compose's implicit cwd auto-load).
+    # The canonical env file now lives at the repo root, so point compose at it
+    # explicitly. --env-file only changes variable resolution; the compose project
+    # directory stays app/ (from the -f paths) so relative build contexts and
+    # ${TT_STUDIO_ROOT} volume paths are kept.
     if os.path.exists(ENV_FILE_PATH):
         compose_files += ["--env-file", ENV_FILE_PATH]
     compose_files += ["-f", DOCKER_COMPOSE_FILE]

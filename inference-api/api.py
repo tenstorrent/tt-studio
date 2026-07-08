@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
 import sys
 import os
+import inspect
 import logging
 import time
 import docker
@@ -68,6 +69,40 @@ workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 # so explicitly override it to point to the artifact directory instead of the repo root.
 if artifact_path:
     workflows_utils.default_dotenv_path = Path(artifact_path) / ".env"
+
+    # workflows.utils.load_dotenv / write_dotenv freeze `default_dotenv_path` as a default
+    # argument value at import time (Python evaluates defaults once, at definition time),
+    # which resolved to the tt-studio repo root. Reassigning the module attribute above does
+    # NOT rebind those already-frozen defaults, so the artifact's no-arg load_dotenv()/
+    # write_dotenv() calls would still read/write a stray .env at the tt-studio repo root
+    # (GitHub issue #820). Rebind the frozen `dotenv_path` default in place so every caller —
+    # including the artifact's own run.py, which imports the same function objects — targets
+    # the artifact's .env instead.
+    _artifact_dotenv = Path(artifact_path) / ".env"
+    for _fn_name in ("load_dotenv", "write_dotenv"):
+        try:
+            _fn = getattr(workflows_utils, _fn_name, None)
+            if _fn is None or not getattr(_fn, "__defaults__", None):
+                continue
+            _params = list(inspect.signature(_fn).parameters.values())
+            # Defaults align to the trailing parameters that have defaults.
+            _defaulted = [p for p in _params if p.default is not inspect.Parameter.empty]
+            _new_defaults = list(_fn.__defaults__)
+            _rebound = False
+            for _idx, _param in enumerate(_defaulted):
+                if _param.name == "dotenv_path":
+                    _new_defaults[_idx] = _artifact_dotenv
+                    _rebound = True
+            if _rebound:
+                _fn.__defaults__ = tuple(_new_defaults)
+            else:
+                logging.warning(
+                    "workflows.utils.%s has no 'dotenv_path' parameter to rebind; "
+                    "a stray .env may still be written to the repo root.",
+                    _fn_name,
+                )
+        except Exception as exc:  # pragma: no cover - defensive: never block import
+            logging.warning("Could not rebind default dotenv path for %s: %s", _fn_name, exc)
 
 # Patch setup_run_logger so run_log file handler is always present even when
 # other handlers were attached to run_log before run_main() executes.
@@ -133,6 +168,51 @@ except ImportError as e:
         f"Failed to import from tt-inference-server: {e}\n"
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
+
+# Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
+# HF cache snapshots. The original method globs for any *.safetensors and returns True
+# if found, but a prior interrupted download can leave some shards complete (as symlinks
+# in the snapshot dir) while earlier shards are still in-progress .incomplete blobs two
+# levels up in blobs/. Without this patch, setup skips the download and launches the
+# container with missing shards → FileNotFoundError crash.
+#
+# Only overrides True → False (never the reverse). Fails open on any exception so a
+# permission error or unexpected path layout never blocks a valid deploy.
+import workflows.setup_host as _setup_host_module  # noqa: E402
+_orig_check_model_weights_dir = _setup_host_module.HostSetupManager.check_model_weights_dir
+
+
+def _patched_check_model_weights_dir(self, host_weights_dir):
+    result = _orig_check_model_weights_dir(self, host_weights_dir)
+    if not result or host_weights_dir is None:
+        return result
+    # Navigate to the HF cache blobs/ dir (two levels above the snapshot dir).
+    # Layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
+    try:
+        blobs_dir = host_weights_dir.parent.parent / "blobs"
+    except Exception:
+        return result
+    if not blobs_dir.is_dir():
+        return result  # not an HF cache layout (host-volume, local dir, etc.)
+    try:
+        incomplete = list(blobs_dir.glob("*.incomplete"))
+    except Exception as exc:
+        _patched_check_model_weights_dir_logger = logging.getLogger(__name__)
+        _patched_check_model_weights_dir_logger.warning(
+            "check_model_weights_dir: cannot scan blobs dir %s: %s", blobs_dir, exc
+        )
+        return result
+    if incomplete:
+        logging.getLogger(__name__).warning(
+            "check_model_weights_dir: %d incomplete blob(s) in %s — "
+            "re-download required. Files: %s",
+            len(incomplete), blobs_dir, [f.name for f in incomplete],
+        )
+        return False
+    return True
+
+
+_setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
 
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
@@ -247,6 +327,21 @@ _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
 _DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES = {
     "qwen3-32b": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
 }
+_HF_CACHE_MODELS_CONFIG_PATH = Path(__file__).with_name("hf_cache_models.json")
+_DEFAULT_HF_CACHE_MODEL_ALLOWLIST = {
+    "mochi-1-preview",
+    "wan2.2-t2v-a14b-diffusers",
+    "wan2.2-i2v-a14b-diffusers",
+    "flux.1-dev",
+    "flux.1-schnell",
+    "motif-image-6b-preview",
+    "stable-diffusion-3.5-large",
+    "stable-diffusion-xl-1.0-inpainting-0.1",
+    "stable-diffusion-xl-base-1.0",
+    "stable-diffusion-xl-base-1.0-img-2-img",
+    "qwen-image",
+    "qwen-image-2512",
+}
 
 
 def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
@@ -327,6 +422,58 @@ def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
 _HOST_VOLUME_MODEL_ALLOWLIST, _HOST_VOLUME_DIRECTORY_OVERRIDES = (
     _load_host_volume_model_config()
 )
+
+
+def _load_hf_cache_model_config() -> set[str]:
+    try:
+        raw_config = json.loads(_HF_CACHE_MODELS_CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config not found at %s; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+    except json.JSONDecodeError as exc:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is invalid JSON (%s); using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            exc,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    configured_models = raw_config.get("models")
+    if not isinstance(configured_models, list):
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is missing a 'models' list; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    normalized_models = {
+        str(model_name).strip().lower()
+        for model_name in configured_models
+        if str(model_name).strip()
+    }
+    if not normalized_models:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s did not contain any usable model names; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    logging.getLogger(__name__).info(
+        "Loaded HF-cache model allowlist from %s: %s",
+        _HF_CACHE_MODELS_CONFIG_PATH,
+        sorted(normalized_models),
+    )
+    return normalized_models
+
+
+_HF_CACHE_MODEL_ALLOWLIST = _load_hf_cache_model_config()
 
 
 def _resolve_preferred_host_volume(
@@ -479,6 +626,10 @@ def _resolve_preferred_host_volume(
 
 def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
+
+
+def _model_uses_host_hf_cache(model_name: str) -> bool:
+    return (model_name or "").strip().lower() in _HF_CACHE_MODEL_ALLOWLIST
 
 
 # ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
@@ -1528,8 +1679,8 @@ def sync_tokens_from_tt_studio():
     if not tt_studio_root:
         logger.warning("TT_STUDIO_ROOT environment variable not set, cannot sync tokens")
         return
-    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
-    
+    tt_studio_env = Path(tt_studio_root) / ".env"
+
     # Use artifact directory for inference server .env if available, otherwise use TT Studio root
     if artifact_path:
         inference_server_env = Path(artifact_path) / ".env"
@@ -1675,7 +1826,8 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -1776,6 +1928,43 @@ async def run_inference(request: RunRequest):
                 job_id,
                 host_volume_resolution_reason,
             )
+        # Media (DiT) models reuse the host's already-downloaded HF weights via
+        # --host-hf-cache. This is mutually exclusive with the Qwen --host-volume
+        # path: Qwen uses host-volume, media uses hf-cache; they shouldn't combine.
+        if _model_uses_host_hf_cache(request.model) and "--host-volume" not in initial_argv:
+            host_hf_cache_path = str(_default_hf_home())
+            # Ensure the HF cache dir exists. tt-inference-server's
+            # validate_bind_mount_permissions() ValueErrors on a non-existent
+            # --host-hf-cache path, which forces a baseline (in-container XET)
+            # fallback that stalls on large media weights. setup_host() will
+            # populate this dir via `hf download` once the mount validates.
+            try:
+                Path(host_hf_cache_path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "Job %s: could not create HF cache dir %s (%s); "
+                    "deploy may fall back to baseline startup",
+                    job_id,
+                    host_hf_cache_path,
+                    exc,
+                )
+            initial_argv.extend(["--host-hf-cache", host_hf_cache_path])
+            logger.info(
+                "Job %s: media model %s accepted for HF-cache reuse; using --host-hf-cache %s",
+                job_id,
+                request.model,
+                host_hf_cache_path,
+            )
+        else:
+            if not _model_uses_host_hf_cache(request.model):
+                host_hf_cache_skip_reason = "model not in HF-cache allowlist"
+            else:
+                host_hf_cache_skip_reason = "--host-volume already selected"
+            logger.info(
+                "Job %s: using baseline startup without host-hf-cache (%s)",
+                job_id,
+                host_hf_cache_skip_reason,
+            )
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
@@ -1843,6 +2032,9 @@ async def run_inference(request: RunRequest):
                             if "--host-volume" in retry_argv:
                                 retry_argv = _strip_cli_option(retry_argv, "--host-volume")
                                 retry_reason_parts.append("baseline startup without --host-volume")
+                            if "--host-hf-cache" in retry_argv:
+                                retry_argv = _strip_cli_option(retry_argv, "--host-hf-cache")
+                                retry_reason_parts.append("baseline startup without --host-hf-cache")
                             if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                                 retry_argv.append("--skip-system-sw-validation")
                                 retry_reason_parts.append("--skip-system-sw-validation")

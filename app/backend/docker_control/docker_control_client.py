@@ -57,6 +57,11 @@ class DockerControlClient:
         url = f"{self.url}{endpoint}"
         headers = self._get_headers()
 
+        # Default (connect, read) timeout so a blocked docker daemon (e.g. several
+        # container stops in flight) can't hang an enumeration/status request
+        # indefinitely. Callers that stream (logs) pass their own timeout/None.
+        kwargs.setdefault("timeout", (5, 30))
+
         try:
             response = requests.request(method, url, headers=headers, **kwargs)
             response.raise_for_status()

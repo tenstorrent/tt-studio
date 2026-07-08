@@ -41,8 +41,11 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
-ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
-ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
+ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
+ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
+LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
+LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined

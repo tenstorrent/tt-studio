@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useRef, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle,
@@ -20,6 +19,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import BoardBadge from "../BoardBadge";
+import ResetStepRow from "../ResetStepRow";
 import type { DeleteStreamStatus, StepLogs } from "../../hooks/useDeleteStream";
 
 export type DeleteStep = "deleting" | "resetting" | null;
@@ -63,11 +64,7 @@ function DeviceScopeDiagram({
           <span className="text-stone-200 font-semibold">{totalDevices}</span>{" "}
           device{totalDevices !== 1 ? "s" : ""}
         </div>
-        {boardType && (
-          <div className="text-[10px] uppercase tracking-wider text-stone-500 font-mono">
-            {boardType}
-          </div>
-        )}
+        {boardType && <BoardBadge boardName={boardType} />}
       </div>
       <div
         className="grid gap-1.5"
@@ -126,117 +123,6 @@ function DeviceScopeDiagram({
 }
 
 type StepState = "pending" | "active" | "done" | "error";
-
-function StepLogPanel({ logs }: { logs: string[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
-  if (logs.length === 0) return null;
-
-  return (
-    <div className="mt-2 rounded-md border border-stone-700/60 bg-stone-950/80 overflow-hidden">
-      <div className="max-h-32 overflow-y-auto overflow-x-hidden px-3 py-2 font-mono text-[11px] leading-relaxed text-stone-400 scrollbar-thin scrollbar-thumb-stone-700">
-        {logs.map((line, i) => (
-          <div
-            key={i}
-            className={`py-px break-all ${
-              line.toLowerCase().includes("error") ||
-              line.toLowerCase().includes("failed")
-                ? "text-red-400"
-                : line.toLowerCase().includes("success") ||
-                    line.toLowerCase().includes("completed") ||
-                    line.toLowerCase().includes("successfully")
-                  ? "text-green-400"
-                  : line.toLowerCase().includes("warning")
-                    ? "text-yellow-400"
-                    : ""
-            }`}
-          >
-            {line}
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-    </div>
-  );
-}
-
-function StepRow({
-  number,
-  icon,
-  label,
-  sublabel,
-  state,
-  logs,
-}: {
-  number: number;
-  icon: ReactNode;
-  label: string;
-  sublabel?: string;
-  state: StepState;
-  logs: string[];
-}) {
-  return (
-    <div
-      className={`p-3 rounded-lg border transition-all duration-300 ${
-        state === "active"
-          ? "bg-blue-900/30 border-blue-500/40"
-          : state === "done"
-            ? "bg-green-900/20 border-green-600/30"
-            : state === "error"
-              ? "bg-red-900/20 border-red-600/30"
-              : "bg-stone-800/50 border-stone-700/40"
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-          {state === "active" ? (
-            <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-          ) : state === "done" ? (
-            <CheckCircle className="w-5 h-5 text-green-400" />
-          ) : state === "error" ? (
-            <XCircle className="w-5 h-5 text-red-400" />
-          ) : (
-            <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
-              {number}
-            </div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div
-            className={`font-medium text-sm ${
-              state === "pending"
-                ? "text-stone-400"
-                : state === "error"
-                  ? "text-red-300"
-                  : "text-white"
-            }`}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              {icon}
-              {label}
-            </span>
-          </div>
-          {sublabel && state === "active" && (
-            <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
-          )}
-          {state === "done" && (
-            <div className="text-xs text-green-400 mt-0.5">Completed</div>
-          )}
-          {state === "error" && (
-            <div className="text-xs text-red-400 mt-0.5">Failed</div>
-          )}
-        </div>
-      </div>
-
-      {/* Per-step log output */}
-      <StepLogPanel logs={logs} />
-    </div>
-  );
-}
 
 export default function DeleteModelDialog({
   open,
@@ -327,7 +213,7 @@ export default function DeleteModelDialog({
         </DialogHeader>
 
         <div className="space-y-2 mt-2">
-          <StepRow
+          <ResetStepRow
             number={1}
             icon={<Trash2 className="w-3.5 h-3.5" />}
             label="Stop & remove model container"
@@ -335,7 +221,7 @@ export default function DeleteModelDialog({
             state={step1State}
             logs={stepLogs.deleting}
           />
-          <StepRow
+          <ResetStepRow
             number={2}
             icon={<RotateCcw className="w-3.5 h-3.5" />}
             label={resetStepLabel}

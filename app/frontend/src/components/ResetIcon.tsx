@@ -30,6 +30,7 @@ import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
 import MultiCardResetDialog from "./MultiCardResetDialog";
 import StreamingLogPanel from "./StreamingLogPanel";
+import ResetStepRow from "./ResetStepRow";
 import {
   Tooltip,
   TooltipContent,
@@ -49,70 +50,6 @@ type ResetStep = "deleting" | "resetting" | "done" | "failed" | null;
 interface ResetIconProps {
   onReset?: () => void;
   forceOpen?: boolean;
-}
-
-// ── Shared step-row (mirrors DeleteModelDialog) ──────────────────────────────
-function StepRow({
-  number,
-  icon,
-  label,
-  sublabel,
-  state,
-}: {
-  number: number;
-  icon: React.ReactNode;
-  label: string;
-  sublabel?: string;
-  state: "pending" | "active" | "done" | "skipped";
-}) {
-  return (
-    <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
-        ? "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-500/40"
-        : state === "done"
-          ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-600/30"
-          : state === "skipped"
-            ? "bg-stone-50 border-stone-200 dark:bg-stone-800/30 dark:border-stone-700/30"
-            : "bg-stone-50 border-stone-200 dark:bg-stone-800/50 dark:border-stone-700/40"
-        }`}
-    >
-      <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-        {state === "active" ? (
-          <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
-        ) : state === "done" ? (
-          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-        ) : state === "skipped" ? (
-          <CheckCircle className="w-5 h-5 text-stone-500" />
-        ) : (
-          <div className="w-6 h-6 rounded-full bg-stone-200 dark:bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-700 dark:text-stone-300">
-            {number}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped"
-            ? "text-stone-600 dark:text-stone-400"
-            : "text-stone-950 dark:text-white"
-            }`}
-        >
-          {icon}
-          {label}
-        </div>
-        {sublabel && state === "active" && (
-          <div className="text-xs text-blue-700 dark:text-blue-300 mt-1">{sublabel}</div>
-        )}
-        {state === "done" && (
-          <div className="text-xs text-green-700 dark:text-green-400 mt-0.5">Completed</div>
-        )}
-        {state === "skipped" && (
-          <div className="text-xs text-stone-500 dark:text-stone-500 mt-0.5">
-            No models deployed — skipped
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // ── Board status banner ───────────────────────────────────────────────────────
@@ -403,14 +340,23 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                 />
 
                 {isResettingContext && (
-                  <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-500/40 rounded-lg text-blue-900 dark:text-blue-200 text-sm">
-                    <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
-                    <span>Board is already resetting…</span>
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-500/40 rounded-lg text-blue-900 dark:text-blue-200 text-sm">
+                    <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-medium text-blue-900 dark:text-blue-100">
+                        Board reset in progress
+                      </p>
+                      <p className="text-blue-800/90 dark:text-blue-200/90">
+                        Stopping all models and re-initializing the board — about a
+                        minute or two. Actions are paused; you can close this dialog and
+                        the reset will finish in the background.
+                      </p>
+                    </div>
                   </div>
                 )}
 
                 {/* Step overview */}
-                <StepRow
+                <ResetStepRow
                   number={1}
                   icon={<Trash2 className="w-3.5 h-3.5" />}
                   label={
@@ -420,7 +366,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   }
                   state="pending"
                 />
-                <StepRow
+                <ResetStepRow
                   number={2}
                   icon={<RotateCcw className="w-3.5 h-3.5" />}
                   label="Reset the board (tt-smi -r)"
@@ -447,7 +393,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
             {/* ── LOADING: step progress ── */}
             {isLoading && (
               <>
-                <StepRow
+                <ResetStepRow
                   number={1}
                   icon={<Trash2 className="w-3.5 h-3.5" />}
                   label={
@@ -457,8 +403,9 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   }
                   sublabel="Sending stop signal to all containers…"
                   state={step1State}
+                  skippedLabel="No models deployed — skipped"
                 />
-                <StepRow
+                <ResetStepRow
                   number={2}
                   icon={<RotateCcw className="w-3.5 h-3.5" />}
                   label="Reset the board"
@@ -474,13 +421,14 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
             {/* ── COMPLETED ── */}
             {isCompleted && (
               <>
-                <StepRow
+                <ResetStepRow
                   number={1}
                   icon={<Trash2 className="w-3.5 h-3.5" />}
                   label="Deployed models removed"
                   state={deployedCount === 0 ? "skipped" : "done"}
+                  skippedLabel="No models deployed — skipped"
                 />
-                <StepRow
+                <ResetStepRow
                   number={2}
                   icon={<RotateCcw className="w-3.5 h-3.5" />}
                   label="Board reset"

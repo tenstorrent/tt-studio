@@ -41,12 +41,12 @@ Then make sure you have:
 Plain `python3 run.py` does the full standard setup:
 
 1. Initializes the `tt-inference-server` submodule
-2. Creates `app/.env` from `app/.env.default` (with placeholder secrets)
+2. Creates `.env` at the repo root from `.env.default` (with placeholder secrets)
 3. Auto-detects Tenstorrent hardware (`/dev/tenstorrent`) and applies the right Docker compose overlay
 4. Starts the `docker-control-service` on the host (port 8002, JWT-secured)
 5. Brings up the backend, frontend, agent, and ChromaDB containers
 
-> ⚠️ `app/.env.default` ships with placeholder secrets, which is fine for local eval only. For anything beyond your own machine, set your own `JWT_SECRET`, `DJANGO_SECRET_KEY`, and `DOCKER_CONTROL_JWT_SECRET`.
+> ⚠️ `.env.default` ships with placeholder secrets, which is fine for local eval only. For anything beyond your own machine, set your own `JWT_SECRET`, `DJANGO_SECRET_KEY`, and `DOCKER_CONTROL_JWT_SECRET`.
 
 | Flag | Purpose |
 | --- | --- |
@@ -88,7 +88,7 @@ TT-Studio composes from a base file plus zero or more **overlays**. `run.py` pic
 
 ### QB2 / Blackhole notes
 
-`app/.env.default` ships with `TT_INFERENCE_ARTIFACT_BRANCH=tt_qb2_launch_branch` for QB2 hardware. For other targets, override it to a release tag (e.g. `TT_INFERENCE_ARTIFACT_VERSION=v0.10.0`). See [run-py-guide.md](run-py-guide.md#automatic-tenstorrent-hardware-detection).
+`.env.default` ships with `TT_INFERENCE_ARTIFACT_BRANCH=tt_qb2_launch_branch` for QB2 hardware. For other targets, override it to a release tag (e.g. `TT_INFERENCE_ARTIFACT_VERSION=v0.10.0`). See [run-py-guide.md](run-py-guide.md#automatic-tenstorrent-hardware-detection).
 
 ---
 
@@ -121,7 +121,7 @@ See [app/agent/README.md](../app/agent/README.md) for endpoints, env vars, and L
 
 ## Environment configuration
 
-`run.py` writes `app/.env` from `app/.env.default`. Treat `.env.default` as the source of truth for what's available.
+`run.py` writes `.env` from `.env.default` (both at the repo root). Treat `.env.default` as the source of truth for what's available.
 
 ### Required
 

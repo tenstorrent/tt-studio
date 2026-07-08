@@ -8,6 +8,7 @@ import sys
 import shutil
 import re
 import json
+import secrets
 import subprocess
 try:
     import requests
@@ -39,8 +40,8 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
-        'true or false to enable RAG admin'
+        'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
+        '<PATH_TO_ROOT_OF_REPO>'
     ]
 
     value_str = str(value).strip().strip('"\'')
@@ -49,11 +50,11 @@ def is_placeholder(value):
 
 def write_env_var(var_name, var_value, quote_value=None):
     """
-    Update or add a variable in app/.env using ONE consistent format.
+    Update or add a variable in the repo-root .env using ONE consistent format.
 
     Uses python-dotenv (the standard .env library) and writes values unquoted
     (quote_mode="never"), so the file never mixes `KEY="value"` and `KEY=value`
-    styles. This matches app/.env.default and avoids docker-compose treating
+    styles. This matches .env.default and avoids docker-compose treating
     surrounding quotes as literal characters. `quote_value` is accepted for
     backwards compatibility but intentionally ignored.
     """
@@ -103,7 +104,7 @@ def get_existing_env_vars():
 
 def set_app_version_env():
     """
-    Compute the running build's version from git and persist it to app/.env so
+    Compute the running build's version from git and persist it to .env so
     docker compose can inject it into the frontend as VITE_APP_VERSION /
     VITE_APP_GIT_BRANCH.
 
@@ -354,9 +355,9 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     return False
 
 
-def _hf_check_repo(token, repo_id):
-    """Return HTTP status code for a HuggingFace repo config.json. Returns None on network error."""
-    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
+def _hf_check_repo(token, repo_id, filename="config.json"):
+    """Return HTTP status code for a HuggingFace repo file. Returns None on network error."""
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
     headers = {"User-Agent": "tt-studio"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -384,12 +385,15 @@ def check_hf_access(token):
         unreachable). The caller renders this — one calm line by default, the
         full per-repo breakdown on failure or with --verbose.
     """
+    # diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
     repos = [
-        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
-        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
-        ("Qwen/Qwen3-32B", "Qwen3-32B"),
+        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
+        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
+        ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
+        ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
+        ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
     ]
-    results = [(label, repo_id, _hf_check_repo(token, repo_id)) for repo_id, label in repos]
+    results = [(label, repo_id, _hf_check_repo(token, repo_id, filename)) for repo_id, label, filename in repos]
 
     codes = [code for _, _, code in results]
     if all(c is None for c in codes):
@@ -464,7 +468,20 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # Clear preferences if reconfiguring
     if force_reconfigure:
         clear_preferences()
-    
+
+    # One-time migration: the canonical .env moved from app/.env to the repo root.
+    # Preserve any existing secrets by copying the legacy file up and keeping a backup.
+    if os.path.exists(LEGACY_ENV_FILE_PATH):
+        if not os.path.exists(ENV_FILE_PATH):
+            console.print("[info]📦 Migrating legacy app/.env to the repo-root .env...[/info]")
+            shutil.copy(LEGACY_ENV_FILE_PATH, ENV_FILE_PATH)
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+            console.print("[success]   ✅ Copied to repo-root .env; backed up the old file to app/.env-old[/success]")
+        else:
+            console.print("[warning]⚠️  Both repo-root .env and legacy app/.env exist; keeping the "
+                          "repo-root .env and backing up the legacy file to app/.env-old.[/warning]")
+            os.replace(LEGACY_ENV_FILE_PATH, LEGACY_ENV_BACKUP_PATH)
+
     env_file_exists = os.path.exists(ENV_FILE_PATH)
     
     if not env_file_exists:
@@ -513,6 +530,15 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
+
+    # LiteLLM gateway: generate strong random keys so the network-published port
+    # is never protected by a predictable shared secret.
+    if should_configure_var("LITELLM_MASTER_KEY", get_env_var("LITELLM_MASTER_KEY")):
+        write_env_var("LITELLM_MASTER_KEY", f"sk-tt-studio-{secrets.token_urlsafe(32)}", quote_value=False)
+    if should_configure_var("LITELLM_UPSTREAM_KEY", get_env_var("LITELLM_UPSTREAM_KEY")):
+        write_env_var("LITELLM_UPSTREAM_KEY", secrets.token_urlsafe(32), quote_value=False)
+    if should_configure_var("LITELLM_PORT", get_env_var("LITELLM_PORT")):
+        write_env_var("LITELLM_PORT", "4000", quote_value=False)
 
     if not quick_setup:
         console.print("\n[bold accent]--- 🔑  Security Credentials  ---[/bold accent]")

@@ -29,6 +29,10 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
   // Store the current state in a ref so the scheduled callback always reads
   // the latest value without creating stale closures.
   const stateRef = useRef<string>("UNKNOWN");
+  // Remember the last real value so the board badge doesn't vanish and reappear during a reset.
+  const lastBoardRef = useRef<{ board_type: string; board_name: string } | null>(
+    null,
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // pollRef lets us call poll() from the refresh callback without circular deps.
   const pollRef = useRef<() => Promise<void>>(async () => {});
@@ -46,6 +50,21 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!response.ok)
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         const data: DeviceStateData = await response.json();
+
+        // Carry the last known board identity through transient "unknown"
+        // readings (e.g. during a tt-smi reset) so the board badge stays put.
+        const hasKnownBoard =
+          !!data.board_type && data.board_type.toLowerCase() !== "unknown";
+        if (hasKnownBoard) {
+          lastBoardRef.current = {
+            board_type: data.board_type,
+            board_name: data.board_name,
+          };
+        } else if (lastBoardRef.current) {
+          data.board_type = lastBoardRef.current.board_type;
+          data.board_name = lastBoardRef.current.board_name;
+        }
+
         stateRef.current = data.state;
         setDeviceState(data);
         setError(null);

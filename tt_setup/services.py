@@ -532,6 +532,43 @@ def setup_fastapi_environment():
         os.chdir(original_dir)
 
 
+def apply_media_catalog_env_overlay():
+    """STOPGAP: overlay HF_HUB_DISABLE_XET=1 onto the extracted model-spec catalog.
+
+    Runs after the artifact is extracted and before uvicorn loads it. Uses the
+    inference-api venv interpreter because the top-level run.py has no PyYAML, while
+    the inference-api venv does (it parses these same catalog YAMLs). Non-fatal: a
+    failure here only forfeits the Xet workaround, it must not block server start.
+    See app/backend/shared_config/patch_catalog_env.py for the full rationale.
+    """
+    if not os.path.exists(INFERENCE_ARTIFACT_DIR):
+        return
+    patch_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config", "patch_catalog_env.py",
+    )
+    if not os.path.exists(patch_script):
+        console.print(f"[warning]⚠️  Catalog env overlay script not found: {patch_script}[/warning]")
+        return
+    venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "python")
+    if OS_NAME == "Windows":
+        venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "python.exe")
+    if not os.path.exists(venv_python):
+        venv_python = sys.executable  # fall back to the launcher interpreter
+    try:
+        result = subprocess.run(
+            [venv_python, patch_script, INFERENCE_ARTIFACT_DIR],
+            capture_output=True, text=True, check=False,
+        )
+        for line in (result.stdout or "").strip().splitlines():
+            console.print(f"   {line}")
+        if result.returncode != 0 and (result.stderr or "").strip():
+            console.print("[warning]⚠️  Catalog env overlay reported errors:[/warning]")
+            for line in result.stderr.strip().splitlines():
+                console.print(f"   {line}")
+    except Exception as e:
+        console.print(f"[warning]⚠️  Catalog env overlay failed (continuing): {e}[/warning]")
+
+
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     console.print("[info]🔧 Starting FastAPI server...[/info]")
@@ -580,7 +617,17 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
-    
+
+    # STOPGAP (excise when upstream catalog carries the var): overlay
+    # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
+    # artifact. Media containers get their per-model env solely from the catalog
+    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags);
+    # the backend compose service sets HF_HUB_DISABLE_XET but that never reaches them.
+    # Without it, large media weight downloads stall on the Xet CDN and hang past the
+    # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
+    # the pin, then delete this block and patch_catalog_env.py.
+    apply_media_catalog_env_overlay()
+
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":
