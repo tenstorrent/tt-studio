@@ -15,6 +15,7 @@ from langchain_core.tools import Tool
 
 class LangchainCodeInterpreterToolInput(BaseModel):
     """Input schema for the Langchain Code Interpreter tool."""
+
     code: str = Field(description="Python code to execute.")
 
 
@@ -24,6 +25,7 @@ class CodeInterpreterFunctionTool:
     It requires an E2B_API_KEY to create a sandbox and is designed
     as a context manager to ensure the sandbox is always closed.
     """
+
     tool_name: str = "code_interpreter"
 
     def __init__(self, timeout: int = 1800):
@@ -60,10 +62,10 @@ class CodeInterpreterFunctionTool:
                 code = code[3:]
             if code.endswith("```"):
                 code = code[:-3]
-        
+
         print(f"--- Executing Code ---\n{code}\n----------------------")
         execution = self.code_interpreter.run_code(code)
-        
+
         return {
             "results": execution.results,
             "stdout": execution.logs.stdout,
@@ -86,7 +88,7 @@ class CodeInterpreterFunctionTool:
             name=self.tool_name,
             description="Execute python code in a Jupyter notebook cell and returns any rich data (eg charts), stdout, stderr, and error.",
             func=self.langchain_call,
-            args_schema=LangchainCodeInterpreterToolInput
+            args_schema=LangchainCodeInterpreterToolInput,
         )
         return tool
 
@@ -119,15 +121,19 @@ class CodeInterpreterFunctionTool:
         """
         new_messages = list(agent_action.message_log)
 
-        results_summary = CodeInterpreterFunctionTool._format_results_for_llm(observation.get("results", []))
+        results_summary = CodeInterpreterFunctionTool._format_results_for_llm(
+            observation.get("results", [])
+        )
 
         content_parts = {
             "results_summary": results_summary,
             "stdout": observation.get("stdout"),
             "stderr": observation.get("stderr"),
-            "error": str(observation.get("error")) if observation.get("error") else None,
+            "error": str(observation.get("error"))
+            if observation.get("error")
+            else None,
         }
-        
+
         content_dict = {k: v for k, v in content_parts.items() if v}
         content = json.dumps(content_dict, indent=2)
 
@@ -157,8 +163,8 @@ class CodeInterpreterFunctionTool:
                 # Gracefully handle other tools if they exist
                 messages.append(
                     ToolMessage(
-                        content=json.dumps(observation), 
-                        tool_call_id=agent_action.tool_call_id
+                        content=json.dumps(observation),
+                        tool_call_id=agent_action.tool_call_id,
                     )
                 )
         return messages

@@ -6,7 +6,6 @@ import json
 import os
 import psutil
 import signal
-import time
 from pathlib import Path
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -17,6 +16,7 @@ from .models import HardwareSnapshot, DeviceTelemetry, HardwareAlert
 
 logger = get_logger(__name__)
 
+
 class SystemResourceService:
     """Service for monitoring system resources and TT device telemetry"""
 
@@ -24,7 +24,9 @@ class SystemResourceService:
     TT_SMI_CACHE_KEY = "tt_smi_data"
     TT_SMI_CACHE_TIMEOUT = 3600  # Cache for 1 hour (since we'll refresh on events only)
     BOARD_TYPE_CACHE_KEY = "board_type_data"
-    BOARD_TYPE_CACHE_TIMEOUT = 3600  # Cache board type for 1 hour (since it rarely changes)
+    BOARD_TYPE_CACHE_TIMEOUT = (
+        3600  # Cache board type for 1 hour (since it rarely changes)
+    )
 
     # Device state cache keys
     DEVICE_STATE_CACHE_KEY = "device_state_v2"
@@ -43,13 +45,18 @@ class SystemResourceService:
         the model-stopping phase that precedes the tt-smi reset.
         """
         try:
-            path = Path(backend_config.backend_cache_root) / SystemResourceService.RESET_ALL_STATE_FILENAME
+            path = (
+                Path(backend_config.backend_cache_root)
+                / SystemResourceService.RESET_ALL_STATE_FILENAME
+            )
             with open(path) as f:
                 state = json.load(f)
             if state.get("done"):
                 return False
             updated = parse_datetime(state.get("updated_at") or "")
-            return updated is not None and (timezone.now() - updated).total_seconds() < 120
+            return (
+                updated is not None and (timezone.now() - updated).total_seconds() < 120
+            )
         except Exception:
             return False
 
@@ -58,8 +65,10 @@ class SystemResourceService:
         """True if any board/device reset is active — the single-device reset cache
         flag or the whole-board reset job. Used to report RESETTING and to block
         conflicting actions (e.g. new deployments)."""
-        return bool(cache.get(SystemResourceService.DEVICE_RESETTING_KEY)) or \
-            SystemResourceService._board_reset_job_active()
+        return (
+            bool(cache.get(SystemResourceService.DEVICE_RESETTING_KEY))
+            or SystemResourceService._board_reset_job_active()
+        )
 
     @staticmethod
     def get_tt_smi_data(timeout=30):
@@ -69,65 +78,87 @@ class SystemResourceService:
         if cached_data is not None:
             logger.debug("Using cached tt-smi data")
             return cached_data
-        
+
         try:
             logger.info("Running tt-smi -s to get device telemetry")
-            
+
             process = subprocess.Popen(
                 ["tt-smi", "-s"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
                 text=True,
-                preexec_fn=os.setsid  # Create new process group
+                preexec_fn=os.setsid,  # Create new process group
             )
-            
+
             try:
                 # Wait for process with timeout
                 stdout, stderr = process.communicate(timeout=timeout)
-                
+
                 if process.returncode != 0:
-                    logger.error(f"tt-smi -s failed with return code {process.returncode}, stderr: {stderr}")
+                    logger.error(
+                        f"tt-smi -s failed with return code {process.returncode}, stderr: {stderr}"
+                    )
                     # Cache the None result for a longer time to avoid repeated failures
-                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for failures
+                    cache.set(
+                        SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120
+                    )  # 2 minutes for failures
                     return None
-                
+
                 # Parse JSON output
                 try:
                     data = json.loads(stdout)
                     logger.info("Successfully parsed tt-smi data")
                     # Cache the successful result
-                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, data, timeout=SystemResourceService.TT_SMI_CACHE_TIMEOUT)
+                    cache.set(
+                        SystemResourceService.TT_SMI_CACHE_KEY,
+                        data,
+                        timeout=SystemResourceService.TT_SMI_CACHE_TIMEOUT,
+                    )
                     return data
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse tt-smi JSON output: {e}, stdout: {stdout}")
-                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for parse errors
+                    logger.error(
+                        f"Failed to parse tt-smi JSON output: {e}, stdout: {stdout}"
+                    )
+                    cache.set(
+                        SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120
+                    )  # 2 minutes for parse errors
                     return None
-                    
+
             except subprocess.TimeoutExpired:
                 logger.error(f"tt-smi -s command timed out after {timeout} seconds")
                 # Kill the process group to ensure cleanup
                 try:
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                     process.wait(timeout=2)
-                except:
+                except Exception:
                     try:
-                        logger.error(f"Killing tt-smi process group {os.getpgid(process.pid)}")
+                        logger.error(
+                            f"Killing tt-smi process group {os.getpgid(process.pid)}"
+                        )
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    except:
-                        logger.error(f"Failed to kill tt-smi process group {os.getpgid(process.pid)}")
+                    except Exception:
+                        logger.error(
+                            f"Failed to kill tt-smi process group {os.getpgid(process.pid)}"
+                        )
                         pass
                 # Cache the None result for a longer time to avoid repeated timeouts
-                cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for timeouts
+                cache.set(
+                    SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120
+                )  # 2 minutes for timeouts
                 return None
-                
+
         except FileNotFoundError:
             logger.error("tt-smi command not found")
-            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=300)  # Cache longer for missing command
+            cache.set(
+                SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=300
+            )  # Cache longer for missing command
             return None
         except Exception as e:
             logger.error(f"Error getting tt-smi data: {str(e)}")
-            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for general errors
+            cache.set(
+                SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120
+            )  # 2 minutes for general errors
             return None
 
     @staticmethod
@@ -138,11 +169,11 @@ class SystemResourceService:
         if cached_board_type is not None:
             logger.debug(f"Using cached board type: {cached_board_type}")
             return cached_board_type
-        
+
         try:
             # Get tt-smi data (which is also cached)
             tt_data = SystemResourceService.get_tt_smi_data()
-            
+
             if not tt_data:
                 board_type = "unknown"
             else:
@@ -154,27 +185,33 @@ class SystemResourceService:
                         if "board_info" in info:
                             board_info = info["board_info"]
                             board_types.append(board_info.get("board_type", "unknown"))
-                    
+
                     if not board_types:
                         logger.warning("No 'board_info' found in any device info")
                         board_type = "unknown"
                     else:
                         # Remove "local" and "remote" designations, if they exist
-                        filtered_board_types = [bt.rsplit(" ", 1)[0] for bt in board_types]
+                        filtered_board_types = [
+                            bt.rsplit(" ", 1)[0] for bt in board_types
+                        ]
                         unique_board_types = set(filtered_board_types)
-                        
+
                         # Validate homogeneous board types (all devices must be same type)
                         if len(unique_board_types) > 1:
-                            logger.warning(f"Mixed board types detected: {unique_board_types}. Only homogeneous setups are supported.")
+                            logger.warning(
+                                f"Mixed board types detected: {unique_board_types}. Only homogeneous setups are supported."
+                            )
                             board_type = "unknown"
                         else:
                             raw_board_type = unique_board_types.pop()
                             num_devices = len(tt_data["device_info"])
-                            logger.info(f"Raw board_type: '{raw_board_type}', num_devices: {num_devices}")
-                            
+                            logger.info(
+                                f"Raw board_type: '{raw_board_type}', num_devices: {num_devices}"
+                            )
+
                             # Detect board type based on raw_board_type and device count
                             raw_lower = raw_board_type.lower()
-                            
+
                             # Wormhole devices
                             if "n150" in raw_lower:
                                 if num_devices >= 4:
@@ -186,17 +223,17 @@ class SystemResourceService:
                                     board_type = "T3K"
                                 else:
                                     board_type = "N300"
-                            
+
                             # Blackhole devices (P300 has 2 chips per card)
                             elif "p300" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P300Cx4"  # 8 chips = 4 cards
                                 elif num_devices >= 4:
-                                    board_type = "P300x2"   # 4 chips = 2 cards
+                                    board_type = "P300x2"  # 4 chips = 2 cards
                                 elif num_devices == 2:
-                                    board_type = "P300"     # 2 chips = 1 card
+                                    board_type = "P300"  # 2 chips = 1 card
                                 else:
-                                    board_type = "P300"     # Single chip fallback
+                                    board_type = "P300"  # Single chip fallback
                             elif "p150" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P150X8"
@@ -208,30 +245,36 @@ class SystemResourceService:
                                 board_type = "P100"
                             elif "e150" in raw_lower:
                                 board_type = "E150"
-                            
+
                             # Galaxy systems (may need refinement based on actual tt-smi output)
                             elif "galaxy" in raw_lower:
                                 if "t3k" in raw_lower:
                                     board_type = "GALAXY_T3K"
                                 else:
                                     board_type = "GALAXY"
-                            
+
                             else:
                                 logger.warning(f"Unknown board type: {raw_board_type}")
                                 board_type = "unknown"
                 else:
                     logger.warning("No device info found in tt-smi data")
                     board_type = "unknown"
-            
+
             # Cache the result
-            cache.set(SystemResourceService.BOARD_TYPE_CACHE_KEY, board_type, timeout=SystemResourceService.BOARD_TYPE_CACHE_TIMEOUT)
+            cache.set(
+                SystemResourceService.BOARD_TYPE_CACHE_KEY,
+                board_type,
+                timeout=SystemResourceService.BOARD_TYPE_CACHE_TIMEOUT,
+            )
             logger.info(f"Detected and cached board type: {board_type}")
             return board_type
-            
+
         except Exception as e:
             logger.error(f"Error detecting board type: {str(e)}")
             board_type = "unknown"
-            cache.set(SystemResourceService.BOARD_TYPE_CACHE_KEY, board_type, timeout=60)  # Cache error for 1 minute
+            cache.set(
+                SystemResourceService.BOARD_TYPE_CACHE_KEY, board_type, timeout=60
+            )  # Cache error for 1 minute
             return board_type
 
     @staticmethod
@@ -243,7 +286,7 @@ class SystemResourceService:
             memory = psutil.virtual_memory()
             memory_usage_percent = memory.percent
             memory_total_gb = round(memory.total / (1024**3), 2)
-            
+
             # Initialize basic system status with fallbacks
             system_status = {
                 "timestamp": timezone.now().isoformat(),
@@ -252,84 +295,108 @@ class SystemResourceService:
                     "memory_usage": round(memory_usage_percent, 1),
                     "memory_total": f"{memory_total_gb} GB",
                     "memory_used_gb": round(memory.used / (1024**3), 2),
-                    "memory_available_gb": round(memory.available / (1024**3), 2)
+                    "memory_available_gb": round(memory.available / (1024**3), 2),
                 },
                 "devices": [],
                 "board_name": "Unknown",
                 "hardware_status": "unknown",
-                "hardware_error": None
+                "hardware_error": None,
             }
-            
+
             # Try to get TT device data with timeout
             try:
                 tt_data = SystemResourceService.get_tt_smi_data(timeout=10)
-                
+
                 if tt_data:
                     system_status["hardware_status"] = "healthy"
-                    
+
                     # Add host info from tt-smi if available
                     if "host_info" in tt_data:
                         host_info = tt_data["host_info"]
-                        system_status["host_info"].update({
-                            "os": host_info.get("OS"),
-                            "distro": host_info.get("Distro"),
-                            "kernel": host_info.get("Kernel"),
-                            "hostname": host_info.get("Hostname"),
-                            "driver": host_info.get("Driver")
-                        })
-                    
+                        system_status["host_info"].update(
+                            {
+                                "os": host_info.get("OS"),
+                                "distro": host_info.get("Distro"),
+                                "kernel": host_info.get("Kernel"),
+                                "hostname": host_info.get("Hostname"),
+                                "driver": host_info.get("Driver"),
+                            }
+                        )
+
                     # Process device information
                     if "device_info" in tt_data and tt_data["device_info"]:
                         devices = []
                         board_types = []
-                        
+
                         for idx, device in enumerate(tt_data["device_info"]):
                             board_info = device.get("board_info", {})
                             telemetry = device.get("telemetry", {})
                             limits = device.get("limits", {})
-                            
+
                             # Track board types
                             board_type = board_info.get("board_type", "Unknown")
                             board_types.append(board_type)
-                            
+
                             device_data = {
                                 "index": idx,
                                 "board_type": board_type,
                                 "bus_id": board_info.get("bus_id", "N/A"),
                                 "coords": board_info.get("coords", "N/A"),
-                                "voltage": float(telemetry.get("voltage", 0)) if telemetry.get("voltage") else 0,
-                                "current": float(telemetry.get("current", 0)) if telemetry.get("current") else 0,
-                                "power": float(telemetry.get("power", 0)) if telemetry.get("power") else 0,
-                                "aiclk": int(telemetry.get("aiclk", 0)) if telemetry.get("aiclk") else 0,
-                                "temperature": float(telemetry.get("asic_temperature", 0)) if telemetry.get("asic_temperature") else 0,
+                                "voltage": float(telemetry.get("voltage", 0))
+                                if telemetry.get("voltage")
+                                else 0,
+                                "current": float(telemetry.get("current", 0))
+                                if telemetry.get("current")
+                                else 0,
+                                "power": float(telemetry.get("power", 0))
+                                if telemetry.get("power")
+                                else 0,
+                                "aiclk": int(telemetry.get("aiclk", 0))
+                                if telemetry.get("aiclk")
+                                else 0,
+                                "temperature": float(
+                                    telemetry.get("asic_temperature", 0)
+                                )
+                                if telemetry.get("asic_temperature")
+                                else 0,
                                 "limits": {
-                                    "tdp_limit": int(limits.get("tdp_limit", 0)) if limits.get("tdp_limit") else 0,
-                                    "tdc_limit": int(limits.get("tdc_limit", 0)) if limits.get("tdc_limit") else 0,
-                                    "thm_limit": int(limits.get("thm_limit", 0)) if limits.get("thm_limit") else 0
-                                }
+                                    "tdp_limit": int(limits.get("tdp_limit", 0))
+                                    if limits.get("tdp_limit")
+                                    else 0,
+                                    "tdc_limit": int(limits.get("tdc_limit", 0))
+                                    if limits.get("tdc_limit")
+                                    else 0,
+                                    "thm_limit": int(limits.get("thm_limit", 0))
+                                    if limits.get("thm_limit")
+                                    else 0,
+                                },
                             }
                             devices.append(device_data)
-                        
+
                         system_status["devices"] = devices
-                        
+
                         # Determine primary board name using detected board type (supports P300x2/P300Cx4)
                         detected_board_type = SystemResourceService.get_board_type()
                         system_status["board_name"] = detected_board_type
                 else:
                     # tt-smi failed - indicate potential hardware issue
                     system_status["hardware_status"] = "error"
-                    system_status["hardware_error"] = "Unable to communicate with TT hardware. The card may be in a bad state or tt-smi is not responding."
+                    system_status["hardware_error"] = (
+                        "Unable to communicate with TT hardware. The card may be in a bad state or tt-smi is not responding."
+                    )
                     system_status["board_name"] = "TT Board (Error)"
                     logger.warning("tt-smi failed - hardware may be in bad state")
-                    
+
             except Exception as hardware_error:
                 logger.error(f"Hardware monitoring failed: {str(hardware_error)}")
                 system_status["hardware_status"] = "error"
-                system_status["hardware_error"] = f"Hardware monitoring error: {str(hardware_error)}"
+                system_status["hardware_error"] = (
+                    f"Hardware monitoring error: {str(hardware_error)}"
+                )
                 system_status["board_name"] = "TT Board (Error)"
-            
+
             return system_status
-            
+
         except Exception as e:
             logger.error(f"Error getting system resources: {str(e)}")
             return {
@@ -339,13 +406,13 @@ class SystemResourceService:
                     "memory_usage": 0,
                     "memory_total": "0 GB",
                     "memory_used_gb": 0,
-                    "memory_available_gb": 0
+                    "memory_available_gb": 0,
                 },
                 "devices": [],
                 "board_name": "System Error",
                 "hardware_status": "error",
                 "hardware_error": str(e),
-                "error": str(e)
+                "error": str(e),
             }
 
     @staticmethod
@@ -354,18 +421,18 @@ class SystemResourceService:
         try:
             tt_data = SystemResourceService.get_tt_smi_data()
             system_resources = SystemResourceService.get_system_resources()
-            
+
             if not tt_data:
                 logger.warning("No tt-smi data available for snapshot")
                 return None
-            
+
             # Create snapshot
             snapshot = HardwareSnapshot.objects.create(
                 raw_data=tt_data,
                 host_info=system_resources["host_info"],
-                devices_count=len(system_resources["devices"])
+                devices_count=len(system_resources["devices"]),
             )
-            
+
             # Create device telemetry records
             for device_data in system_resources["devices"]:
                 DeviceTelemetry.objects.create(
@@ -373,22 +440,34 @@ class SystemResourceService:
                     device_index=device_data["index"],
                     board_type=device_data["board_type"],
                     bus_id=device_data["bus_id"],
-                    board_id=tt_data["device_info"][device_data["index"]].get("board_info", {}).get("board_id", ""),
+                    board_id=tt_data["device_info"][device_data["index"]]
+                    .get("board_info", {})
+                    .get("board_id", ""),
                     coords=device_data["coords"],
                     voltage=device_data["voltage"],
                     current=device_data["current"],
                     power=device_data["power"],
                     aiclk=device_data["aiclk"],
                     asic_temperature=device_data["temperature"],
-                    dram_status=tt_data["device_info"][device_data["index"]].get("board_info", {}).get("dram_status", False),
-                    dram_speed=tt_data["device_info"][device_data["index"]].get("board_info", {}).get("dram_speed"),
-                    pcie_speed=tt_data["device_info"][device_data["index"]].get("board_info", {}).get("pcie_speed"),
-                    pcie_width=tt_data["device_info"][device_data["index"]].get("board_info", {}).get("pcie_width")
+                    dram_status=tt_data["device_info"][device_data["index"]]
+                    .get("board_info", {})
+                    .get("dram_status", False),
+                    dram_speed=tt_data["device_info"][device_data["index"]]
+                    .get("board_info", {})
+                    .get("dram_speed"),
+                    pcie_speed=tt_data["device_info"][device_data["index"]]
+                    .get("board_info", {})
+                    .get("pcie_speed"),
+                    pcie_width=tt_data["device_info"][device_data["index"]]
+                    .get("board_info", {})
+                    .get("pcie_width"),
                 )
-            
-            logger.info(f"Hardware snapshot saved with {len(system_resources['devices'])} devices")
+
+            logger.info(
+                f"Hardware snapshot saved with {len(system_resources['devices'])} devices"
+            )
             return snapshot
-            
+
         except Exception as e:
             logger.error(f"Error saving hardware snapshot: {str(e)}")
             return None
@@ -397,36 +476,40 @@ class SystemResourceService:
     def check_hardware_alerts(system_resources):
         """Check for hardware alerts based on current telemetry"""
         alerts = []
-        
+
         try:
             for device in system_resources.get("devices", []):
                 device_idx = device["index"]
                 temperature = device["temperature"]
                 power = device["power"]
                 limits = device["limits"]
-                
+
                 # Temperature alerts
                 if temperature > limits.get("thm_limit", 75):
-                    alerts.append({
-                        "device_index": device_idx,
-                        "alert_type": "temperature",
-                        "severity": "critical" if temperature > 85 else "warning",
-                        "message": f"Device {device_idx} temperature ({temperature}°C) exceeds limit ({limits.get('thm_limit', 75)}°C)",
-                        "value": temperature,
-                        "limit": limits.get("thm_limit", 75)
-                    })
-                
-                # Power alerts  
+                    alerts.append(
+                        {
+                            "device_index": device_idx,
+                            "alert_type": "temperature",
+                            "severity": "critical" if temperature > 85 else "warning",
+                            "message": f"Device {device_idx} temperature ({temperature}°C) exceeds limit ({limits.get('thm_limit', 75)}°C)",
+                            "value": temperature,
+                            "limit": limits.get("thm_limit", 75),
+                        }
+                    )
+
+                # Power alerts
                 if power > limits.get("tdp_limit", 85):
-                    alerts.append({
-                        "device_index": device_idx,
-                        "alert_type": "power",
-                        "severity": "warning",
-                        "message": f"Device {device_idx} power ({power}W) exceeds TDP limit ({limits.get('tdp_limit', 85)}W)",
-                        "value": power,
-                        "limit": limits.get("tdp_limit", 85)
-                    })
-            
+                    alerts.append(
+                        {
+                            "device_index": device_idx,
+                            "alert_type": "power",
+                            "severity": "warning",
+                            "message": f"Device {device_idx} power ({power}W) exceeds TDP limit ({limits.get('tdp_limit', 85)}W)",
+                            "value": power,
+                            "limit": limits.get("tdp_limit", 85),
+                        }
+                    )
+
             # Save critical alerts to database
             for alert in alerts:
                 if alert["severity"] in ["critical", "error"]:
@@ -434,14 +517,14 @@ class SystemResourceService:
                         device_index=alert["device_index"],
                         alert_type=alert["alert_type"],
                         severity=alert["severity"],
-                        message=alert["message"]
+                        message=alert["message"],
                     )
-            
+
             return alerts
-            
+
         except Exception as e:
             logger.error(f"Error checking hardware alerts: {str(e)}")
-            return [] 
+            return []
 
     @staticmethod
     def force_refresh_tt_smi_cache():
@@ -530,14 +613,16 @@ class SystemResourceService:
                 except (TypeError, ValueError):
                     return 0.0
 
-            devices.append({
-                "index": idx,
-                "board_type": board_info.get("board_type", "Unknown"),
-                "bus_id": board_info.get("bus_id", "N/A"),
-                "temperature": _f(telemetry.get("asic_temperature")),
-                "power": _f(telemetry.get("power")),
-                "voltage": _f(telemetry.get("voltage")),
-            })
+            devices.append(
+                {
+                    "index": idx,
+                    "board_type": board_info.get("board_type", "Unknown"),
+                    "bus_id": board_info.get("bus_id", "N/A"),
+                    "temperature": _f(telemetry.get("asic_temperature")),
+                    "power": _f(telemetry.get("power")),
+                    "voltage": _f(telemetry.get("voltage")),
+                }
+            )
         return devices
 
     @staticmethod
@@ -616,11 +701,15 @@ class SystemResourceService:
                     "last_updated": timezone.now().isoformat(),
                     "reset_suggested": True,
                 }
-                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                cache.set(
+                    SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10
+                )
                 return result
 
             if process.returncode != 0:
-                logger.error(f"tt-smi -s exit code {process.returncode}: {stderr.strip()!r}")
+                logger.error(
+                    f"tt-smi -s exit code {process.returncode}: {stderr.strip()!r}"
+                )
                 result = {
                     "state": "BAD_STATE",
                     "board_type": "unknown",
@@ -629,7 +718,9 @@ class SystemResourceService:
                     "last_updated": timezone.now().isoformat(),
                     "reset_suggested": True,
                 }
-                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                cache.set(
+                    SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10
+                )
                 return result
 
             try:
@@ -644,7 +735,9 @@ class SystemResourceService:
                     "last_updated": timezone.now().isoformat(),
                     "reset_suggested": True,
                 }
-                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                cache.set(
+                    SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10
+                )
                 return result
 
             board_type = SystemResourceService._extract_board_type_from_data(data)

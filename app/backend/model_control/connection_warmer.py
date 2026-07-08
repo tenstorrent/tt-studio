@@ -55,6 +55,7 @@ def note_inference_loop() -> None:
 
 async def _ping_all() -> None:
     from model_control.model_utils import _vllm_client, encoded_jwt, get_deploy_cache
+
     try:
         entries = get_deploy_cache()
     except Exception as e:
@@ -79,6 +80,7 @@ async def _warmup_inference_all() -> None:
     """Send a max_tokens=1 inference to each deployed model to warm vLLM's
     scheduler / allocator / kernel state, not just the TCP socket."""
     from model_control.model_utils import _vllm_client, encoded_jwt, get_deploy_cache
+
     try:
         entries = get_deploy_cache()
     except Exception as e:

@@ -2,9 +2,6 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import json
-import time
-import os
 import logging
 
 import requests

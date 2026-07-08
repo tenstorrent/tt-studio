@@ -4,6 +4,7 @@
 
 from enum import Enum
 
+
 class ModelTypes(Enum):
     MOCK = "mock"
     CHAT = "chat"

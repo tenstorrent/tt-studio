@@ -2,11 +2,9 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-from pathlib import Path
 
 from rest_framework import serializers
 
-from shared_config.backend_config import backend_config
 from shared_config.model_config import model_implmentations
 from model_control.model_utils import get_deploy_cache
 

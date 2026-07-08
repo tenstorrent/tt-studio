@@ -4,7 +4,6 @@
 
 # model_control/views.py
 import os
-from pathlib import Path
 from typing import Optional
 import asyncio
 import base64
@@ -25,18 +24,19 @@ from django.views import View
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.renderers import JSONRenderer
-from rest_framework.parsers import JSONParser
 from rest_framework.negotiation import DefaultContentNegotiation
-from django.views import View
+
 
 # Add this renderer class for SSE support
 class PlainTextRenderer(JSONRenderer):
-    media_type = 'text/plain'
-    format = 'txt'
+    media_type = "text/plain"
+    format = "txt"
+
 
 class EventStreamRenderer(JSONRenderer):
-    media_type = 'text/event-stream'
-    format = 'txt'
+    media_type = "text/event-stream"
+    format = "txt"
+
 
 # Add this negotiation class to bypass content type checks
 class IgnoreClientContentNegotiation(DefaultContentNegotiation):
@@ -44,8 +44,9 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
         # Force the first renderer without checking Accept headers
         return (renderers[0], renderers[0].media_type)
 
-from .serializers import InferenceSerializer, ModelWeightsSerializer
-from .log_classifier import classify_startup_phase
+
+from .serializers import InferenceSerializer, ModelWeightsSerializer  # noqa: E402
+from .log_classifier import classify_startup_phase  # noqa: E402
 
 
 # Module-level latch: tracks the highest phase + cached state we've ever seen
@@ -95,7 +96,9 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         cur_progress = int(phase_dict.get("progress", 0) or 0)
         if cur_progress < prev_max_progress:
             phase_dict["progress"] = prev_max_progress
-        new_max_progress = max(prev_max_progress, int(phase_dict.get("progress", 0) or 0))
+        new_max_progress = max(
+            prev_max_progress, int(phase_dict.get("progress", 0) or 0)
+        )
 
         # Sticky cached/repo so the badge persists across tail rotations.
         if prev.get("weights_cached") and not phase_dict.get("weights_cached"):
@@ -106,7 +109,9 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         _phase_latch[deploy_id] = {
             "phase": new_phase,
             "max_progress": new_max_progress,
-            "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
+            "weights_cached": bool(
+                phase_dict.get("weights_cached") or prev.get("weights_cached")
+            ),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
         }
     return phase_dict
@@ -116,7 +121,9 @@ def _drop_phase_latch(deploy_id: str) -> None:
     """Forget latched state for a deploy (e.g. when it becomes healthy or is removed)."""
     with _phase_latch_lock:
         _phase_latch.pop(deploy_id, None)
-from model_control.model_utils import (
+
+
+from model_control.model_utils import (  # noqa: E402
     encoded_jwt,
     _vllm_client,
     get_deploy_cache,
@@ -129,26 +136,29 @@ from model_control.model_utils import (
     health_check,
     stream_to_cloud_model,
 )
-from shared_config.model_config import model_implmentations
-from shared_config.logger_config import get_logger
-from shared_config.backend_config import backend_config
+from shared_config.model_config import model_implmentations  # noqa: E402
+from shared_config.logger_config import get_logger  # noqa: E402
+from shared_config.backend_config import backend_config  # noqa: E402
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
 
-
-
 TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
-CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
+CLOUD_CHAT_UI_URL = os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
-CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get(
+    "CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN"
+)
 CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
 CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
-CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get(
+    "CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN"
+)
+
 
 @method_decorator(csrf_exempt, name="dispatch")
 class InferenceCloudView(View):
@@ -165,6 +175,7 @@ class InferenceCloudView(View):
         response["X-Accel-Buffering"] = "no"
         return response
 
+
 @method_decorator(csrf_exempt, name="dispatch")
 class InferenceView(View):
     async def post(self, request, *args, **kwargs):
@@ -179,14 +190,18 @@ class InferenceView(View):
         internal_url = "http://" + deploy["internal_url"]
         logger.info(f"internal_url:= {internal_url}")
         logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+        data["model"] = deploy.get(
+            "cached_model_name"
+        ) or get_model_name_from_container(
             deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
         )
 
         # Clamp max_tokens to 75% of the model's context window so there is
         # always headroom for input tokens (conversation history, system prompt, etc).
         # Falls back to a param_count-based estimate when max_model_len is not yet cached.
-        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(deploy["model_impl"].param_count)
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
+            deploy["model_impl"].param_count
+        )
         max_tokens_limit = max(1, raw_limit * 3 // 4)
         if data.get("max_tokens"):
             data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
@@ -201,7 +216,9 @@ class InferenceView(View):
 
         async def generate():
             try:
-                async for chunk in stream_response_from_external_api(internal_url, data):
+                async for chunk in stream_response_from_external_api(
+                    internal_url, data
+                ):
                     yield chunk
             except Exception as e:
                 logger.error(f"Error in stream: {str(e)}")
@@ -212,10 +229,11 @@ class InferenceView(View):
         response["X-Accel-Buffering"] = "no"
         return response
 
+
 @method_decorator(csrf_exempt, name="dispatch")
 class AgentView(View):
     async def post(self, request, *args, **kwargs):
-        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called')
+        logger.info("[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called")
         data = json.loads(request.body)
         logger.info(f"AgentView data:={data}")
 
@@ -226,11 +244,15 @@ class AgentView(View):
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-            data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            data["model"] = deploy.get(
+                "cached_model_name"
+            ) or get_model_name_from_container(
                 deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
             )
         else:
-            logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
+            logger.info(
+                "No valid deployment found, proceeding with agent-only mode (cloud LLM)"
+            )
             data.pop("deploy_id", None)
 
         agent_url = "http://tt_studio_agent:8080/poll_requests"
@@ -255,46 +277,50 @@ class AgentStatusView(APIView):
         """Get agent status and discovery information"""
         try:
             import time
+
             # Get agent status directly from the agent service
             agent_status_url = "http://tt_studio_agent:8080/status"
             response = requests.get(agent_status_url, timeout=10)
-            
+
             if response.status_code == 200:
                 agent_status = response.json()
-                
+
                 # Add backend-specific information
                 backend_info = {
                     "backend_status": "running",
                     "deployed_models_count": len(get_deploy_cache()),
                     "agent_integration": "enhanced",
-                    "discovery_enabled": True
+                    "discovery_enabled": True,
                 }
-                
+
                 # Merge agent and backend status
                 full_status = {
                     "agent": agent_status,
                     "backend": backend_info,
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
                 }
-                
+
                 return Response(full_status, status=status.HTTP_200_OK)
             else:
                 return Response(
-                    {"error": "Agent service unavailable", "status_code": response.status_code},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    {
+                        "error": "Agent service unavailable",
+                        "status_code": response.status_code,
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get agent status: {e}")
             return Response(
                 {"error": "Failed to connect to agent service", "details": str(e)},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception as e:
             logger.error(f"Unexpected error in AgentStatusView: {e}")
             return Response(
                 {"error": "Internal server error", "details": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -398,6 +424,7 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
 
     try:
         from docker_control.docker_control_client import get_docker_client
+
         client = get_docker_client()
         lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
         # Even if `lines` is empty (container hasn't logged yet, or the tail
@@ -405,7 +432,9 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
         # phases[0], and `_apply_phase_latch` promotes that to the previously
         # latched maximum so the bar never reports null mid-warmup.
         phase_dict = classify_startup_phase(
-            lines or [], model_type=model_type, model_name=model_name,
+            lines or [],
+            model_type=model_type,
+            model_name=model_name,
         )
         phase_dict = _apply_phase_latch(deploy_id, phase_dict)
     except Exception as e:
@@ -415,6 +444,7 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
     try:
         if phase_dict.get("phase") == "downloading_weights":
             from .download_progress import compute_download_progress
+
             dl = compute_download_progress(
                 deploy_id=deploy_id,
                 repo=phase_dict.get("weights_repo"),
@@ -429,7 +459,8 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
             total = dl.get("total_bytes")
             if dl.get("weights_cached"):
                 phase_dict["message"] = (
-                    f"Weights cached — skipping download ({repo})" if repo
+                    f"Weights cached — skipping download ({repo})"
+                    if repo
                     else "Weights cached — skipping download"
                 )
             elif repo:
@@ -538,9 +569,11 @@ class ObjectDetectionInferenceView(APIView):
             file = {"file": byte_im}
             try:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+                inference_data = requests.post(
+                    internal_url, files=file, headers=headers, timeout=5
+                )
                 inference_data.raise_for_status()
-            except requests.exceptions.HTTPError as http_err:
+            except requests.exceptions.HTTPError:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                     return Response(status=status.HTTP_401_UNAUTHORIZED)
                 else:
@@ -556,14 +589,16 @@ class ObjectDetectionInferenceCloudView(APIView):
         """special inference view that performs special handling"""
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
-        
+
         # Get image directly instead of using serializer
         image = data.get("image")
         if not image:
-            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         image = image.file  # we should only receive 1 file
-        
+
         # Get deploy_id and handle the case where it's the string "null" or empty
         deploy_id = data.get("deploy_id")
         if deploy_id == "null" or not deploy_id:
@@ -576,7 +611,7 @@ class ObjectDetectionInferenceCloudView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             headers = {"Authorization": f"Bearer {CLOUD_YOLOV4_API_AUTH_TOKEN}"}
-            
+
         # construct file to send
         pil_image = Image.open(image)
         pil_image = pil_image.resize((320, 320))  # Resize to target dimensions
@@ -587,15 +622,17 @@ class ObjectDetectionInferenceCloudView(APIView):
         )
         byte_im = buf.getvalue()
         file = {"file": byte_im}
-        
+
         try:
             # log request
             logger.info(f"internal_url:={internal_url}")
             logger.info(f"headers:={headers}")
             # logger.info(f"file:={file}")
-            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+            inference_data = requests.post(
+                internal_url, files=file, headers=headers, timeout=5
+            )
             inference_data.raise_for_status()
-        except requests.exceptions.HTTPError as http_err:
+        except requests.exceptions.HTTPError:
             if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                 return Response(status=status.HTTP_401_UNAUTHORIZED)
             else:
@@ -633,19 +670,28 @@ class ImageGenerationInferenceView(APIView):
                     else:
                         b64_image = resp_json["data"][0]["b64_json"]
                     image_bytes = base64.b64decode(b64_image)
-                    django_response = HttpResponse(image_bytes, content_type="image/jpeg")
-                    django_response["Content-Disposition"] = "attachment; filename=image.jpg"
+                    django_response = HttpResponse(
+                        image_bytes, content_type="image/jpeg"
+                    )
+                    django_response["Content-Disposition"] = (
+                        "attachment; filename=image.jpg"
+                    )
                     return django_response
                 else:
                     # Legacy enqueue/poll/fetch API
                     inference_data = requests.post(
-                        internal_url, json={"prompt": prompt}, headers=headers, timeout=5
+                        internal_url,
+                        json={"prompt": prompt},
+                        headers=headers,
+                        timeout=5,
                     )
                     inference_data.raise_for_status()
 
                     ready_latest = False
                     task_id = inference_data.json().get("task_id")
-                    get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
+                    get_status_url = internal_url.replace(
+                        "/enqueue", f"/status/{task_id}"
+                    )
                     while not ready_latest:
                         latest_prompt = requests.get(get_status_url, headers=headers)
                         if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
@@ -654,15 +700,25 @@ class ImageGenerationInferenceView(APIView):
                                 ready_latest = True
                         time.sleep(1)
 
-                    get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                    latest_image = requests.get(get_image_url, headers=headers, stream=True)
+                    get_image_url = internal_url.replace(
+                        "/enqueue", f"/fetch_image/{task_id}"
+                    )
+                    latest_image = requests.get(
+                        get_image_url, headers=headers, stream=True
+                    )
                     latest_image.raise_for_status()
-                    content_type = latest_image.headers.get("Content-Type", "application/octet-stream")
-                    django_response = HttpResponse(latest_image.content, content_type=content_type)
-                    django_response["Content-Disposition"] = "attachment; filename=image.png"
+                    content_type = latest_image.headers.get(
+                        "Content-Type", "application/octet-stream"
+                    )
+                    django_response = HttpResponse(
+                        latest_image.content, content_type=content_type
+                    )
+                    django_response["Content-Disposition"] = (
+                        "attachment; filename=image.png"
+                    )
                     return django_response
 
-            except requests.exceptions.HTTPError as http_err:
+            except requests.exceptions.HTTPError:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                     return Response(status=status.HTTP_401_UNAUTHORIZED)
                 elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
@@ -686,7 +742,9 @@ class VideoGenerationInferenceView(APIView):
         deploy_id = data.get("deploy_id")
         prompt = data.get("prompt")
         if not prompt:
-            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         deploy = get_deploy_cache()[deploy_id]
         internal_url = "http://" + deploy["internal_url"]
@@ -705,14 +763,20 @@ class VideoGenerationInferenceView(APIView):
                 pass
 
         try:
-            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp = requests.post(
+                internal_url, json=payload, headers=headers, timeout=30
+            )
             init_resp.raise_for_status()
 
             # Sync mode: server returned video bytes directly (use_async_video=False)
             if init_resp.status_code == status.HTTP_200_OK:
                 content_type = init_resp.headers.get("Content-Type", "video/mp4")
-                django_response = HttpResponse(init_resp.content, content_type=content_type)
-                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                django_response = HttpResponse(
+                    init_resp.content, content_type=content_type
+                )
+                django_response["Content-Disposition"] = (
+                    "attachment; filename=video.mp4"
+                )
                 return django_response
 
             # Async mode: server returned 202 with job_id — return it immediately so the
@@ -722,7 +786,10 @@ class VideoGenerationInferenceView(APIView):
             job_id = job_data.get("job_id") or job_data.get("id")
             if not job_id:
                 logger.error(f"No job_id in async response: {job_data}")
-                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response(
+                    {"error": "No job_id in response"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
 
@@ -739,7 +806,9 @@ class VideoGenerationInferenceView(APIView):
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as exc:
             logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
-            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 def _video_base_url(deploy_id):
@@ -769,7 +838,9 @@ class VideoGenerationStatusView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         deploy_id = request.query_params.get("deploy_id")
         if not deploy_id:
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             base_url = _video_base_url(deploy_id)
@@ -790,7 +861,9 @@ class VideoGenerationStatusView(APIView):
             return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as exc:
             logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
-            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class VideoGenerationDownloadView(APIView):
@@ -799,7 +872,9 @@ class VideoGenerationDownloadView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         deploy_id = request.query_params.get("deploy_id")
         if not deploy_id:
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             base_url = _video_base_url(deploy_id)
@@ -822,92 +897,14 @@ class VideoGenerationDownloadView(APIView):
             return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as exc:
             logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
-            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-
-class SpeechRecognitionInferenceView(APIView):
-    def post(self, request, *args, **kwargs):
-        """special automatic speec recognition inference view"""
-        data = request.data
-        logger.info(f"{self.__class__.__name__} data:={data}")
-        serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.get("deploy_id")
-            audio_file = data.get("file")  # we should only receive 1 file
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            model_impl = deploy.get("model_impl")
-            inference_engine = getattr(model_impl, "inference_engine", None)
-            if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
-            else:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-            file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-            try:
-                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-                inference_data.raise_for_status()
-            except requests.exceptions.HTTPError as http_err:
-                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                    return Response(status=status.HTTP_401_UNAUTHORIZED)
-                else:
-                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            return Response(inference_data.json(), status=status.HTTP_200_OK)
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class SpeechRecognitionInferenceCloudView(APIView):
-    def post(self, request, *args, **kwargs):
-        """special inference view that performs special handling for cloud speech recognition"""
-        data = request.data
-        logger.info(f"{self.__class__.__name__} data:={data}")
-        
-        # Get audio file directly instead of using serializer
-        audio_file = data.get("file")
-        if not audio_file:
-            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Get deploy_id and handle the case where it's the string "null"
-        deploy_id = data.get("deploy_id")
-        if deploy_id == "null" or not deploy_id:
-            # Use cloud URL when deploy_id is "null" or empty
-            internal_url = CLOUD_SPEECH_RECOGNITION_URL
-            if not internal_url:
-                return Response(
-                    {"error": "Cloud speech recognition URL not configured"}, 
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
-            logger.info(f"Using cloud URL: {internal_url}")
-            headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
-            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
-        else:
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            model_impl = deploy.get("model_impl")
-            inference_engine = getattr(model_impl, "inference_engine", None)
-            if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
-            else:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-            
-        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-        
-        try:
-            # log request
-            logger.info(f"internal_url:={internal_url}")
-            logger.info(f"headers:={headers}")
-            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-            inference_data.raise_for_status()
-        except requests.exceptions.HTTPError as http_err:
-            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                return Response(status=status.HTTP_401_UNAUTHORIZED)
-            else:
-                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 class FaceRecognitionRecognizeView(APIView):
     """Proxy view for face recognition - recognize faces in an image"""
+
     def post(self, request, *args, **kwargs):
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
@@ -915,40 +912,57 @@ class FaceRecognitionRecognizeView(APIView):
         deploy_id = data.get("deploy_id")
         image = data.get("image")
         if not image:
-            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
         if not deploy_id or deploy_id == "null":
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             deploy = get_deploy_cache()[deploy_id]
-            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            base_url = "http://" + deploy["internal_url"].rsplit("/", 1)[0]
             internal_url = f"{base_url}/recognize-face"
         except KeyError:
-            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"No deployment found for {deploy_id}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             headers = {"Authorization": f"Bearer {encoded_jwt}"}
             files = {"image": (image.name, image.file, image.content_type)}
-            inference_data = requests.post(internal_url, files=files, headers=headers, timeout=30)
+            inference_data = requests.post(
+                internal_url, files=files, headers=headers, timeout=30
+            )
             inference_data.raise_for_status()
         except requests.exceptions.Timeout:
-            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            return Response(
+                {"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
         except requests.exceptions.HTTPError:
             if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                 return Response(status=status.HTTP_401_UNAUTHORIZED)
             elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
-                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                return Response(
+                    {"error": "Models not loaded"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             else:
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             logger.error(f"Face recognition error: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
 class FaceRecognitionRegisterView(APIView):
     """Proxy view for face recognition - register a new face"""
+
     def post(self, request, *args, **kwargs):
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
@@ -958,105 +972,151 @@ class FaceRecognitionRegisterView(APIView):
         name = data.get("name")
 
         if not image:
-            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
         if not name:
-            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
         if not deploy_id or deploy_id == "null":
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             deploy = get_deploy_cache()[deploy_id]
-            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            base_url = "http://" + deploy["internal_url"].rsplit("/", 1)[0]
             internal_url = f"{base_url}/register-face"
         except KeyError:
-            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"No deployment found for {deploy_id}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             headers = {"Authorization": f"Bearer {encoded_jwt}"}
             files = {"image": (image.name, image.file, image.content_type)}
             form_data = {"name": name}
-            inference_data = requests.post(internal_url, files=files, data=form_data, headers=headers, timeout=30)
+            inference_data = requests.post(
+                internal_url, files=files, data=form_data, headers=headers, timeout=30
+            )
             inference_data.raise_for_status()
         except requests.exceptions.Timeout:
-            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            return Response(
+                {"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
         except requests.exceptions.HTTPError:
             if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                 return Response(status=status.HTTP_401_UNAUTHORIZED)
             elif inference_data.status_code == status.HTTP_409_CONFLICT:
-                return Response({"error": "Identity already exists"}, status=status.HTTP_409_CONFLICT)
+                return Response(
+                    {"error": "Identity already exists"},
+                    status=status.HTTP_409_CONFLICT,
+                )
             elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
-                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                return Response(
+                    {"error": "Models not loaded"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             else:
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             logger.error(f"Face registration error: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
 class FaceRecognitionListView(APIView):
     """Proxy view for face recognition - list registered faces"""
+
     def get(self, request, *args, **kwargs):
         deploy_id = request.query_params.get("deploy_id")
         logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id}")
 
         if not deploy_id or deploy_id == "null":
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             deploy = get_deploy_cache()[deploy_id]
-            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            base_url = "http://" + deploy["internal_url"].rsplit("/", 1)[0]
             internal_url = f"{base_url}/registered-faces"
         except KeyError:
-            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"No deployment found for {deploy_id}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             headers = {"Authorization": f"Bearer {encoded_jwt}"}
             response = requests.get(internal_url, headers=headers, timeout=10)
             response.raise_for_status()
         except requests.exceptions.Timeout:
-            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            return Response(
+                {"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
         except requests.exceptions.HTTPError:
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             logger.error(f"Face list error: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(response.json(), status=status.HTTP_200_OK)
 
 
 class FaceRecognitionDeleteView(APIView):
     """Proxy view for face recognition - delete a registered face"""
+
     def delete(self, request, name, *args, **kwargs):
         deploy_id = request.query_params.get("deploy_id")
         logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id} name:={name}")
 
         if not deploy_id or deploy_id == "null":
-            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
         if not name:
-            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             deploy = get_deploy_cache()[deploy_id]
-            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            base_url = "http://" + deploy["internal_url"].rsplit("/", 1)[0]
             internal_url = f"{base_url}/registered-faces/{name}"
         except KeyError:
-            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"No deployment found for {deploy_id}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             headers = {"Authorization": f"Bearer {encoded_jwt}"}
             response = requests.delete(internal_url, headers=headers, timeout=10)
             response.raise_for_status()
         except requests.exceptions.Timeout:
-            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            return Response(
+                {"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
         except requests.exceptions.HTTPError:
             if response.status_code == status.HTTP_404_NOT_FOUND:
-                return Response({"error": f"Identity '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {"error": f"Identity '{name}' not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             logger.error(f"Face delete error: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(response.json(), status=status.HTTP_200_OK)
 
@@ -1066,34 +1126,40 @@ class ImageGenerationInferenceCloudView(APIView):
         """special image generation inference view that performs special file handling"""
         data = request.data
         logger.info(f"{self.__class__.__name__} received request data: {data}")
-        
+
         # Get prompt directly since we don't need deploy_id validation for cloud
         prompt = data.get("prompt")
         if not prompt:
             logger.error("No prompt provided in request")
-            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         logger.info(f"Processing prompt: {prompt}")
         base_url = CLOUD_STABLE_DIFFUSION_URL
         if not base_url:
             logger.error("Cloud stable diffusion URL not configured")
             return Response(
-                {"error": "Cloud stable diffusion URL not configured"}, 
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                {"error": "Cloud stable diffusion URL not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         try:
             headers = {"Authorization": f"Bearer {CLOUD_STABLE_DIFFUSION_AUTH_TOKEN}"}
             data = {"prompt": prompt}
-            
+
             # Use /enqueue endpoint for initial request
             enqueue_url = f"{base_url}/enqueue"
             logger.info(f"Making request to cloud endpoint: {enqueue_url}")
             logger.info(f"Request headers: {headers}")
             logger.info(f"Request data: {data}")
-            
-            inference_data = requests.post(enqueue_url, json=data, headers=headers, timeout=5)
+
+            inference_data = requests.post(
+                enqueue_url, json=data, headers=headers, timeout=5
+            )
             inference_data.raise_for_status()
-            logger.info(f"Initial request successful, response: {inference_data.json()}")
+            logger.info(
+                f"Initial request successful, response: {inference_data.json()}"
+            )
 
             # begin fetch status loop
             ready_latest = False
@@ -1101,8 +1167,8 @@ class ImageGenerationInferenceCloudView(APIView):
             logger.info(f"Got task_id: {task_id}")
             status_url = f"{base_url}/status/{task_id}"
             logger.info(f"Status check URL: {status_url}")
-            
-            while (not ready_latest):
+
+            while not ready_latest:
                 logger.info(f"Checking status for task {task_id}")
                 latest_prompt = requests.get(status_url, headers=headers)
                 if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
@@ -1120,13 +1186,17 @@ class ImageGenerationInferenceCloudView(APIView):
             latest_image = requests.get(image_url, headers=headers, stream=True)
             latest_image.raise_for_status()
             logger.info("Successfully retrieved image")
-            
-            content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
-            content_disposition = f'attachment; filename=image.png'
-            
+
+            content_type = latest_image.headers.get(
+                "Content-Type", "application/octet-stream"
+            )
+            content_disposition = "attachment; filename=image.png"
+
             # Create a Django HttpResponse with the content of the file from Flask
-            django_response = HttpResponse(latest_image.content, content_type=content_type)
-            django_response['Content-Disposition'] = content_disposition
+            django_response = HttpResponse(
+                latest_image.content, content_type=content_type
+            )
+            django_response["Content-Disposition"] = content_disposition
             logger.info("Returning image response")
             return django_response
 
@@ -1141,7 +1211,6 @@ class ImageGenerationInferenceCloudView(APIView):
             else:
                 logger.error(f"Unexpected error: {str(http_err)}")
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 class SpeechRecognitionInferenceView(APIView):
@@ -1163,9 +1232,11 @@ class SpeechRecognitionInferenceView(APIView):
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
             try:
-                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+                inference_data = requests.post(
+                    internal_url, files=file, headers=headers, timeout=5
+                )
                 inference_data.raise_for_status()
-            except requests.exceptions.HTTPError as http_err:
+            except requests.exceptions.HTTPError:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                     return Response(status=status.HTTP_401_UNAUTHORIZED)
                 else:
@@ -1175,17 +1246,20 @@ class SpeechRecognitionInferenceView(APIView):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class SpeechRecognitionInferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
         """special inference view that performs special handling for cloud speech recognition"""
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
-        
+
         # Get audio file directly instead of using serializer
         audio_file = data.get("file")
         if not audio_file:
-            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Get deploy_id and handle the case where it's the string "null"
         deploy_id = data.get("deploy_id")
         if deploy_id == "null" or not deploy_id:
@@ -1193,12 +1267,14 @@ class SpeechRecognitionInferenceCloudView(APIView):
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
             if not internal_url:
                 return Response(
-                    {"error": "Cloud speech recognition URL not configured"}, 
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    {"error": "Cloud speech recognition URL not configured"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
             logger.info(f"Using cloud URL: {internal_url}")
             headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
-            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
+            logger.info(
+                f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"
+            )
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
@@ -1208,16 +1284,18 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
-            
+
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-        
+
         try:
             # log request
             logger.info(f"internal_url:={internal_url}")
             logger.info(f"headers:={headers}")
-            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+            inference_data = requests.post(
+                internal_url, files=file, headers=headers, timeout=5
+            )
             inference_data.raise_for_status()
-        except requests.exceptions.HTTPError as http_err:
+        except requests.exceptions.HTTPError:
             if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                 return Response(status=status.HTTP_401_UNAUTHORIZED)
             else:
@@ -1225,8 +1303,10 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
+
 class TtsInferenceView(APIView):
     """Text-to-speech inference: supports both OpenAI-style and enqueue-style endpoints."""
+
     def post(self, request, *args, **kwargs):
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
@@ -1235,34 +1315,52 @@ class TtsInferenceView(APIView):
             deploy_id = data.get("deploy_id")
             text = data.get("text") or data.get("prompt")
             if not text:
-                return Response({"error": "text is required"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": "text is required"}, status=status.HTTP_400_BAD_REQUEST
+                )
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
                 model_impl = deploy.get("model_impl")
-                model_name = getattr(model_impl, "model_name", None) if model_impl else None
+                model_name = (
+                    getattr(model_impl, "model_name", None) if model_impl else None
+                )
                 inference_engine = getattr(model_impl, "inference_engine", None)
-                
+
                 if inference_engine == "media":
                     headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
                     payload = {"model": model_name, "text": text, "voice": "default"}
                 else:
                     headers = {"Authorization": f"Bearer {encoded_jwt}"}
                     payload = {"model": model_name, "input": text, "voice": "default"}
-                
-                audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
-                
+
+                audio_resp = requests.post(
+                    internal_url, json=payload, headers=headers, timeout=120
+                )
+
                 # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
-                if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
-                    logger.info(f"TTS 404 on {internal_url}, retrying with /v1/audio/speech")
+                if (
+                    audio_resp.status_code == 404
+                    and inference_engine == "media"
+                    and "/enqueue" in internal_url
+                ):
+                    logger.info(
+                        f"TTS 404 on {internal_url}, retrying with /v1/audio/speech"
+                    )
                     fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
-                    audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
-                
+                    audio_resp = requests.post(
+                        fallback_url, json=payload, headers=headers, timeout=120
+                    )
+
                 audio_resp.raise_for_status()
 
                 content_type = audio_resp.headers.get("Content-Type", "audio/wav")
-                django_response = HttpResponse(audio_resp.content, content_type=content_type)
-                django_response["Content-Disposition"] = "attachment; filename=tts_output.wav"
+                django_response = HttpResponse(
+                    audio_resp.content, content_type=content_type
+                )
+                django_response["Content-Disposition"] = (
+                    "attachment; filename=tts_output.wav"
+                )
                 django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 return django_response
 
@@ -1275,14 +1373,19 @@ class TtsInferenceView(APIView):
 
 class OpenAIAudioSpeechView(APIView):
     """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
+
     def post(self, request, *args, **kwargs):
         data = request.data
         model_name = data.get("model")
         text = data.get("input") or data.get("text")
         if not model_name:
-            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
         if not text:
-            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Find a running TTS deployment matching the requested model name
         deploy = None
@@ -1301,26 +1404,46 @@ class OpenAIAudioSpeechView(APIView):
         try:
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
-            
+
             if inference_engine == "media":
                 headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
-                payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
+                payload = {
+                    "model": model_name,
+                    "text": text,
+                    "voice": data.get("voice", "default"),
+                }
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                payload = {"model": model_name, "input": text, "voice": data.get("voice", "default")}
-            
-            audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
-            
+                payload = {
+                    "model": model_name,
+                    "input": text,
+                    "voice": data.get("voice", "default"),
+                }
+
+            audio_resp = requests.post(
+                internal_url, json=payload, headers=headers, timeout=120
+            )
+
             # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
-            if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
-                logger.info(f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech")
+            if (
+                audio_resp.status_code == 404
+                and inference_engine == "media"
+                and "/enqueue" in internal_url
+            ):
+                logger.info(
+                    f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech"
+                )
                 fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
-                audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
-            
+                audio_resp = requests.post(
+                    fallback_url, json=payload, headers=headers, timeout=120
+                )
+
             audio_resp.raise_for_status()
 
             content_type = audio_resp.headers.get("Content-Type", "audio/wav")
-            django_response = HttpResponse(audio_resp.content, content_type=content_type)
+            django_response = HttpResponse(
+                audio_resp.content, content_type=content_type
+            )
             django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return django_response
 
@@ -1332,79 +1455,89 @@ class OpenAIAudioSpeechView(APIView):
 class ContainerLogsView(View):
     # Define event detection configuration before the get method
     SIMPLE_EVENT_KEYWORDS = [
-        '[ERROR]', '[FATAL]', '[CRITICAL]',
-        '[WARN]', '[WARNING]',
-        'RESPONSE_Q OUT OF SYNC',
-        'ABORTED', 'CORE DUMPED',
-        'TERMINATED', 'EXCEPTION',
-        'DESTINATION UNREACHABLE',
-        'CLUSTER GENERATION FAILED',
-        'APPLICATION STARTUP COMPLETE',
-        'UVICORN RUNNING ON',
-        'STARTED SERVER PROCESS',
-        'WAITING FOR APPLICATION STARTUP',
-        'WH_ARCH_YAML:',
-        'PLATFORM LINUX',
-        'PYTEST-',
-        'ROOTDIR:',
-        'PLUGINS:'
+        "[ERROR]",
+        "[FATAL]",
+        "[CRITICAL]",
+        "[WARN]",
+        "[WARNING]",
+        "RESPONSE_Q OUT OF SYNC",
+        "ABORTED",
+        "CORE DUMPED",
+        "TERMINATED",
+        "EXCEPTION",
+        "DESTINATION UNREACHABLE",
+        "CLUSTER GENERATION FAILED",
+        "APPLICATION STARTUP COMPLETE",
+        "UVICORN RUNNING ON",
+        "STARTED SERVER PROCESS",
+        "WAITING FOR APPLICATION STARTUP",
+        "WH_ARCH_YAML:",
+        "PLATFORM LINUX",
+        "PYTEST-",
+        "ROOTDIR:",
+        "PLUGINS:",
     ]
-    
+
     @staticmethod
     def _is_complex_event(line_upper):
         """
         Check for event patterns that require multiple keyword combinations.
-        
+
         Args:
             line_upper: Uppercase version of the log line
-            
+
         Returns:
             bool: True if line matches a complex event pattern
         """
-        if 'DEVICE |' in line_upper and 'OPENING USER MODE DEVICE DRIVER' in line_upper:
+        if "DEVICE |" in line_upper and "OPENING USER MODE DEVICE DRIVER" in line_upper:
             return True
 
-        if 'SILICONDRIVER' in line_upper and ('OPENED PCI DEVICE' in line_upper or 'DETECTED PCI' in line_upper):
+        if "SILICONDRIVER" in line_upper and (
+            "OPENED PCI DEVICE" in line_upper or "DETECTED PCI" in line_upper
+        ):
             return True
-        
-        if 'SOFTWARE VERSION' in line_upper and 'ETHERNET FW VERSION' in line_upper:
+
+        if "SOFTWARE VERSION" in line_upper and "ETHERNET FW VERSION" in line_upper:
             return True
-        
-        if 'COLLECTED' in line_upper and 'ITEM' in line_upper:
+
+        if "COLLECTED" in line_upper and "ITEM" in line_upper:
             return True
-        
+
         return False
-    
+
     @classmethod
     def _determine_message_type(cls, line):
         """
         Determine if a log line should be classified as an event or regular log.
-        
+
         Args:
             line: The log line to classify
-            
+
         Returns:
             str: Either "event" or "log"
         """
         line_upper = line.upper()
-        
+
         # Check simple keyword patterns
         if any(keyword in line_upper for keyword in cls.SIMPLE_EVENT_KEYWORDS):
             return "event"
-        
+
         # Check complex multi-keyword patterns
         if cls._is_complex_event(line_upper):
             return "event"
-        
+
         return "log"
-    
+
     async def get(self, request, container_id, *args, **kwargs):
         """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
-        logger.info(f"ContainerLogsView received request for container_id: {container_id}")
+        logger.info(
+            f"ContainerLogsView received request for container_id: {container_id}"
+        )
 
         try:
             logger.info("Getting docker-control-service client")
             from docker_control.docker_control_client import get_docker_client
+
             client = get_docker_client()
 
             logger.info(f"Setting up log stream for container: {container_id}")
@@ -1415,7 +1548,9 @@ class ContainerLogsView(View):
 
                 def sync_stream():
                     try:
-                        for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
+                        for log_line in client.get_logs_stream(
+                            container_id, follow=True, tail=100
+                        ):
                             loop.call_soon_threadsafe(queue.put_nowait, log_line)
 
                     except requests.exceptions.ConnectionError as e:
@@ -1423,11 +1558,13 @@ class ContainerLogsView(View):
                         error_data = {
                             "type": "service_unavailable",
                             "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
-                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            "timestamp": datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
                         }
                         loop.call_soon_threadsafe(
                             queue.put_nowait,
-                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                            f"data: {json.dumps(error_data)}\n\n".encode("utf-8"),
                         )
 
                     except Exception as e:
@@ -1435,11 +1572,13 @@ class ContainerLogsView(View):
                         error_data = {
                             "type": "error",
                             "message": f"Error streaming data: {str(e)}",
-                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            "timestamp": datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
                         }
                         loop.call_soon_threadsafe(
                             queue.put_nowait,
-                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                            f"data: {json.dumps(error_data)}\n\n".encode("utf-8"),
                         )
 
                     finally:
@@ -1455,71 +1594,86 @@ class ContainerLogsView(View):
                     yield chunk
 
             response = StreamingHttpResponse(
-                generate_container_data(),
-                content_type='text/event-stream'
+                generate_container_data(), content_type="text/event-stream"
             )
 
             # Set required headers for SSE
-            response['Cache-Control'] = 'no-cache, no-transform'
-            response['X-Accel-Buffering'] = 'no'
+            response["Cache-Control"] = "no-cache, no-transform"
+            response["X-Accel-Buffering"] = "no"
 
             return response
 
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
+            error_detail = str(e)
 
             async def error_stream():
                 error_data = {
                     "type": "service_unavailable",
-                    "message": f"Failed to initialize log stream: {str(e)}",
-                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    "message": f"Failed to initialize log stream: {error_detail}",
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                yield f"data: {json.dumps(error_data)}\n\n".encode("utf-8")
 
-            response = StreamingHttpResponse(error_stream(), content_type='text/event-stream')
-            response['Cache-Control'] = 'no-cache, no-transform'
-            response['X-Accel-Buffering'] = 'no'
+            response = StreamingHttpResponse(
+                error_stream(), content_type="text/event-stream"
+            )
+            response["Cache-Control"] = "no-cache, no-transform"
+            response["X-Accel-Buffering"] = "no"
             return response
 
 
 class ModelAPIInfoView(APIView):
     """Get API endpoint information for deployed models"""
+
     def get(self, request, *args, **kwargs):
         """Return API endpoint details for all deployed models"""
         try:
             deployed_data = get_deploy_cache()
             api_info = {}
-            
+
             for deploy_id, deploy_info in deployed_data.items():
                 # Get the base URL from the request
-                base_url = request.build_absolute_uri('/').rstrip('/')
-                
+                base_url = request.build_absolute_uri("/").rstrip("/")
+
                 # Extract model information
                 model_impl = deploy_info.get("model_impl", {})
-                model_name = getattr(model_impl, "model_name", "Unknown") if model_impl else "Unknown"
-                model_type_obj = getattr(model_impl, "model_type", None) if model_impl else None
-                model_type = getattr(model_type_obj, "value", "ChatModel") if model_type_obj else "ChatModel"
-                
+                model_name = (
+                    getattr(model_impl, "model_name", "Unknown")
+                    if model_impl
+                    else "Unknown"
+                )
+                model_type_obj = (
+                    getattr(model_impl, "model_type", None) if model_impl else None
+                )
+                model_type = (
+                    getattr(model_type_obj, "value", "ChatModel")
+                    if model_type_obj
+                    else "ChatModel"
+                )
+
                 # Get internal URL and port bindings for external URL construction
                 internal_url = deploy_info.get("internal_url", "")
                 health_url = deploy_info.get("health_url", "")
                 port_bindings = deploy_info.get("port_bindings", {})
-                
+
                 # Construct external URLs using port bindings
                 chat_completions_url = ""
                 completions_url = ""
                 health_endpoint_url = ""
-                
+
                 if internal_url and port_bindings:
                     # Extract the service port from internal_url (e.g., "container_name:7000/v1/chat/completions" -> "7000")
                     service_port = None
                     if ":" in internal_url:
                         service_port = internal_url.split(":")[1].split("/")[0]
-                    
+
                     # Find the external port mapping for this service port
-                    external_host = "localhost"  # Default to localhost for external access
+                    external_host = (
+                        "localhost"  # Default to localhost for external access
+                    )
                     external_port = None
-                    
+
                     # Look for the port binding that matches the service port
                     for container_port, host_bindings in port_bindings.items():
                         if container_port and host_bindings:
@@ -1536,42 +1690,62 @@ class ModelAPIInfoView(APIView):
                                     else:
                                         external_host = host_ip
                                 break
-                    
+
                     # Construct external URLs if we found the port mapping
                     if external_port:
                         base_external_url = f"http://{external_host}:{external_port}"
-                        chat_completions_url = f"{base_external_url}/v1/chat/completions"
+                        chat_completions_url = (
+                            f"{base_external_url}/v1/chat/completions"
+                        )
                         completions_url = f"{base_external_url}/v1/completions"
                         health_endpoint_url = f"{base_external_url}/health"
                     else:
                         # Fallback to internal URL if no port mapping found
-                        logger.warning(f"No port mapping found for service port {service_port} in {deploy_id}")
+                        logger.warning(
+                            f"No port mapping found for service port {service_port} in {deploy_id}"
+                        )
                         if internal_url:
                             # Extract hostname:port from internal_url
                             if "/v1/chat/completions" in internal_url:
-                                base_internal_url = internal_url.replace("/v1/chat/completions", "")
+                                base_internal_url = internal_url.replace(
+                                    "/v1/chat/completions", ""
+                                )
                             elif "/v1/completions" in internal_url:
-                                base_internal_url = internal_url.replace("/v1/completions", "")
+                                base_internal_url = internal_url.replace(
+                                    "/v1/completions", ""
+                                )
                             else:
                                 base_internal_url = internal_url
-                            
-                            chat_completions_url = f"http://{base_internal_url}/v1/chat/completions"
-                            completions_url = f"http://{base_internal_url}/v1/completions"
-                            health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
-                
+
+                            chat_completions_url = (
+                                f"http://{base_internal_url}/v1/chat/completions"
+                            )
+                            completions_url = (
+                                f"http://{base_internal_url}/v1/completions"
+                            )
+                            health_endpoint_url = (
+                                f"http://{health_url}"
+                                if health_url
+                                else f"http://{base_internal_url}/health"
+                            )
+
                 # Generate JWT token for this model
                 team_id = os.getenv("TEAM_ID", "tenstorrent")
                 token_id = os.getenv("TOKEN_ID", "debug-test")
                 json_payload = {"team_id": team_id, "token_id": token_id}
                 jwt_secret = backend_config.jwt_secret
                 encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
-                
+
                 # Create example payload based on model type
                 example_payload = self._get_example_payload(model_type, deploy_info)
-                
+
                 # Create curl examples for both chat completions and completions APIs
-                chat_curl_example = self._get_chat_curl_example(chat_completions_url, encoded_jwt, deploy_info)
-                completions_curl_example = self._get_completions_curl_example(completions_url, encoded_jwt, deploy_info)
+                chat_curl_example = self._get_chat_curl_example(
+                    chat_completions_url, encoded_jwt, deploy_info
+                )
+                completions_curl_example = self._get_completions_curl_example(
+                    completions_url, encoded_jwt, deploy_info
+                )
 
                 # For non-LLM models the container does not serve /v1/chat/completions,
                 # so expose the matching TT-Studio backend proxy route instead. The route
@@ -1583,7 +1757,9 @@ class ModelAPIInfoView(APIView):
                 api_info[deploy_id] = {
                     "model_name": model_name,
                     "model_type": model_type,
-                    "hf_model_id": getattr(model_impl, "hf_model_id", None) if model_impl else None,
+                    "hf_model_id": getattr(model_impl, "hf_model_id", None)
+                    if model_impl
+                    else None,
                     "jwt_secret": jwt_secret,
                     "jwt_token": encoded_jwt,
                     "example_payload": example_payload,
@@ -1595,29 +1771,35 @@ class ModelAPIInfoView(APIView):
                         "chat_completions": chat_completions_url,
                         "completions": completions_url,
                         "health": health_endpoint_url,
-                        "tt_studio_backend": f"{base_url}/models-api/inference/"
+                        "tt_studio_backend": f"{base_url}/models-api/inference/",
                     },
                     "inference_route": inference_route,
                     "deploy_info": {
                         "model_impl": {
-                            "model_name": getattr(model_impl, "model_name", None) if model_impl else None,
-                            "hf_model_id": getattr(model_impl, "hf_model_id", None) if model_impl else None,
+                            "model_name": getattr(model_impl, "model_name", None)
+                            if model_impl
+                            else None,
+                            "hf_model_id": getattr(model_impl, "hf_model_id", None)
+                            if model_impl
+                            else None,
                             "model_type": model_type,  # Use the string value instead of the enum object
-                        } if model_impl else {},
+                        }
+                        if model_impl
+                        else {},
                         "internal_url": internal_url,
-                        "health_url": health_url
-                    }
+                        "health_url": health_url,
+                    },
                 }
-            
+
             return Response(api_info, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             logger.error(f"Error getting API info: {str(e)}")
             return Response(
                 {"error": "Failed to get API information", "details": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-    
+
     def _get_endpoint_path(self, model_type):
         """Get the backend proxy route for a non-LLM model type.
 
@@ -1637,48 +1819,57 @@ class ModelAPIInfoView(APIView):
         # Get the actual deploy_id for this specific model
         deploy_id = None
         current_model_impl = deploy_info.get("model_impl", {})
-        current_model_name = getattr(current_model_impl, "model_name", None) if current_model_impl else None
-        
+        current_model_name = (
+            getattr(current_model_impl, "model_name", None)
+            if current_model_impl
+            else None
+        )
+
         for did, dinfo in get_deploy_cache().items():
             dinfo_model_impl = dinfo.get("model_impl", {})
-            dinfo_model_name = getattr(dinfo_model_impl, "model_name", None) if dinfo_model_impl else None
+            dinfo_model_name = (
+                getattr(dinfo_model_impl, "model_name", None)
+                if dinfo_model_impl
+                else None
+            )
             if dinfo_model_name == current_model_name:
                 deploy_id = did
                 break
-        
+
         # Get the HF model ID for the model
-        hf_model_id = getattr(current_model_impl, "hf_model_id", "meta-llama/Llama-3.2-1B-Instruct") if current_model_impl else "meta-llama/Llama-3.2-1B-Instruct"
-        
+        hf_model_id = (
+            getattr(
+                current_model_impl, "hf_model_id", "meta-llama/Llama-3.2-1B-Instruct"
+            )
+            if current_model_impl
+            else "meta-llama/Llama-3.2-1B-Instruct"
+        )
+
         if model_type == "ChatModel":
             # Return OpenAI-compatible format for direct model testing
             return {
                 "model": hf_model_id,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What is Tenstorrent?"
-                    }
-                ],
+                "messages": [{"role": "user", "content": "What is Tenstorrent?"}],
                 "temperature": 0.7,
                 "max_tokens": 100,
-                "stream": False
+                "stream": False,
             }
         elif model_type == "ImageGeneration":
             return {
                 "deploy_id": deploy_id or "your_deploy_id",
-                "prompt": "A beautiful sunset over mountains"
+                "prompt": "A beautiful sunset over mountains",
             }
         elif model_type == "ObjectDetectionModel":
             return {
                 "deploy_id": deploy_id or "your_deploy_id",
-                "image": "base64_encoded_image_or_file_upload"
+                "image": "base64_encoded_image_or_file_upload",
             }
         elif model_type == "SpeechRecognitionModel":
             return {
                 "deploy_id": deploy_id or "your_deploy_id",
-                "file": "audio_file_upload"
+                "file": "audio_file_upload",
             }
-        
+
         # Fallback for unknown model types
         return {
             "deploy_id": deploy_id or "your_deploy_id",
@@ -1688,17 +1879,21 @@ class ModelAPIInfoView(APIView):
             "top_p": 0.9,
             "max_tokens": 128,
             "stream": True,
-            "stop": ["<|eot_id|>"]
+            "stop": ["<|eot_id|>"],
         }
-    
+
     def _get_chat_curl_example(self, chat_url, jwt_token, deploy_info):
         """Generate curl example for chat completions API"""
         if not chat_url:
             return "# Chat completions endpoint not available"
-        
+
         model_impl = deploy_info.get("model_impl", {})
-        hf_model_id = getattr(model_impl, "hf_model_id", "your-model-name") if model_impl else "your-model-name"
-        
+        hf_model_id = (
+            getattr(model_impl, "hf_model_id", "your-model-name")
+            if model_impl
+            else "your-model-name"
+        )
+
         return f"""curl -X POST "{chat_url}" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer {jwt_token}" \\
@@ -1714,15 +1909,19 @@ class ModelAPIInfoView(APIView):
     "max_tokens": 100,
     "stream": false
   }}'"""
-    
+
     def _get_completions_curl_example(self, completions_url, jwt_token, deploy_info):
         """Generate curl example for completions API"""
         if not completions_url:
             return "# Completions endpoint not available"
-        
+
         model_impl = deploy_info.get("model_impl", {})
-        hf_model_id = getattr(model_impl, "hf_model_id", "your-model-name") if model_impl else "your-model-name"
-        
+        hf_model_id = (
+            getattr(model_impl, "hf_model_id", "your-model-name")
+            if model_impl
+            else "your-model-name"
+        )
+
         return f"""curl -X POST "{completions_url}" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer {jwt_token}" \\
@@ -1736,7 +1935,7 @@ class ModelAPIInfoView(APIView):
     "stream": false,
     "stop": ["<|eot_id|>"]
   }}'"""
-    
+
     def _get_curl_example(self, api_url, jwt_token, payload, model_type):
         """Generate curl example for the API endpoint (legacy method)"""
         if model_type == "ObjectDetectionModel":
@@ -1774,7 +1973,9 @@ from shared_config.coding_agent_config import (  # noqa: E402
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
-LITELLM_INTERNAL_URL = os.environ.get("LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000")
+LITELLM_INTERNAL_URL = os.environ.get(
+    "LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000"
+)
 
 # Round-robin cursor per model_name for multi-chip / duplicate deployments
 _rr_lock = threading.Lock()
@@ -1834,7 +2035,7 @@ def _check_upstream_auth(request) -> bool:
     if not LITELLM_UPSTREAM_KEY:
         return True
     auth = request.headers.get("Authorization", "")
-    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    token = auth[len("Bearer ") :].strip() if auth.startswith("Bearer ") else ""
     return token == LITELLM_UPSTREAM_KEY
 
 
@@ -1862,8 +2063,12 @@ class OpenAIChatCompletionsView(View):
         deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
         if deploy is None:
             return JsonResponse(
-                {"error": {"message": f"No running model named '{base_model}'.",
-                           "type": "model_not_found"}},
+                {
+                    "error": {
+                        "message": f"No running model named '{base_model}'.",
+                        "type": "model_not_found",
+                    }
+                },
                 status=404,
             )
         if enable_thinking is not None:
@@ -1873,7 +2078,9 @@ class OpenAIChatCompletionsView(View):
             data["chat_template_kwargs"] = ctk
 
         internal_url = "http://" + deploy["internal_url"]
-        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+        data["model"] = deploy.get(
+            "cached_model_name"
+        ) or get_model_name_from_container(
             deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
         )
 
@@ -1895,6 +2102,7 @@ class OpenAIChatCompletionsView(View):
         stream = bool(data.get("stream", False))
 
         if stream:
+
             async def generate():
                 try:
                     # Clean OpenAI SSE passthrough (no injected stream_options /
@@ -1905,7 +2113,9 @@ class OpenAIChatCompletionsView(View):
                     logger.error(f"OpenAIChatCompletionsView stream error: {e}")
                     yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-            response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+            response = StreamingHttpResponse(
+                generate(), content_type="text/event-stream"
+            )
             response["Cache-Control"] = "no-cache"
             response["X-Accel-Buffering"] = "no"
             return response
@@ -1915,7 +2125,9 @@ class OpenAIChatCompletionsView(View):
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         try:
             upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
-            return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
+            return JsonResponse(
+                upstream.json(), status=upstream.status_code, safe=False
+            )
         except Exception as e:
             logger.error(f"OpenAIChatCompletionsView non-stream error: {e}")
             return JsonResponse({"error": {"message": str(e)}}, status=502)
@@ -1930,8 +2142,10 @@ class OpenAIModelsView(APIView):
 
     def get(self, request, *args, **kwargs):
         if not _check_upstream_auth(request):
-            return Response({"error": {"message": "Unauthorized"}},
-                            status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"error": {"message": "Unauthorized"}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         seen = set()
         data = []
         for _, entry in _running_coding_agent_deploys():
@@ -1957,7 +2171,9 @@ class CodingAgentsView(APIView):
         health = "disabled"
         if LITELLM_MASTER_KEY:
             try:
-                resp = requests.get(f"{LITELLM_INTERNAL_URL}/health/liveliness", timeout=2)
+                resp = requests.get(
+                    f"{LITELLM_INTERNAL_URL}/health/liveliness", timeout=2
+                )
                 health = "healthy" if resp.status_code == 200 else "unreachable"
             except requests.RequestException:
                 health = "unreachable"

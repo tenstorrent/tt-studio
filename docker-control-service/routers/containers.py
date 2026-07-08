@@ -13,13 +13,17 @@ import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from models.requests import ContainerRunRequest, ContainerStopRequest, ContainerDirSizeRequest
+from models.requests import (
+    ContainerRunRequest,
+    ContainerStopRequest,
+    ContainerDirSizeRequest,
+)
 from models.responses import (
     ContainerRunResponse,
     ContainerListResponse,
     ContainerDetailsResponse,
     ContainerDirSizeResponse,
-    OperationResponse
+    OperationResponse,
 )
 from services.container_service import ContainerService
 
@@ -55,7 +59,9 @@ async def run_container(request: ContainerRunRequest):
         result = get_service().run_container(request)
 
         if result["status"] == "error":
-            raise HTTPException(status_code=400, detail=result.get("message", "Unknown error"))
+            raise HTTPException(
+                status_code=400, detail=result.get("message", "Unknown error")
+            )
 
         return result
 
@@ -70,7 +76,9 @@ async def run_container(request: ContainerRunRequest):
 
 
 @router.post("/containers/{container_id}/stop", response_model=OperationResponse)
-async def stop_container(container_id: str, request: ContainerStopRequest = ContainerStopRequest()):
+async def stop_container(
+    container_id: str, request: ContainerStopRequest = ContainerStopRequest()
+):
     """
     Stop a running container.
 
@@ -84,7 +92,9 @@ async def stop_container(container_id: str, request: ContainerStopRequest = Cont
         if result["status"] == "error":
             if "not found" in result.get("message", "").lower():
                 raise HTTPException(status_code=404, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result.get("message", "Unknown error"))
+            raise HTTPException(
+                status_code=400, detail=result.get("message", "Unknown error")
+            )
 
         return result
 
@@ -104,13 +114,17 @@ async def remove_container(container_id: str, force: bool = False):
     - force: Force removal even if running
     """
     try:
-        logger.info(f"Received remove container request: {container_id} (force={force})")
+        logger.info(
+            f"Received remove container request: {container_id} (force={force})"
+        )
         result = get_service().remove_container(container_id, force=force)
 
         if result["status"] == "error":
             if "not found" in result.get("message", "").lower():
                 raise HTTPException(status_code=404, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result.get("message", "Unknown error"))
+            raise HTTPException(
+                status_code=400, detail=result.get("message", "Unknown error")
+            )
 
         return result
 
@@ -152,7 +166,9 @@ async def get_container(container_id: str):
         if result["status"] == "error":
             if "not found" in result.get("message", "").lower():
                 raise HTTPException(status_code=404, detail=result["message"])
-            raise HTTPException(status_code=400, detail=result.get("message", "Unknown error"))
+            raise HTTPException(
+                status_code=400, detail=result.get("message", "Unknown error")
+            )
 
         return result
 
@@ -180,10 +196,7 @@ async def rename_container(container_id: str, new_name: str):
         container.rename(new_name)
 
         logger.info(f"Container renamed successfully: {container_id} -> {new_name}")
-        return {
-            "status": "success",
-            "message": f"Container renamed to {new_name}"
-        }
+        return {"status": "success", "message": f"Container renamed to {new_name}"}
 
     except docker.errors.NotFound:
         error_msg = f"Container {container_id} not found"
@@ -200,7 +213,9 @@ async def rename_container(container_id: str, new_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/containers/{container_id}/dir-size", response_model=ContainerDirSizeResponse)
+@router.post(
+    "/containers/{container_id}/dir-size", response_model=ContainerDirSizeResponse
+)
 async def container_dir_size(container_id: str, request: ContainerDirSizeRequest):
     """Recursive byte count of an absolute path inside a running container.
 
@@ -218,7 +233,9 @@ async def container_dir_size(container_id: str, request: ContainerDirSizeRequest
         try:
             container = client.containers.get(container_id)
         except docker.errors.NotFound:
-            raise HTTPException(status_code=404, detail=f"container {container_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"container {container_id} not found"
+            )
 
         # Single-quote escape for `sh -c`. stderr discarded so a transient ENOENT
         # (path being created mid-download) returns "" rather than erroring.
@@ -261,7 +278,9 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
     - tail: Number of lines to show from end of logs (default: 100)
     """
     try:
-        logger.info(f"Received logs stream request: {container_id} (follow={follow}, tail={tail})")
+        logger.info(
+            f"Received logs stream request: {container_id} (follow={follow}, tail={tail})"
+        )
 
         def generate_sse_logs():
             """Generate Server-Sent Events from container logs"""
@@ -271,14 +290,16 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
 
                 # Stream logs from container
                 service = get_service()
-                for log_line in service.get_logs_stream(container_id, follow=follow, tail=tail):
+                for log_line in service.get_logs_stream(
+                    container_id, follow=follow, tail=tail
+                ):
                     try:
                         # Decode log line
-                        log_text = log_line.decode('utf-8', errors='replace')
+                        log_text = log_line.decode("utf-8", errors="replace")
 
                         # Split into individual lines and process each
-                        for line in log_text.split('\n'):
-                            line = line.rstrip('\r')  # Remove carriage returns
+                        for line in log_text.split("\n"):
+                            line = line.rstrip("\r")  # Remove carriage returns
                             if not line:
                                 continue
                             # Only filter access-log noise when the caller is
@@ -290,23 +311,33 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
                             if follow and _UVICORN_ACCESS_LOG_RE.match(line):
                                 continue
                             # Create log data with timestamp
-                            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            timestamp = datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            )
 
                             # Determine message type (simple heuristic)
                             message_type = "log"
                             line_upper = line.upper()
-                            if any(keyword in line_upper for keyword in ["ERROR", "EXCEPTION", "FAILED", "FATAL"]):
+                            if any(
+                                keyword in line_upper
+                                for keyword in ["ERROR", "EXCEPTION", "FAILED", "FATAL"]
+                            ):
                                 message_type = "error"
-                            elif any(keyword in line_upper for keyword in ["WARNING", "WARN"]):
+                            elif any(
+                                keyword in line_upper for keyword in ["WARNING", "WARN"]
+                            ):
                                 message_type = "warning"
-                            elif any(keyword in line_upper for keyword in ["INFO", "STARTED", "LISTENING", "READY"]):
+                            elif any(
+                                keyword in line_upper
+                                for keyword in ["INFO", "STARTED", "LISTENING", "READY"]
+                            ):
                                 message_type = "event"
 
                             log_data = {
                                 "type": message_type,
                                 "message": line,
                                 "timestamp": timestamp,
-                                "raw": True
+                                "raw": True,
                             }
                             yield f"data: {json.dumps(log_data)}\n\n"
 
@@ -316,8 +347,10 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
                         log_data = {
                             "type": "log",
                             "message": error_msg,
-                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            "raw": True
+                            "timestamp": datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
+                            "raw": True,
                         }
                         yield f"data: {json.dumps(log_data)}\n\n"
 
@@ -325,7 +358,7 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
                 error_data = {
                     "type": "error",
                     "message": f"Container {container_id} not found",
-                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
             except Exception as e:
@@ -333,18 +366,18 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
                 error_data = {
                     "type": "error",
                     "message": f"Error streaming logs: {str(e)}",
-                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
 
         # Return streaming response with SSE content type
         return StreamingResponse(
             generate_sse_logs(),
-            media_type='text/event-stream',
+            media_type="text/event-stream",
             headers={
-                'Cache-Control': 'no-cache, no-transform',
-                'X-Accel-Buffering': 'no'
-            }
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     except Exception as e:

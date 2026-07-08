@@ -11,7 +11,6 @@ import traceback
 import httpx
 import requests
 import jwt
-import json
 
 from django.core.cache import caches
 
@@ -25,7 +24,7 @@ logger.info(f"importing {__name__}")
 
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
-AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
+AUTH_TOKEN = os.getenv("CLOUD_CHAT_UI_AUTH_TOKEN", "")
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
@@ -40,6 +39,7 @@ _cloud_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
     limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
 )
+
 
 def messages_to_prompt(messages: list) -> str:
     """Convert chat messages list to a plain text prompt for base/completion models."""
@@ -133,7 +133,9 @@ def get_deploy_cache():
             if max_len is not None:
                 entry["max_model_len"] = max_len
                 cache.set(con_id, entry, timeout=None)
-                logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
+                logger.info(
+                    f"Cached max_model_len={max_len} for container {con_id[:12]}"
+                )
         if "cached_model_name" not in entry and entry.get("internal_url"):
             name = get_model_name_from_container(
                 entry["internal_url"], fallback=entry["model_impl"].hf_model_id
@@ -181,12 +183,18 @@ def health_check(url, json_data, timeout=5):
     try:
         body_json = response.json() if response.content else {}
         if isinstance(body_json, dict):
-            body_detail = str(body_json.get("detail", "")) or str(body_json.get("message", ""))
+            body_detail = str(body_json.get("detail", "")) or str(
+                body_json.get("message", "")
+            )
     except Exception:
         body_detail = ""
     body_text = (body_detail or response.text or "").lower()
 
-    if "not ready" in body_text or "still loading" in body_text or "starting up" in body_text:
+    if (
+        "not ready" in body_text
+        or "still loading" in body_text
+        or "starting up" in body_text
+    ):
         logger.info(
             f"Health check: model not ready yet (starting): "
             f"{response.status_code} {body_detail or response.text[:200]}"
@@ -203,8 +211,12 @@ def health_check(url, json_data, timeout=5):
     logger.error(f"Health check failed: {response.status_code} {response.text[:200]}")
     return False, response.text[:200]
 
+
 async def stream_response_from_agent_api(url: str, json_data: dict):
-    logger.info('[TRACE_FLOW_STEP_3_BACKEND_TO_AGENT] stream_response_from_agent_api called', extra={'url': url})
+    logger.info(
+        "[TRACE_FLOW_STEP_3_BACKEND_TO_AGENT] stream_response_from_agent_api called",
+        extra={"url": url},
+    )
     new_json_data = {
         "thread_id": json_data["thread_id"],
         "message": json_data["messages"][-1]["content"],
@@ -216,55 +228,58 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
             async for chunk in response.aiter_text():
                 logger.debug(f"stream_response_from_agent_api chunk:={chunk}")
                 if chunk.strip() == "[DONE]":
-                    yield f"data: [DONE]\n\n"
+                    yield "data: [DONE]\n\n"
                 elif chunk.strip():
-                    json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
+                    json_chunk = {
+                        "choices": [{"index": 0, "delta": {"content": chunk}}]
+                    }
                     yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")
     except httpx.HTTPStatusError as e:
-        logger.error(f"Agent HTTPStatusError {e.response.status_code}: {e.response.text[:200]}")
+        logger.error(
+            f"Agent HTTPStatusError {e.response.status_code}: {e.response.text[:200]}"
+        )
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"Agent RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
+
 def get_max_tokens_limit(param_count) -> int:
     """Return max_tokens ceiling based on model parameter count (in billions)."""
-    if param_count is None: return 32768
-    if param_count <= 8:    return 32768
-    if param_count <= 32:   return 65536
+    if param_count is None:
+        return 32768
+    if param_count <= 8:
+        return 32768
+    if param_count <= 32:
+        return 65536
     return 131072
 
 
 def validate_model_params(json_data, max_tokens_limit: int = 32768):
     """Validate and set default values for model parameters."""
     # Default values based on the working curl example
-    defaults = {
-        'temperature': 0.95,
-        'top_p': 0.9,
-        'top_k': 40,
-        'max_tokens': 1024
-    }
+    defaults = {"temperature": 0.95, "top_p": 0.9, "top_k": 40, "max_tokens": 1024}
 
     # Parameter ranges
     ranges = {
-        'temperature': (0.0, 2.0),
-        'top_p': (0.0, 1.0),
-        'top_k': (1, 100),
-        'max_tokens': (1, max_tokens_limit)  # ceiling is model-size-dependent
+        "temperature": (0.0, 2.0),
+        "top_p": (0.0, 1.0),
+        "top_k": (1, 100),
+        "max_tokens": (1, max_tokens_limit),  # ceiling is model-size-dependent
     }
-    
+
     validated_params = {}
-    
+
     for param, default in defaults.items():
         value = json_data.get(param)
-        
+
         # If value is None, 0, or not provided, use default
         if value is None or value == 0:
             logger.info(f"Using default value for {param}: {default}")
             validated_params[param] = default
             continue
-            
+
         # Validate range
         min_val, max_val = ranges[param]
         if not (min_val <= value <= max_val):
@@ -272,8 +287,9 @@ def validate_model_params(json_data, max_tokens_limit: int = 32768):
             validated_params[param] = default
         else:
             validated_params[param] = value
-            
+
     return validated_params
+
 
 async def stream_to_cloud_model(url: str, json_data: dict):
     """Stream response from cloud model (async)."""
@@ -289,14 +305,20 @@ async def stream_to_cloud_model(url: str, json_data: dict):
     json_data["top_p"] = float(top_p) if top_p is not None else 0.9
     json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 1024
     json_data["stream_options"] = {"include_usage": True}
-    logger.info(f"stream_to_cloud_model params: temperature={json_data['temperature']} top_k={json_data['top_k']} top_p={json_data['top_p']} max_tokens={json_data['max_tokens']}")
+    logger.info(
+        f"stream_to_cloud_model params: temperature={json_data['temperature']} top_k={json_data['top_k']} top_p={json_data['top_p']} max_tokens={json_data['max_tokens']}"
+    )
 
     headers = {"Authorization": f"Bearer {AUTH_TOKEN}"}
     tracker = InferenceMetricsTracker()
 
     try:
-        async with _cloud_client.stream("POST", url, json=json_data, headers=headers) as response:
-            logger.info(f"stream_to_cloud_model response status:={response.status_code}")
+        async with _cloud_client.stream(
+            "POST", url, json=json_data, headers=headers
+        ) as response:
+            logger.info(
+                f"stream_to_cloud_model response status:={response.status_code}"
+            )
             response.raise_for_status()
             te = response.headers.get("transfer-encoding", "")
             if te != "chunked":
@@ -312,7 +334,7 @@ async def stream_to_cloud_model(url: str, json_data: dict):
                     found_done = True
 
                 if chunk.startswith("data: "):
-                    new_chunk = chunk[len("data: "):].strip()
+                    new_chunk = chunk[len("data: ") :].strip()
                     if new_chunk and new_chunk != "[DONE]":
                         try:
                             chunk_dict = json.loads(new_chunk)
@@ -324,7 +346,9 @@ async def stream_to_cloud_model(url: str, json_data: dict):
                                     completion_tokens=completion_tokens,
                                     prompt_tokens=prompt_tokens,
                                 )
-                                logger.debug(f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                                logger.debug(
+                                    f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s"
+                                )
                         except json.JSONDecodeError as e:
                             logger.error(f"JSON decode error in cloud chunk: {e}")
                     yield chunk
@@ -343,17 +367,21 @@ async def stream_to_cloud_model(url: str, json_data: dict):
             logger.info(f"Cloud stream completed after {chunk_count} chunks")
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Cloud HTTPStatusError {e.response.status_code}: {e.response.text[:200]}")
+        logger.error(
+            f"Cloud HTTPStatusError {e.response.status_code}: {e.response.text[:200]}"
+        )
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except Exception as e:
         logger.error(f"Cloud stream unexpected error: {e}\n{traceback.format_exc()}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
 
 async def stream_response_from_external_api(url: str, json_data: dict):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
 
     from model_control.connection_warmer import note_inference_loop
+
     note_inference_loop()
 
     # Coerce and forward parameters
@@ -374,14 +402,18 @@ async def stream_response_from_external_api(url: str, json_data: dict):
     else:
         json_data.pop("seed", None)
 
-    logger.info(f"stream_response_from_external_api params: temperature={json_data['temperature']} top_k={json_data['top_k']} top_p={json_data['top_p']} max_tokens={json_data['max_tokens']} seed={json_data.get('seed', 'random')}")
+    logger.info(
+        f"stream_response_from_external_api params: temperature={json_data['temperature']} top_k={json_data['top_k']} top_p={json_data['top_p']} max_tokens={json_data['max_tokens']} seed={json_data.get('seed', 'random')}"
+    )
 
     headers = {"Authorization": f"Bearer {encoded_jwt}"}
     tracker = InferenceMetricsTracker()
     logger.info(f"Starting stream request at time: {tracker.start_time}")
 
     try:
-        async with _vllm_client.stream("POST", url, json=json_data, headers=headers) as response:
+        async with _vllm_client.stream(
+            "POST", url, json=json_data, headers=headers
+        ) as response:
             response.raise_for_status()
             te = response.headers.get("transfer-encoding", "")
             if te != "chunked":
@@ -390,7 +422,7 @@ async def stream_response_from_external_api(url: str, json_data: dict):
             async for chunk in response.aiter_text():
                 logger.debug(f"stream_response_from_external_api chunk:={chunk}")
                 if chunk.startswith("data: "):
-                    new_chunk = chunk[len("data: "):].strip()
+                    new_chunk = chunk[len("data: ") :].strip()
 
                     if new_chunk == "[DONE]":
                         yield chunk
@@ -415,10 +447,14 @@ async def stream_response_from_external_api(url: str, json_data: dict):
                                 tracker.record_thinking_token()
                             # chat completions: choices[0].delta.content
                             # base/completions:  choices[0].text
-                            delta_content = delta.get("content") or choices[0].get("text") or ""
+                            delta_content = (
+                                delta.get("content") or choices[0].get("text") or ""
+                            )
                             if delta_content:
                                 tracker.record_content_token()
-                                logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                                logger.debug(
+                                    f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s"
+                                )
 
                         # Capture prompt_tokens from usage chunk
                         usage = chunk_dict.get("usage") or {}
@@ -461,9 +497,10 @@ async def stream_openai_passthrough(url: str, json_data: dict):
                     yield chunk
     except httpx.HTTPStatusError as e:
         body = e.response.text if e.response is not None else "(no body)"
-        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
+        logger.error(
+            f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}"
+        )
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
-

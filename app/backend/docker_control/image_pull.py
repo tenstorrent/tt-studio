@@ -43,7 +43,7 @@ _lock = threading.Lock()
 
 _POLL_INTERVAL_SECONDS = 1.5
 _PULL_TIMEOUT_SECONDS = 2 * 60 * 60  # 2h hard cap; large multi-GB images
-_ENTRY_TTL_SECONDS = 3600            # evict finished entries after an hour
+_ENTRY_TTL_SECONDS = 3600  # evict finished entries after an hour
 # A pull can run for many minutes — longer than the canonical "starting" grace
 # window — so we periodically refresh the placeholder deployment record's
 # timestamp (via heartbeat_fn) to keep it alive and its chip slot reserved.
@@ -56,14 +56,14 @@ DeployFn = Callable[[], Tuple[Optional[str], Optional[str]]]
 def _new_entry(image_ref: str) -> dict:
     now = time.time()
     return {
-        "status": "pulling",          # pulling | success | error
+        "status": "pulling",  # pulling | success | error
         "downloaded_bytes": 0,
         "total_bytes": 0,
         "speed_bps": None,
         "eta_seconds": None,
         "layers_done": 0,
         "layers_total": 0,
-        "peak_progress": 0,           # running max of reported %, to keep progress monotonic
+        "peak_progress": 0,  # running max of reported %, to keep progress monotonic
         "message": "Preparing to pull image…",
         "image_ref": image_ref,
         "real_job_id": None,
@@ -112,7 +112,8 @@ def clamp_progress_pct(pull_id: str, pct: int) -> int:
 def _evict_stale_locked() -> None:
     now = time.time()
     stale = [
-        pid for pid, e in _image_pull_jobs.items()
+        pid
+        for pid, e in _image_pull_jobs.items()
         if e["status"] != "pulling" and now - e["updated_at"] > _ENTRY_TTL_SECONDS
     ]
     for pid in stale:
@@ -150,7 +151,9 @@ def start_prepull_and_deploy(
         name=f"prepull-{pull_id[:12]}",
     )
     thread.start()
-    logger.info(f"[image_pull] started pre-pull worker for {image_ref} (pull_id={pull_id})")
+    logger.info(
+        f"[image_pull] started pre-pull worker for {image_ref} (pull_id={pull_id})"
+    )
 
 
 def _worker(
@@ -178,7 +181,9 @@ def _worker(
             client.start_image_pull(image_name, image_tag, pull_id)
             pull_started = True
         except Exception as e:
-            logger.warning(f"[image_pull] could not start streamed pull for {pull_id}: {e}")
+            logger.warning(
+                f"[image_pull] could not start streamed pull for {pull_id}: {e}"
+            )
 
         # Mirror progress until the pull reaches a terminal state.
         if pull_started:
@@ -251,11 +256,14 @@ def _worker(
 
     except Exception as e:
         logger.error(f"[image_pull] worker crashed for {pull_id}: {e}", exc_info=True)
-        _update(pull_id, status="error", error=str(e), message=f"Deployment failed: {e}")
+        _update(
+            pull_id, status="error", error=str(e), message=f"Deployment failed: {e}"
+        )
     finally:
         # Release this thread's DB connection.
         try:
             from django.db import connection
+
             connection.close()
         except Exception:
             pass

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class ContainerRunResponse(BaseModel):
     """Response model for container run operation"""
+
     status: str = Field(..., description="Operation status: 'success' or 'error'")
     container_id: Optional[str] = Field(None, description="Container ID")
     container_name: Optional[str] = Field(None, description="Container name")
@@ -20,6 +21,7 @@ class ContainerRunResponse(BaseModel):
 
 class ContainerInfo(BaseModel):
     """Container information model"""
+
     id: str
     name: str
     status: str
@@ -31,19 +33,24 @@ class ContainerInfo(BaseModel):
 
 class ContainerListResponse(BaseModel):
     """Response model for listing containers"""
+
     status: str
     containers: List[Dict[str, Any]]
 
 
 class ContainerDirSizeResponse(BaseModel):
     """Response model for a recursive byte-count of a container directory."""
+
     status: str
-    bytes: Optional[int] = Field(None, description="Total bytes (None if path missing or exec failed)")
+    bytes: Optional[int] = Field(
+        None, description="Total bytes (None if path missing or exec failed)"
+    )
     message: Optional[str] = None
 
 
 class ContainerDetailsResponse(BaseModel):
     """Response model for container details - allows extra fields so all container data passes through"""
+
     model_config = ConfigDict(extra="allow")
     status: str
     container: Optional[ContainerInfo] = None
@@ -52,13 +59,17 @@ class ContainerDetailsResponse(BaseModel):
 
 class OperationResponse(BaseModel):
     """Generic operation response"""
+
     status: str
     message: Optional[str] = None
-    exists: Optional[bool] = Field(None, description="Whether the resource exists (for existence checks)")
+    exists: Optional[bool] = Field(
+        None, description="Whether the resource exists (for existence checks)"
+    )
 
 
 class ImagePullProgress(BaseModel):
     """Progress update for image pull operation"""
+
     status: str = Field(..., description="'pulling', 'success', or 'error'")
     progress: int = Field(..., description="Progress percentage (0-100)")
     current: int = Field(0, description="Current bytes downloaded")
@@ -69,18 +80,21 @@ class ImagePullProgress(BaseModel):
 
 class ImageListResponse(BaseModel):
     """Response model for listing images"""
+
     status: str
     images: List[Dict[str, Any]]
 
 
 class NetworkListResponse(BaseModel):
     """Response model for listing networks"""
+
     status: str
     networks: List[Dict[str, Any]]
 
 
 class HealthResponse(BaseModel):
     """Health check response"""
+
     status: str
     timestamp: str
     checks: Dict[str, str]

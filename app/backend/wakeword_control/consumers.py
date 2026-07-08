@@ -21,7 +21,9 @@ class WakeWordConsumer(AsyncWebsocketConsumer):
             # No wake-word model on disk — accept the socket so the client gets a clear reason, then close.
             logger.warning("Wake-word connection rejected: %s", exc)
             await self.accept()
-            await self.send(text_data=json.dumps({"event": "unavailable", "detail": str(exc)}))
+            await self.send(
+                text_data=json.dumps({"event": "unavailable", "detail": str(exc)})
+            )
             await self.close(code=1011)
             return
         await self.accept()

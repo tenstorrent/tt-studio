@@ -13,7 +13,7 @@ import json
 import os
 import jwt
 import requests
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -34,23 +34,22 @@ class DockerControlClient:
         self.jwt_secret = jwt_secret or os.getenv("DOCKER_CONTROL_JWT_SECRET")
 
         if not self.url:
-            raise ValueError("DOCKER_CONTROL_SERVICE_URL environment variable is required")
+            raise ValueError(
+                "DOCKER_CONTROL_SERVICE_URL environment variable is required"
+            )
         if not self.jwt_secret:
-            raise ValueError("DOCKER_CONTROL_JWT_SECRET environment variable is required")
+            raise ValueError(
+                "DOCKER_CONTROL_JWT_SECRET environment variable is required"
+            )
 
         logger.info(f"Initialized DockerControlClient with URL: {self.url}")
 
     def _get_headers(self) -> Dict[str, str]:
         """Generate authentication headers with JWT token"""
         token = jwt.encode(
-            {"service": "tt_studio_backend"},
-            self.jwt_secret,
-            algorithm="HS256"
+            {"service": "tt_studio_backend"}, self.jwt_secret, algorithm="HS256"
         )
-        return {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
+        return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     def _request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make an authenticated request to the docker-control-service"""
@@ -72,7 +71,9 @@ class DockerControlClient:
 
     # Container operations
 
-    def list_containers(self, all: bool = False, filters: Optional[Dict] = None) -> List[Dict]:
+    def list_containers(
+        self, all: bool = False, filters: Optional[Dict] = None
+    ) -> List[Dict]:
         """
         List containers
 
@@ -107,7 +108,7 @@ class DockerControlClient:
         volumes: Optional[Dict] = None,
         network: Optional[str] = None,
         detach: bool = True,
-        **kwargs
+        **kwargs,
     ) -> Dict:
         """
         Run a new container
@@ -126,11 +127,7 @@ class DockerControlClient:
         Returns:
             Container information dict
         """
-        payload = {
-            "image": image,
-            "detach": detach,
-            **kwargs
-        }
+        payload = {"image": image, "detach": detach, **kwargs}
 
         if name:
             payload["name"] = name
@@ -151,25 +148,37 @@ class DockerControlClient:
     def stop_container(self, container_id: str, timeout: int = 10) -> Dict:
         """Stop a running container"""
         payload = {"timeout": timeout}
-        response = self._request("POST", f"/api/v1/containers/{container_id}/stop", json=payload)
+        response = self._request(
+            "POST", f"/api/v1/containers/{container_id}/stop", json=payload
+        )
         return response.json()
 
-    def remove_container(self, container_id: str, force: bool = False, v: bool = False) -> Dict:
+    def remove_container(
+        self, container_id: str, force: bool = False, v: bool = False
+    ) -> Dict:
         """Remove a container"""
         payload = {"force": force, "v": v}
-        response = self._request("POST", f"/api/v1/containers/{container_id}/remove", json=payload)
+        response = self._request(
+            "POST", f"/api/v1/containers/{container_id}/remove", json=payload
+        )
         return response.json()
 
     def rename_container(self, container_id: str, new_name: str) -> Dict:
         """Rename a container"""
-        response = self._request("POST", f"/api/v1/containers/{container_id}/rename", params={"new_name": new_name})
+        response = self._request(
+            "POST",
+            f"/api/v1/containers/{container_id}/rename",
+            params={"new_name": new_name},
+        )
         return response.json()
 
     def inspect_container(self, container_id: str) -> Dict:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)
 
-    def dir_size(self, container_id: str, path: str, timeout: float = 4.0) -> Optional[int]:
+    def dir_size(
+        self, container_id: str, path: str, timeout: float = 4.0
+    ) -> Optional[int]:
         """Recursive byte count of `path` inside the running container.
 
         Wraps the docker-control-service's read-only `du` helper. Returns None
@@ -198,7 +207,9 @@ class DockerControlClient:
             logger.warning(f"dir_size({container_id[:12]}) parse failure: {e}")
             return None
 
-    def tail_logs(self, container_id: str, tail: int = 200, timeout: float = 5.0) -> List[str]:
+    def tail_logs(
+        self, container_id: str, tail: int = 200, timeout: float = 5.0
+    ) -> List[str]:
         """Fetch a one-shot snapshot of the most recent container log lines.
 
         Wraps the SSE-based logs endpoint with follow=false: the upstream stream
@@ -229,7 +240,7 @@ class DockerControlClient:
             for raw_line in response.iter_lines(decode_unicode=True):
                 if not raw_line or not raw_line.startswith("data: "):
                     continue
-                payload = raw_line[len("data: "):]
+                payload = raw_line[len("data: ") :]
                 try:
                     obj = json.loads(payload)
                 except json.JSONDecodeError:
@@ -264,7 +275,9 @@ class DockerControlClient:
 
         try:
             # Use stream=True to get streaming response
-            response = requests.get(url, headers=headers, params=params, stream=True, timeout=None)
+            response = requests.get(
+                url, headers=headers, params=params, stream=True, timeout=None
+            )
             response.raise_for_status()
 
             # Stream the response in chunks (no buffering)
@@ -317,7 +330,9 @@ class DockerControlClient:
         response = self._request("POST", "/api/v1/images/pull/start", json=payload)
         return response.json()
 
-    def get_image_pull_progress(self, pull_id: str, timeout: float = 5.0) -> Optional[Dict]:
+    def get_image_pull_progress(
+        self, pull_id: str, timeout: float = 5.0
+    ) -> Optional[Dict]:
         """Fetch the latest progress snapshot for a streamed pull.
 
         Returns None if the pull is not tracked (404) or the service is unreachable,
@@ -356,13 +371,19 @@ class DockerControlClient:
     def connect_container_to_network(self, network_name: str, container: str) -> Dict:
         """Connect a container to a network"""
         payload = {"container": container}
-        response = self._request("POST", f"/api/v1/networks/{network_name}/connect", json=payload)
+        response = self._request(
+            "POST", f"/api/v1/networks/{network_name}/connect", json=payload
+        )
         return response.json()
 
-    def disconnect_container_from_network(self, network_name: str, container: str, force: bool = False) -> Dict:
+    def disconnect_container_from_network(
+        self, network_name: str, container: str, force: bool = False
+    ) -> Dict:
         """Disconnect a container from a network"""
         payload = {"container": container, "force": force}
-        response = self._request("POST", f"/api/v1/networks/{network_name}/disconnect", json=payload)
+        response = self._request(
+            "POST", f"/api/v1/networks/{network_name}/disconnect", json=payload
+        )
         return response.json()
 
     # Host log files

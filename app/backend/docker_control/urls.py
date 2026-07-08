@@ -5,55 +5,88 @@
 # docker_control/urls.py
 from django.urls import path
 from . import views
-from .views import (
-    StopStreamView,
-    ContainersView,
-    StatusView,
-    DeploymentsView,
-    ChipStatusView,
-    DeployView,
-    DeploymentProgressView,
-    DeploymentLogsView,
-    DeploymentProgressStreamView,
-    RedeployView,
-    ResetStreamView,
-    StartResetAllView,
-    ResetAllStatusView,
-    ImageStatusView,
-    ModelCatalogView,
-    BoardInfoView,
-    DockerServiceLogsView,
-    ContainerEventsView,
-    DeploymentHistoryView,
-    WorkflowLogStreamView,
-    DiscoverContainersView,
-    RegisterExternalModelView,
-    AvailableDevicesView,
-)
 
 urlpatterns = [
     path("get_containers/", views.ContainersView.as_view()),
     path("deploy/", views.DeployView.as_view()),
-    path("deploy/progress/<str:job_id>/", views.DeploymentProgressView.as_view(), name="deployment-progress"),
-    path("deploy/logs/<str:job_id>/", views.DeploymentLogsView.as_view(), name="deployment-logs"),
-    path("deploy/progress/stream/<str:job_id>/", views.DeploymentProgressStreamView.as_view(), name="deployment-progress-stream"),
-    path("stop/stream/<str:container_id>/", views.StopStreamView.as_view(), name="stop-stream"),
+    path(
+        "deploy/progress/<str:job_id>/",
+        views.DeploymentProgressView.as_view(),
+        name="deployment-progress",
+    ),
+    path(
+        "deploy/logs/<str:job_id>/",
+        views.DeploymentLogsView.as_view(),
+        name="deployment-logs",
+    ),
+    path(
+        "deploy/progress/stream/<str:job_id>/",
+        views.DeploymentProgressStreamView.as_view(),
+        name="deployment-progress-stream",
+    ),
+    path(
+        "stop/stream/<str:container_id>/",
+        views.StopStreamView.as_view(),
+        name="stop-stream",
+    ),
     path("status/", views.StatusView.as_view()),
     path("deployments/", views.DeploymentsView.as_view(), name="deployments"),
     path("chip-status/", views.ChipStatusView.as_view(), name="chip-status"),
     path("redeploy/", views.RedeployView.as_view()),
-    path("reset_board/stream/", views.ResetStreamView.as_view(), name="reset-board-stream"),
-    path("reset_device/stream/<int:device_id>/", views.ResetStreamView.as_view(), name="reset-device-stream"),
+    path(
+        "reset_board/stream/",
+        views.ResetStreamView.as_view(),
+        name="reset-board-stream",
+    ),
+    path(
+        "reset_device/stream/<int:device_id>/",
+        views.ResetStreamView.as_view(),
+        name="reset-device-stream",
+    ),
     path("reset_all/", views.StartResetAllView.as_view(), name="reset-all-start"),
-    path("reset_all/status/", views.ResetAllStatusView.as_view(), name="reset-all-status"),
-    path("docker/image_status/<str:model_id>/", views.ImageStatusView.as_view(), name="docker-image-status"),
+    path(
+        "reset_all/status/", views.ResetAllStatusView.as_view(), name="reset-all-status"
+    ),
+    path(
+        "docker/image_status/<str:model_id>/",
+        views.ImageStatusView.as_view(),
+        name="docker-image-status",
+    ),
     path("catalog/", views.ModelCatalogView.as_view(), name="model_catalog"),
     path("board-info/", views.BoardInfoView.as_view(), name="board-info"),
-    path("service-logs/", views.DockerServiceLogsView.as_view(), name="docker-service-logs"),
-    path("container-events/", views.ContainerEventsView.as_view(), name="container-events"),
-    path("deployment-history/", views.DeploymentHistoryView.as_view(), name="deployment-history"),
-    path("workflow-logs/<int:deployment_id>/", views.WorkflowLogStreamView.as_view(), name="workflow-logs"),
-    path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
-    path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
-    path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
+    path(
+        "service-logs/",
+        views.DockerServiceLogsView.as_view(),
+        name="docker-service-logs",
+    ),
+    path(
+        "container-events/",
+        views.ContainerEventsView.as_view(),
+        name="container-events",
+    ),
+    path(
+        "deployment-history/",
+        views.DeploymentHistoryView.as_view(),
+        name="deployment-history",
+    ),
+    path(
+        "workflow-logs/<int:deployment_id>/",
+        views.WorkflowLogStreamView.as_view(),
+        name="workflow-logs",
+    ),
+    path(
+        "discover-containers/",
+        views.DiscoverContainersView.as_view(),
+        name="discover-containers",
+    ),
+    path(
+        "register-external/",
+        views.RegisterExternalModelView.as_view(),
+        name="register-external",
+    ),
+    path(
+        "available-devices/",
+        views.AvailableDevicesView.as_view(),
+        name="available-devices",
+    ),
 ]

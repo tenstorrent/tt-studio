@@ -20,8 +20,7 @@ from routers import health, containers, images, networks, logs
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
 )
 
 # CORS configuration - only allow backend
@@ -41,7 +40,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8000",
         "http://127.0.0.1:8000",
-        "http://tt-studio-backend-api:8000"
+        "http://tt-studio-backend-api:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -59,7 +58,6 @@ app.include_router(networks.router, prefix="/api/v1", tags=["networks"])
 app.include_router(logs.router, prefix="/api/v1", tags=["logs"])
 
 
-
 @app.on_event("startup")
 async def startup_event():
     """Application startup event handler"""
@@ -67,7 +65,9 @@ async def startup_event():
     logger.info("Docker Control Service starting up...")
     logger.info(f"Listening on {settings.HOST}:{settings.PORT}")
     logger.info(f"Development mode: {settings.DEV_MODE}")
-    logger.info(f"API documentation: http://{settings.HOST}:{settings.PORT}/api/v1/docs")
+    logger.info(
+        f"API documentation: http://{settings.HOST}:{settings.PORT}/api/v1/docs"
+    )
     logger.info("=" * 60)
 
 
@@ -85,5 +85,5 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEV_MODE,
-        log_level="info"
+        log_level="info",
     )

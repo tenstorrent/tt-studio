@@ -22,7 +22,9 @@ class _FakeDeployment:
 
 class ChipAllocatorDeviceIdsTests(TestCase):
     def _make_allocator(self) -> ChipSlotAllocator:
-        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
+        with patch.object(
+            ChipSlotAllocator, "_detect_board_type", return_value="P300x2"
+        ):
             return ChipSlotAllocator()
 
     def test_get_chip_status_marks_all_device_ids_occupied(self):
@@ -34,7 +36,9 @@ class ChipAllocatorDeviceIdsTests(TestCase):
             device_ids=[0, 1],
             port=7000,
         )
-        with patch.object(allocator, "_get_active_deployments", return_value=[deployment]):
+        with patch.object(
+            allocator, "_get_active_deployments", return_value=[deployment]
+        ):
             with patch.object(allocator, "_get_chips_required", return_value=1):
                 chip_status = allocator.get_chip_status()
 
@@ -53,7 +57,9 @@ class ChipAllocatorDeviceIdsTests(TestCase):
             device_id=0,
             device_ids=[0, 1],
         )
-        with patch.object(allocator, "_get_active_deployments", return_value=[deployment]):
+        with patch.object(
+            allocator, "_get_active_deployments", return_value=[deployment]
+        ):
             with patch.object(allocator, "_get_chips_required", return_value=1):
                 result = allocator._validate_manual_allocation(1, 1, "Whisper")
 
@@ -69,7 +75,9 @@ class ChipAllocatorDeviceIdsTests(TestCase):
             device_ids=None,
             port=7002,
         )
-        with patch.object(allocator, "_get_active_deployments", return_value=[deployment]):
+        with patch.object(
+            allocator, "_get_active_deployments", return_value=[deployment]
+        ):
             with patch.object(allocator, "_get_chips_required", return_value=1):
                 chip_status = allocator.get_chip_status()
 

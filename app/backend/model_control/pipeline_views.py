@@ -48,6 +48,7 @@ class VoicePipelineView(APIView):
         if not audio_file:
             from rest_framework.response import Response
             from rest_framework import status
+
             return Response(
                 {"error": "audio_file is required"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -55,6 +56,7 @@ class VoicePipelineView(APIView):
         if not whisper_deploy_id or not llm_deploy_id:
             from rest_framework.response import Response
             from rest_framework import status
+
             return Response(
                 {"error": "whisper_deploy_id and llm_deploy_id are required"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -123,7 +125,7 @@ class VoicePipelineView(APIView):
                     for line in llm_resp.iter_lines(decode_unicode=True):
                         if not line or not line.startswith("data: "):
                             continue
-                        data = line[len("data: "):].strip()
+                        data = line[len("data: ") :].strip()
                         if data == "[DONE]":
                             break
                         try:
@@ -147,7 +149,11 @@ class VoicePipelineView(APIView):
                 return
 
             llm_end = time.time()
-            metrics["llm_ttfb_ms"] = round((llm_first_chunk_time - llm_start) * 1000) if llm_first_chunk_time else 0
+            metrics["llm_ttfb_ms"] = (
+                round((llm_first_chunk_time - llm_start) * 1000)
+                if llm_first_chunk_time
+                else 0
+            )
             metrics["llm_total_ms"] = round((llm_end - llm_start) * 1000)
             metrics["llm_tokens"] = llm_chunk_count
 
@@ -160,17 +166,25 @@ class VoicePipelineView(APIView):
                     tts_deploy = deploy_cache[tts_deploy_id]
                     tts_url = "http://" + tts_deploy["internal_url"]
                     model_impl = tts_deploy.get("model_impl")
-                    model_name = getattr(model_impl, "model_name", None) if model_impl else None
-                    
+                    model_name = (
+                        getattr(model_impl, "model_name", None) if model_impl else None
+                    )
+
                     # Determine if this is OpenAI-style or enqueue-style endpoint
                     is_openai_style = "/v1/audio/speech" in tts_url
-                    
+
                     if is_openai_style:
                         # OpenAI-style: POST directly and get audio back
-                        payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
-                        tts_resp = requests.post(tts_url, json=payload, headers=headers, timeout=120)
+                        payload = {
+                            "model": model_name,
+                            "text": llm_full_text.strip(),
+                            "voice": "default",
+                        }
+                        tts_resp = requests.post(
+                            tts_url, json=payload, headers=headers, timeout=120
+                        )
                         tts_resp.raise_for_status()
-                        
+
                         audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
                         content_type = tts_resp.headers.get("Content-Type", "audio/wav")
                         data_uri = f"data:{content_type};base64,{audio_b64}"
@@ -183,41 +197,70 @@ class VoicePipelineView(APIView):
                             headers=headers,
                             timeout=30,
                         )
-                        
+
                         # If 404 on enqueue, try fallback to /v1/audio/speech
                         if tts_resp.status_code == 404 and "/enqueue" in tts_url:
-                            logger.info(f"Pipeline TTS 404 on {tts_url}, trying /v1/audio/speech")
-                            fallback_url = tts_url.replace("/enqueue", "/v1/audio/speech")
-                            payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
-                            tts_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+                            logger.info(
+                                f"Pipeline TTS 404 on {tts_url}, trying /v1/audio/speech"
+                            )
+                            fallback_url = tts_url.replace(
+                                "/enqueue", "/v1/audio/speech"
+                            )
+                            payload = {
+                                "model": model_name,
+                                "text": llm_full_text.strip(),
+                                "voice": "default",
+                            }
+                            tts_resp = requests.post(
+                                fallback_url, json=payload, headers=headers, timeout=120
+                            )
                             tts_resp.raise_for_status()
-                            
-                            audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
-                            content_type = tts_resp.headers.get("Content-Type", "audio/wav")
+
+                            audio_b64 = base64.b64encode(tts_resp.content).decode(
+                                "utf-8"
+                            )
+                            content_type = tts_resp.headers.get(
+                                "Content-Type", "audio/wav"
+                            )
                             data_uri = f"data:{content_type};base64,{audio_b64}"
                             yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
                         else:
                             tts_resp.raise_for_status()
-                            
+
                             task_id = tts_resp.json().get("task_id")
-                            status_url = tts_url.replace("/enqueue", f"/status/{task_id}")
+                            status_url = tts_url.replace(
+                                "/enqueue", f"/status/{task_id}"
+                            )
 
                             # Poll for completion
                             for _ in range(120):
-                                st = requests.get(status_url, headers=headers, timeout=10)
-                                if st.status_code != 404 and st.json().get("status") == "Completed":
+                                st = requests.get(
+                                    status_url, headers=headers, timeout=10
+                                )
+                                if (
+                                    st.status_code != 404
+                                    and st.json().get("status") == "Completed"
+                                ):
                                     break
                                 time.sleep(1)
 
-                            audio_url = tts_url.replace("/enqueue", f"/fetch_audio/{task_id}")
-                            audio_resp = requests.get(audio_url, headers=headers, timeout=30)
+                            audio_url = tts_url.replace(
+                                "/enqueue", f"/fetch_audio/{task_id}"
+                            )
+                            audio_resp = requests.get(
+                                audio_url, headers=headers, timeout=30
+                            )
                             audio_resp.raise_for_status()
 
-                            audio_b64 = base64.b64encode(audio_resp.content).decode("utf-8")
-                            content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+                            audio_b64 = base64.b64encode(audio_resp.content).decode(
+                                "utf-8"
+                            )
+                            content_type = audio_resp.headers.get(
+                                "Content-Type", "audio/wav"
+                            )
                             data_uri = f"data:{content_type};base64,{audio_b64}"
                             yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
-                            
+
                     metrics["tts_latency_ms"] = round((time.time() - tts_start) * 1000)
                 except Exception as exc:
                     logger.error(f"TTS step failed: {exc}")
@@ -228,7 +271,9 @@ class VoicePipelineView(APIView):
             yield f"data: {json.dumps({'type': 'metrics', **metrics})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response = StreamingHttpResponse(
+            event_stream(), content_type="text/event-stream"
+        )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response

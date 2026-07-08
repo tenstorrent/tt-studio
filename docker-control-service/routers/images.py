@@ -27,7 +27,7 @@ _PULL_ENTRY_TTL_SECONDS = 3600  # drop finished entries after an hour to bound m
 
 def _new_pull_entry() -> dict:
     return {
-        "status": "pulling",          # pulling | success | error
+        "status": "pulling",  # pulling | success | error
         "downloaded_bytes": 0,
         "total_bytes": 0,
         "layers_done": 0,
@@ -42,7 +42,8 @@ def _new_pull_entry() -> dict:
 def _evict_stale_locked() -> None:
     now = time.time()
     stale = [
-        pid for pid, e in _PULLS.items()
+        pid
+        for pid, e in _PULLS.items()
         if e["status"] != "pulling" and now - e["updated_at"] > _PULL_ENTRY_TTL_SECONDS
     ]
     for pid in stale:
@@ -66,7 +67,9 @@ def _run_pull(pull_id: str, image_name: str, image_tag: str) -> None:
     try:
         client = docker.from_env()
         logger.info(f"[pull {pull_id}] streaming pull of {image_ref}")
-        for event in client.api.pull(image_name, tag=image_tag, stream=True, decode=True):
+        for event in client.api.pull(
+            image_name, tag=image_tag, stream=True, decode=True
+        ):
             if not isinstance(event, dict):
                 continue
 
@@ -81,7 +84,9 @@ def _run_pull(pull_id: str, image_name: str, image_tag: str) -> None:
             detail = event.get("progressDetail") or {}
 
             if layer_id:
-                layer = layers.setdefault(layer_id, {"current": 0, "total": 0, "done": False})
+                layer = layers.setdefault(
+                    layer_id, {"current": 0, "total": 0, "done": False}
+                )
                 low = status_text.lower()
                 if low == "downloading":
                     if detail.get("total"):
@@ -94,10 +99,10 @@ def _run_pull(pull_id: str, image_name: str, image_tag: str) -> None:
                         layer["current"] = layer["total"]
                     layer["done"] = True
 
-            downloaded = sum(l["current"] for l in layers.values())
-            total = sum(l["total"] for l in layers.values())
+            downloaded = sum(lyr["current"] for lyr in layers.values())
+            total = sum(lyr["total"] for lyr in layers.values())
             layers_total = len(layers)
-            layers_done = sum(1 for l in layers.values() if l["done"])
+            layers_done = sum(1 for lyr in layers.values() if lyr["done"])
 
             msg = status_text or "Pulling image…"
             if layer_id and status_text:
@@ -143,7 +148,10 @@ async def start_pull_image(request: ImagePullStartRequest):
         _evict_stale_locked()
         existing = _PULLS.get(pull_id)
         if existing is not None and existing["status"] == "pulling":
-            return {"status": "success", "message": f"Pull {pull_id} already in progress"}
+            return {
+                "status": "success",
+                "message": f"Pull {pull_id} already in progress",
+            }
         _PULLS[pull_id] = _new_pull_entry()
 
     thread = threading.Thread(
@@ -162,7 +170,9 @@ async def get_pull_progress(pull_id: str):
     with _PULLS_LOCK:
         entry = _PULLS.get(pull_id)
         if entry is None:
-            raise HTTPException(status_code=404, detail=f"No pull tracked for {pull_id}")
+            raise HTTPException(
+                status_code=404, detail=f"No pull tracked for {pull_id}"
+            )
         snapshot = dict(entry)
     snapshot["pull_id"] = pull_id
     return snapshot
@@ -184,16 +194,14 @@ async def pull_image(request: ImagePullRequest):
         logger.info(f"Pulling image: {image_ref}")
 
         # Pull image with optional authentication
-        image = client.images.pull(
-            request.image_name,
-            tag=request.image_tag,
-            auth_config=request.registry_auth
+        client.images.pull(
+            request.image_name, tag=request.image_tag, auth_config=request.registry_auth
         )
 
         logger.info(f"Image pulled successfully: {image_ref}")
         return {
             "status": "success",
-            "message": f"Image {image_ref} pulled successfully"
+            "message": f"Image {image_ref} pulled successfully",
         }
 
     except docker.errors.ImageNotFound:
@@ -232,7 +240,7 @@ async def remove_image(name: str, tag: str = "latest", force: bool = False):
         logger.info(f"Image removed successfully: {image_ref}")
         return {
             "status": "success",
-            "message": f"Image {image_ref} removed successfully"
+            "message": f"Image {image_ref} removed successfully",
         }
 
     except docker.errors.ImageNotFound:
@@ -266,18 +274,17 @@ async def list_images():
             # Get tags or ID
             tags = image.tags if image.tags else [image.short_id]
 
-            image_list.append({
-                "id": image.id,
-                "tags": tags,
-                "size": image.attrs.get("Size", 0),
-                "created": image.attrs.get("Created", "")
-            })
+            image_list.append(
+                {
+                    "id": image.id,
+                    "tags": tags,
+                    "size": image.attrs.get("Size", 0),
+                    "created": image.attrs.get("Created", ""),
+                }
+            )
 
         logger.info(f"Listed {len(image_list)} images")
-        return {
-            "status": "success",
-            "images": image_list
-        }
+        return {"status": "success", "images": image_list}
 
     except docker.errors.APIError as e:
         error_msg = str(e)
@@ -310,14 +317,14 @@ async def check_image_exists(name: str, tag: str = "latest"):
             return {
                 "status": "success",
                 "message": f"Image {image_ref} exists",
-                "exists": True
+                "exists": True,
             }
         except docker.errors.ImageNotFound:
             logger.info(f"Image does not exist: {image_ref}")
             return {
                 "status": "success",
                 "message": f"Image {image_ref} does not exist",
-                "exists": False
+                "exists": False,
             }
 
     except docker.errors.APIError as e:

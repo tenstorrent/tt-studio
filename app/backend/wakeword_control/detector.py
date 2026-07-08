@@ -8,7 +8,13 @@ import time
 import numpy as np
 from openwakeword.model import Model
 
-from .apps import BUNDLED_DIR, MODELS_DIR, WAKEWORD_DEBUG_SCORES, WAKEWORD_MODEL, WAKEWORD_THRESHOLD
+from .apps import (
+    BUNDLED_DIR,
+    MODELS_DIR,
+    WAKEWORD_DEBUG_SCORES,
+    WAKEWORD_MODEL,
+    WAKEWORD_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,9 @@ def _resolve_wake_model_path():
 
 
 class WakeDetector:
-    def __init__(self, threshold: float = WAKEWORD_THRESHOLD, debounce_seconds: float = 1.5):
+    def __init__(
+        self, threshold: float = WAKEWORD_THRESHOLD, debounce_seconds: float = 1.5
+    ):
         self.threshold = threshold
         self.debounce_seconds = debounce_seconds
 
@@ -56,7 +64,12 @@ class WakeDetector:
         top_model, top_score = max(scores.items(), key=lambda kv: kv[1])
 
         if WAKEWORD_DEBUG_SCORES and top_score >= 0.1:
-            logger.info("wake score=%.3f model=%s threshold=%.2f", top_score, top_model, self.threshold)
+            logger.info(
+                "wake score=%.3f model=%s threshold=%.2f",
+                top_score,
+                top_model,
+                self.threshold,
+            )
 
         now = time.monotonic()
         if now - self._last_fire < self.debounce_seconds:

@@ -38,11 +38,11 @@ _total_bytes_cache: Dict[str, Optional[int]] = {}
 _total_bytes_lock = threading.Lock()
 
 # Tunables — keep in sync with inference-api/api.py:_weights_progress_monitor.
-_MIN_SPEED_BPS = 64 * 1024          # ignore jitter under 64 KB/s when updating EMA
-_EMA_ALPHA_INITIAL = 0.35           # faster convergence on first sample
+_MIN_SPEED_BPS = 64 * 1024  # ignore jitter under 64 KB/s when updating EMA
+_EMA_ALPHA_INITIAL = 0.35  # faster convergence on first sample
 _EMA_ALPHA_LATER = 0.15
-_ETA_SMOOTH_ALPHA = 0.3             # how much new raw ETA influences smoothed ETA
-_EXEC_TIMEOUT_SECONDS = 4           # bound how long du can run before we give up
+_ETA_SMOOTH_ALPHA = 0.3  # how much new raw ETA influences smoothed ETA
+_EXEC_TIMEOUT_SECONDS = 4  # bound how long du can run before we give up
 
 # Media (tt-media-inference-server) logs only the repo, not a target path.
 # Weights land in the HF hub cache under HF_HOME, which is set to
@@ -60,6 +60,7 @@ def _media_container_path(repo: Optional[str]) -> Optional[str]:
         return None
     return _MEDIA_HF_CACHE_PREFIX + repo.replace("/", "--")
 
+
 def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     """Return recursive byte count of `container_path` inside the running deploy.
 
@@ -71,6 +72,7 @@ def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
         return None
     try:
         from docker_control.docker_control_client import get_docker_client
+
         client = get_docker_client()
     except Exception as exc:
         logger.debug("download_progress: get_docker_client failed: %s", exc)
@@ -237,7 +239,8 @@ def compute_download_progress(
             smoothed = (
                 raw_eta
                 if st["eta_smoothed"] <= 0
-                else (1 - _ETA_SMOOTH_ALPHA) * st["eta_smoothed"] + _ETA_SMOOTH_ALPHA * raw_eta
+                else (1 - _ETA_SMOOTH_ALPHA) * st["eta_smoothed"]
+                + _ETA_SMOOTH_ALPHA * raw_eta
             )
             st["eta_smoothed"] = smoothed
             out["eta_seconds"] = float(smoothed)

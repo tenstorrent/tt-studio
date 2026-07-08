@@ -12,7 +12,6 @@ from requests.exceptions import RequestException
 import jwt
 
 from shared_config.backend_config import backend_config
-from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from .docker_utils import run_container, stop_container
@@ -57,12 +56,13 @@ def test_deploy_mock_model():
     except Exception as e:
         logger.error(f"Error: {e}")
         has_error = True
+        error = e
     # 3. stop container
     logger.info(f"stop deployed container: container_id={container_id}")
     stop_status = stop_container(container_id)
     logger.info(f"status:={stop_status}")
     if has_error:
-        raise e
+        raise error
     assert stop_status["status"] == "success"
 
 
@@ -159,7 +159,6 @@ def valid_vllm_api_call(api_url, headers, vllm_model, print_output=True):
         "stream": True,
         "stop": ["<|eot_id|>"],
     }
-    req_time = time.time()
     # using requests stream=True, make sure to set a timeout
     response = requests.post(
         api_url, json=json_data, headers=headers, stream=True, timeout=35

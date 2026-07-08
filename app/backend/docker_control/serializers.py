@@ -2,11 +2,9 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-from pathlib import Path
 
 from rest_framework import serializers
 
-from shared_config.backend_config import backend_config
 from shared_config.model_config import model_implmentations
 from .docker_utils import get_model_weights_path
 
@@ -17,7 +15,9 @@ class DeploymentSerializer(serializers.Serializer):
     # device_id accepts a single integer OR a comma-separated list (e.g. "0,1") for
     # multi-chip single-card deployments where --device-id 0,1 is passed to the inference server.
     device_id = serializers.CharField(required=False, default="0", allow_blank=True)
-    host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
+    host_port = serializers.IntegerField(
+        required=False, default=None, min_value=1024, max_value=65535, allow_null=True
+    )
     force_full_board = serializers.BooleanField(required=False, default=False)
 
     def validate_device_id(self, value):

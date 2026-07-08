@@ -11,7 +11,6 @@ Manages automatic chip slot allocation based on:
 - Board topology
 """
 
-import re
 import threading
 from datetime import timedelta
 from datetime import timezone as datetime_timezone
@@ -28,8 +27,10 @@ logger = get_logger(__name__)
 # Exception Classes
 # ---------------------------------------------------------------------------
 
+
 class AllocationError(Exception):
     """Base exception for chip slot allocation errors"""
+
     pass
 
 
@@ -41,6 +42,7 @@ class MultiChipConflictError(AllocationError):
         message: Error message
         conflicts: List of conflicting deployment info dicts
     """
+
     def __init__(self, message: str, conflicts: List[Dict] = None):
         super().__init__(message)
         self.conflicts = conflicts or []
@@ -80,11 +82,14 @@ class ChipSlotAllocator:
         self._lock = threading.Lock()
         self.board_type = self._detect_board_type()
         self.total_slots = self._get_total_slots()
-        logger.info(f"ChipSlotAllocator initialized: board={self.board_type}, slots={self.total_slots}")
+        logger.info(
+            f"ChipSlotAllocator initialized: board={self.board_type}, slots={self.total_slots}"
+        )
 
     def _detect_board_type(self) -> str:
         """Detect current board type"""
         from docker_control.docker_utils import detect_board_type
+
         return detect_board_type()
 
     def _get_total_slots(self) -> int:
@@ -122,7 +127,9 @@ class ChipSlotAllocator:
 
             if model_chips == 4:
                 # Multi-chip: mark ALL slots as occupied
-                for slot_id in range(min(4, self.total_slots)):  # Multi-chip models use up to 4 slots
+                for slot_id in range(
+                    min(4, self.total_slots)
+                ):  # Multi-chip models use up to 4 slots
                     occupied_map[slot_id] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
@@ -144,24 +151,21 @@ class ChipSlotAllocator:
         # Build slot status list
         for slot_id in range(self.total_slots):
             if slot_id in occupied_map:
-                slots_info.append({
-                    "slot_id": slot_id,
-                    "status": "occupied",
-                    **occupied_map[slot_id]
-                })
+                slots_info.append(
+                    {"slot_id": slot_id, "status": "occupied", **occupied_map[slot_id]}
+                )
             else:
-                slots_info.append({
-                    "slot_id": slot_id,
-                    "status": "available"
-                })
+                slots_info.append({"slot_id": slot_id, "status": "available"})
 
         return {
             "board_type": self.board_type,
             "total_slots": self.total_slots,
-            "slots": slots_info
+            "slots": slots_info,
         }
 
-    def allocate_chip_slot(self, model_name: str, manual_override: Optional[int] = None) -> int:
+    def allocate_chip_slot(
+        self, model_name: str, manual_override: Optional[int] = None
+    ) -> int:
         """
         Auto-allocate chip slot or use manual override.
 
@@ -181,10 +185,14 @@ class ChipSlotAllocator:
 
             # Advanced mode: manual override
             if manual_override is not None:
-                validation = self._validate_manual_allocation(manual_override, chips_required, model_name)
+                validation = self._validate_manual_allocation(
+                    manual_override, chips_required, model_name
+                )
                 if not validation["valid"]:
                     raise AllocationError(validation["message"])
-                logger.info(f"Manual allocation: device_id={manual_override} for {model_name}")
+                logger.info(
+                    f"Manual allocation: device_id={manual_override} for {model_name}"
+                )
                 return manual_override
 
             # Auto-allocation
@@ -193,7 +201,9 @@ class ChipSlotAllocator:
             else:
                 device_id = self._allocate_single_chip(model_name)
 
-            logger.info(f"Auto-allocated: device_id={device_id} for {model_name} ({chips_required} chips)")
+            logger.info(
+                f"Auto-allocated: device_id={device_id} for {model_name} ({chips_required} chips)"
+            )
             return device_id
 
     def _allocate_single_chip(self, model_name: str) -> int:
@@ -242,23 +252,27 @@ class ChipSlotAllocator:
 
             for deployment in active_deployments:
                 model_chips = self._get_chips_required(deployment.model_name)
-                conflicts.append({
-                    "model": deployment.model_name,
-                    "deployment_id": deployment.id,
-                    "slot": deployment.device_id,
-                    "chips": model_chips
-                })
+                conflicts.append(
+                    {
+                        "model": deployment.model_name,
+                        "deployment_id": deployment.id,
+                        "slot": deployment.device_id,
+                        "chips": model_chips,
+                    }
+                )
 
             raise MultiChipConflictError(
                 f"{model_name} requires all 4 chip slots. "
                 f"Currently occupied: {len(occupied_slots)} slot(s). "
                 f"Stop all running models first.",
-                conflicts=conflicts
+                conflicts=conflicts,
             )
 
         return 0  # Multi-chip models always use device_id=0
 
-    def _validate_manual_allocation(self, device_id: int, chips_required: int, model_name: str) -> Dict:
+    def _validate_manual_allocation(
+        self, device_id: int, chips_required: int, model_name: str
+    ) -> Dict:
         """
         Validate manual chip slot selection in advanced mode.
 
@@ -274,7 +288,7 @@ class ChipSlotAllocator:
         if device_id < 0 or device_id >= self.total_slots:
             return {
                 "valid": False,
-                "message": f"Invalid device_id {device_id}. Must be 0-{self.total_slots - 1}."
+                "message": f"Invalid device_id {device_id}. Must be 0-{self.total_slots - 1}.",
             }
 
         occupied_slots = self._get_occupied_slots()
@@ -284,7 +298,7 @@ class ChipSlotAllocator:
             if occupied_slots:
                 return {
                     "valid": False,
-                    "message": f"{model_name} requires all 4 chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                    "message": f"{model_name} requires all 4 chip slots. Currently occupied: {len(occupied_slots)} slot(s).",
                 }
         else:
             # Single-chip: ensure selected slot is free
@@ -304,7 +318,7 @@ class ChipSlotAllocator:
 
                 return {
                     "valid": False,
-                    "message": f"Chip slot {device_id} is occupied by {occupying_model or 'another model'}."
+                    "message": f"Chip slot {device_id} is occupied by {occupying_model or 'another model'}.",
                 }
 
         return {"valid": True}
@@ -325,16 +339,19 @@ class ChipSlotAllocator:
             logger.warning(
                 f"Falling back to raw deployment_store list: canonical query failed: {e}"
             )
-            return list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
+            return list(
+                ModelDeployment.objects.filter(status__in=["starting", "running"])
+            )
 
         live_deployment_ids = {
             entry.get("deployment_id")
             for entry in canonical.values()
-            if entry.get("source") == "managed" and entry.get("deployment_id") is not None
+            if entry.get("source") == "managed"
+            and entry.get("deployment_id") is not None
         }
         if not live_deployment_ids:
             return []
-        
+
         # To comply with the current interface, we return a list of ModelDeployment objects despite having canonical data.
         return list(ModelDeployment.objects.filter(id__in=live_deployment_ids))
 
@@ -358,7 +375,11 @@ class ChipSlotAllocator:
         # yet be visible in Docker and the sync thread will handle transition.
         if deployment.status == "starting":
             now_utc = _dt.now(datetime_timezone.utc)
-            age = (now_utc - deployment.deployed_at).total_seconds() if deployment.deployed_at else 0
+            age = (
+                (now_utc - deployment.deployed_at).total_seconds()
+                if deployment.deployed_at
+                else 0
+            )
             if age < self._STARTING_GRACE_SECONDS:
                 return deployment
 
@@ -369,7 +390,10 @@ class ChipSlotAllocator:
             return deployment
 
         # Check by container_name
-        if deployment.container_name and deployment.container_name in live_containers_by_name:
+        if (
+            deployment.container_name
+            and deployment.container_name in live_containers_by_name
+        ):
             return deployment
 
         # Container is gone — free the slot immediately.
@@ -393,7 +417,9 @@ class ChipSlotAllocator:
         try:
             return get_container_status()
         except Exception as e:
-            logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
+            logger.warning(
+                f"Could not query Docker for live containers; using DB records as-is: {e}"
+            )
             return None
 
     def _get_occupied_slots(self) -> Set[int]:

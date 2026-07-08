@@ -45,9 +45,10 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_ALL_ORIGINS = False
 
 # Add explicit CORS header settings for SSE
-from corsheaders.defaults import default_headers
+from corsheaders.defaults import default_headers  # noqa: E402
+
 CORS_ALLOW_HEADERS = list(default_headers) + [
-    'accept',
+    "accept",
 ]
 # Allow credentials for EventSource with withCredentials: true
 CORS_ALLOW_CREDENTIALS = True

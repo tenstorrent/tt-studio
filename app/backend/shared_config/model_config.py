@@ -3,7 +3,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import json
-import os
 from dataclasses import dataclass, asdict
 from typing import Set, Dict, Any, Union, Optional
 from pathlib import Path
@@ -32,8 +31,8 @@ def load_dotenv_dict(env_path: Union[str, Path]) -> Dict[str, str]:
     with open(env_path) as f:
         lines = f.readlines()
     for line in lines:
-        if line.strip() and not line.startswith('#'):
-            key, value = line.strip().split('=', 1)
+        if line.strip() and not line.startswith("#"):
+            key, value = line.strip().split("=", 1)
             # expand any $VAR or ${VAR} and ~
             if key not in exluded_keys:
                 env_dict[key] = value
@@ -54,8 +53,8 @@ class ModelImpl:
     setup_type: SetupTypes
     model_type: ModelTypes
     hf_model_id: str = None
-    model_name: str = None     # uses defaults based on hf_model_id
-    model_id: str = None       # uses defaults based on hf_model_id
+    model_name: str = None  # uses defaults based on hf_model_id
+    model_id: str = None  # uses defaults based on hf_model_id
     impl_id: str = "tt-metal"  # implementation ID
     version: str = "0.0.1"
     shm_size: str = "32G"
@@ -69,14 +68,14 @@ class ModelImpl:
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
         self._init_model_name()
-        
+
         self.docker_config.update({"volumes": self.get_volume_mounts()})
         self.docker_config["shm_size"] = self.shm_size
         self.docker_config["environment"]["HF_MODEL_PATH"] = self.hf_model_id
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
-        
+
         # Set environment variable if N150_WH_ARCH_YAML, N300_WH_ARCH_YAML, or N300x4_WH_ARCH_YAML is in the device configurations
         if (
             DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
@@ -140,31 +139,41 @@ class ModelImpl:
     def _init_model_name(self):
         # Note: ONLY run this in __post_init__
         # need to use __setattr__ because instance is frozen
-        assert self.hf_model_id or self.model_name, "either hf_model_id or model_name must be set."
+        assert (
+            self.hf_model_id or self.model_name
+        ), "either hf_model_id or model_name must be set."
         if not self.model_name:
             # use basename of HF model ID to use same format as tt-transformers
-            object.__setattr__(self, 'model_name', Path(self.hf_model_id).name)
+            object.__setattr__(self, "model_name", Path(self.hf_model_id).name)
         if not self.model_id:
-            object.__setattr__(self, 'model_id', self.get_default_model_id())
+            object.__setattr__(self, "model_id", self.get_default_model_id())
         if not self.hf_model_id:
-            logger.info(f"model_name:={self.model_name} does not have a hf_model_id set")
+            logger.info(
+                f"model_name:={self.model_name} does not have a hf_model_id set"
+            )
 
     def get_default_model_id(self):
         return f"id_{self.impl_id}-{self.model_name}-v{self.version}"
-        
+
     def get_model_env_file(self):
         ret_env_file = None
         model_env_dir_name = "model_envs"
-        model_env_dir = Path(backend_config.persistent_storage_volume).joinpath(model_env_dir_name)
+        model_env_dir = Path(backend_config.persistent_storage_volume).joinpath(
+            model_env_dir_name
+        )
         if model_env_dir.exists():
             env_fname = f"{self.model_name}.env"
             model_env_fpath = model_env_dir.joinpath(env_fname)
             if model_env_fpath.exists():
                 ret_env_file = model_env_fpath
             else:
-                logger.warning(f"for model {self.model_name} env file: {model_env_fpath} does not exist, have you run tt-inference-server setup.sh for the model?")
+                logger.warning(
+                    f"for model {self.model_name} env file: {model_env_fpath} does not exist, have you run tt-inference-server setup.sh for the model?"
+                )
         else:
-            logger.warning(f"{model_env_dir} does not exist, have you run tt-inference-server setup.sh?")
+            logger.warning(
+                f"{model_env_dir} does not exist, have you run tt-inference-server setup.sh?"
+            )
         return ret_env_file
 
     def get_volume_mounts(self):
@@ -187,7 +196,7 @@ class ModelImpl:
         return volume_mounts
 
     def setup(self):
-        # verify model setup and runtime setup 
+        # verify model setup and runtime setup
         self.init_volumes()
 
     def init_volumes(self):
@@ -247,7 +256,7 @@ _CATALOG_DEVICE_MAP = {
     # Blackhole P300 family
     "P300": "P300",
     "P300x2": "P300x2",
-    "P300Cx2": "P300x2",   # stale name from older catalog syncs
+    "P300Cx2": "P300x2",  # stale name from older catalog syncs
 }
 
 
@@ -383,8 +392,15 @@ for impl in _json_impls + _hardcoded_impls:
 # Board type classifications for chip allocation
 SINGLE_CHIP_BOARDS_STR = {"N150", "N300", "E150", "P100", "P150", "P300"}
 MULTI_CHIP_ONLY_BOARDS_STR = {
-    "T3K", "GALAXY", "GALAXY_T3K", "P150X4", "P150X8",
-    "N150X4", "N300x4", "P300x2", "P300Cx4"
+    "T3K",
+    "GALAXY",
+    "GALAXY_T3K",
+    "P150X4",
+    "P150X8",
+    "N150X4",
+    "N300x4",
+    "P300x2",
+    "P300Cx4",
 }
 
 
@@ -445,5 +461,7 @@ def get_model_chip_requirement(model_name: str) -> int:
             return infer_chips_required(impl.device_configurations)
 
     # Model not found, default to 1 chip
-    logger.warning(f"Model {model_name} not found in model_implmentations, defaulting to 1 chip")
+    logger.warning(
+        f"Model {model_name} not found in model_implmentations, defaulting to 1 chip"
+    )
     return 1

@@ -7,9 +7,7 @@ import time
 
 import requests
 from requests.exceptions import RequestException
-import jwt
 
-from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -25,8 +23,6 @@ else:
 
 
 def test_model_life_cycle():
-    json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
-    encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
     test_model_id = "id_mock_vllm_modelv0.0.1"
     # 1. get list of models
     get_containers_route = f"{backend_host}docker/get_containers/"
@@ -67,7 +63,6 @@ def test_model_life_cycle():
     logger.info(f"found deployed_ids: {deployed_ids}")
     # 3. make valid API call to
     deploy_id = deployed_ids[-1]
-    deploy_data = deployed_res[deploy_id]
     json_data = {
         "model": vllm_model_name,
         "prompt": "What is Tenstorrent?",
@@ -89,6 +84,7 @@ def test_model_life_cycle():
     )
     logger.info(f'response.headers={response.headers.get("transfer-encoding")}')
     assert response.headers.get("transfer-encoding") == "chunked"
+    all_chunks = ""
     for chunk_idx, chunk in enumerate(
         response.iter_content(chunk_size=None, decode_unicode=True)
     ):
@@ -103,7 +99,7 @@ def test_model_life_cycle():
     data = response.json()
     # logger.info(f"response json:= {data}")
     assert deployed_container_id in data.keys()
-    logger.info(f"got status.")
+    logger.info("got status.")
     # 5. stop echo model (consume the SSE stop stream until its `complete` event)
     stop_route = f"{backend_host}docker/stop/stream/{deployed_container_id}/"
     logger.info(f"calling: {stop_route}")
@@ -111,7 +107,7 @@ def test_model_life_cycle():
     final = None
     for line in response.iter_lines():
         if line and line.startswith(b"data: "):
-            event = json.loads(line[len(b"data: "):])
+            event = json.loads(line[len(b"data: ") :])
             if event.get("type") == "complete":
                 final = event
     assert final is not None and final["status"] == "success"

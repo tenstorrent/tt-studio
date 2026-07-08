@@ -45,6 +45,7 @@ _active_syncs_lock = threading.Lock()
 # Internal sync logic
 # ---------------------------------------------------------------------------
 
+
 def _do_sync(job_id: str, progress_data: dict) -> None:
     """Apply a FastAPI progress update to the corresponding ModelDeployment record.
 
@@ -70,6 +71,7 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 if real_container_id:
                     try:
                         from docker_control.docker_utils import stop_container
+
                         stop_container(real_container_id)
                     except Exception as e:
                         logger.warning(
@@ -95,7 +97,9 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 try:
                     update_deploy_cache()
                 except Exception as e:
-                    logger.warning(f"[deployment_sync] Could not refresh deploy cache: {e}")
+                    logger.warning(
+                        f"[deployment_sync] Could not refresh deploy cache: {e}"
+                    )
             else:
                 logger.warning(
                     f"[deployment_sync] Job {job_id} completed but no container_id in response; "
@@ -136,10 +140,18 @@ def _poll_and_sync(job_id: str) -> None:
 
                     if status == "completed":
                         _do_sync(job_id, progress)
-                        logger.info(f"[deployment_sync] Job {job_id} completed — sync done")
+                        logger.info(
+                            f"[deployment_sync] Job {job_id} completed — sync done"
+                        )
                         return
 
-                    if status in ("error", "failed", "cancelled", "timeout", "not_found"):
+                    if status in (
+                        "error",
+                        "failed",
+                        "cancelled",
+                        "timeout",
+                        "not_found",
+                    ):
                         _do_sync(job_id, progress)
                         logger.info(
                             f"[deployment_sync] Job {job_id} terminal ({status}) — freeing slot"
@@ -174,6 +186,7 @@ def _poll_and_sync(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def start_deployment_sync(job_id: str) -> None:
     """Spawn a daemon thread to sync the ModelDeployment record for *job_id*.
@@ -212,24 +225,31 @@ def recover_orphaned_starting_records() -> None:
     try:
         from docker_control.models import ModelDeployment
     except Exception as e:
-        logger.warning(f"[deployment_sync] Could not import ModelDeployment at startup: {e}")
+        logger.warning(
+            f"[deployment_sync] Could not import ModelDeployment at startup: {e}"
+        )
         return
 
     try:
         starting = list(ModelDeployment.objects.filter(status="starting"))
     except Exception as e:
-        logger.warning(f"[deployment_sync] Could not query starting records at startup: {e}")
+        logger.warning(
+            f"[deployment_sync] Could not query starting records at startup: {e}"
+        )
         return
 
     # Filter to job_id-style records (not pending_ placeholders — those are
     # handled by health_monitor's _cleanup_stale_starting_records)
     job_id_records = [
-        dep for dep in starting
+        dep
+        for dep in starting
         if dep.container_id and not dep.container_id.startswith("pending_")
     ]
 
     if not job_id_records:
-        logger.info("[deployment_sync] No orphaned CHAT starting records found at startup")
+        logger.info(
+            "[deployment_sync] No orphaned CHAT starting records found at startup"
+        )
         return
 
     logger.info(

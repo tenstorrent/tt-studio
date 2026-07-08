@@ -3,7 +3,10 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal, time
+import os
+import subprocess
+import signal
+import time
 import copy
 from pathlib import Path
 
@@ -21,7 +24,9 @@ from docker_control.models import ModelDeployment
 from docker_control.docker_control_client import get_docker_client
 
 
-CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
+CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath(
+    "tenstorrent", "reset_config.json"
+)
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
@@ -31,7 +36,9 @@ DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 
 
-def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
+def _poll_deployment_to_completion(
+    job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS
+) -> dict:
     """Poll FastAPI /run/progress/{job_id} until the job reaches a terminal state.
 
     Returns the final progress dict (status=="completed") or raises RuntimeError on failure/timeout.
@@ -55,7 +62,9 @@ def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMEN
                         progress.get("message", f"Deployment job {job_id} failed")
                     )
                 if job_status == "not_found":
-                    raise RuntimeError(f"Deployment job {job_id} not found in progress store")
+                    raise RuntimeError(
+                        f"Deployment job {job_id} not found in progress store"
+                    )
                 logger.debug(
                     "Job %s: status=%s progress=%s%%",
                     job_id,
@@ -67,7 +76,10 @@ def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMEN
 
         time.sleep(poll_interval)
 
-    raise TimeoutError(f"Deployment job {job_id} did not complete within {timeout_seconds}s")
+    raise TimeoutError(
+        f"Deployment job {job_id} did not complete within {timeout_seconds}s"
+    )
+
 
 # Ensure the bridge network exists on startup
 def _ensure_network():
@@ -79,12 +91,15 @@ def _ensure_network():
         network_names = [net.get("Name") for net in networks]
         if backend_config.docker_bridge_network_name not in network_names:
             docker_client.create_network(
-                name=backend_config.docker_bridge_network_name,
-                driver="bridge"
+                name=backend_config.docker_bridge_network_name, driver="bridge"
             )
-            logger.info(f"Created Docker network via docker-control-service: {backend_config.docker_bridge_network_name}")
+            logger.info(
+                f"Created Docker network via docker-control-service: {backend_config.docker_bridge_network_name}"
+            )
         else:
-            logger.info(f"Docker network already exists: {backend_config.docker_bridge_network_name}")
+            logger.info(
+                f"Docker network already exists: {backend_config.docker_bridge_network_name}"
+            )
     except Exception as e:
         logger.warning(f"Could not create Docker network: {e}")
 
@@ -97,24 +112,24 @@ _ensure_network()
 # chip of a T3K board), not the board-level name ("t3k").
 _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Wormhole boards → constituent N300 chip
-    "T3K":    "n300",
-    "T3000":  "n300",
+    "T3K": "n300",
+    "T3000": "n300",
     "N300x4": "n300",
     "N150X4": "n150",
     # Multi-chip Blackhole boards → constituent single-chip device
-    "P150X4":  "p150",
-    "P150X8":  "p150",
-    "P300x2": "p150",   # single-chip mode only: each P300 card uses --tt-device p150
+    "P150X4": "p150",
+    "P150X8": "p150",
+    "P300x2": "p150",  # single-chip mode only: each P300 card uses --tt-device p150
     "P300Cx4": "p150",  # single-chip mode only: each P300 card uses --tt-device p150
     # Galaxy (N300-based)
-    "GALAXY":     "n300",
+    "GALAXY": "n300",
     "GALAXY_T3K": "n300",
     # True single-chip boards are unchanged
-    "N150":  "n150",
-    "N300":  "n300",
-    "E150":  "e150",
-    "P100":  "p100",
-    "P150":  "p150",
+    "N150": "n150",
+    "N300": "n300",
+    "E150": "e150",
+    "P100": "p100",
+    "P150": "p150",
     "P300": "p300",
     "unknown": "cpu",
 }
@@ -124,7 +139,14 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
 # physical chips itself. The user can still pin one constituent chip (e.g. n300) via the
 # advanced "1 Device" mode. Per-chip-default boards (e.g. P300x2/QB2) are intentionally
 # absent so their existing per-card behavior is preserved.
-WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GALAXY_T3K"}
+WHOLE_BOARD_DEFAULT_BOARDS = {
+    "T3K",
+    "T3000",
+    "N300x4",
+    "N150X4",
+    "GALAXY",
+    "GALAXY_T3K",
+}
 
 # Inference-server device names that denote a single chip/card (as opposed to a
 # whole-board mesh like p300x2/p150x4/t3k). Only these get pinned to a device_id;
@@ -139,33 +161,29 @@ def map_board_type_to_device_name(board_type):
         "N150": "n150",
         "N300": "n300",
         "E150": "e150",
-        
         # Wormhole multi-device
         "N150X4": "n150x4",
         "T3000": "t3k",  # T3000 maps to t3k for TT Inference Server
         "T3K": "t3k",
-        
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
         "P300": "p300",
-
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300x2": "p300x2",   # 2 cards (4 chips)
+        "P300x2": "p300x2",  # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
-        
         # Galaxy systems
         "GALAXY": "galaxy",
         "GALAXY_T3K": "galaxy_t3k",
-        
-        "unknown": "cpu"  # Fallback to cpu for unknown boards
+        "unknown": "cpu",  # Fallback to cpu for unknown boards
     }
 
     device_name = board_to_device_map.get(board_type, "cpu")
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
+
 
 def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
     """Run a docker container directly via docker-control-service (bypasses TT Inference Server).
@@ -173,7 +191,9 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
     Used for model types that are not managed by TT Inference Server (e.g. FACE_RECOGNITION).
     """
     try:
-        logger.info(f"run_container (direct) called for {impl.model_name} with device_id={device_id}, host_port={host_port}")
+        logger.info(
+            f"run_container (direct) called for {impl.model_name} with device_id={device_id}, host_port={host_port}"
+        )
 
         run_kwargs = copy.deepcopy(impl.docker_config)
 
@@ -192,7 +212,9 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         actual_host_port = list(run_kwargs["ports"].values())[0]
         logger.info(f"host_port for container naming: {actual_host_port}")
         run_kwargs.update({"name": f"{impl.container_base_name}_p{actual_host_port}"})
-        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{actual_host_port}"})
+        run_kwargs.update(
+            {"hostname": f"{impl.container_base_name}_p{actual_host_port}"}
+        )
 
         # Environment variables
         run_kwargs["environment"]["DEVICE_ID"] = str(device_id)
@@ -215,12 +237,16 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         ports = {}
         if ports_raw:
             for container_port, h_port in ports_raw.items():
-                ports[str(container_port)] = int(h_port) if isinstance(h_port, (int, str)) else h_port
+                ports[str(container_port)] = (
+                    int(h_port) if isinstance(h_port, (int, str)) else h_port
+                )
 
         # Stringify all environment variable values (PosixPath → str)
         environment = run_kwargs.get("environment", {})
         if environment:
-            environment = {str(k): str(v) if v is not None else "" for k, v in environment.items()}
+            environment = {
+                str(k): str(v) if v is not None else "" for k, v in environment.items()
+            }
 
         api_kwargs = {
             "image": impl.image_version,
@@ -253,17 +279,29 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         container_result = docker_client.run_container(**api_kwargs)
         logger.info(f"Container started via docker-control-service: {container_result}")
 
-        if isinstance(container_result, dict) and container_result.get("status") == "error":
-            return {"status": "error", "message": container_result.get("message", "Unknown error")}
+        if (
+            isinstance(container_result, dict)
+            and container_result.get("status") == "error"
+        ):
+            return {
+                "status": "error",
+                "message": container_result.get("message", "Unknown error"),
+            }
 
-        container_id = container_result.get("container_id") or container_result.get("id")
-        container_name = container_result.get("container_name") or container_result.get("name")
+        container_id = container_result.get("container_id") or container_result.get(
+            "id"
+        )
+        container_name = container_result.get("container_name") or container_result.get(
+            "name"
+        )
 
         # Save deployment record
         try:
             if container_id:
                 if isinstance(device_id, str):
-                    deployment_device_ids = [int(x.strip()) for x in device_id.split(",")]
+                    deployment_device_ids = [
+                        int(x.strip()) for x in device_id.split(",")
+                    ]
                 elif isinstance(device_id, (list, tuple)):
                     deployment_device_ids = [int(x) for x in device_id]
                 else:
@@ -279,7 +317,9 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
                     stopped_by_user=False,
                     port=actual_host_port,
                 )
-                logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                logger.info(
+                    f"Saved deployment record for {container_name} (ID: {container_id})"
+                )
         except Exception as e:
             logger.error(f"Failed to save deployment record: {e}")
 
@@ -304,6 +344,7 @@ def infer_inference_server_device(impl, board_type=None):
     truth shared by run_container and the pre-pull image resolver so they never
     disagree on which model_spec (and therefore which image) the deploy uses."""
     from shared_config.model_config import infer_chips_required
+
     if board_type is None:
         board_type = detect_board_type()
     chips_required = infer_chips_required(impl.device_configurations)
@@ -313,7 +354,10 @@ def infer_inference_server_device(impl, board_type=None):
         # if the model actually declares support for it. Media models like FLUX have no
         # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
         # supported device for this model but the whole board is, deploy on the board mesh.
-        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+        supported = {
+            map_board_type_to_device_name(cfg.name)
+            for cfg in impl.device_configurations
+        }
         board_device = map_board_type_to_device_name(board_type)
         if device not in supported and board_device in supported:
             device = board_device
@@ -321,7 +365,13 @@ def infer_inference_server_device(impl, board_type=None):
         device = map_board_type_to_device_name(board_type)
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
-        if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+        if device == "n300" and board_type in {
+            "T3K",
+            "T3000",
+            "N300x4",
+            "GALAXY",
+            "GALAXY_T3K",
+        }:
             device = "n150"
     return device
 
@@ -335,10 +385,14 @@ def deploys_whole_board(impl, board_type=None):
     like FLUX that have no single-chip spec on a multi-chip board (e.g. p300x2),
     even though `infer_chips_required` reports 1. Mirrors the device_id gate in
     run_container, which omits device_id for exactly these mesh deployments."""
-    return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
+    return (
+        infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
+    )
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+def run_container(
+    impl, weights_id, device_id=0, host_port=None, use_image_override=True
+):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -346,10 +400,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
     """
     # Face recognition bypasses TT Inference Server — deploy via docker-control-service
     if impl.model_type == ModelTypes.FACE_RECOGNITION:
-        return _run_direct_container(impl, weights_id, device_id=device_id, host_port=host_port)
+        return _run_direct_container(
+            impl, weights_id, device_id=device_id, host_port=host_port
+        )
 
     try:
-        logger.info(f"Calling TT Inference Server API")
+        logger.info("Calling TT Inference Server API")
         logger.info(f"run_container called for {impl.model_name}")
 
         # Determine the correct inference-server device name.
@@ -357,6 +413,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # must use the constituent chip device ("n300"), not the board device
         # ("t3k"). We use chips_required + board_type to pick the right name.
         from shared_config.model_config import infer_chips_required
+
         board_type = detect_board_type()
         chips_required = infer_chips_required(impl.device_configurations)
         device = infer_inference_server_device(impl, board_type)
@@ -417,8 +474,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # Pinned explicitly because per-device resolution would otherwise pick older
         # images on some boards (e.g. 0.10.0-555f240 for Wan on p150x4) that lack the fix.
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
-
+            payload["override_docker_image"] = (
+                "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+            )
 
         logger.info(f"API payload: {payload}")
 
@@ -428,32 +486,46 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         response = requests.post(
             api_url,
             json=payload,
-            timeout=60  # Short timeout: the /run endpoint returns 202 immediately
+            timeout=60,  # Short timeout: the /run endpoint returns 202 immediately
         )
 
         if response.status_code in [200, 202]:
             api_result = response.json()
-            logger.info(f"API call successful (status {response.status_code}): {api_result}")
-            logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
-            if 'docker_log_file_path' in api_result:
-                logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
+            logger.info(
+                f"API call successful (status {response.status_code}): {api_result}"
+            )
+            logger.info(
+                f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}"
+            )
+            if "docker_log_file_path" in api_result:
+                logger.info(
+                    f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}"
+                )
             else:
-                logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
+                logger.warning(
+                    f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}"
+                )
 
             job_id = api_result.get("job_id")
-            logger.info(f"Deployment job submitted with job_id={job_id}; handing off to background sync")
+            logger.info(
+                f"Deployment job submitted with job_id={job_id}; handing off to background sync"
+            )
 
             if job_id:
                 try:
                     # Record the full set of chip slots the model occupies but only the primary slot is passed to inference server
-                    explicit_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                    explicit_device_ids = [
+                        int(x.strip()) for x in str(device_id).split(",")
+                    ]
                     if len(explicit_device_ids) > 1:
                         # Caller passed an explicit multi-slot list — respect it as-is.
                         deployment_device_ids = explicit_device_ids
                     elif chips_required > 1:
                         # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot.
                         base_slot = explicit_device_ids[0]
-                        deployment_device_ids = list(range(base_slot, base_slot + chips_required))
+                        deployment_device_ids = list(
+                            range(base_slot, base_slot + chips_required)
+                        )
                     else:
                         deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
@@ -467,14 +539,21 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         stopped_by_user=False,
                         port=service_port,
                     )
-                    logger.info(f"Created starting deployment record for {impl.model_name} (job_id={job_id})")
+                    logger.info(
+                        f"Created starting deployment record for {impl.model_name} (job_id={job_id})"
+                    )
                 except Exception as e:
-                    logger.warning(f"Could not create ModelDeployment for job {job_id}: {e}")
+                    logger.warning(
+                        f"Could not create ModelDeployment for job {job_id}: {e}"
+                    )
                 try:
                     from docker_control.deployment_sync import start_deployment_sync
+
                     start_deployment_sync(job_id)
                 except Exception as e:
-                    logger.warning(f"Could not start deployment sync for job {job_id}: {e}")
+                    logger.warning(
+                        f"Could not start deployment sync for job {job_id}: {e}"
+                    )
             else:
                 logger.warning("No job_id in 202 response")
 
@@ -484,7 +563,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 "message": "Deployment started",
             }
         else:
-            error_msg = f"API call failed with status {response.status_code}: {response.text}"
+            error_msg = (
+                f"API call failed with status {response.status_code}: {response.text}"
+            )
             logger.error(error_msg)
 
             # Try to extract job_id and error details from response
@@ -494,18 +575,14 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 error_data = response.json()
                 if isinstance(error_data, dict):
                     # Extract job_id if present
-                    job_id = error_data.get('job_id')
+                    job_id = error_data.get("job_id")
                     # Extract error message if present
-                    error_detail = error_data.get('message', error_msg)
+                    error_detail = error_data.get("message", error_msg)
                     logger.info(f"Extracted job_id from error response: {job_id}")
             except Exception as parse_error:
                 logger.warning(f"Could not parse error response: {parse_error}")
 
-            return {
-                "status": "error",
-                "message": error_detail,
-                "job_id": job_id
-            }
+            return {"status": "error", "message": error_detail, "job_id": job_id}
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error calling TT Inference Server API: {str(e)}"
@@ -516,27 +593,31 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         logger.error(error_msg)
         return {"status": "error", "message": error_msg}
 
+
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs
     run_kwargs = copy.deepcopy(impl.docker_config)
-    host_agent_port = get_host_agent_port()
-    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
+    host_agent_port = get_host_port(impl)
+    llm_host_port = list(port_bindings.values())[
+        0
+    ]  # port that llm is using for naming convention (for easier removal later)
 
     docker_client = get_docker_client()
     docker_client.run_container(
-        image='agent_image:v1',
+        image="agent_image:v1",
         command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
-        name=f'ai_agent_container_p{llm_host_port}',
-        network='tt_studio_network',
-        ports={'8080/tcp': host_agent_port},
+        name=f"ai_agent_container_p{llm_host_port}",
+        network="tt_studio_network",
+        ports={"8080/tcp": host_agent_port},
         environment={
-            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
-            'LLM_CONTAINER_NAME': container_name,
-            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+            "TAVILY_API_KEY": os.getenv("TAVILY_API_KEY"),
+            "LLM_CONTAINER_NAME": container_name,
+            "JWT_SECRET": run_kwargs["environment"]["JWT_SECRET"],
+            "HF_MODEL_PATH": run_kwargs["environment"]["HF_MODEL_PATH"],
         },
-        detach=True
+        detach=True,
     )
+
 
 def stop_container(container_id):
     """Stop and remove a specific docker container"""
@@ -648,14 +729,15 @@ def get_host_port(impl):
     return None
 
 
-
 def get_managed_containers():
     """get containers configured in model_config.py for LLM-studio management"""
     docker_client = get_docker_client()
     response = docker_client.list_containers(all=False)
 
     # Extract containers array from response
-    containers_list = response.get("containers", []) if isinstance(response, dict) else []
+    containers_list = (
+        response.get("containers", []) if isinstance(response, dict) else []
+    )
 
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
     managed_containers = []
@@ -669,9 +751,9 @@ def get_managed_containers():
                 self.status = data.get("status")
                 self.attrs = data
                 # Create image object
-                self.image = type('obj', (object,), {
-                    'tags': data.get("image_tags", [])
-                })()
+                self.image = type(
+                    "obj", (object,), {"tags": data.get("image_tags", [])}
+                )()
 
             @property
             def health(self):
@@ -820,13 +902,12 @@ def _enrich_container_with_model_impl(con, con_id):
     This is the matching logic previously inline in ``update_deploy_cache``.
     It is now reusable from both that function and ``get_canonical_deployments``.
     """
-    con_model_id = con['env_vars'].get("MODEL_ID")
+    con_model_id = con["env_vars"].get("MODEL_ID")
     model_impl = model_implmentations.get(con_model_id)
     if not model_impl:
         # TT Inference Server containers identify themselves via cache env vars.
         is_tt_inference_container = (
-            "CACHE_ROOT" in con['env_vars']
-            or "TT_CACHE_PATH" in con['env_vars']
+            "CACHE_ROOT" in con["env_vars"] or "TT_CACHE_PATH" in con["env_vars"]
         )
 
         if is_tt_inference_container:
@@ -838,6 +919,7 @@ def _enrich_container_with_model_impl(con, con_id):
             deployment_found = False
             try:
                 from docker_control.models import ModelDeployment
+
                 deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                 if deployment:
@@ -883,7 +965,10 @@ def _enrich_container_with_model_impl(con, con_id):
                 if not model_impl:
                     best_match_len = 0
                     for _k, v in model_implmentations.items():
-                        if v.model_name in con["name"] and len(v.model_name) > best_match_len:
+                        if (
+                            v.model_name in con["name"]
+                            and len(v.model_name) > best_match_len
+                        ):
                             model_impl = v
                             best_match_len = len(v.model_name)
                     if model_impl:
@@ -899,12 +984,14 @@ def _enrich_container_with_model_impl(con, con_id):
         else:
             # Legacy containers: match by container name then by image version.
             candidates = [
-                v for _k, v in model_implmentations.items()
+                v
+                for _k, v in model_implmentations.items()
                 if v.model_name == con["name"]
             ]
             if not candidates:
                 candidates = [
-                    v for _k, v in model_implmentations.items()
+                    v
+                    for _k, v in model_implmentations.items()
                     if v.image_version == con["image_name"]
                 ]
             if not candidates:
@@ -919,7 +1006,9 @@ def _enrich_container_with_model_impl(con, con_id):
     con["model_impl"] = model_impl
 
     if backend_config.docker_bridge_network_name in con["networks"].keys():
-        hostname = con["networks"][backend_config.docker_bridge_network_name]["DNSNames"][0]
+        hostname = con["networks"][backend_config.docker_bridge_network_name][
+            "DNSNames"
+        ][0]
         # Resolve the real bound port (slot-based 7000+device_id) instead of
         # the static catalog service_port.
         actual_port = model_impl.service_port
@@ -940,14 +1029,16 @@ def _enrich_container_with_model_impl(con, con_id):
 
 # Mirrors ChipSlotAllocator._STARTING_GRACE_SECONDS. Records younger than this are trusted during the placeholder
 # window between Django creating the row and deployment_sync swapping in the real container_id.
-_CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
-_CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
+_CANONICAL_STARTING_GRACE_SECONDS = 60  # chat/LLM: container appears within seconds
+_CANONICAL_STARTING_GRACE_MEDIA_SECONDS = (
+    3600  # media: weight download can take 60+ min on host
+)
 
 
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
 
-    Joins DB records with live Docker container information by matching on container_id OR container_name. 
+    Joins DB records with live Docker container information by matching on container_id OR container_name.
     The name match fallback is load-bearing for the CHAT-model placeholder window: until
     deployment_sync swaps the real container_id in, the store's container_id is the FastAPI job_id, but the actual container exists under its name.
     Records with status="running" or status="starting" beyond the grace window that have no matching live container are reconciled to status="stopped".
@@ -964,6 +1055,7 @@ def get_canonical_deployments():
 
     try:
         from docker_control.models import ModelDeployment
+
         active_deployments = list(
             ModelDeployment.objects.filter(status__in=["starting", "running"])
         )
@@ -994,7 +1086,9 @@ def get_canonical_deployments():
             enriched = _enrich_container_with_model_impl(entry, match_id)
             entry["source"] = "managed"
             entry["is_pending"] = False
-            entry["deployed_at"] = dep.deployed_at.isoformat() if dep.deployed_at else None
+            entry["deployed_at"] = (
+                dep.deployed_at.isoformat() if dep.deployed_at else None
+            )
             entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
@@ -1008,7 +1102,11 @@ def get_canonical_deployments():
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
             _impl = next(
-                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
+                (
+                    v
+                    for v in model_implmentations.values()
+                    if v.model_name == dep.model_name
+                ),
                 None,
             )
             _grace = (
@@ -1029,7 +1127,7 @@ def get_canonical_deployments():
                     "env_vars": {},
                     "device_id": dep.device_id,
                     "device_ids": list(getattr(dep, "device_ids", None) or [])
-                                  or ([dep.device_id] if dep.device_id is not None else None),
+                    or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
                     "model_id": None,
                     "weights_id": None,
@@ -1037,7 +1135,9 @@ def get_canonical_deployments():
                     "health_url": None,
                     "source": "managed",
                     "is_pending": True,
-                    "deployed_at": dep.deployed_at.isoformat() if dep.deployed_at else None,
+                    "deployed_at": dep.deployed_at.isoformat()
+                    if dep.deployed_at
+                    else None,
                     "stopped_by_user": False,
                     "deployment_id": dep.id,
                     "deployment_model_name": dep.model_name,
@@ -1094,7 +1194,10 @@ def serialize_canonical_entry_for_http(entry):
         except Exception:
             impl_dict = {}
         # device_configurations is a list of enums — render names
-        if "device_configurations" in impl_dict and impl_dict["device_configurations"] is not None:
+        if (
+            "device_configurations" in impl_dict
+            and impl_dict["device_configurations"] is not None
+        ):
             impl_dict["device_configurations"] = [
                 getattr(e, "name", str(e)) for e in impl_dict["device_configurations"]
             ]
@@ -1115,7 +1218,7 @@ def serialize_canonical_entry_for_http(entry):
 def update_deploy_cache():
     """Materialize get_canonical_deployments() into the LocMemCache.
 
-    Only running, fully-enriched "managed" deployments (those with a resolved model_impl and an internal_url) are written. 
+    Only running, fully-enriched "managed" deployments (those with a resolved model_impl and an internal_url) are written.
     This preserves the existing semantics callers of get_deploy_cache() rely on: every cached entry has a Python-object model_impl they can read attributes off.
     """
     canonical = get_canonical_deployments()
@@ -1127,7 +1230,8 @@ def update_deploy_cache():
         cached_container_ids.add(clean_key)
 
     keepable_ids = {
-        con_id for con_id, entry in canonical.items()
+        con_id
+        for con_id, entry in canonical.items()
         if entry.get("source") == "managed"
         and entry.get("model_impl") is not None
         and entry.get("internal_url")
@@ -1196,7 +1300,9 @@ def perform_reset():
                 try:
                     stdout, _ = process.communicate(timeout=90)
                     last_output = stdout
-                    logger.info(f"tt-smi -r attempt {attempt} output: {stdout.strip()!r:.200}")
+                    logger.info(
+                        f"tt-smi -r attempt {attempt} output: {stdout.strip()!r:.200}"
+                    )
 
                     if process.returncode == 0:
                         logger.info(f"Reset succeeded on attempt {attempt}")
@@ -1254,13 +1360,16 @@ def perform_reset():
             "http_status": 500,
         }
 
+
 def perform_device_reset(device_id: int):
     """
     Reset a specific TT chip/device using tt-smi -r <device_id>.
     Up to 2 attempts with 30-second timeout each.
     """
     try:
-        logger.info(f"Starting chip reset for device {device_id} — running tt-smi -r {device_id}")
+        logger.info(
+            f"Starting chip reset for device {device_id} — running tt-smi -r {device_id}"
+        )
 
         SystemResourceService.set_resetting_state()
 
@@ -1282,10 +1391,14 @@ def perform_device_reset(device_id: int):
                 try:
                     stdout, _ = process.communicate(timeout=30)
                     last_output = stdout
-                    logger.info(f"tt-smi -r {device_id} attempt {attempt} output: {stdout.strip()!r:.200}")
+                    logger.info(
+                        f"tt-smi -r {device_id} attempt {attempt} output: {stdout.strip()!r:.200}"
+                    )
 
                     if process.returncode == 0:
-                        logger.info(f"Device {device_id} reset succeeded on attempt {attempt}")
+                        logger.info(
+                            f"Device {device_id} reset succeeded on attempt {attempt}"
+                        )
                         SystemResourceService.clear_device_state_cache()
                         return {
                             "status": "success",
@@ -1300,7 +1413,9 @@ def perform_device_reset(device_id: int):
                     )
 
                 except subprocess.TimeoutExpired:
-                    logger.warning(f"Device {device_id} reset attempt {attempt} timed out after 30s")
+                    logger.warning(
+                        f"Device {device_id} reset attempt {attempt} timed out after 30s"
+                    )
                     try:
                         os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                         process.wait(timeout=2)
@@ -1312,7 +1427,9 @@ def perform_device_reset(device_id: int):
                     last_output = "(timeout)"
 
             except Exception as exc:
-                logger.error(f"Device {device_id} reset attempt {attempt} raised exception: {exc}")
+                logger.error(
+                    f"Device {device_id} reset attempt {attempt} raised exception: {exc}"
+                )
                 last_output = str(exc)
 
         logger.error(f"All {MAX_ATTEMPTS} reset attempts for device {device_id} failed")
@@ -1487,9 +1604,7 @@ def perform_devices_reset(device_ids):
         }
 
     except Exception as e:
-        logger.exception(
-            f"Unexpected error during batched reset of devices {pretty}"
-        )
+        logger.exception(f"Unexpected error during batched reset of devices {pretty}")
         SystemResourceService.clear_device_state_cache()
         per_device = [
             {
@@ -1526,40 +1641,33 @@ def check_image_exists(image_name, image_tag):
             # Get all images to find size info
             response = docker_client.list_images()
             # Extract images array from response dict
-            images_list = response.get("images", []) if isinstance(response, dict) else []
+            images_list = (
+                response.get("images", []) if isinstance(response, dict) else []
+            )
             for image_data in images_list:
                 tags = image_data.get("tags", [])
-                if target_image in tags or any(image_name in tag and image_tag in tag for tag in tags):
+                if target_image in tags or any(
+                    image_name in tag and image_tag in tag for tag in tags
+                ):
                     size_bytes = image_data.get("size", 0)
                     size_mb = round(size_bytes / (1024 * 1024), 2)
                     logger.info(f"Found image: {target_image}")
                     return {
                         "exists": True,
                         "size": f"{size_mb}MB",
-                        "status": "available"
+                        "status": "available",
                     }
 
             # Image exists but no size info
-            return {
-                "exists": True,
-                "size": "unknown",
-                "status": "available"
-            }
+            return {"exists": True, "size": "unknown", "status": "available"}
 
         logger.warning(f"Image not found: {target_image}")
-        return {
-            "exists": False,
-            "size": "0MB",
-            "status": "not_pulled"
-        }
+        return {"exists": False, "size": "0MB", "status": "not_pulled"}
 
     except Exception as e:
         logger.error(f"Error checking image status: {str(e)}")
-        return {
-            "exists": False,
-            "size": "0MB",
-            "status": "error"
-        }
+        return {"exists": False, "size": "0MB", "status": "error"}
+
 
 def detect_board_type():
     """Detect board type using cached data from SystemResourceService"""
@@ -1574,14 +1682,21 @@ def notify_agent_of_new_container(container_name):
     """Notify the agent about a new container deployment"""
     try:
         import requests
+
         agent_url = "http://tt_studio_agent:8080/refresh"
         response = requests.post(agent_url, timeout=10)
-        
+
         if response.status_code == 200:
-            logger.info(f"Successfully notified agent about new container: {container_name}")
+            logger.info(
+                f"Successfully notified agent about new container: {container_name}"
+            )
         else:
-            logger.warning(f"Failed to notify agent (status {response.status_code}): {response.text}")
-            
+            logger.warning(
+                f"Failed to notify agent (status {response.status_code}): {response.text}"
+            )
+
     except Exception as e:
-        logger.warning(f"Failed to notify agent about new container {container_name}: {e}")
+        logger.warning(
+            f"Failed to notify agent about new container {container_name}: {e}"
+        )
         # Don't fail the deployment if agent notification fails

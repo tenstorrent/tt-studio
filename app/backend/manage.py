@@ -3,7 +3,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 
-
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
 

@@ -45,73 +45,71 @@ LLM_PHASES = [
 ]
 
 LLM_PHASE_LABELS = {
-    "container_starting":  "Starting container",
-    "vllm_importing":      "Loading vLLM runtime",
+    "container_starting": "Starting container",
+    "vllm_importing": "Loading vLLM runtime",
     "downloading_weights": "Downloading model weights",
     "engine_initializing": "Initializing inference engine",
-    "device_init":         "Opening Tenstorrent device",
-    "model_config":        "Loading model configuration",
-    "loading_weights":     "Loading model weights",
-    "compiling_model":     "Compiling inference graph",
-    "engine_ready":        "Allocating KV cache",
-    "server_starting":     "Starting API server",
-    "ready":               "Ready",
+    "device_init": "Opening Tenstorrent device",
+    "model_config": "Loading model configuration",
+    "loading_weights": "Loading model weights",
+    "compiling_model": "Compiling inference graph",
+    "engine_ready": "Allocating KV cache",
+    "server_starting": "Starting API server",
+    "ready": "Ready",
 }
 
 # Weighted by typical phase duration. compile + download together account for
 # >90% of total warmup; everything else is short.
 LLM_PHASE_BASE_PCT = {
-    "container_starting":  2,
-    "vllm_importing":      5,
+    "container_starting": 2,
+    "vllm_importing": 5,
     "downloading_weights": 8,
     "engine_initializing": 27,
-    "device_init":         28,
-    "model_config":        30,
-    "loading_weights":     32,
-    "compiling_model":     35,
-    "engine_ready":        90,
-    "server_starting":     95,
-    "ready":               100,
+    "device_init": 28,
+    "model_config": 30,
+    "loading_weights": 32,
+    "compiling_model": 35,
+    "engine_ready": 90,
+    "server_starting": 95,
+    "ready": 100,
 }
 
 # Markers chosen from real warmup logs
 _LLM_SUBSTRING_MARKERS: list[tuple[str, str]] = [
-    ("USING CACHE_ROOT",                  "container_starting"),
-    ("MOUNTED VOLUME PERMISSIONS",        "container_starting"),
-    ("AUTOMATICALLY DETECTED PLATFORM",   "vllm_importing"),
-    ("SETTING ENV VAR:",                  "vllm_importing"),
-    ("DOWNLOADING WEIGHTS FROM",          "downloading_weights"),
-    ("WEIGHTS ALREADY EXIST AT",          "downloading_weights"),
-    ("INITIALIZING A V0 LLM ENGINE",      "engine_initializing"),
-    ("INITIALIZING A V1 LLM ENGINE",      "engine_initializing"),
-    ("TTMODELRUNNER:",                    "engine_initializing"),
-    ("OPENING USER MODE DEVICE DRIVER",   "device_init"),
-    ("MAPPED HUGEPAGE",                   "device_init"),
-    ("FABRIC INITIALIZED ON DEVICE",      "device_init"),
-    ("MULTIDEVICE WITH",                  "device_init"),
-    ("INFERRING DEVICE NAME",             "model_config"),
-    ("CHECKPOINT DIRECTORY:",             "model_config"),
-    ("SUCCESSFULLY LOADED TOKENIZER",     "model_config"),
-    ("SUCCESSFULLY LOADED PROCESSOR",     "model_config"),
-    ("LOADING CHECKPOINT SHARDS",         "loading_weights"),
-    ("LOADING SAFETENSORS CHECKPOINT",    "loading_weights"),
-    ("WARMING UP PREFILL FOR SEQUENCE",   "compiling_model"),
-    ("DONE COMPILING MODEL",              "compiling_model"),
-    ("DONE CAPTURING PREFILL TRACE",      "compiling_model"),
-    ("DONE CAPTURING DECODE TRACE",       "compiling_model"),
-    ("SAMPLING PARAMS USED FOR DECODE",   "compiling_model"),
-    ("INIT ENGINE (PROFILE, CREATE KV",   "engine_ready"),
-    ("STARTED SERVER PROCESS",            "server_starting"),
-    ("APPLICATION STARTUP COMPLETE",      "server_starting"),
+    ("USING CACHE_ROOT", "container_starting"),
+    ("MOUNTED VOLUME PERMISSIONS", "container_starting"),
+    ("AUTOMATICALLY DETECTED PLATFORM", "vllm_importing"),
+    ("SETTING ENV VAR:", "vllm_importing"),
+    ("DOWNLOADING WEIGHTS FROM", "downloading_weights"),
+    ("WEIGHTS ALREADY EXIST AT", "downloading_weights"),
+    ("INITIALIZING A V0 LLM ENGINE", "engine_initializing"),
+    ("INITIALIZING A V1 LLM ENGINE", "engine_initializing"),
+    ("TTMODELRUNNER:", "engine_initializing"),
+    ("OPENING USER MODE DEVICE DRIVER", "device_init"),
+    ("MAPPED HUGEPAGE", "device_init"),
+    ("FABRIC INITIALIZED ON DEVICE", "device_init"),
+    ("MULTIDEVICE WITH", "device_init"),
+    ("INFERRING DEVICE NAME", "model_config"),
+    ("CHECKPOINT DIRECTORY:", "model_config"),
+    ("SUCCESSFULLY LOADED TOKENIZER", "model_config"),
+    ("SUCCESSFULLY LOADED PROCESSOR", "model_config"),
+    ("LOADING CHECKPOINT SHARDS", "loading_weights"),
+    ("LOADING SAFETENSORS CHECKPOINT", "loading_weights"),
+    ("WARMING UP PREFILL FOR SEQUENCE", "compiling_model"),
+    ("DONE COMPILING MODEL", "compiling_model"),
+    ("DONE CAPTURING PREFILL TRACE", "compiling_model"),
+    ("DONE CAPTURING DECODE TRACE", "compiling_model"),
+    ("SAMPLING PARAMS USED FOR DECODE", "compiling_model"),
+    ("INIT ENGINE (PROFILE, CREATE KV", "engine_ready"),
+    ("STARTED SERVER PROCESS", "server_starting"),
+    ("APPLICATION STARTUP COMPLETE", "server_starting"),
 ]
 
 # vLLM-emitted download log lines
 _DOWNLOAD_START_RE = re.compile(
     r"Downloading weights from\s+(?P<repo>\S+)\s+to\s+(?P<path>\S+)"
 )
-_DOWNLOAD_CACHED_RE = re.compile(
-    r"Weights already exist at\s+(?P<path>\S+)"
-)
+_DOWNLOAD_CACHED_RE = re.compile(r"Weights already exist at\s+(?P<path>\S+)")
 
 # MEDIA template — trimmed and verified against real distil-large-v3 and
 # speecht5_tts logs at .artifacts/tt-inference-server/workflow_logs/docker_server/.
@@ -139,24 +137,24 @@ MEDIA_PHASES = [
 ]
 
 MEDIA_PHASE_LABELS = {
-    "container_starting":  "Starting container",
-    "device_init":         "Opening Tenstorrent device",
+    "container_starting": "Starting container",
+    "device_init": "Opening Tenstorrent device",
     "downloading_weights": "Downloading model weights",
-    "loading_weights":     "Loading model weights",
-    "warming_up":          "Warming up runner",
-    "ready":               "Ready",
+    "loading_weights": "Loading model weights",
+    "warming_up": "Warming up runner",
+    "ready": "Ready",
 }
 
 # loading_weights dominates real wall-clock (~70% on speecht5_tts), so its band
 # is the widest. Sub-step counting inside the band (see MEDIA_LOAD_TOTAL) lets
 # the bar advance smoothly during the otherwise-silent HF model load.
 MEDIA_PHASE_BASE_PCT = {
-    "container_starting":  2,
-    "device_init":         8,
+    "container_starting": 2,
+    "device_init": 8,
     "downloading_weights": 14,
-    "loading_weights":     24,
-    "warming_up":          80,
-    "ready":               100,
+    "loading_weights": 24,
+    "warming_up": 80,
+    "ready": 100,
 }
 
 # Substring markers for tt-media-inference-server containers. Strings here are
@@ -172,31 +170,30 @@ _MEDIA_SUBSTRING_MARKERS: list[tuple[str, str]] = [
     # fire before the frontend has even started polling, so the user only ever
     # sees the *result* of these events (the pill is "done" by the time they
     # see it). No point in giving them dedicated phases.
-    ("USING CACHE_ROOT",                       "container_starting"),
-    ("MOUNTED VOLUME PERMISSIONS",             "container_starting"),
-    ("SETTINGS INIT: MODEL=",                  "container_starting"),
-    ("CONFIG LOOKUP: RUNNER=",                 "container_starting"),
-    ("SETTINGS RESOLVED:",                     "container_starting"),
-    ("SETTING UP PROMETHEUS METRICS",          "container_starting"),
-    ("PROMETHEUS METRICS AVAILABLE",           "container_starting"),
-    ("CREATING NEW AUDIO SERVICE",             "container_starting"),
-    ("CREATING NEW VIDEO SERVICE",             "container_starting"),
-    ("CREATING NEW IMAGE SERVICE",             "container_starting"),
-    ("CREATING NEW TEXT_TO_SPEECH SERVICE",    "container_starting"),
-    ("CREATING NEW TTS SERVICE",               "container_starting"),
-    ("STARTED SERVER PROCESS",                 "container_starting"),
-    ("WAITING FOR APPLICATION STARTUP",        "container_starting"),
-    ("AUDIOPREPROCESSING WORKER",              "container_starting"),
-    ("VIDEOPREPROCESSING WORKER",              "container_starting"),
-    ("VIDEOPOSTPROCESSING WORKER",             "container_starting"),
-    ("TTSPOSTPROCESSING WORKER",               "container_starting"),
-    ("IMAGE POSTPROCESSING WORKER",            "container_starting"),
-    ("STARTING WORKER ",                       "container_starting"),
-    ("STARTED WORKER ",                        "container_starting"),
-    ("ALL WORKERS STARTED IN SEQUENCE",        "container_starting"),
-    ("APPLICATION STARTUP COMPLETE",           "container_starting"),
-    ("UVICORN RUNNING ON",                     "container_starting"),
-
+    ("USING CACHE_ROOT", "container_starting"),
+    ("MOUNTED VOLUME PERMISSIONS", "container_starting"),
+    ("SETTINGS INIT: MODEL=", "container_starting"),
+    ("CONFIG LOOKUP: RUNNER=", "container_starting"),
+    ("SETTINGS RESOLVED:", "container_starting"),
+    ("SETTING UP PROMETHEUS METRICS", "container_starting"),
+    ("PROMETHEUS METRICS AVAILABLE", "container_starting"),
+    ("CREATING NEW AUDIO SERVICE", "container_starting"),
+    ("CREATING NEW VIDEO SERVICE", "container_starting"),
+    ("CREATING NEW IMAGE SERVICE", "container_starting"),
+    ("CREATING NEW TEXT_TO_SPEECH SERVICE", "container_starting"),
+    ("CREATING NEW TTS SERVICE", "container_starting"),
+    ("STARTED SERVER PROCESS", "container_starting"),
+    ("WAITING FOR APPLICATION STARTUP", "container_starting"),
+    ("AUDIOPREPROCESSING WORKER", "container_starting"),
+    ("VIDEOPREPROCESSING WORKER", "container_starting"),
+    ("VIDEOPOSTPROCESSING WORKER", "container_starting"),
+    ("TTSPOSTPROCESSING WORKER", "container_starting"),
+    ("IMAGE POSTPROCESSING WORKER", "container_starting"),
+    ("STARTING WORKER ", "container_starting"),
+    ("STARTED WORKER ", "container_starting"),
+    ("ALL WORKERS STARTED IN SEQUENCE", "container_starting"),
+    ("APPLICATION STARTUP COMPLETE", "container_starting"),
+    ("UVICORN RUNNING ON", "container_starting"),
     # ── downloading_weights ─────────────────────────────────────────────────
     # Two trigger families:
     # 1. The wrapper at tt-media-server/utils/hugging_face_utils.py emits the
@@ -207,70 +204,67 @@ _MEDIA_SUBSTRING_MARKERS: list[tuple[str, str]] = [
     #    Whisper and SpeechT5. We treat it as a download trigger because:
     #    (a) it's the closest thing to a download event in those logs, and
     #    (b) byte tracking via du -sb tells us if it's already cached or not.
-    ("DOWNLOADING WEIGHTS FOR MODEL:",         "downloading_weights"),
-    ("ALREADY CACHED, SKIPPING DOWNLOAD",      "downloading_weights"),
-    ("USING CACHED MODEL AT:",                 "downloading_weights"),
-    ("MODEL ALREADY EXISTS LOCALLY AT:",       "downloading_weights"),
-    ("LOADING HUGGINGFACE MODEL:",             "downloading_weights"),
-
+    ("DOWNLOADING WEIGHTS FOR MODEL:", "downloading_weights"),
+    ("ALREADY CACHED, SKIPPING DOWNLOAD", "downloading_weights"),
+    ("USING CACHED MODEL AT:", "downloading_weights"),
+    ("MODEL ALREADY EXISTS LOCALLY AT:", "downloading_weights"),
+    ("LOADING HUGGINGFACE MODEL:", "downloading_weights"),
     # ── device_init: UMD opens + device runner created ──────────────────────
-    ("SETUP_RUNNER_ENVIRONMENT",               "device_init"),
-    ("TT_VISIBLE_DEVICES",                     "device_init"),
-    ("CREATING TOPOLOGYDISCOVERY",             "device_init"),
-    ("ESTABLISHED FIRMWARE BUNDLE VERSION",    "device_init"),
-    ("OPENING USER MODE DEVICE DRIVER",        "device_init"),
-    ("TTWHISPERRUNNER",                        "device_init"),       # "created TTWhisperRunner for worker 0"
-    ("TTSPEECHT5RUNNER",                       "device_init"),       # "created TTSpeechT5Runner for worker 0"
-
+    ("SETUP_RUNNER_ENVIRONMENT", "device_init"),
+    ("TT_VISIBLE_DEVICES", "device_init"),
+    ("CREATING TOPOLOGYDISCOVERY", "device_init"),
+    ("ESTABLISHED FIRMWARE BUNDLE VERSION", "device_init"),
+    ("OPENING USER MODE DEVICE DRIVER", "device_init"),
+    ("TTWHISPERRUNNER", "device_init"),  # "created TTWhisperRunner for worker 0"
+    ("TTSPEECHT5RUNNER", "device_init"),  # "created TTSpeechT5Runner for worker 0"
     # ── loading_weights: the dominant phase (~70% of total time for TTS) ────
     # Whisper-specific (audio preprocessing)
-    ("LOADING SPEAKER DIARIZATION",            "loading_weights"),
-    ("LOADING VAD MODEL",                      "loading_weights"),
-    ("VAD MODEL LOADED",                       "loading_weights"),
+    ("LOADING SPEAKER DIARIZATION", "loading_weights"),
+    ("LOADING VAD MODEL", "loading_weights"),
+    ("VAD MODEL LOADED", "loading_weights"),
     # Mesh device + HF model load completion (both whisper and TTS)
-    ("CREATED MESH DEVICE",                    "loading_weights"),
-    ("CREATING INFERENCE PIPELINE",            "loading_weights"),
-    ("LOADING WHISPER MODEL",                  "loading_weights"),
-    ("LOADING SPEECHT5 MODEL",                 "loading_weights"),
-    ("SUCCESSFULLY LOADED HUGGINGFACE MODEL",  "loading_weights"),
-    ("INITIALIZING TTNN MODEL COMPONENTS",     "loading_weights"),
-    ("MODEL PARAMETERS PREPROCESSED",          "loading_weights"),
-    ("INITIALIZING KV CACHE",                  "loading_weights"),
-    ("SUCCESSFULLY INITIALIZED TTNN",          "loading_weights"),
-    ("SUCCESSFULLY CREATED INFERENCE PIPELINE","loading_weights"),
-    ("MODEL PIPELINE CREATED",                 "loading_weights"),
-    ("MODEL LOADED AND PIPELINE READY",        "loading_weights"),
+    ("CREATED MESH DEVICE", "loading_weights"),
+    ("CREATING INFERENCE PIPELINE", "loading_weights"),
+    ("LOADING WHISPER MODEL", "loading_weights"),
+    ("LOADING SPEECHT5 MODEL", "loading_weights"),
+    ("SUCCESSFULLY LOADED HUGGINGFACE MODEL", "loading_weights"),
+    ("INITIALIZING TTNN MODEL COMPONENTS", "loading_weights"),
+    ("MODEL PARAMETERS PREPROCESSED", "loading_weights"),
+    ("INITIALIZING KV CACHE", "loading_weights"),
+    ("SUCCESSFULLY INITIALIZED TTNN", "loading_weights"),
+    ("SUCCESSFULLY CREATED INFERENCE PIPELINE", "loading_weights"),
+    ("MODEL PIPELINE CREATED", "loading_weights"),
+    ("MODEL LOADED AND PIPELINE READY", "loading_weights"),
     # TTS-specific: speaker embeddings + TTNN model construction
-    ("LOADING DEFAULT SPEAKER EMBEDDINGS",     "loading_weights"),
-    ("DEFAULT SPEAKER EMBEDDINGS",             "loading_weights"),
-    ("CREATING TTNN ENCODER",                  "loading_weights"),
-    ("CREATING TTNN DECODER",                  "loading_weights"),
-    ("CREATING TTNN POSTNET",                  "loading_weights"),
-    ("SPEECHT5GENERATOR INITIALIZED",          "loading_weights"),
-    ("TRACE GENERATOR INITIALIZED",            "loading_weights"),
-    ("ALL SPEECHT5 MODELS INITIALIZED",        "loading_weights"),
-    ("MODEL INITIALIZATION COMPLETED",         "loading_weights"),
+    ("LOADING DEFAULT SPEAKER EMBEDDINGS", "loading_weights"),
+    ("DEFAULT SPEAKER EMBEDDINGS", "loading_weights"),
+    ("CREATING TTNN ENCODER", "loading_weights"),
+    ("CREATING TTNN DECODER", "loading_weights"),
+    ("CREATING TTNN POSTNET", "loading_weights"),
+    ("SPEECHT5GENERATOR INITIALIZED", "loading_weights"),
+    ("TRACE GENERATOR INITIALIZED", "loading_weights"),
+    ("ALL SPEECHT5 MODELS INITIALIZED", "loading_weights"),
+    ("MODEL INITIALIZATION COMPLETED", "loading_weights"),
     # Speculative — not seen in our logs but documented in diffusers/transformers
-    ("LOADING VAE",                            "loading_weights"),
-    ("LOADING UNET",                           "loading_weights"),
-    ("LOADING TEXT ENCODER",                   "loading_weights"),
-    ("LOADING TRANSFORMER",                    "loading_weights"),
-    ("PIPELINE LOADED",                        "loading_weights"),
-
+    ("LOADING VAE", "loading_weights"),
+    ("LOADING UNET", "loading_weights"),
+    ("LOADING TEXT ENCODER", "loading_weights"),
+    ("LOADING TRANSFORMER", "loading_weights"),
+    ("PIPELINE LOADED", "loading_weights"),
     # ── warming_up: model warmup loop (encoder sizes for TTS, decode for whisper)
-    ("ENCODER WARM-UP DONE",                   "warming_up"),
-    ("POSTNET WARM-UP DONE",                   "warming_up"),
-    ("WARM-UP DONE FOR ENCODER_SIZE",          "warming_up"),
-    ("MODEL WARMUP COMPLETED",                 "warming_up"),
-    ("[WARMUP] ASYNC EXECUTED",                "warming_up"),
-    ("STARTED WITH DEVICE RUNNER",             "warming_up"),
-    ("FIRST DEVICE WARMED UP",                 "warming_up"),
-    ("IS WARMED UP",                           "warming_up"),
-    ("ALL DEVICES ARE WARMED UP AND READY",    "warming_up"),
-    ("STARTING MODEL WARMUP",                  "warming_up"),
-    ("RUNNING MODEL ON BATCH",                 "warming_up"),
-    ("TIME TO ENCODER STATES",                 "warming_up"),
-    ("ON-DEVICE SAMPLING TRACE",               "warming_up"),
+    ("ENCODER WARM-UP DONE", "warming_up"),
+    ("POSTNET WARM-UP DONE", "warming_up"),
+    ("WARM-UP DONE FOR ENCODER_SIZE", "warming_up"),
+    ("MODEL WARMUP COMPLETED", "warming_up"),
+    ("[WARMUP] ASYNC EXECUTED", "warming_up"),
+    ("STARTED WITH DEVICE RUNNER", "warming_up"),
+    ("FIRST DEVICE WARMED UP", "warming_up"),
+    ("IS WARMED UP", "warming_up"),
+    ("ALL DEVICES ARE WARMED UP AND READY", "warming_up"),
+    ("STARTING MODEL WARMUP", "warming_up"),
+    ("RUNNING MODEL ON BATCH", "warming_up"),
+    ("TIME TO ENCODER STATES", "warming_up"),
+    ("ON-DEVICE SAMPLING TRACE", "warming_up"),
     ("GENERATION SUCCESSFUL WITH TEMPERATURE", "warming_up"),
 ]
 
@@ -281,15 +275,9 @@ _MEDIA_SUBSTRING_MARKERS: list[tuple[str, str]] = [
 # and speecht5 runners DON'T — they call transformers.from_pretrained() which
 # emits `Device 0: Loading HuggingFace model: <repo>` instead. We treat that
 # as a download trigger too; byte tracking decides cached vs in-progress.
-_DOWNLOAD_MEDIA_RE = re.compile(
-    r"Downloading weights for model:\s+(?P<repo>\S+)"
-)
-_DOWNLOAD_MEDIA_CACHED_RE = re.compile(
-    r"Model\s+(?P<repo>\S+)\s+already cached"
-)
-_DOWNLOAD_MEDIA_HF_LOAD_RE = re.compile(
-    r"Loading HuggingFace model:\s+(?P<repo>\S+)"
-)
+_DOWNLOAD_MEDIA_RE = re.compile(r"Downloading weights for model:\s+(?P<repo>\S+)")
+_DOWNLOAD_MEDIA_CACHED_RE = re.compile(r"Model\s+(?P<repo>\S+)\s+already cached")
+_DOWNLOAD_MEDIA_HF_LOAD_RE = re.compile(r"Loading HuggingFace model:\s+(?P<repo>\S+)")
 
 # ---------------------------------------------------------------------------
 # Shared regexes / model-type routing
@@ -327,10 +315,9 @@ def _is_noise_line(line: str) -> bool:
     """Return True for log lines we want to ignore in phase classification."""
     return bool(_UVICORN_ACCESS_LOG_RE.match(line))
 
+
 # LLM compile-trace count.
-_DONE_CAPTURE_RE = re.compile(
-    r"Done Capturing (?:Prefill|Decode) Trace", re.IGNORECASE
-)
+_DONE_CAPTURE_RE = re.compile(r"Done Capturing (?:Prefill|Decode) Trace", re.IGNORECASE)
 COMPILE_TRACE_TOTAL = 5  # 4 prefill seq_lens + 1 decode capture.
 
 # MEDIA sub-step counters for the long phases (loading_weights, warming_up). Verified against real distil-large-v3 / speecht5_tts logs.
@@ -365,40 +352,44 @@ MEDIA_WARMUP_TOTAL = 8
 
 # tt-studio ModelTypes (mirror of shared_config.model_type_config.ModelTypes)
 # that should be classified as MEDIA. Everything else → LLM.
-_MEDIA_MODEL_TYPES = frozenset({
-    "speech_recognition",
-    "tts",
-    "image_generation",
-    "video_generation",
-    "object_detection",
-    "cnn",
-    "face_recognition",
-})
+_MEDIA_MODEL_TYPES = frozenset(
+    {
+        "speech_recognition",
+        "tts",
+        "image_generation",
+        "video_generation",
+        "object_detection",
+        "cnn",
+        "face_recognition",
+    }
+)
 
 # Backstop name patterns — used when the caller doesn't pass a model_type
 # hint and we have to guess from the model name.
 _MEDIA_NAME_PATTERNS = [
-    re.compile(r"whisper",                 re.IGNORECASE),
-    re.compile(r"distil-large",            re.IGNORECASE),
-    re.compile(r"^speecht5",               re.IGNORECASE),
-    re.compile(r"^stable-diffusion",       re.IGNORECASE),
-    re.compile(r"^flux\.",                 re.IGNORECASE),
-    re.compile(r"^qwen-image",             re.IGNORECASE),
-    re.compile(r"^motif-image",            re.IGNORECASE),
-    re.compile(r"^wan2",                   re.IGNORECASE),
-    re.compile(r"^mochi",                  re.IGNORECASE),
-    re.compile(r"^yolo",                   re.IGNORECASE),
-    re.compile(r"^resnet",                 re.IGNORECASE),
-    re.compile(r"^efficientnet",           re.IGNORECASE),
-    re.compile(r"^mobilenetv2",            re.IGNORECASE),
-    re.compile(r"^vit$",                   re.IGNORECASE),
-    re.compile(r"^vovnet",                 re.IGNORECASE),
-    re.compile(r"^unet$",                  re.IGNORECASE),
-    re.compile(r"^segformer",              re.IGNORECASE),
+    re.compile(r"whisper", re.IGNORECASE),
+    re.compile(r"distil-large", re.IGNORECASE),
+    re.compile(r"^speecht5", re.IGNORECASE),
+    re.compile(r"^stable-diffusion", re.IGNORECASE),
+    re.compile(r"^flux\.", re.IGNORECASE),
+    re.compile(r"^qwen-image", re.IGNORECASE),
+    re.compile(r"^motif-image", re.IGNORECASE),
+    re.compile(r"^wan2", re.IGNORECASE),
+    re.compile(r"^mochi", re.IGNORECASE),
+    re.compile(r"^yolo", re.IGNORECASE),
+    re.compile(r"^resnet", re.IGNORECASE),
+    re.compile(r"^efficientnet", re.IGNORECASE),
+    re.compile(r"^mobilenetv2", re.IGNORECASE),
+    re.compile(r"^vit$", re.IGNORECASE),
+    re.compile(r"^vovnet", re.IGNORECASE),
+    re.compile(r"^unet$", re.IGNORECASE),
+    re.compile(r"^segformer", re.IGNORECASE),
 ]
 
 
-def category_for_model(model_type: Optional[str] = None, model_name: Optional[str] = None) -> str:
+def category_for_model(
+    model_type: Optional[str] = None, model_name: Optional[str] = None
+) -> str:
     """Return 'media' or 'llm' for the given model identifiers.
 
     Resolution order:
@@ -417,12 +408,17 @@ def category_for_model(model_type: Optional[str] = None, model_name: Optional[st
     return "llm"
 
 
-def _template_for(category: str) -> tuple[
-    list[str], dict[str, str], dict[str, int], list[tuple[str, str]]
-]:
+def _template_for(
+    category: str,
+) -> tuple[list[str], dict[str, str], dict[str, int], list[tuple[str, str]]]:
     """Return (phases, phase_labels, phase_base_pct, substring_markers)."""
     if category == "media":
-        return (MEDIA_PHASES, MEDIA_PHASE_LABELS, MEDIA_PHASE_BASE_PCT, _MEDIA_SUBSTRING_MARKERS)
+        return (
+            MEDIA_PHASES,
+            MEDIA_PHASE_LABELS,
+            MEDIA_PHASE_BASE_PCT,
+            _MEDIA_SUBSTRING_MARKERS,
+        )
     return (LLM_PHASES, LLM_PHASE_LABELS, LLM_PHASE_BASE_PCT, _LLM_SUBSTRING_MARKERS)
 
 
@@ -598,7 +594,9 @@ def classify_startup_phase(
         if warmup_seq_len:
             detail_parts.append(f"prefill seq_len {warmup_seq_len}")
         if trace_count > 0:
-            detail_parts.append(f"trace {min(trace_count, COMPILE_TRACE_TOTAL)}/{COMPILE_TRACE_TOTAL}")
+            detail_parts.append(
+                f"trace {min(trace_count, COMPILE_TRACE_TOTAL)}/{COMPILE_TRACE_TOTAL}"
+            )
         if detail_parts:
             message = " · ".join(detail_parts)
 

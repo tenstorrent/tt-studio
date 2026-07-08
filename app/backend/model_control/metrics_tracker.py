@@ -24,10 +24,14 @@ class InferenceMetricsTracker:
 
     def __init__(self):
         self.start_time: float = time.perf_counter()
-        self.first_token_time: Optional[float] = None          # first token of any kind
-        self.first_content_token_time: Optional[float] = None  # first non-thinking token (true TTFT)
-        self.most_recent_token_time: Optional[float] = None    # vLLM-style: advances per content chunk
-        self.itl: List[float] = []          # inter-token latency list (seconds) — vLLM style
+        self.first_token_time: Optional[float] = None  # first token of any kind
+        self.first_content_token_time: Optional[float] = (
+            None  # first non-thinking token (true TTFT)
+        )
+        self.most_recent_token_time: Optional[float] = (
+            None  # vLLM-style: advances per content chunk
+        )
+        self.itl: List[float] = []  # inter-token latency list (seconds) — vLLM style
         self.token_times: List[float] = []  # kept for backwards compat / detailed stats
         self.num_tokens: int = 0
         self.prompt_tokens: int = 0
@@ -131,13 +135,16 @@ class InferenceMetricsTracker:
         """Get final statistics in vLLM-compatible format."""
         thinking_duration = (
             self.thinking_end_time - self.thinking_start_time
-            if (self.thinking_start_time is not None and self.thinking_end_time is not None)
+            if (
+                self.thinking_start_time is not None
+                and self.thinking_end_time is not None
+            )
             else None
         )
         return {
             "ttft": self.get_ttft(),
             "tpot": self.get_tpot(),
-            "itl": self.itl,              # list of inter-token latencies in seconds
+            "itl": self.itl,  # list of inter-token latencies in seconds
             "tokens_decoded": self.num_tokens,
             "tokens_prefilled": self.prompt_tokens,
             "context_length": self.prompt_tokens + self.num_tokens,

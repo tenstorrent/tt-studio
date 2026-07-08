@@ -2,15 +2,11 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import json
 import time
 import os
 
 import requests
-import jwt
 
-from shared_config.backend_config import backend_config
-from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from docker_control.docker_utils import run_container, stop_container
@@ -24,15 +20,13 @@ logger.info(f"importing {__name__}")
 
 # for test script set up Django using settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "api.settings")
-import django
+import django  # noqa: E402
 
 django.setup()
 
 
 def test_model_utils():
     impl = model_implmentations["0"]
-    json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
-    encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
     # 1. run container
     logger.info(f"using impl:={impl}")
     status = run_container(impl)

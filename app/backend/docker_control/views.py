@@ -2,7 +2,6 @@
 #
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-from django.shortcuts import render
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from rest_framework import status
@@ -13,19 +12,14 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
 import shutil
-import subprocess
-import signal
 import os
 from pathlib import Path
 
 import re
-import os
 import asyncio
 import threading
 import concurrent.futures
 import requests
-import json
-from .forms import DockerForm
 from .docker_utils import (
     run_container,
     get_container_status,
@@ -41,7 +35,11 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from .tt_inference_client import (
+    start_chat_deployment,
+    tool_call_parser_for,
+    resolve_deploy_image,
+)
 from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
@@ -75,19 +73,28 @@ def _split_image_version(image_version: str):
         return name, tag
     return image_version, "latest"
 
+
 # Build model_name → status lookup from catalog JSON
-_CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
+_CATALOG_PATH = (
+    Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
+)
 try:
     _catalog = json.loads(_CATALOG_PATH.read_text())
-    _status_lookup: dict[str, str | None] = {m["model_name"]: m.get("status") for m in _catalog["models"]}
+    _status_lookup: dict[str, str | None] = {
+        m["model_name"]: m.get("status") for m in _catalog["models"]
+    }
 except Exception:
-    logger.warning(f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models")
+    logger.warning(
+        f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models"
+    )
     _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
 # HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for P300x2
 # until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
-_OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
+_OVERRIDE_PATH = (
+    Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
+)
 try:
     _override_data = json.loads(_OVERRIDE_PATH.read_text())
     _compatibility_override_names: set[str] = set(_override_data.get("model_names", []))
@@ -102,10 +109,12 @@ def _is_llama31_8b_model(model_name: str) -> bool:
     token = (model_name or "").lower().replace("_", "").replace(" ", "")
     return "llama-3.1-8b" in token or "llama3.18b" in token
 
+
 def _lookup_deployment_device_ids(container_id):
     """Return the list of device slot ids associated with a deployment, or []."""
     try:
         from docker_control.models import ModelDeployment
+
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return []
@@ -126,93 +135,136 @@ def _lookup_deployment_device_ids(container_id):
                 return []
         return []
     except Exception as e:
-        logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
+        logger.warning(
+            f"Failed to look up device_ids for container {container_id}: {e}"
+        )
         return []
+
 
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
         # Detect current board type using tt-smi command
         current_board = detect_board_type()
         logger.info(f"Detected board type: {current_board}")
-        
+
         # Map board types to their corresponding device configurations
         board_to_device_map = {
             # Wormhole single devices
-            'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'E150': [DeviceConfigurations.E150],
-            
+            "N150": [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+            "N300": [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            "E150": [DeviceConfigurations.E150],
             # Wormhole multi-device
-            'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
+            "N150X4": [
+                DeviceConfigurations.N150X4,
+                DeviceConfigurations.N150,
+                DeviceConfigurations.N150_WH_ARCH_YAML,
+            ],
+            "T3000": [
+                DeviceConfigurations.N300x4,
+                DeviceConfigurations.N300x4_WH_ARCH_YAML,
+                DeviceConfigurations.N300,
+                DeviceConfigurations.N300_WH_ARCH_YAML,
+            ],
+            "T3K": [
+                DeviceConfigurations.T3K,
+                DeviceConfigurations.N300x4,
+                DeviceConfigurations.N300x4_WH_ARCH_YAML,
+                DeviceConfigurations.N300,
+                DeviceConfigurations.N300_WH_ARCH_YAML,
+            ],
             # Blackhole single devices
-            'P100': [DeviceConfigurations.P100],
-            'P150': [DeviceConfigurations.P150],
-            'P300': [DeviceConfigurations.P300],
-
+            "P100": [DeviceConfigurations.P100],
+            "P150": [DeviceConfigurations.P150],
+            "P300": [DeviceConfigurations.P300],
             # Blackhole multi-device
-            'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
-            'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
+            "P150X4": [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
+            "P150X8": [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
             # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            
+            "P300x2": [
+                DeviceConfigurations.P300x2,
+                DeviceConfigurations.P150,
+                DeviceConfigurations.P300,
+            ],
+            "P300Cx4": [
+                DeviceConfigurations.P300Cx4,
+                DeviceConfigurations.P150,
+                DeviceConfigurations.P300,
+            ],
             # Galaxy systems
-            'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
-            'unknown': []  # Empty list for unknown board type
+            "GALAXY": [
+                DeviceConfigurations.GALAXY,
+                DeviceConfigurations.N300,
+                DeviceConfigurations.N300_WH_ARCH_YAML,
+            ],
+            "GALAXY_T3K": [
+                DeviceConfigurations.GALAXY_T3K,
+                DeviceConfigurations.N300,
+                DeviceConfigurations.N300_WH_ARCH_YAML,
+            ],
+            "unknown": [],  # Empty list for unknown board type
         }
-        
+
         # Get the device configurations for current board
         current_board_devices = set(board_to_device_map.get(current_board, []))
         logger.info(f"Current board devices: {current_board_devices}")
-        
+
         data = []
         for impl_id, impl in model_implmentations.items():
             # Calculate compatibility
             is_compatible = False
-            if current_board == 'unknown':
+            if current_board == "unknown":
                 # If board type is unknown, show all models but mark them as potentially incompatible
                 is_compatible = None
             else:
                 # Check if any of the current board's device configurations are in the model's configurations
-                is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
+                is_compatible = bool(
+                    current_board_devices.intersection(impl.device_configurations)
+                )
                 logger.info(f"Model {impl.model_name}: is_compatible={is_compatible}")
-            
+
             # Get all boards this model can run on
             compatible_boards = []
             for board, devices in board_to_device_map.items():
-                if board != 'unknown' and bool(set(devices).intersection(impl.device_configurations)):
+                if board != "unknown" and bool(
+                    set(devices).intersection(impl.device_configurations)
+                ):
                     compatible_boards.append(board)
 
             # Manual override: always show certain models as compatible (e.g. whisper when sync JSON is incomplete)
             if impl.model_name in _compatibility_override_names:
                 is_compatible = True
-                if current_board != 'unknown' and current_board not in compatible_boards:
+                if (
+                    current_board != "unknown"
+                    and current_board not in compatible_boards
+                ):
                     compatible_boards = list(compatible_boards) + [current_board]
-                logger.info(f"Model {impl.model_name}: compatibility overridden to True")
-            
-            logger.info(f"Model {impl.model_name}: compatible={is_compatible}, boards={compatible_boards}")
+                logger.info(
+                    f"Model {impl.model_name}: compatibility overridden to True"
+                )
+
+            logger.info(
+                f"Model {impl.model_name}: compatible={is_compatible}, boards={compatible_boards}"
+            )
 
             # Infer chip requirements for this model
             from shared_config.model_config import infer_chips_required
+
             chips_required = infer_chips_required(impl.device_configurations)
 
-            data.append({
-                "id": impl_id,
-                "name": impl.model_name,
-                "is_compatible": is_compatible,
-                "compatible_boards": compatible_boards,
-                "model_type": impl.model_type.value,
-                "display_model_type": impl.display_model_type,
-                "current_board": current_board,
-                "status": _status_lookup.get(impl.model_name),
-                "chips_required": chips_required,
-            })
-        
+            data.append(
+                {
+                    "id": impl_id,
+                    "name": impl.model_name,
+                    "is_compatible": is_compatible,
+                    "compatible_boards": compatible_boards,
+                    "model_type": impl.model_type.value,
+                    "display_model_type": impl.display_model_type,
+                    "current_board": current_board,
+                    "status": _status_lookup.get(impl.model_name),
+                    "chips_required": chips_required,
+                }
+            )
+
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -255,8 +307,8 @@ class StatusView(APIView):
 
 
 class DeploymentsView(APIView):
-    """Canonical endpoint — the single source of truth. 
-    Returns a dict keyed by Docker container_id (or a pending-<id> key for placeholder records during the CHAT-model job_id window). 
+    """Canonical endpoint — the single source of truth.
+    Returns a dict keyed by Docker container_id (or a pending-<id> key for placeholder records during the CHAT-model job_id window).
     Each entry includes Docker container fields, deployment_store fields, a serialized model_impl, plus is_pending and source markers so callers can distinguish fully-deployed models from in-flight starts and from discovered-but-unregistered containers.
 
     Other endpoints (/docker-api/status/, /models-api/deployed/, /docker-api/chip-status/) are now thin shims over this view. Their response shapes are preserved for backwards compatibility.
@@ -273,7 +325,10 @@ class DeploymentsView(APIView):
             )
 
         return Response(
-            {con_id: serialize_canonical_entry_for_http(entry) for con_id, entry in canonical.items()},
+            {
+                con_id: serialize_canonical_entry_for_http(entry)
+                for con_id, entry in canonical.items()
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -302,13 +357,9 @@ class ChipStatusView(APIView):
         except Exception as e:
             logger.error(f"Error getting chip status: {str(e)}")
             return Response(
-                {
-                    "error": "Failed to get chip status",
-                    "message": str(e)
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to get chip status", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
 
 
 class DeployView(APIView):
@@ -317,17 +368,25 @@ class DeployView(APIView):
         # mid-reset conflicts with the hardware re-init and model teardown.
         if SystemResourceService.is_reset_in_progress():
             return Response(
-                {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
+                {
+                    "error": "A board reset is in progress. Wait for it to finish before deploying a model."
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
-            from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+            from docker_control.chip_allocator import (
+                ChipSlotAllocator,
+                AllocationError,
+                MultiChipConflictError,
+            )
 
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
-            force_full_board_requested = serializer.validated_data.get("force_full_board", False)
+            force_full_board_requested = serializer.validated_data.get(
+                "force_full_board", False
+            )
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -335,11 +394,15 @@ class DeployView(APIView):
             raw_device_id = request.data.get("device_id")
             if raw_device_id is not None:
                 requested_device_ids = [
-                    int(x.strip()) for x in str(raw_device_id).split(",") if str(x).strip() != ""
+                    int(x.strip())
+                    for x in str(raw_device_id).split(",")
+                    if str(x).strip() != ""
                 ]
                 if not requested_device_ids:
                     requested_device_ids = [0]
-                manual_device_id = requested_device_ids[0]  # primary slot for allocation
+                manual_device_id = requested_device_ids[
+                    0
+                ]  # primary slot for allocation
             else:
                 requested_device_ids = []
                 manual_device_id = None
@@ -390,7 +453,11 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if (
+                    should_force_full_board_llama
+                    or use_whole_board_deploy
+                    or mesh_whole_board
+                ):
                     # Whole-board deploy (forced QB2 Llama, a single-chip model on a
                     # Wormhole mesh board, or a media model like FLUX with no single-chip
                     # spec) takes over the entire board — reserve all slots.
@@ -410,8 +477,7 @@ class DeployView(APIView):
                     device_ids = list(range(min(4, allocator.total_slots)))
                 else:
                     device_id = allocator.allocate_chip_slot(
-                        impl.model_name,
-                        manual_override=manual_device_id
+                        impl.model_name, manual_override=manual_device_id
                     )
                     # If multiple device IDs were requested, validate every slot and pass
                     # them all to the inference server call; otherwise use the allocated slot.
@@ -450,7 +516,11 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if (
+                    should_force_full_board_llama
+                    or use_whole_board_deploy
+                    or mesh_whole_board
+                ):
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -468,23 +538,33 @@ class DeployView(APIView):
 
             except MultiChipConflictError as e:
                 logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
-                return Response({
-                    "status": "error",
-                    "error_type": "multi_chip_conflict",
-                    "message": str(e),
-                    "conflicts": e.conflicts  # List of conflicting deployments
-                }, status=status.HTTP_409_CONFLICT)
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "multi_chip_conflict",
+                        "message": str(e),
+                        "conflicts": e.conflicts,  # List of conflicting deployments
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             except AllocationError as e:
                 logger.warning(f"Allocation failed for {impl.model_name}: {str(e)}")
-                return Response({
-                    "status": "error",
-                    "error_type": "allocation_failed",
-                    "message": str(e)
-                }, status=status.HTTP_409_CONFLICT)
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "allocation_failed",
+                        "message": str(e),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+            if (
+                should_force_full_board_llama
+                or use_whole_board_deploy
+                or mesh_whole_board
+            ):
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -518,12 +598,16 @@ class DeployView(APIView):
                     # omit device_id. Single-board devices (n300/n150/p150) and slot-pinned
                     # constituent chips keep device_id so each model lands on its slot(s).
                     whole_board_device = map_board_type_to_device_name(board_type)
-                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(
+                        board_type, "cpu"
+                    )
                     is_multi_chip_board = whole_board_device != single_chip_device
                     if device == whole_board_device and is_multi_chip_board:
                         inference_device_id = None
                     else:
-                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)
+                        inference_device_id = ",".join(
+                            str(d) for d in occupied_device_ids
+                        )
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
@@ -574,7 +658,11 @@ class DeployView(APIView):
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
                 # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
-                deploy_image = override_docker_image or resolve_deploy_image(impl.model_name, device) or impl.image_version
+                deploy_image = (
+                    override_docker_image
+                    or resolve_deploy_image(impl.model_name, device)
+                    or impl.image_version
+                )
                 if deploy_image != impl.image_version:
                     logger.info(
                         f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
@@ -584,9 +672,13 @@ class DeployView(APIView):
                 need_pull = False
                 if image_name:
                     try:
-                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                        need_pull = not get_docker_client().image_exists(
+                            image_name, image_tag
+                        )
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}"
+                        )
                         need_pull = False
 
                 if need_pull:
@@ -594,6 +686,7 @@ class DeployView(APIView):
                     # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
                     try:
                         from docker_control.models import ModelDeployment
+
                         ModelDeployment.objects.create(
                             container_id=pull_id,
                             container_name=impl.model_name,
@@ -605,13 +698,18 @@ class DeployView(APIView):
                             port=service_port,
                         )
                     except Exception as e:
-                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
+                        logger.warning(
+                            f"Could not create placeholder ModelDeployment for {pull_id}: {e}"
+                        )
 
                     def _refresh_placeholder(_pull_id=pull_id):
                         # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
                         from datetime import datetime, timezone
                         from docker_control.models import ModelDeployment
-                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+
+                        dep = ModelDeployment.objects.filter(
+                            container_id=_pull_id
+                        ).first()
                         if dep and dep.status == "starting":
                             dep.deployed_at = datetime.now(timezone.utc)
                             dep.save()
@@ -620,31 +718,43 @@ class DeployView(APIView):
                         from datetime import datetime, timezone
                         from docker_control.models import ModelDeployment
                         from docker_control.deployment_sync import start_deployment_sync
+
                         result = start_chat_deployment(**_kwargs)
                         if result.status != "success" or not result.job_id:
                             # Free the chip slot: mark the placeholder stopped.
                             try:
-                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                                dep = ModelDeployment.objects.filter(
+                                    container_id=_pull_id
+                                ).first()
                                 if dep:
                                     dep.status = "stopped"
                                     dep.save()
                             except Exception:
                                 pass
-                            return None, (result.message or "TT Inference Server did not return a job_id")
+                            return None, (
+                                result.message
+                                or "TT Inference Server did not return a job_id"
+                            )
                         # Repoint the placeholder record at the real inference job_id so the record is equivalent to a fresh non-pre-pull deploy from here on.
                         try:
-                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            dep = ModelDeployment.objects.filter(
+                                container_id=_pull_id
+                            ).first()
                             if dep:
                                 dep.container_id = result.job_id
                                 dep.status = "starting"
                                 dep.deployed_at = datetime.now(timezone.utc)
                                 dep.save()
                         except Exception as e:
-                            logger.warning(f"Could not repoint ModelDeployment {_pull_id} -> {result.job_id}: {e}")
+                            logger.warning(
+                                f"Could not repoint ModelDeployment {_pull_id} -> {result.job_id}: {e}"
+                            )
                         try:
                             start_deployment_sync(result.job_id)
                         except Exception as e:
-                            logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
+                            logger.warning(
+                                f"Could not start deployment sync for job {result.job_id}: {e}"
+                            )
                         return result.job_id, None
 
                     start_prepull_and_deploy(
@@ -690,6 +800,7 @@ class DeployView(APIView):
                 # container_id is known (updated in DeploymentProgressView on completion).
                 try:
                     from docker_control.models import ModelDeployment
+
                     ModelDeployment.objects.create(
                         container_id=result.job_id,
                         container_name=impl.model_name,
@@ -701,7 +812,9 @@ class DeployView(APIView):
                         port=service_port,
                     )
                 except Exception as e:
-                    logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
+                    logger.warning(
+                        f"Could not create ModelDeployment for chat job {result.job_id}: {e}"
+                    )
                 # Spawn a background thread to poll FastAPI and transition the
                 # 'starting' record to 'running' (or 'stopped' on failure).
                 # This makes the lifecycle backend-owned so frontends that do
@@ -709,9 +822,12 @@ class DeployView(APIView):
                 # correct records.
                 try:
                     from docker_control.deployment_sync import start_deployment_sync
+
                     start_deployment_sync(result.job_id)
                 except Exception as e:
-                    logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
+                    logger.warning(
+                        f"Could not start deployment sync for job {result.job_id}: {e}"
+                    )
                 response = {
                     "status": "success",
                     "job_id": result.job_id,
@@ -726,22 +842,39 @@ class DeployView(APIView):
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
-                deploy_image = resolve_deploy_image(impl.model_name, media_device) or impl.image_version
+                deploy_image = (
+                    resolve_deploy_image(impl.model_name, media_device)
+                    or impl.image_version
+                )
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:
                     try:
-                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                        need_pull = not get_docker_client().image_exists(
+                            image_name, image_tag
+                        )
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}"
+                        )
                         need_pull = False
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
 
                     def deploy_fn(_host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
-                        job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
+                        resp = run_container(
+                            impl,
+                            weights_id,
+                            device_id=device_ids_str,
+                            host_port=_host_port,
+                            use_image_override=use_image_override,
+                        )
+                        job_id = (
+                            resp.get("job_id")
+                            or resp.get("container_id")
+                            or resp.get("container_name")
+                        )
                         if resp.get("status") == "error" or not job_id:
                             return None, resp.get("message", "Deployment failed")
                         try:
@@ -758,12 +891,23 @@ class DeployView(APIView):
                         deploy_fn=deploy_fn,
                     )
                     return Response(
-                        {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
+                        {
+                            "status": "success",
+                            "job_id": pull_id,
+                            "message": "Pulling Docker Image…",
+                            "allocated_device_id": device_id,
+                        },
                         status=status.HTTP_201_CREATED,
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(
+                    impl,
+                    weights_id,
+                    device_id=device_ids_str,
+                    host_port=host_port,
+                    use_image_override=use_image_override,
+                )
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -771,14 +915,17 @@ class DeployView(APIView):
                 # Ensure job_id is set for progress tracking
                 # Use job_id from API response, or fallback to container_id or container_name
                 if not response.get("job_id"):
-                    response["job_id"] = response.get("container_id") or response.get("container_name")
+                    response["job_id"] = response.get("container_id") or response.get(
+                        "container_name"
+                    )
 
                 # Check if deployment failed
                 if response.get("status") == "error":
-                    logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
+                    logger.error(
+                        f"Deployment failed: {response.get('message', 'Unknown error')}"
+                    )
                     return Response(
-                        response,
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                        response, status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
 
                 # Refresh tt-smi cache after successful deployment
@@ -786,7 +933,9 @@ class DeployView(APIView):
                     try:
                         SystemResourceService.force_refresh_tt_smi_cache()
                     except Exception as e:
-                        logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
+                        logger.warning(
+                            f"Failed to refresh tt-smi cache after deployment: {e}"
+                        )
 
                 return Response(response, status=status.HTTP_201_CREATED)
         else:
@@ -820,8 +969,15 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
 
     tt_studio_root = backend_config.host_tt_studio_root
     candidate_dirs = [
-        Path(tt_studio_root) / ".artifacts" / "tt-inference-server" / "workflow_logs" / "docker_server",
-        Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
+        Path(tt_studio_root)
+        / ".artifacts"
+        / "tt-inference-server"
+        / "workflow_logs"
+        / "docker_server",
+        Path(tt_studio_root)
+        / "tt-inference-server"
+        / "workflow_logs"
+        / "docker_server",
     ]
 
     # Pass 1: exact timestamp match — try common prefixes (vllm, media, and bare model name)
@@ -830,7 +986,9 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         for base in candidate_dirs:
             candidate = base / filename
             if candidate.exists():
-                logger.debug(f"Found exact log match for deployment {deployment.id}: {candidate}")
+                logger.debug(
+                    f"Found exact log match for deployment {deployment.id}: {candidate}"
+                )
                 return str(candidate)
 
     # Pass 2: fuzzy timestamp match — scan all *_server.log files for model+device,
@@ -850,7 +1008,9 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
                 parts = f.name.split("_")
                 # filename: prefix_YYYY-MM-DD_HH-MM-SS_...
                 file_ts_str = f"{parts[1]}_{parts[2]}"
-                file_dt = datetime.strptime(file_ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
+                file_dt = datetime.strptime(file_ts_str, "%Y-%m-%d_%H-%M-%S").replace(
+                    tzinfo=timezone.utc
+                )
                 delta = abs((file_dt - dt).total_seconds())
                 if delta <= 300 and (best_delta is None or delta < best_delta):
                     best = f
@@ -870,7 +1030,8 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         if not base.is_dir():
             continue
         matches = [
-            f for f in base.iterdir()
+            f
+            for f in base.iterdir()
             if f.name.endswith("_server.log") and model in f.name and device in f.name
         ]
         if matches:
@@ -901,6 +1062,7 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
     job_status = progress_data.get("status")
     try:
         from docker_control.models import ModelDeployment
+
         dep = ModelDeployment.objects.filter(container_id=job_id).first()
         if dep is None:
             return
@@ -914,9 +1076,12 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_id:
                     try:
                         from docker_control.docker_utils import stop_container
+
                         stop_container(real_container_id)
                     except Exception as e:
-                        logger.warning(f"Cleanup of user-stopped job {job_id} failed: {e}")
+                        logger.warning(
+                            f"Cleanup of user-stopped job {job_id} failed: {e}"
+                        )
                 dep.status = "stopped"
                 dep.save()
                 logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
@@ -939,7 +1104,9 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 try:
                     update_deploy_cache()
                 except Exception as e:
-                    logger.warning(f"Could not refresh deploy cache after chat deployment: {e}")
+                    logger.warning(
+                        f"Could not refresh deploy cache after chat deployment: {e}"
+                    )
 
         elif job_status in ("error", "failed", "cancelled", "timeout"):
             dep.status = "stopped"
@@ -982,7 +1149,9 @@ class DeploymentProgressView(APIView):
                     downloaded = pull_job.get("downloaded_bytes") or 0
                     total = pull_job.get("total_bytes") or 0
                     pct = int(round(downloaded / total * 100)) if total > 0 else 0
-                    pct = max(0, min(99, pct))  # reserve 100% for the actual deploy handoff
+                    pct = max(
+                        0, min(99, pct)
+                    )  # reserve 100% for the actual deploy handoff
                     # Docker reveals layers incrementally, so `total` grows mid-pull and the
                     # raw ratio can dip. Clamp to the running peak so the % never regresses.
                     pct = clamp_progress_pct(job_id, pct)
@@ -1037,26 +1206,37 @@ class DeploymentProgressView(APIView):
                         # Check if we've exceeded the 5-hour timeout
                         if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
                             progress_data["status"] = "timeout"
-                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            progress_data["message"] = (
+                                f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            )
                             # Clean up start time tracking
                             if job_id in deployment_start_times:
                                 del deployment_start_times[job_id]
                         else:
                             # Still within timeout - treat as running with descriptive message
                             progress_data["status"] = "running"
-                            progress_data["message"] = "Downloading model weights... (this may take several hours for large models)"
+                            progress_data["message"] = (
+                                "Downloading model weights... (this may take several hours for large models)"
+                            )
 
                     # Check timeout for other running statuses
                     elif progress_data.get("status") in ["starting", "running"]:
                         if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
                             progress_data["status"] = "timeout"
-                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            progress_data["message"] = (
+                                f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            )
                             # Clean up start time tracking
                             if job_id in deployment_start_times:
                                 del deployment_start_times[job_id]
 
                     # Clean up start time tracking on terminal statuses
-                    elif progress_data.get("status") in ["completed", "error", "failed", "cancelled"]:
+                    elif progress_data.get("status") in [
+                        "completed",
+                        "error",
+                        "failed",
+                        "cancelled",
+                    ]:
                         if job_id in deployment_start_times:
                             del deployment_start_times[job_id]
 
@@ -1066,17 +1246,30 @@ class DeploymentProgressView(APIView):
                     # Add support for new status types
                     # Note: "not_found" is intentionally excluded here so direct-deploy models
                     # (e.g. face-recognition) fall through to container-based tracking below.
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
+                    if progress_data.get("status") in [
+                        "starting",
+                        "running",
+                        "completed",
+                        "error",
+                        "failed",
+                        "timeout",
+                        "cancelled",
+                        "retrying",
+                    ]:
                         return Response(progress_data, status=status.HTTP_200_OK)
 
-                logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
+                logger.info(
+                    f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress"
+                )
 
             except requests.exceptions.RequestException as e:
-                logger.info(f"FastAPI not available ({str(e)}), falling back to container-based progress")
-            
+                logger.info(
+                    f"FastAPI not available ({str(e)}), falling back to container-based progress"
+                )
+
             # Fallback: existing container-based progress tracking
             # elapsed_time already calculated above
-            
+
             # job_id is container_id or container_name
             # Try to get container by ID first, then by name
             container = None
@@ -1094,6 +1287,7 @@ class DeploymentProgressView(APIView):
                             self.name = data.get("name")
                             self.status = data.get("status")
                             self.attrs = data.get("attrs", {})
+
                     container = ContainerWrapper(container_data)
             except Exception as e:
                 logger.warning(f"Error getting container {job_id}: {str(e)}")
@@ -1101,7 +1295,9 @@ class DeploymentProgressView(APIView):
             # Container not found - deployment in early stages
             # Map to actual FastAPI log stages with realistic timing
             if not container:
-                logger.info(f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)")
+                logger.info(
+                    f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)"
+                )
 
                 # Check for timeout
                 if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
@@ -1113,9 +1309,9 @@ class DeploymentProgressView(APIView):
                             "status": "timeout",
                             "stage": "error",
                             "progress": 0,
-                            "message": f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            "message": f"Deployment timeout after {int(elapsed_time/60)} minutes",
                         },
-                        status=status.HTTP_200_OK
+                        status=status.HTTP_200_OK,
                     )
 
                 # Based on model run logs - realistic timing for each stage
@@ -1126,11 +1322,15 @@ class DeploymentProgressView(APIView):
                 elif elapsed_time < 8:
                     progress = 15
                     stage = "setup"
-                    message = "Running workflow configuration..."  # model_run.log (19-27)
+                    message = (
+                        "Running workflow configuration..."  # model_run.log (19-27)
+                    )
                 elif elapsed_time < 15:
                     progress = 25
                     stage = "model_preparation"
-                    message = "Checking model setup and weights..."  # model_run.log (83-91)
+                    message = (
+                        "Checking model setup and weights..."  # model_run.log (83-91)
+                    )
                 elif elapsed_time < 25:
                     progress = 40
                     stage = "model_preparation"
@@ -1138,7 +1338,9 @@ class DeploymentProgressView(APIView):
                 elif elapsed_time < 35:
                     progress = 55
                     stage = "container_setup"
-                    message = "Preparing Docker configuration..."  # model_run.log (100-113)
+                    message = (
+                        "Preparing Docker configuration..."  # model_run.log (100-113)
+                    )
                 elif elapsed_time < 45:
                     progress = 70
                     stage = "container_setup"
@@ -1148,7 +1350,9 @@ class DeploymentProgressView(APIView):
                     # For very long operations (hours), show a more informative message
                     progress = min(75, 70 + int((elapsed_time - 45) / 10 * 5))
                     stage = "model_preparation"
-                    if elapsed_time > 300:  # After 5 minutes, assume downloading weights
+                    if (
+                        elapsed_time > 300
+                    ):  # After 5 minutes, assume downloading weights
                         message = "Downloading model weights... (this may take several hours for large models)"
                     else:
                         message = "Waiting for container to initialize..."
@@ -1158,23 +1362,23 @@ class DeploymentProgressView(APIView):
                         "status": "running",
                         "stage": stage,
                         "progress": progress,
-                        "message": message
+                        "message": message,
                     },
-                    status=status.HTTP_200_OK
+                    status=status.HTTP_200_OK,
                 )
-            
+
             # Container found - check its status and network connectivity
             container_status = container.status
             container_attrs = container.attrs
             networks = container_attrs.get("NetworkSettings", {}).get("Networks", {})
             container_name = container.name
-            
+
             # Determine progress based on container state
             progress = 0
             stage = "container_setup"
             message = "Container found..."
             status_value = "running"
-            
+
             if container_status == "created":
                 # Container created but not running yet
                 progress = 80
@@ -1195,15 +1399,21 @@ class DeploymentProgressView(APIView):
                     is_direct_deploy_by_id = (
                         job_id == container_id_str
                         or container_id_str.startswith(job_id)
-                        or (len(job_id) >= 12 and container_id_str.startswith(job_id[:12]))
+                        or (
+                            len(job_id) >= 12
+                            and container_id_str.startswith(job_id[:12])
+                        )
                     )
 
                     # FastAPI-deployed LLM containers start with a random Docker name
                     # (e.g. "romantic_khorana") and get renamed to the model name as the
                     # final step. The name-based check detects that rename for those models.
                     is_fastapi_deploy_complete = (
-                        any(part in container_name.lower() for part in ['llama', 'instruct', 'model'])
-                        or '-' not in container_name
+                        any(
+                            part in container_name.lower()
+                            for part in ["llama", "instruct", "model"]
+                        )
+                        or "-" not in container_name
                     )
 
                     if is_direct_deploy_by_id or is_fastapi_deploy_complete:
@@ -1256,25 +1466,27 @@ class DeploymentProgressView(APIView):
                 # Clean up start time tracking
                 if job_id in deployment_start_times:
                     del deployment_start_times[job_id]
-            
+
             progress_data = {
                 "status": status_value,
                 "stage": stage,
                 "progress": progress,
                 "message": message,
                 "container_status": container_status,
-                "container_name": container_name
+                "container_name": container_name,
             }
-            
-            logger.info(f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})")
+
+            logger.info(
+                f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})"
+            )
             return Response(progress_data, status=status.HTTP_200_OK)
 
-        except Exception as e:
+        except Exception:
             # Container not found or error - use time-based progress for early stages
             elapsed_time = time.time() - deployment_start_times.get(job_id, time.time())
             if elapsed_time < 0:
                 elapsed_time = 0
-            
+
             # Map to actual log stages
             if elapsed_time < 3:
                 progress = 5
@@ -1292,28 +1504,32 @@ class DeploymentProgressView(APIView):
                 progress = min(55, 25 + int((elapsed_time - 15) / 20 * 30))
                 stage = "container_setup"
                 message = "Preparing Docker container..."
-            
-            logger.info(f"Container {job_id} not found - deployment in progress (elapsed: {elapsed_time:.1f}s)")
+
+            logger.info(
+                f"Container {job_id} not found - deployment in progress (elapsed: {elapsed_time:.1f}s)"
+            )
             return Response(
                 {
                     "status": "running",
                     "stage": stage,
                     "progress": progress,
-                    "message": message
+                    "message": message,
                 },
-                status=status.HTTP_200_OK
+                status=status.HTTP_200_OK,
             )
         except Exception as e:
             logger.error(f"Error fetching progress: {str(e)}")
             return Response(
-                {"status": "error", "message": f"Docker API error: {str(e)}"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"status": "error", "message": f"Docker API error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception as e:
-            logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}", exc_info=True)
+            logger.error(
+                f"Unexpected error in DeploymentProgressView: {str(e)}", exc_info=True
+            )
             return Response(
-                {"status": "error", "message": f"Internal server error: {str(e)}"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"status": "error", "message": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -1322,109 +1538,137 @@ class DeploymentLogsView(APIView):
         """Get deployment logs from FastAPI inference server"""
         try:
             logger.info(f"Fetching deployment logs for job_id: {job_id}")
-            
+
             # Try to get logs from FastAPI inference server
             try:
                 fastapi_url = _build_fastapi_url(f"run/logs/{job_id}")
                 response = requests.get(fastapi_url, timeout=5)
-                
+
                 if response.status_code == 200:
                     logs_data = response.json()
-                    logger.info(f"Got logs from FastAPI: {logs_data.get('total_messages', 0)} messages")
+                    logger.info(
+                        f"Got logs from FastAPI: {logs_data.get('total_messages', 0)} messages"
+                    )
                     return Response(logs_data, status=status.HTTP_200_OK)
-                
-                logger.warning(f"FastAPI logs not available (status: {response.status_code})")
-                return Response(
-                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": "Logs not available"},
-                    status=status.HTTP_404_NOT_FOUND
+
+                logger.warning(
+                    f"FastAPI logs not available (status: {response.status_code})"
                 )
-                
+                return Response(
+                    {
+                        "job_id": job_id,
+                        "logs": [],
+                        "total_messages": 0,
+                        "error": "Logs not available",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error fetching logs from FastAPI: {str(e)}")
                 return Response(
-                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Failed to fetch logs: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {
+                        "job_id": job_id,
+                        "logs": [],
+                        "total_messages": 0,
+                        "error": f"Failed to fetch logs: {str(e)}",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-                
+
         except Exception as e:
-            logger.error(f"Unexpected error in DeploymentLogsView: {str(e)}", exc_info=True)
+            logger.error(
+                f"Unexpected error in DeploymentLogsView: {str(e)}", exc_info=True
+            )
             return Response(
-                {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Internal server error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {
+                    "job_id": job_id,
+                    "logs": [],
+                    "total_messages": 0,
+                    "error": f"Internal server error: {str(e)}",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class DeploymentProgressStreamView(APIView):
     """Stream deployment progress updates from FastAPI inference server via SSE"""
-    
+
     def get(self, request, job_id, *args, **kwargs):
         """Proxy SSE stream from FastAPI inference server"""
-        
+
         def event_stream():
             """Generator that forwards SSE events from FastAPI to frontend"""
             try:
                 # Connect to FastAPI inference server SSE endpoint
                 fastapi_url = _build_fastapi_url(f"run/stream/{job_id}")
                 logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
-                
+
                 # Stream the response
                 response = requests.get(fastapi_url, stream=True, timeout=300)
-                
+
                 if response.status_code != 200:
-                    logger.error(f"FastAPI SSE endpoint returned status {response.status_code}")
+                    logger.error(
+                        f"FastAPI SSE endpoint returned status {response.status_code}"
+                    )
                     error_data = {
                         "status": "error",
-                        "message": f"SSE endpoint not available (status: {response.status_code})"
+                        "message": f"SSE endpoint not available (status: {response.status_code})",
                     }
                     yield f"data: {json.dumps(error_data)}\n\n"
                     return
-                
+
                 logger.info(f"Successfully connected to FastAPI SSE for job {job_id}")
-                
+
                 # Forward all SSE events from FastAPI to frontend
                 for line in response.iter_lines():
                     if line:
-                        line_str = line.decode('utf-8')
+                        line_str = line.decode("utf-8")
                         # Forward the line as-is
                         yield f"{line_str}\n"
-                        
+
                         # Check if this is the end of the stream
-                        if line_str.startswith('data: '):
+                        if line_str.startswith("data: "):
                             try:
-                                data = json.loads(line_str[6:])  # Remove 'data: ' prefix
-                                if data.get('status') in ['completed', 'error', 'failed', 'cancelled']:
-                                    logger.info(f"Stream ended for job {job_id} with status {data.get('status')}")
+                                data = json.loads(
+                                    line_str[6:]
+                                )  # Remove 'data: ' prefix
+                                if data.get("status") in [
+                                    "completed",
+                                    "error",
+                                    "failed",
+                                    "cancelled",
+                                ]:
+                                    logger.info(
+                                        f"Stream ended for job {job_id} with status {data.get('status')}"
+                                    )
                                     break
                             except json.JSONDecodeError:
                                 pass
                     else:
                         # Empty line - part of SSE format
                         yield "\n"
-                        
+
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error connecting to FastAPI SSE endpoint: {str(e)}")
                 error_data = {
                     "status": "error",
-                    "message": f"Connection error: {str(e)}"
+                    "message": f"Connection error: {str(e)}",
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
             except Exception as e:
                 logger.error(f"Unexpected error in SSE stream: {str(e)}", exc_info=True)
-                error_data = {
-                    "status": "error",
-                    "message": f"Stream error: {str(e)}"
-                }
+                error_data = {"status": "error", "message": f"Stream error: {str(e)}"}
                 yield f"data: {json.dumps(error_data)}\n\n"
-        
+
         # Return streaming response with proper SSE headers
         response = StreamingHttpResponse(
-            event_stream(),
-            content_type='text/event-stream'
+            event_stream(), content_type="text/event-stream"
         )
-        response['Cache-Control'] = 'no-cache'
-        response['Connection'] = 'keep-alive'
-        response['X-Accel-Buffering'] = 'no'
-        
+        response["Cache-Control"] = "no-cache"
+        response["Connection"] = "keep-alive"
+        response["X-Accel-Buffering"] = "no"
+
         return response
 
 
@@ -1437,14 +1681,16 @@ class RedeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
-            
+
             # Refresh tt-smi cache after successful redeployment
             if response.get("status") == "success":
                 try:
                     SystemResourceService.force_refresh_tt_smi_cache()
                 except Exception as e:
-                    logger.warning(f"Failed to refresh tt-smi cache after redeployment: {e}")
-                    
+                    logger.warning(
+                        f"Failed to refresh tt-smi cache after redeployment: {e}"
+                    )
+
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -1455,27 +1701,27 @@ class ImageStatusView(APIView):
         try:
             logger.info(f"Checking image status for model_id: {model_id}")
             impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
+            image_name, image_tag = impl.image_version.split(":")
             logger.info(f"Checking status for image: {image_name}:{image_tag}")
             image_status = check_image_exists(image_name, image_tag)
             logger.info(f"Image status result: {image_status}")
-            image_status['pull_in_progress'] = False
+            image_status["pull_in_progress"] = False
             return Response(image_status, status=status.HTTP_200_OK)
         except KeyError:
             logger.warning(f"Model {model_id} not found in model_implementations")
             return Response(
                 {"status": "error", "message": f"Model {model_id} not found"},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
         except Exception as e:
             logger.error(f"Error checking image status: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class ModelCatalogView(APIView):
     """
     Model catalog management API that handles:
@@ -1486,17 +1732,20 @@ class ModelCatalogView(APIView):
     Note: Docker image pulling is now handled automatically by TT Inference Server
     during deployment via ensure_docker_image() function.
     """
-    renderer_classes = [JSONRenderer]  # Allow JSON renderer to prevent content negotiation issues
-    
+
+    renderer_classes = [
+        JSONRenderer
+    ]  # Allow JSON renderer to prevent content negotiation issues
+
     def options(self, request, *args, **kwargs):
         """Handle preflight requests for CORS"""
         response = Response(status=status.HTTP_200_OK)
-        response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, DELETE, OPTIONS'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Accept, Authorization'
-        response['Access-Control-Max-Age'] = '86400'
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Methods"] = "GET, DELETE, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type, Accept, Authorization"
+        response["Access-Control-Max-Age"] = "86400"
         return response
-    
+
     def get(self, request, *args, **kwargs):
         """Get catalog status including available models, disk space, and pull status"""
         try:
@@ -1510,15 +1759,17 @@ class ModelCatalogView(APIView):
                     disk_usage[impl_id] = {
                         "total_gb": total / (1024**3),
                         "used_gb": used / (1024**3),
-                        "free_gb": free / (1024**3)
+                        "free_gb": free / (1024**3),
                     }
                     logger.info(f"Disk usage for {impl_id}: {disk_usage[impl_id]}")
-            
+
             # Get model status
             model_status = {}
             for impl_id, impl in model_implmentations.items():
-                image_name, image_tag = impl.image_version.split(':')
-                logger.info(f"Checking status for model {impl_id}: {image_name}:{image_tag}")
+                image_name, image_tag = impl.image_version.split(":")
+                logger.info(
+                    f"Checking status for model {impl_id}: {image_name}:{image_tag}"
+                )
                 image_status = check_image_exists(image_name, image_tag)
                 model_status[impl_id] = {
                     "model_name": impl.model_name,
@@ -1527,21 +1778,20 @@ class ModelCatalogView(APIView):
                     "exists": image_status["exists"],
                     "size": image_status["size"],
                     "status": image_status["status"],
-                    "disk_usage": disk_usage.get(impl_id, None)
+                    "disk_usage": disk_usage.get(impl_id, None),
                 }
                 logger.info(f"Status for model {impl_id}: {model_status[impl_id]}")
-            
+
             logger.info("Successfully retrieved catalog status")
-            return Response({
-                "status": "success",
-                "models": model_status
-            }, status=status.HTTP_200_OK)
+            return Response(
+                {"status": "success", "models": model_status}, status=status.HTTP_200_OK
+            )
 
         except Exception as e:
             logger.error(f"Error getting catalog status: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def delete(self, request, *args, **kwargs):
@@ -1549,16 +1799,16 @@ class ModelCatalogView(APIView):
         try:
             model_id = request.data.get("model_id")
             logger.info(f"Received request to eject model: {model_id}")
-            
+
             if not model_id or model_id not in model_implmentations:
                 logger.warning(f"Invalid model_id provided: {model_id}")
                 return Response(
                     {"status": "error", "message": f"Invalid model_id: {model_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
+            image_name, image_tag = impl.image_version.split(":")
             logger.info(f"Attempting to remove image: {image_name}:{image_tag}")
 
             # Remove the image via docker-control-service
@@ -1570,105 +1820,113 @@ class ModelCatalogView(APIView):
                 else:
                     raise Exception(result.get("message", "Unknown error"))
                 logger.info(f"Successfully removed image: {image_name}:{image_tag}")
-                
+
                 # Remove volume if it exists
                 volume_path = impl.volume_path
                 if volume_path.exists():
                     logger.info(f"Removing volume at path: {volume_path}")
                     shutil.rmtree(volume_path)
                     logger.info(f"Successfully removed volume for model {model_id}")
-                
-                return Response({
-                    "status": "success",
-                    "message": f"Successfully removed model {model_id}"
-                }, status=status.HTTP_200_OK)
+
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Successfully removed model {model_id}",
+                    },
+                    status=status.HTTP_200_OK,
+                )
 
             except Exception as e:
                 logger.warning(f"Image {image_name}:{image_tag} not found: {str(e)}")
-                return Response({
-                    "status": "error",
-                    "message": f"Image {image_name}:{image_tag} not found"
-                }, status=status.HTTP_404_NOT_FOUND)
-                
+                return Response(
+                    {
+                        "status": "error",
+                        "message": f"Image {image_name}:{image_tag} not found",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
         except Exception as e:
             logger.error(f"Error ejecting model: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-@method_decorator(csrf_exempt, name='dispatch')
+
+@method_decorator(csrf_exempt, name="dispatch")
 class BoardInfoView(APIView):
     """
     API endpoint to provide board information to the frontend.
     This helps the frontend filter models based on board compatibility.
     """
+
     def get(self, request, *args, **kwargs):
         try:
             # Detect board type using tt-smi command
             board_type = detect_board_type()
             logger.info(f"BoardInfoView detected board type: {board_type}")
-            
+
             # Map board types to friendly names
             board_name_map = {
                 # Wormhole devices
-                'N150': 'Tenstorrent N150',
-                'N300': 'Tenstorrent N300',
-                'E150': 'Tenstorrent E150',
-                
+                "N150": "Tenstorrent N150",
+                "N300": "Tenstorrent N300",
+                "E150": "Tenstorrent E150",
                 # Wormhole multi-device
-                'N150X4': 'Tenstorrent N150x4',
-                'T3000': 'Tenstorrent T3000',
-                'T3K': 'Tenstorrent T3K',
-                
+                "N150X4": "Tenstorrent N150x4",
+                "T3000": "Tenstorrent T3000",
+                "T3K": "Tenstorrent T3K",
                 # Blackhole devices
-                'P100': 'Tenstorrent P100',
-                'P150': 'Tenstorrent P150',
-                'P300': 'Tenstorrent P300',
-
+                "P100": "Tenstorrent P100",
+                "P150": "Tenstorrent P150",
+                "P300": "Tenstorrent P300",
                 # Blackhole multi-device
-                'P150X4': 'Tenstorrent P150x4',
-                'P150X8': 'Tenstorrent P150x8',
-                'P300x2': 'Tenstorrent P300x2',    # 2 cards (4 chips)
-                'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
-                
+                "P150X4": "Tenstorrent P150x4",
+                "P150X8": "Tenstorrent P150x8",
+                "P300x2": "Tenstorrent P300x2",  # 2 cards (4 chips)
+                "P300Cx4": "Tenstorrent P300Cx4",  # 4 cards (8 chips)
                 # Galaxy systems
-                'GALAXY': 'Tenstorrent Galaxy',
-                'GALAXY_T3K': 'Tenstorrent Galaxy T3K',
-                
-                'unknown': 'Unknown Board'
+                "GALAXY": "Tenstorrent Galaxy",
+                "GALAXY_T3K": "Tenstorrent Galaxy T3K",
+                "unknown": "Unknown Board",
             }
-            board_name = board_name_map.get(board_type, 'Unknown Board')
-            
-            return Response({
-                'type': board_type,
-                'name': board_name
-            }, status=status.HTTP_200_OK)
-            
+            board_name = board_name_map.get(board_type, "Unknown Board")
+
+            return Response(
+                {"type": board_type, "name": board_name}, status=status.HTTP_200_OK
+            )
+
         except Exception as e:
             logger.error(f"Error getting board info: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-@method_decorator(csrf_exempt, name='dispatch')
+
+@method_decorator(csrf_exempt, name="dispatch")
 class DockerServiceLogsView(APIView):
     """Get recent logs from Docker services for bug reporting"""
-    
+
     def get(self, request, *args, **kwargs):
         try:
             logger.info("Fetching Docker service logs for bug report")
-            
+
             # Build logs for all TT Studio containers dynamically (backend, frontend, agent, chroma)
             # and include any that look like part of the stack, regardless of exact name
             logs_data = {}
             docker_logs_found = False
 
             try:
+
                 def classify_service(container) -> str:
                     name = (container.name or "").lower()
-                    image = (container.image.tags[0] if container.image.tags else container.image.short_id).lower()
+                    image = (
+                        container.image.tags[0]
+                        if container.image.tags
+                        else container.image.short_id
+                    ).lower()
                     candidates = name + " " + image
                     if "backend" in candidates:
                         return "tt_studio_backend"
@@ -1693,14 +1951,17 @@ class DockerServiceLogsView(APIView):
                         self.name = data.get("name")
                         self.status = data.get("status")
                         self.attrs = data.get("attrs", {})
-                        self.image = type('obj', (object,), {
-                            'tags': data.get("image_tags", [])
-                        })()
+                        self.image = type(
+                            "obj", (object,), {"tags": data.get("image_tags", [])}
+                        )()
+
                     def logs(self, tail=200, timestamps=False):
                         # This is a stub - docker-control-service doesn't support logs yet
                         return b"Logs not available via docker-control-service"
 
-                containers = [ContainerWrapper(c) for c in containers_data.get("containers", [])]
+                containers = [
+                    ContainerWrapper(c) for c in containers_data.get("containers", [])
+                ]
 
                 service_to_containers = {}
                 for c in containers:
@@ -1712,7 +1973,7 @@ class DockerServiceLogsView(APIView):
                 def fetch_logs_for_container(container) -> str:
                     try:
                         raw = container.logs(tail=200, timestamps=False)
-                        txt = raw.decode('utf-8', errors='replace').strip()
+                        txt = raw.decode("utf-8", errors="replace").strip()
                         if len(txt) > 2000:
                             txt = txt[-2000:] + "\n\n... (truncated)"
                         header = f"Container {container.name} ({container.id[:12]})\n"
@@ -1724,7 +1985,10 @@ class DockerServiceLogsView(APIView):
                     futures = {}
                     for service, conts in service_to_containers.items():
                         for c in conts:
-                            futures[executor.submit(fetch_logs_for_container, c)] = (service, c.name)
+                            futures[executor.submit(fetch_logs_for_container, c)] = (
+                                service,
+                                c.name,
+                            )
 
                     combined: dict[str, list[str]] = {}
                     for future in concurrent.futures.as_completed(futures):
@@ -1732,10 +1996,16 @@ class DockerServiceLogsView(APIView):
                         try:
                             content = future.result()
                             combined.setdefault(service, []).append(content)
-                            if content and "Failed to fetch" not in content and "No logs" not in content:
+                            if (
+                                content
+                                and "Failed to fetch" not in content
+                                and "No logs" not in content
+                            ):
                                 docker_logs_found = True
                         except Exception as e:
-                            combined.setdefault(service, []).append(f"Unexpected error: {str(e)[:500]}")
+                            combined.setdefault(service, []).append(
+                                f"Unexpected error: {str(e)[:500]}"
+                            )
 
                 # Flatten combined results to string blocks
                 for service, blocks in combined.items():
@@ -1745,21 +2015,27 @@ class DockerServiceLogsView(APIView):
             except Exception as e:
                 logger.error(f"Error initializing or fetching Docker logs: {str(e)}")
                 logs_data["docker"] = f"Docker client error: {str(e)[:500]}"
-            
+
             if not docker_logs_found:
                 if not logs_data:
                     logs_data["docker"] = "Docker logs not accessible from container"
-            
+
             # Also try to get system logs if available
             try:
                 # Check if model_run.log exists in multiple possible locations using relative paths
                 possible_model_run_logs = [
-                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+                    os.path.join(
+                        os.getenv("TT_STUDIO_ROOT", ""), "logs", "model_run.log"
+                    ),  # Consolidated logs/ dir (current location)
                     "logs/model_run.log",  # Relative to current directory
-                    os.path.join(os.getcwd(), "model_run.log"),  # Current working directory
+                    os.path.join(
+                        os.getcwd(), "model_run.log"
+                    ),  # Current working directory
                     "/app/model_run.log",  # Container path as fallback
                     # Legacy fastapi.log locations (pre-rename) kept for backward compatibility
-                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"),
+                    os.path.join(
+                        os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"
+                    ),
                     "logs/fastapi.log",
                     "fastapi.log",
                     "/app/fastapi.log",
@@ -1769,149 +2045,187 @@ class DockerServiceLogsView(APIView):
                 for model_run_log_path in possible_model_run_logs:
                     if os.path.exists(model_run_log_path):
                         try:
-                            with open(model_run_log_path, 'r') as f:
+                            with open(model_run_log_path, "r") as f:
                                 lines = f.readlines()
                                 # Get last 8 lines and limit size
-                                log_content = ''.join(lines[-8:])
+                                log_content = "".join(lines[-8:])
                                 if len(log_content) > 800:
-                                    log_content = log_content[-800:] + "\n\n... (truncated)"
+                                    log_content = (
+                                        log_content[-800:] + "\n\n... (truncated)"
+                                    )
                                 logs_data["model_run"] = log_content
                             model_run_log_found = True
                             break
                         except Exception as read_error:
-                            logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
+                            logger.error(
+                                f"Error reading {model_run_log_path}: {str(read_error)}"
+                            )
                             continue
 
                 if not model_run_log_found:
-                    logs_data["model_run"] = "model_run.log not accessible from container (logs available from Docker containers above)"
+                    logs_data["model_run"] = (
+                        "model_run.log not accessible from container (logs available from Docker containers above)"
+                    )
 
             except Exception as e:
                 logger.error(f"Error reading model_run.log: {str(e)}")
                 logs_data["model_run"] = f"Error reading model_run.log: {str(e)[:500]}"
-            
+
             # Try to get backend log file if available
             try:
                 # Try multiple possible paths for backend logs
                 possible_backend_log_paths = [
-                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "backend_volume", "python_logs"),
-                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "python_logs"),
+                    os.path.join(
+                        os.getenv(
+                            "INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"
+                        ),
+                        "backend_volume",
+                        "python_logs",
+                    ),
+                    os.path.join(
+                        os.getenv(
+                            "INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"
+                        ),
+                        "python_logs",
+                    ),
                     "/tt_studio_persistent_volume/backend_volume/python_logs",
-                    "/tt_studio_persistent_volume/python_logs"
+                    "/tt_studio_persistent_volume/python_logs",
                 ]
-                
+
                 backend_log_found = False
                 for backend_log_path in possible_backend_log_paths:
                     if os.path.exists(backend_log_path):
                         try:
                             # Get the most recent log file
-                            log_files = [f for f in os.listdir(backend_log_path) if f.endswith('.log')]
+                            log_files = [
+                                f
+                                for f in os.listdir(backend_log_path)
+                                if f.endswith(".log")
+                            ]
                             if log_files:
-                                latest_log = max(log_files, key=lambda x: os.path.getctime(os.path.join(backend_log_path, x)))
-                                latest_log_path = os.path.join(backend_log_path, latest_log)
-                                with open(latest_log_path, 'r') as f:
+                                latest_log = max(
+                                    log_files,
+                                    key=lambda x: os.path.getctime(
+                                        os.path.join(backend_log_path, x)
+                                    ),
+                                )
+                                latest_log_path = os.path.join(
+                                    backend_log_path, latest_log
+                                )
+                                with open(latest_log_path, "r") as f:
                                     lines = f.readlines()
                                     # Get last 8 lines and limit size
-                                    log_content = ''.join(lines[-8:])
+                                    log_content = "".join(lines[-8:])
                                     if len(log_content) > 800:
-                                        log_content = log_content[-800:] + "\n\n... (truncated)"
+                                        log_content = (
+                                            log_content[-800:] + "\n\n... (truncated)"
+                                        )
                                     logs_data["backend_log"] = log_content
                                 backend_log_found = True
                                 break
                         except Exception as read_error:
-                            logger.error(f"Error reading from {backend_log_path}: {str(read_error)}")
+                            logger.error(
+                                f"Error reading from {backend_log_path}: {str(read_error)}"
+                            )
                             continue
-                
+
                 if not backend_log_found:
-                    logs_data["backend_log"] = "Backend logs directory not found in any expected location"
-                    
+                    logs_data["backend_log"] = (
+                        "Backend logs directory not found in any expected location"
+                    )
+
             except Exception as e:
                 logger.error(f"Error reading backend logs: {str(e)}")
                 logs_data["backend_log"] = f"Error reading backend logs: {str(e)[:500]}"
-            
+
             # Add a summary of total log size
             total_size = sum(len(str(logs)) for logs in logs_data.values())
             logs_data["_summary"] = f"Total log size: {total_size} characters"
-            
+
             return Response(logs_data, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             logger.error(f"Error fetching Docker service logs: {str(e)}")
             return Response(
                 {"error": "Failed to fetch Docker service logs", "details": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class ContainerEventsView(APIView):
     """Server-Sent Events stream for container death notifications"""
-    
+
     def get(self, request):
         """Stream container death events to frontend"""
         import time
         from docker_control.models import ModelDeployment
-        
+
         def event_stream():
             """Generator that yields SSE-formatted events"""
             # Keep track of last check time
             last_check = {}
-            
+
             # Send initial connection message
             yield f"data: {json.dumps({'event': 'connected', 'message': 'Container events stream connected'})}\n\n"
-            
+
             while True:
                 try:
                     # Check for containers that died since last check
                     recent_deaths = ModelDeployment.objects.filter(
-                        status__in=['exited', 'dead'],
-                        stopped_by_user=False
-                    ).order_by('-stopped_at')[:10]  # Get last 10 unexpected deaths
-                    
+                        status__in=["exited", "dead"], stopped_by_user=False
+                    ).order_by("-stopped_at")[:10]  # Get last 10 unexpected deaths
+
                     for deployment in recent_deaths:
                         # Only send if we haven't sent this one before
-                        if deployment.container_id not in last_check or last_check[deployment.container_id] != deployment.stopped_at:
+                        if (
+                            deployment.container_id not in last_check
+                            or last_check[deployment.container_id]
+                            != deployment.stopped_at
+                        ):
                             event_data = {
-                                'event': 'container_died',
-                                'container_id': deployment.container_id,
-                                'container_name': deployment.container_name,
-                                'model_name': deployment.model_name,
-                                'device': deployment.device,
-                                'status': deployment.status,
-                                'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None
+                                "event": "container_died",
+                                "container_id": deployment.container_id,
+                                "container_name": deployment.container_name,
+                                "model_name": deployment.model_name,
+                                "device": deployment.device,
+                                "status": deployment.status,
+                                "stopped_at": deployment.stopped_at.isoformat()
+                                if deployment.stopped_at
+                                else None,
                             }
                             yield f"data: {json.dumps(event_data)}\n\n"
                             last_check[deployment.container_id] = deployment.stopped_at
-                    
+
                     # Send heartbeat every 30 seconds
                     yield f"data: {json.dumps({'event': 'heartbeat', 'timestamp': time.time()})}\n\n"
-                    
+
                     # Wait before next check
                     time.sleep(30)
-                    
+
                 except Exception as e:
                     logger.error(f"Error in SSE stream: {e}")
                     yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
                     break
-        
+
         response = StreamingHttpResponse(
-            event_stream(),
-            content_type='text/event-stream'
+            event_stream(), content_type="text/event-stream"
         )
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
         return response
 
 
 class DeploymentHistoryView(APIView):
     """Get deployment history from database"""
-    
+
     def get(self, request):
         """Return all deployments ordered by most recent first"""
         try:
             from docker_control.models import ModelDeployment
-            
+
             # Get all deployments, ordered by most recent first
-            deployments = ModelDeployment.objects.all().order_by('-deployed_at')
-            
+            deployments = ModelDeployment.objects.all().order_by("-deployed_at")
+
             # Serialize the data, lazily backfilling workflow_log_path when missing
             deployment_data = []
             for deployment in deployments:
@@ -1929,34 +2243,45 @@ class DeploymentHistoryView(APIView):
                         try:
                             deployment.save()
                         except Exception as save_err:
-                            logger.warning(f"Could not save workflow_log_path for deployment {deployment.id}: {save_err}")
+                            logger.warning(
+                                f"Could not save workflow_log_path for deployment {deployment.id}: {save_err}"
+                            )
 
-                deployment_data.append({
-                    'id': deployment.id,
-                    'container_id': deployment.container_id,
-                    'container_name': deployment.container_name,
-                    'model_name': deployment.model_name,
-                    'device': deployment.device,
-                    'device_id': deployment.device_id,
-                    'deployed_at': deployment.deployed_at.isoformat() if deployment.deployed_at else None,
-                    'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None,
-                    'status': deployment.status,
-                    'stopped_by_user': deployment.stopped_by_user,
-                    'port': deployment.port,
-                    'workflow_log_path': deployment.workflow_log_path,
-                })
-            
-            return Response({
-                'status': 'success',
-                'deployments': deployment_data,
-                'count': len(deployment_data)
-            }, status=status.HTTP_200_OK)
-            
+                deployment_data.append(
+                    {
+                        "id": deployment.id,
+                        "container_id": deployment.container_id,
+                        "container_name": deployment.container_name,
+                        "model_name": deployment.model_name,
+                        "device": deployment.device,
+                        "device_id": deployment.device_id,
+                        "deployed_at": deployment.deployed_at.isoformat()
+                        if deployment.deployed_at
+                        else None,
+                        "stopped_at": deployment.stopped_at.isoformat()
+                        if deployment.stopped_at
+                        else None,
+                        "status": deployment.status,
+                        "stopped_by_user": deployment.stopped_by_user,
+                        "port": deployment.port,
+                        "workflow_log_path": deployment.workflow_log_path,
+                    }
+                )
+
+            return Response(
+                {
+                    "status": "success",
+                    "deployments": deployment_data,
+                    "count": len(deployment_data),
+                },
+                status=status.HTTP_200_OK,
+            )
+
         except Exception as e:
             logger.error(f"Error fetching deployment history: {e}")
             return Response(
-                {'status': 'error', 'message': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -1970,7 +2295,9 @@ class DiscoverContainersView(APIView):
         try:
             docker_client = get_docker_client()
             response = docker_client.list_containers(all=False)
-            containers_list = response.get("containers", []) if isinstance(response, dict) else []
+            containers_list = (
+                response.get("containers", []) if isinstance(response, dict) else []
+            )
 
             network_name = backend_config.docker_bridge_network_name
             results = []
@@ -1978,7 +2305,10 @@ class DiscoverContainersView(APIView):
             for c in containers_list:
                 name = c.get("name", "")
                 # Skip TT Studio infrastructure containers
-                if any(name.startswith(p) or name.lower().startswith(p) for p in self._INFRA_PREFIXES):
+                if any(
+                    name.startswith(p) or name.lower().startswith(p)
+                    for p in self._INFRA_PREFIXES
+                ):
                     continue
 
                 # Skip containers already on tt_studio_network
@@ -1993,13 +2323,15 @@ class DiscoverContainersView(APIView):
                 if not port_bindings:
                     port_bindings = c.get("port_bindings", {})
 
-                results.append({
-                    "id": c.get("id", ""),
-                    "name": name,
-                    "image": c.get("Config", {}).get("Image", c.get("image", "")),
-                    "status": c.get("status", ""),
-                    "port_bindings": port_bindings or {},
-                })
+                results.append(
+                    {
+                        "id": c.get("id", ""),
+                        "name": name,
+                        "image": c.get("Config", {}).get("Image", c.get("image", "")),
+                        "status": c.get("status", ""),
+                        "port_bindings": port_bindings or {},
+                    }
+                )
 
             return Response(results, status=status.HTTP_200_OK)
 
@@ -2053,20 +2385,26 @@ class RegisterExternalModelView(APIView):
             # --- Validate required fields ---
             if not container_id or not model_type or not model_name:
                 return Response(
-                    {"status": "error", "message": "container_id, model_type, and model_name are required."},
+                    {
+                        "status": "error",
+                        "message": "container_id, model_type, and model_name are required.",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             if model_type not in self._DEFAULT_ROUTES and model_type != "mock":
                 valid_types = ", ".join(sorted(self._DEFAULT_ROUTES.keys()))
                 return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
+                    {
+                        "status": "error",
+                        "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             # --- Validate device_id against chip slot availability ---
             try:
-                from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+                from docker_control.chip_allocator import ChipSlotAllocator
 
                 allocator = ChipSlotAllocator()
                 chip_status = allocator.get_chip_status()
@@ -2075,7 +2413,9 @@ class RegisterExternalModelView(APIView):
                 if chips_required >= 4:
                     # Multi-chip: all slots (0-3) must be free
                     occupied_slots = [
-                        s for s in chip_status.get("slots", []) if s.get("status") == "occupied"
+                        s
+                        for s in chip_status.get("slots", [])
+                        if s.get("status") == "occupied"
                     ]
                     if occupied_slots:
                         occupied_names = ", ".join(
@@ -2101,7 +2441,11 @@ class RegisterExternalModelView(APIView):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
                     slot_info = next(
-                        (s for s in chip_status.get("slots", []) if s.get("slot_id") == device_id),
+                        (
+                            s
+                            for s in chip_status.get("slots", [])
+                            if s.get("slot_id") == device_id
+                        ),
                         None,
                     )
                     if slot_info and slot_info.get("status") == "occupied":
@@ -2114,7 +2458,9 @@ class RegisterExternalModelView(APIView):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
             except ImportError:
-                logger.warning("ChipSlotAllocator not available; skipping device_id validation")
+                logger.warning(
+                    "ChipSlotAllocator not available; skipping device_id validation"
+                )
 
             corrections = []
 
@@ -2124,14 +2470,20 @@ class RegisterExternalModelView(APIView):
                 container_info = docker_client.get_container(container_id)
             except Exception:
                 return Response(
-                    {"status": "error", "message": f"Container '{container_id}' not found or not accessible."},
+                    {
+                        "status": "error",
+                        "message": f"Container '{container_id}' not found or not accessible.",
+                    },
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
             container_status = container_info.get("status", "")
             if "running" not in container_status.lower():
                 return Response(
-                    {"status": "error", "message": f"Container '{container_id}' is not running (status: {container_status})."},
+                    {
+                        "status": "error",
+                        "message": f"Container '{container_id}' is not running (status: {container_status}).",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -2147,7 +2499,11 @@ class RegisterExternalModelView(APIView):
                     except (ValueError, IndexError):
                         pass
 
-            if service_port and exposed_ports and int(service_port) not in exposed_ports:
+            if (
+                service_port
+                and exposed_ports
+                and int(service_port) not in exposed_ports
+            ):
                 return Response(
                     {
                         "status": "error",
@@ -2161,13 +2517,20 @@ class RegisterExternalModelView(APIView):
                 try:
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
-                        if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
+                        if (
+                            catalog_model.get("hf_model_id", "").lower()
+                            == hf_model_id.lower()
+                        ):
                             # Found a catalog match — use its authoritative routes
                             catalog_route = catalog_model.get("service_route")
                             catalog_health = catalog_model.get("health_route")
                             catalog_type = catalog_model.get("model_type", "").lower()
 
-                            if catalog_route and service_route and service_route != catalog_route:
+                            if (
+                                catalog_route
+                                and service_route
+                                and service_route != catalog_route
+                            ):
                                 corrections.append(
                                     f"Service route corrected from '{service_route}' to '{catalog_route}' based on catalog entry for {catalog_model.get('model_name')}"
                                 )
@@ -2193,7 +2556,9 @@ class RegisterExternalModelView(APIView):
 
             # --- Apply default route if still unset ---
             if not service_route:
-                service_route = self._DEFAULT_ROUTES.get(model_type, "/v1/chat/completions")
+                service_route = self._DEFAULT_ROUTES.get(
+                    model_type, "/v1/chat/completions"
+                )
 
             # --- Rename container based on model name ---
             current_name = container_info.get("name", container_id)
@@ -2209,9 +2574,13 @@ class RegisterExternalModelView(APIView):
             if desired_name and current_name != desired_name:
                 try:
                     docker_client.rename_container(container_id, desired_name)
-                    corrections.append(f"Container renamed from '{current_name}' to '{desired_name}'")
+                    corrections.append(
+                        f"Container renamed from '{current_name}' to '{desired_name}'"
+                    )
                     container_name = desired_name
-                    logger.info(f"Renamed container '{current_name}' to '{desired_name}'")
+                    logger.info(
+                        f"Renamed container '{current_name}' to '{desired_name}'"
+                    )
                 except Exception as e:
                     logger.warning(f"Could not rename container: {e}")
                     container_name = current_name
@@ -2224,21 +2593,33 @@ class RegisterExternalModelView(APIView):
 
             if network_name not in networks:
                 try:
-                    docker_client.connect_container_to_network(network_name, container_id)
-                    logger.info(f"Connected container '{container_id}' to network '{network_name}'")
+                    docker_client.connect_container_to_network(
+                        network_name, container_id
+                    )
+                    logger.info(
+                        f"Connected container '{container_id}' to network '{network_name}'"
+                    )
                 except requests.exceptions.HTTPError as e:
                     if e.response is not None and e.response.status_code in (409, 500):
                         # Already connected or similar — treat as non-fatal
-                        corrections.append(f"Container may already be on {network_name}")
+                        corrections.append(
+                            f"Container may already be on {network_name}"
+                        )
                         logger.warning(f"Non-fatal error connecting to network: {e}")
                     else:
                         return Response(
-                            {"status": "error", "message": f"Failed to connect container to {network_name}: {e}"},
+                            {
+                                "status": "error",
+                                "message": f"Failed to connect container to {network_name}: {e}",
+                            },
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         )
                 except Exception as e:
                     return Response(
-                        {"status": "error", "message": f"Failed to connect container to {network_name}: {e}"},
+                        {
+                            "status": "error",
+                            "message": f"Failed to connect container to {network_name}: {e}",
+                        },
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
             else:
@@ -2265,7 +2646,9 @@ class RegisterExternalModelView(APIView):
                         stopped_by_user=False,
                         port=int(service_port) if service_port else 7000,
                     )
-                    logger.info(f"Created deployment record for external container '{container_name}' on device_id={device_id}")
+                    logger.info(
+                        f"Created deployment record for external container '{container_name}' on device_id={device_id}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to create deployment record: {e}")
                 # Continue — the network connection is the critical part
@@ -2294,85 +2677,81 @@ class RegisterExternalModelView(APIView):
             )
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class WorkflowLogStreamView(View):
     """Stream workflow logs from file using Server-Sent Events"""
-    
+
     def get(self, request, deployment_id, *args, **kwargs):
         """Stream workflow log file for a specific deployment"""
         try:
             from docker_control.models import ModelDeployment
             from django.http import HttpResponse
-            
+
             # Get deployment record
             logger.info(f"Fetching workflow logs for deployment_id: {deployment_id}")
             deployment = ModelDeployment.objects.get(id=deployment_id)
-            logger.info(f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}")
-            
+            logger.info(
+                f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}"
+            )
+
             if not deployment.workflow_log_path:
                 logger.warning(f"No workflow log path for deployment {deployment_id}")
                 return HttpResponse(
                     status=404,
-                    content="No workflow log file available for this deployment"
+                    content="No workflow log file available for this deployment",
                 )
-            
+
             log_file_path = deployment.workflow_log_path
-            
+
             # Check if file exists
             if not os.path.exists(log_file_path):
                 logger.error(f"Log file not found at path: {log_file_path}")
                 return HttpResponse(
-                    status=404,
-                    content=f"Log file not found: {log_file_path}"
+                    status=404, content=f"Log file not found: {log_file_path}"
                 )
-            
+
             def generate_log_data():
                 try:
                     yield "retry: 1000\n\n"
-                    
-                    with open(log_file_path, 'r') as f:
+
+                    with open(log_file_path, "r") as f:
                         for line in f:
-                            line = line.rstrip('\n\r')
+                            line = line.rstrip("\n\r")
                             if line:
-                                event_data = {
-                                    "type": "log",
-                                    "message": line
-                                }
+                                event_data = {"type": "log", "message": line}
                                 yield f"data: {json.dumps(event_data)}\n\n"
-                    
+
                     # Send completion event
                     yield f"data: {json.dumps({'type': 'complete', 'message': 'End of log file'})}\n\n"
-                    
+
                 except Exception as e:
                     logger.error(f"Error streaming log file: {str(e)}")
                     error_data = {
                         "type": "error",
-                        "message": f"Error reading log file: {str(e)}"
+                        "message": f"Error reading log file: {str(e)}",
                     }
                     yield f"data: {json.dumps(error_data)}\n\n"
-            
+
             response = StreamingHttpResponse(
-                generate_log_data(),
-                content_type='text/event-stream'
+                generate_log_data(), content_type="text/event-stream"
             )
-            response['Cache-Control'] = 'no-cache, no-transform'
-            response['X-Accel-Buffering'] = 'no'
-            
+            response["Cache-Control"] = "no-cache, no-transform"
+            response["X-Accel-Buffering"] = "no"
+
             return response
-            
+
         except ModelDeployment.DoesNotExist:
             logger.warning(f"Deployment {deployment_id} not found in database")
             return HttpResponse(
-                status=404,
-                content=f"Deployment {deployment_id} not found"
+                status=404, content=f"Deployment {deployment_id} not found"
             )
         except Exception as e:
             import traceback
-            logger.error(f"Error in WorkflowLogStreamView: {str(e)}\n{traceback.format_exc()}")
-            return HttpResponse(
-                status=500,
-                content=str(e)
+
+            logger.error(
+                f"Error in WorkflowLogStreamView: {str(e)}\n{traceback.format_exc()}"
             )
+            return HttpResponse(status=500, content=str(e))
 
 
 # --- Server-Sent Events helpers -------------------------------------------------
@@ -2406,9 +2785,11 @@ async def _astream_stop_remove_container(container_id, truncated):
 
     Raises _StopFailed if the container could not be stopped.
     """
+
     def _mark_stopped():
         from docker_control.models import ModelDeployment
         from django.utils import timezone
+
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
@@ -2443,7 +2824,9 @@ async def _astream_stop_remove_container(container_id, truncated):
     docker_client = get_docker_client()
     container_gone = False
     try:
-        stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
+        stop_result = await asyncio.to_thread(
+            docker_client.stop_container, container_id
+        )
     except Exception as e:
         # 404 / "Not Found" means the container is already gone — not an error.
         error_str = str(e)
@@ -2485,7 +2868,7 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
     line, then ("ok", succeeded) once. Marks the resetting cache state before and
     clears it after; refreshes the tt-smi cache on success only when force_refresh.
     """
-    ansi_re = re.compile(r'\x1b\[[0-9;]*m|\|[0-9;]*m')
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m|\|[0-9;]*m")
     id_args = [str(d) for d in device_ids]
     label = ", ".join(id_args) if id_args else "board"
     command = " ".join(["tt-smi", "-r", *id_args])
@@ -2499,17 +2882,23 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
         yield ("log", f"Running {command} (attempt {attempt}/{MAX_ATTEMPTS})…")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tt-smi", "-r", *id_args,
+                "tt-smi",
+                "-r",
+                *id_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 stdin=asyncio.subprocess.DEVNULL,
             )
             try:
                 while True:
-                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=line_timeout)
+                    raw = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=line_timeout
+                    )
                     if not raw:
                         break
-                    line = ansi_re.sub("", raw.decode("utf-8", errors="replace")).strip()
+                    line = ansi_re.sub(
+                        "", raw.decode("utf-8", errors="replace")
+                    ).strip()
                     if line:
                         yield ("log", line)
                 await asyncio.wait_for(proc.wait(), timeout=10)
@@ -2530,7 +2919,10 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
             reset_ok = True
             yield ("log", f"Device(s) {label} reset succeeded on attempt {attempt}")
             break
-        yield ("log", f"Reset of {label} attempt {attempt} failed (exit code {returncode})")
+        yield (
+            "log",
+            f"Reset of {label} attempt {attempt} failed (exit code {returncode})",
+        )
 
     await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
     if reset_ok and force_refresh:
@@ -2546,16 +2938,20 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
 async def _astream_reset_phase(device_ids, *, force_refresh, success_msg, partial_msg):
     """Stream a reset as SSE `resetting` logs followed by a `complete` event."""
     reset_ok = False
-    async for kind, payload in _astream_tt_smi_reset(device_ids, force_refresh=force_refresh):
+    async for kind, payload in _astream_tt_smi_reset(
+        device_ids, force_refresh=force_refresh
+    ):
         if kind == "log":
             yield _sse_event({"type": "log", "step": "resetting", "message": payload})
         else:
             reset_ok = payload
-    yield _sse_event({
-        "type": "complete",
-        "status": "success" if reset_ok else "partial",
-        "message": success_msg if reset_ok else partial_msg,
-    })
+    yield _sse_event(
+        {
+            "type": "complete",
+            "status": "success" if reset_ok else "partial",
+            "message": success_msg if reset_ok else partial_msg,
+        }
+    )
 
 
 class StopStreamView(View):
@@ -2568,36 +2964,78 @@ class StopStreamView(View):
     """
 
     async def get(self, request, container_id, *args, **kwargs):
-        skip_device_reset = request.GET.get("skip_device_reset", "false").lower() == "true"
+        skip_device_reset = (
+            request.GET.get("skip_device_reset", "false").lower() == "true"
+        )
 
         async def generate():
             yield "retry: 1000\n\n"
             truncated = container_id[:12]
             try:
                 # Step 1: stop and remove the container.
-                yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+                yield _sse_event(
+                    {
+                        "type": "step",
+                        "step": "deleting",
+                        "message": f"Stopping model {truncated}…",
+                    }
+                )
                 try:
-                    async for msg in _astream_stop_remove_container(container_id, truncated):
-                        yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+                    async for msg in _astream_stop_remove_container(
+                        container_id, truncated
+                    ):
+                        yield _sse_event(
+                            {"type": "log", "step": "deleting", "message": msg}
+                        )
                 except _StopFailed as e:
-                    yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
+                    yield _sse_event(
+                        {"type": "complete", "status": "error", "message": str(e)}
+                    )
                     return
 
                 # Stop-only: leave the chips for a later whole-board reset.
                 if skip_device_reset:
-                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                    yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                    await asyncio.to_thread(
+                        SystemResourceService.force_refresh_tt_smi_cache
+                    )
+                    yield _sse_event(
+                        {
+                            "type": "complete",
+                            "status": "success",
+                            "message": f"Model {truncated} stopped",
+                        }
+                    )
                     return
 
                 # Step 2: reset the chips this model occupied.
-                device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+                device_ids = await asyncio.to_thread(
+                    _lookup_deployment_device_ids, container_id
+                )
                 if not device_ids:
-                    yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                    yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                    yield _sse_event(
+                        {
+                            "type": "step",
+                            "step": "resetting",
+                            "message": "Skipping device reset (no device_ids on record)",
+                        }
+                    )
+                    yield _sse_event(
+                        {
+                            "type": "complete",
+                            "status": "success",
+                            "message": "Model deleted (no device reset performed)",
+                        }
+                    )
                     return
 
                 label = ", ".join(str(d) for d in device_ids)
-                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+                yield _sse_event(
+                    {
+                        "type": "step",
+                        "step": "resetting",
+                        "message": f"Resetting device(s) {label}…",
+                    }
+                )
                 async for event in _astream_reset_phase(
                     device_ids,
                     force_refresh=True,
@@ -2612,7 +3050,13 @@ class StopStreamView(View):
                 # Never let the stream die without a terminal event; the client
                 # treats an abrupt close as "Connection to stream lost".
                 logger.error(f"Stop stream for {truncated} failed: {e}", exc_info=True)
-                yield _sse_event({"type": "complete", "status": "error", "message": f"Stop failed: {e}"})
+                yield _sse_event(
+                    {
+                        "type": "complete",
+                        "status": "error",
+                        "message": f"Stop failed: {e}",
+                    }
+                )
 
         return _sse_response(generate())
 
@@ -2630,7 +3074,13 @@ class ResetStreamView(View):
         async def generate():
             yield "retry: 1000\n\n"
             try:
-                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                yield _sse_event(
+                    {
+                        "type": "step",
+                        "step": "resetting",
+                        "message": f"Resetting {label}…",
+                    }
+                )
                 async for event in _astream_reset_phase(
                     device_ids,
                     force_refresh=False,
@@ -2642,7 +3092,13 @@ class ResetStreamView(View):
                 # Always emit a terminal event so the client never sees an abrupt
                 # close ("Connection to stream lost") on an unexpected failure.
                 logger.error(f"Reset stream for {label} failed: {e}", exc_info=True)
-                yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
+                yield _sse_event(
+                    {
+                        "type": "complete",
+                        "status": "error",
+                        "message": f"Reset failed: {e}",
+                    }
+                )
 
         return _sse_response(generate())
 
@@ -2657,7 +3113,9 @@ class ResetStreamView(View):
 # Progress is persisted to a small JSON file on the shared backend volume so a
 # status poll served by any uvicorn worker observes the same state.
 
-_RESET_ALL_STATE_PATH = Path(backend_config.backend_cache_root) / "reset_all_status.json"
+_RESET_ALL_STATE_PATH = (
+    Path(backend_config.backend_cache_root) / "reset_all_status.json"
+)
 _reset_all_write_lock = threading.Lock()
 _reset_all_task = None  # holds a reference so the detached task isn't garbage-collected
 
@@ -2672,6 +3130,7 @@ def _reset_all_read_state():
 
 def _reset_all_write_state(state):
     from django.utils import timezone
+
     state["updated_at"] = timezone.now().isoformat()
     tmp = _RESET_ALL_STATE_PATH.with_name(_RESET_ALL_STATE_PATH.name + ".tmp")
     with _reset_all_write_lock:
@@ -2687,6 +3146,7 @@ async def _run_reset_all_job():
     progress to the shared state file after each step.
     """
     from django.utils import timezone
+
     state = {
         "step": "deleting",
         "logs": [],
@@ -2721,7 +3181,9 @@ async def _run_reset_all_job():
         for round_no in range(1, MAX_ROUNDS + 1):
             if not remaining:
                 break
-            _log(f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…")
+            _log(
+                f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…"
+            )
             for cid in list(remaining):
                 names.setdefault(cid, remaining[cid].get("name", cid[:12]))
                 try:
@@ -2731,7 +3193,9 @@ async def _run_reset_all_job():
                     _log(f"{names.get(cid, cid[:12])}: {e}")
             remaining = await asyncio.to_thread(get_container_status)
 
-        state["remaining"] = [info.get("name", cid[:12]) for cid, info in remaining.items()]
+        state["remaining"] = [
+            info.get("name", cid[:12]) for cid, info in remaining.items()
+        ]
         state["deleted"] = [n for cid, n in names.items() if cid not in remaining]
         if remaining:
             state["step"] = "done"
@@ -2755,7 +3219,9 @@ async def _run_reset_all_job():
         state["done"] = True
         state["ok"] = reset_ok
         if not reset_ok:
-            state["error"] = "Board reset did not complete successfully. Manual intervention may be required."
+            state["error"] = (
+                "Board reset did not complete successfully. Manual intervention may be required."
+            )
         _reset_all_write_state(state)
     except Exception as e:
         logger.exception("reset_all job failed")
@@ -2779,6 +3245,7 @@ class StartResetAllView(View):
         if existing is not None and not existing.get("done"):
             from django.utils import timezone
             from django.utils.dateparse import parse_datetime
+
             updated = parse_datetime(existing.get("updated_at") or "")
             if updated is not None and (timezone.now() - updated).total_seconds() < 120:
                 return JsonResponse({"status": "already_running"}, status=202)
@@ -2792,10 +3259,17 @@ class ResetAllStatusView(View):
     def get(self, request, *args, **kwargs):
         state = _reset_all_read_state()
         if state is None:
-            return JsonResponse({
-                "step": "idle", "logs": [], "done": True, "ok": True,
-                "error": None, "deleted": [], "remaining": [],
-            })
+            return JsonResponse(
+                {
+                    "step": "idle",
+                    "logs": [],
+                    "done": True,
+                    "ok": True,
+                    "error": None,
+                    "deleted": [],
+                    "remaining": [],
+                }
+            )
         return JsonResponse(state)
 
 
@@ -2813,15 +3287,16 @@ class AvailableDevicesView(APIView):
         for device_path in device_paths:
             try:
                 device_id = int(os.path.basename(device_path))
-                devices.append({
-                    "id": device_id,
-                    "path": device_path,
-                    "available": os.access(device_path, os.R_OK | os.W_OK)
-                })
+                devices.append(
+                    {
+                        "id": device_id,
+                        "path": device_path,
+                        "available": os.access(device_path, os.R_OK | os.W_OK),
+                    }
+                )
             except (ValueError, OSError) as e:
                 logger.warning(f"Error checking device {device_path}: {e}")
 
-        return Response({
-            "devices": devices,
-            "count": len(devices)
-        }, status=status.HTTP_200_OK)
+        return Response(
+            {"devices": devices, "count": len(devices)}, status=status.HTTP_200_OK
+        )

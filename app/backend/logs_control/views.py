@@ -5,13 +5,12 @@ import io
 import json
 import os
 import glob
-import subprocess
 import urllib.request
 import urllib.error
 import zipfile
 import docker
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 from urllib.parse import unquote, urlencode
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
@@ -32,18 +31,58 @@ TT_STUDIO_ROOT = os.getenv("TT_STUDIO_ROOT", "/workspace")
 BUG_REPORT_MANIFEST = [
     # key in data dict         zip path                         how it's fetched
     # ─────────────────────── ──────────────────────────────── ───────────────────────────────────────────
-    ("backend_log",           "backend.log",                   "persistent volume: backend_volume/python_logs/"),
-    ("model_run_log",         "model_run.log",                 "docker-control-service HTTP /api/v1/logs/fastapi"),
-    ("model_run_deployment_logs","model_run_logs/<name>.log (×5)", "volume mount: TT_STUDIO_ROOT/logs/model_run_logs/ (ro)"),
-    ("docker_control_log",    "docker-control-service.log",    "docker-control-service HTTP /api/v1/logs/service"),
-    ("startup_log",           "startup.log",                   "docker-control-service HTTP /api/v1/logs/startup"),
-    ("agent_log",             "agent.log",                     "docker-control-service HTTP /api/v1/containers/<id>/logs"),
-    ("inference_run_logs",    "inference_artifacts/run_logs/ (×5)",         "volume mount: TT_STUDIO_ROOT/.artifacts/tt-inference-server/workflow_logs/run_logs/"),
-    ("inference_docker_server_logs", "inference_artifacts/docker_server/ (×5)", "volume mount: …/workflow_logs/docker_server/"),
-    ("inference_run_specs",   "inference_artifacts/run_specs/ (×5)",        "volume mount: …/workflow_logs/run_specs/"),
-    ("tt_smi",                "tt_smi.json",                   "in-container: board_control.services.SystemResourceService"),
-    ("deployments",           "deployments.json",              "persistent volume: backend_volume/deployments.json"),
-    ("current_models",        "current_models.json",           "docker-control list_containers + model_control deploy cache summary"),
+    ("backend_log", "backend.log", "persistent volume: backend_volume/python_logs/"),
+    (
+        "model_run_log",
+        "model_run.log",
+        "docker-control-service HTTP /api/v1/logs/fastapi",
+    ),
+    (
+        "model_run_deployment_logs",
+        "model_run_logs/<name>.log (×5)",
+        "volume mount: TT_STUDIO_ROOT/logs/model_run_logs/ (ro)",
+    ),
+    (
+        "docker_control_log",
+        "docker-control-service.log",
+        "docker-control-service HTTP /api/v1/logs/service",
+    ),
+    ("startup_log", "startup.log", "docker-control-service HTTP /api/v1/logs/startup"),
+    (
+        "agent_log",
+        "agent.log",
+        "docker-control-service HTTP /api/v1/containers/<id>/logs",
+    ),
+    (
+        "inference_run_logs",
+        "inference_artifacts/run_logs/ (×5)",
+        "volume mount: TT_STUDIO_ROOT/.artifacts/tt-inference-server/workflow_logs/run_logs/",
+    ),
+    (
+        "inference_docker_server_logs",
+        "inference_artifacts/docker_server/ (×5)",
+        "volume mount: …/workflow_logs/docker_server/",
+    ),
+    (
+        "inference_run_specs",
+        "inference_artifacts/run_specs/ (×5)",
+        "volume mount: …/workflow_logs/run_specs/",
+    ),
+    (
+        "tt_smi",
+        "tt_smi.json",
+        "in-container: board_control.services.SystemResourceService",
+    ),
+    (
+        "deployments",
+        "deployments.json",
+        "persistent volume: backend_volume/deployments.json",
+    ),
+    (
+        "current_models",
+        "current_models.json",
+        "docker-control list_containers + model_control deploy cache summary",
+    ),
 ]
 
 
@@ -122,10 +161,12 @@ class FastAPILogsView(APIView):
 
     def get(self, request, *args, **kwargs):
         logger.info("FastAPILogsView endpoint hit")
-        
+
         # Check if model_run.log exists in multiple possible locations using relative paths
         possible_model_run_logs = [
-            os.path.join(TT_STUDIO_ROOT, "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+            os.path.join(
+                TT_STUDIO_ROOT, "logs", "model_run.log"
+            ),  # Consolidated logs/ dir (current location)
             "logs/model_run.log",  # Relative to current directory
             os.path.join(LOGS_ROOT, "model_run.log"),  # Try in logs directory
             "/app/model_run.log",  # Container path as fallback
@@ -142,28 +183,37 @@ class FastAPILogsView(APIView):
         for model_run_log_path in possible_model_run_logs:
             if os.path.exists(model_run_log_path):
                 try:
-                    with open(model_run_log_path, 'r') as f:
+                    with open(model_run_log_path, "r") as f:
                         lines = f.readlines()
                         # Get last 20 lines and limit size
-                        log_content = ''.join(lines[-20:])
+                        log_content = "".join(lines[-20:])
                         if len(log_content) > 2000:
                             log_content = log_content[-2000:] + "\n\n... (truncated)"
                     model_run_log_found = True
-                    logger.info(f"Successfully read model run logs from: {model_run_log_path}")
+                    logger.info(
+                        f"Successfully read model run logs from: {model_run_log_path}"
+                    )
                     break
                 except Exception as read_error:
-                    logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
+                    logger.error(
+                        f"Error reading {model_run_log_path}: {str(read_error)}"
+                    )
                     continue
 
         if not model_run_log_found:
             log_content = "model_run.log not accessible from container (logs available from Docker containers above)"
             logger.warning("Model run log file not found in any expected location")
 
-        return JsonResponse({
-            "fastapi_logs": log_content,
-            "found": model_run_log_found,
-            "timestamp": os.path.getmtime(model_run_log_path) if model_run_log_found else None
-        }, status=200)
+        return JsonResponse(
+            {
+                "fastapi_logs": log_content,
+                "found": model_run_log_found,
+                "timestamp": os.path.getmtime(model_run_log_path)
+                if model_run_log_found
+                else None,
+            },
+            status=200,
+        )
 
 
 class TtInferenceLogsView(APIView):
@@ -176,7 +226,9 @@ class TtInferenceLogsView(APIView):
       - max_lines: optional int for how many tail lines to return (default 200)
     """
 
-    def _find_latest_file(self, directory: str, pattern_contains: Optional[str]) -> Optional[str]:
+    def _find_latest_file(
+        self, directory: str, pattern_contains: Optional[str]
+    ) -> Optional[str]:
         if not os.path.isdir(directory):
             return None
 
@@ -185,7 +237,9 @@ class TtInferenceLogsView(APIView):
         candidates = glob.glob(search_pattern)
         if pattern_contains:
             needle = pattern_contains.lower()
-            candidates = [p for p in candidates if needle in os.path.basename(p).lower()]
+            candidates = [
+                p for p in candidates if needle in os.path.basename(p).lower()
+            ]
 
         if not candidates:
             return None
@@ -196,9 +250,9 @@ class TtInferenceLogsView(APIView):
 
     def _tail_file(self, file_path: str, max_lines: int) -> str:
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 lines = f.readlines()
-                tail = ''.join(lines[-max_lines:])
+                tail = "".join(lines[-max_lines:])
                 # safety truncate
                 if len(tail) > 5000:
                     return tail[-5000:] + "\n\n... (truncated)"
@@ -207,14 +261,17 @@ class TtInferenceLogsView(APIView):
             logger.error(f"Error reading log file {file_path}: {e}")
             return f"Failed to read log file: {str(e)}"
 
-    def _extract_container_id_from_run_log(self, run_log_path: Optional[str]) -> Optional[str]:
+    def _extract_container_id_from_run_log(
+        self, run_log_path: Optional[str]
+    ) -> Optional[str]:
         if not run_log_path or not os.path.isfile(run_log_path):
             return None
         try:
-            with open(run_log_path, 'r') as f:
+            with open(run_log_path, "r") as f:
                 text = f.read()
                 # Common line in run logs: "Created Docker container ID: <id>"
                 import re
+
                 m = re.search(r"Created Docker container ID:\s*([0-9a-f]{6,64})", text)
                 if m:
                     return m.group(1)
@@ -226,24 +283,39 @@ class TtInferenceLogsView(APIView):
         try:
             client = docker.from_env()
             containers = client.containers.list(all=True)
+
             # Prefer running containers first
             def sort_key(c):
-                return (c.status != 'running', -c.attrs.get('Created', 0))
+                return (c.status != "running", -c.attrs.get("Created", 0))
+
             containers = sorted(containers, key=sort_key)
 
             def name_or_image_contains(c, needle: str) -> bool:
                 needle = needle.lower()
-                name_ok = any(needle in nm.lower() for nm in ([c.name] + [a for a in c.attrs.get('Name', '') if a]))
-                image_ok = needle in (c.image.tags[0].lower() if c.image.tags else c.image.short_id.lower())
+                name_ok = any(
+                    needle in nm.lower()
+                    for nm in ([c.name] + [a for a in c.attrs.get("Name", "") if a])
+                )
+                image_ok = needle in (
+                    c.image.tags[0].lower()
+                    if c.image.tags
+                    else c.image.short_id.lower()
+                )
                 return name_ok or image_ok
 
             # Heuristic: container likely from tt-inference-server/vllm image
             candidates = [
-                c for c in containers
-                if any(sub in (c.image.tags[0] if c.image.tags else '') for sub in ['tt-inference-server', 'vllm'])
+                c
+                for c in containers
+                if any(
+                    sub in (c.image.tags[0] if c.image.tags else "")
+                    for sub in ["tt-inference-server", "vllm"]
+                )
             ]
             if model_query:
-                candidates = [c for c in candidates if name_or_image_contains(c, model_query)] or candidates
+                candidates = [
+                    c for c in candidates if name_or_image_contains(c, model_query)
+                ] or candidates
 
             if candidates:
                 return candidates[0].id
@@ -256,37 +328,53 @@ class TtInferenceLogsView(APIView):
             client = docker.from_env()
             container = client.containers.get(container_id)
             log_bytes = container.logs(tail=max_lines, timestamps=False)
-            text = log_bytes.decode('utf-8', errors='replace').strip()
+            text = log_bytes.decode("utf-8", errors="replace").strip()
             if len(text) > 5000:
                 text = text[-5000:] + "\n\n... (truncated)"
             return text
         except Exception as e:
-            logger.error(f"Error fetching docker container logs for {container_id}: {e}")
+            logger.error(
+                f"Error fetching docker container logs for {container_id}: {e}"
+            )
             return None
 
     def get(self, request, *args, **kwargs):
-        model_query = request.GET.get('model', '').strip()
+        model_query = request.GET.get("model", "").strip()
         try:
-            max_lines = int(request.GET.get('max_lines', '200'))
+            max_lines = int(request.GET.get("max_lines", "200"))
         except ValueError:
             max_lines = 200
 
         # Base path to tt-inference-server workflow logs inside repo root
-        workflow_root = os.path.join(TT_STUDIO_ROOT, 'tt-inference-server', 'workflow_logs')
-        run_logs_dir = os.path.join(workflow_root, 'run_logs')
-        docker_server_dir = os.path.join(workflow_root, 'docker_server')
+        workflow_root = os.path.join(
+            TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs"
+        )
+        run_logs_dir = os.path.join(workflow_root, "run_logs")
+        docker_server_dir = os.path.join(workflow_root, "docker_server")
 
         latest_run_log = self._find_latest_file(run_logs_dir, model_query or None)
-        latest_docker_log = self._find_latest_file(docker_server_dir, model_query or None)
+        latest_docker_log = self._find_latest_file(
+            docker_server_dir, model_query or None
+        )
 
-        run_log_content = self._tail_file(latest_run_log, max_lines) if latest_run_log else "No matching run logs found"
-        file_docker_log_content = self._tail_file(latest_docker_log, max_lines) if latest_docker_log else None
+        run_log_content = (
+            self._tail_file(latest_run_log, max_lines)
+            if latest_run_log
+            else "No matching run logs found"
+        )
+        file_docker_log_content = (
+            self._tail_file(latest_docker_log, max_lines) if latest_docker_log else None
+        )
 
         # Try to fetch docker container logs using Docker SDK (more reliable inside container)
         container_id = self._extract_container_id_from_run_log(latest_run_log)
         if not container_id:
             container_id = self._find_candidate_container_id(model_query or None)
-        docker_container_log = self._fetch_container_logs(container_id, max_lines) if container_id else None
+        docker_container_log = (
+            self._fetch_container_logs(container_id, max_lines)
+            if container_id
+            else None
+        )
 
         response = {
             "model_query": model_query or None,
@@ -304,6 +392,7 @@ class TtInferenceLogsView(APIView):
 # ---------------------------------------------------------------------------
 # Bug Report helpers and views
 # ---------------------------------------------------------------------------
+
 
 def _read_log_tail(file_path: str, max_lines: int = 500) -> str:
     """Read the last max_lines from a log file, with safe UTF-8 decoding."""
@@ -369,7 +458,9 @@ def _collect_current_models_snapshot() -> dict:
                 mi_summary = {
                     "model_name": getattr(model_impl, "model_name", None),
                     "hf_model_id": getattr(model_impl, "hf_model_id", None),
-                    "model_type": getattr(mt, "value", str(mt)) if mt is not None else None,
+                    "model_type": getattr(mt, "value", str(mt))
+                    if mt is not None
+                    else None,
                 }
             pb = entry.get("port_bindings") or {}
             port_hints = []
@@ -422,19 +513,37 @@ def _collect_bug_report_data() -> dict:
             reverse=True,
         )
         if log_files:
-            data["backend_log"] = {"file": log_files[0], "content": _read_log_tail(log_files[0], 500)}
+            data["backend_log"] = {
+                "file": log_files[0],
+                "content": _read_log_tail(log_files[0], 500),
+            }
         else:
-            data["backend_log"] = {"file": None, "content": "No backend log files found"}
+            data["backend_log"] = {
+                "file": None,
+                "content": "No backend log files found",
+            }
     else:
-        data["backend_log"] = {"file": None, "content": f"python_logs directory not found: {python_logs_dir}"}
+        data["backend_log"] = {
+            "file": None,
+            "content": f"python_logs directory not found: {python_logs_dir}",
+        }
 
     # 2. Model run main log — fetched from docker-control-service running on host
     try:
-        from docker_control.docker_control_client import DockerControlClient as _DCSClient0
+        from docker_control.docker_control_client import (
+            DockerControlClient as _DCSClient0,
+        )
+
         _model_run_result = _DCSClient0().get_model_run_log(tail=500)
-        data["model_run_log"] = {"file": _model_run_result.get("file"), "content": _model_run_result.get("content", "")}
+        data["model_run_log"] = {
+            "file": _model_run_result.get("file"),
+            "content": _model_run_result.get("content", ""),
+        }
     except Exception as _e0:
-        data["model_run_log"] = {"file": None, "content": f"model_run.log not accessible: {_e0}"}
+        data["model_run_log"] = {
+            "file": None,
+            "content": f"model_run.log not accessible: {_e0}",
+        }
 
     # 3. Per-deployment model run logs (logs/model_run_logs/ directory, newest 5).
     # Fall back to the legacy fastapi_logs/ locations so bundles captured before
@@ -469,15 +578,30 @@ def _collect_bug_report_data() -> dict:
 
     # 4 & 5. Docker control service log + startup log — fetched from docker-control-service on host
     try:
-        from docker_control.docker_control_client import DockerControlClient as _DCSClient
+        from docker_control.docker_control_client import (
+            DockerControlClient as _DCSClient,
+        )
+
         _dcs = _DCSClient()
         _dcs_result = _dcs.get_service_log(tail=500)
-        data["docker_control_log"] = {"file": _dcs_result.get("file"), "content": _dcs_result.get("content", "")}
+        data["docker_control_log"] = {
+            "file": _dcs_result.get("file"),
+            "content": _dcs_result.get("content", ""),
+        }
         _startup_result = _dcs.get_startup_log(tail=200)
-        data["startup_log"] = {"file": _startup_result.get("file"), "content": _startup_result.get("content", "")}
+        data["startup_log"] = {
+            "file": _startup_result.get("file"),
+            "content": _startup_result.get("content", ""),
+        }
     except Exception as _e:
-        data["docker_control_log"] = {"file": None, "content": f"docker-control-service.log not accessible: {_e}"}
-        data["startup_log"] = {"file": None, "content": f"startup.log not accessible: {_e}"}
+        data["docker_control_log"] = {
+            "file": None,
+            "content": f"docker-control-service.log not accessible: {_e}",
+        }
+        data["startup_log"] = {
+            "file": None,
+            "content": f"startup.log not accessible: {_e}",
+        }
 
     # 6. Agent Docker logs — fetched via docker-control-service (runs on host, has docker socket)
     try:
@@ -488,7 +612,11 @@ def _collect_bug_report_data() -> dict:
         client = DockerControlClient()
         containers_resp = client.list_containers(all=True)
         # Response is a dict with a "containers" key or directly a list depending on version
-        container_list = containers_resp if isinstance(containers_resp, list) else containers_resp.get("containers", [])
+        container_list = (
+            containers_resp
+            if isinstance(containers_resp, list)
+            else containers_resp.get("containers", [])
+        )
         agent_container = next(
             (c for c in container_list if "agent" in c.get("name", "").lower()),
             None,
@@ -496,7 +624,9 @@ def _collect_bug_report_data() -> dict:
         if agent_container:
             container_id = agent_container["id"]
             jwt_secret = os.getenv("DOCKER_CONTROL_JWT_SECRET", "")
-            dcs_url = os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+            dcs_url = os.getenv(
+                "DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002"
+            )
             token = _jwt.encode({"service": "backend"}, jwt_secret, algorithm="HS256")
             resp = _req.get(
                 f"{dcs_url}/api/v1/containers/{container_id}/logs",
@@ -507,22 +637,36 @@ def _collect_bug_report_data() -> dict:
             )
             data["agent_log"] = {"content": resp.text.strip() or "No agent logs"}
         else:
-            data["agent_log"] = {"content": "Agent container not found via docker-control-service"}
+            data["agent_log"] = {
+                "content": "Agent container not found via docker-control-service"
+            }
     except Exception as e:
         data["agent_log"] = {"content": f"Could not fetch agent logs: {e}"}
 
     # 7. Inference server artifact workflow logs
     #    Check .artifacts/ path first (artifact-mode), then plain path
-    artifact_workflow_root = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server", "workflow_logs")
-    plain_workflow_root = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs")
-    workflow_root = artifact_workflow_root if os.path.isdir(artifact_workflow_root) else plain_workflow_root
+    artifact_workflow_root = os.path.join(
+        TT_STUDIO_ROOT, ".artifacts", "tt-inference-server", "workflow_logs"
+    )
+    plain_workflow_root = os.path.join(
+        TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs"
+    )
+    workflow_root = (
+        artifact_workflow_root
+        if os.path.isdir(artifact_workflow_root)
+        else plain_workflow_root
+    )
 
     def _collect_workflow_subdir(subdir_name: str):
         d = os.path.join(workflow_root, subdir_name)
         if not os.path.isdir(d):
             return []
         files = sorted(
-            [os.path.join(d, f) for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))],
+            [
+                os.path.join(d, f)
+                for f in os.listdir(d)
+                if os.path.isfile(os.path.join(d, f))
+            ],
             key=os.path.getmtime,
             reverse=True,
         )[:5]
@@ -535,8 +679,11 @@ def _collect_bug_report_data() -> dict:
     # 8. tt-smi hardware telemetry
     try:
         from board_control.services import SystemResourceService
+
         tt_smi = SystemResourceService.get_tt_smi_data(timeout=15)
-        data["tt_smi"] = tt_smi if tt_smi is not None else {"error": "tt-smi returned no data"}
+        data["tt_smi"] = (
+            tt_smi if tt_smi is not None else {"error": "tt-smi returned no data"}
+        )
     except Exception as e:
         data["tt_smi"] = {"error": f"Failed to get tt-smi data: {e}"}
 
@@ -587,7 +734,9 @@ class BugReportDownloadView(APIView):
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("backend.log", data["backend_log"]["content"])
                 zf.writestr("model_run.log", data["model_run_log"]["content"])
-                zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
+                zf.writestr(
+                    "docker-control-service.log", data["docker_control_log"]["content"]
+                )
                 zf.writestr("startup.log", data["startup_log"]["content"])
                 zf.writestr("agent.log", data["agent_log"]["content"])
 
@@ -597,18 +746,27 @@ class BugReportDownloadView(APIView):
 
                 for entry in data["inference_run_logs"]:
                     fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_logs/{fname}", entry["content"])
+                    zf.writestr(
+                        f"inference_artifacts/run_logs/{fname}", entry["content"]
+                    )
 
                 for entry in data["inference_docker_server_logs"]:
                     fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/docker_server/{fname}", entry["content"])
+                    zf.writestr(
+                        f"inference_artifacts/docker_server/{fname}", entry["content"]
+                    )
 
                 for entry in data["inference_run_specs"]:
                     fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_specs/{fname}", entry["content"])
+                    zf.writestr(
+                        f"inference_artifacts/run_specs/{fname}", entry["content"]
+                    )
 
                 zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
-                zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
+                zf.writestr(
+                    "deployments.json",
+                    json.dumps(data["deployments"], indent=2, default=str),
+                )
                 zf.writestr(
                     "current_models.json",
                     json.dumps(data["current_models"], indent=2, default=str),
@@ -657,12 +815,16 @@ class GitHubIssueView(APIView):
         pat = backend_config.github_pat
         if not pat:
             # Graceful fallback: return a pre-built browser URL (body truncated for URL safety)
-            params = urlencode({"title": title, "body": body[:8000], "labels": ",".join(labels)})
+            params = urlencode(
+                {"title": title, "body": body[:8000], "labels": ",".join(labels)}
+            )
             url = f"{self.GITHUB_NEW_ISSUE_URL}?{params}"
             return JsonResponse({"url": url, "created_via_api": False}, status=200)
 
         # Create the issue via GitHub REST API
-        payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
+        payload = json.dumps({"title": title, "body": body, "labels": labels}).encode(
+            "utf-8"
+        )
         req = urllib.request.Request(
             self.GITHUB_API_URL,
             data=payload,
@@ -689,7 +851,10 @@ class GitHubIssueView(APIView):
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
             logger.error(f"GitHub API error {e.code}: {error_body}")
-            return JsonResponse({"error": f"GitHub API error: {e.code}", "detail": error_body}, status=502)
+            return JsonResponse(
+                {"error": f"GitHub API error: {e.code}", "detail": error_body},
+                status=502,
+            )
         except Exception as e:
             logger.error(f"Failed to create GitHub issue: {e}")
             return JsonResponse({"error": str(e)}, status=500)

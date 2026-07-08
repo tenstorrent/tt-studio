@@ -59,9 +59,9 @@ def resolve_deploy_image(
     from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
     ref to produce a real cache hit; callers fall back to impl.image_version on None.
     """
-    fastapi_base_url = (
-        fastapi_base_url or backend_config.tt_inference_api_url
-    ).rstrip("/")
+    fastapi_base_url = (fastapi_base_url or backend_config.tt_inference_api_url).rstrip(
+        "/"
+    )
     try:
         params = {"model": model_name}
         if device:
@@ -106,8 +106,10 @@ def start_chat_deployment(
     /run/progress/<job_id> and display explicit weights download progress.
     """
     fastapi_run_url = (
-        fastapi_run_url or f"{backend_config.tt_inference_api_url}/run"
-    ).strip().rstrip("/")
+        (fastapi_run_url or f"{backend_config.tt_inference_api_url}/run")
+        .strip()
+        .rstrip("/")
+    )
     payload: Dict[str, Any] = {
         "model": model_name,
         "workflow": "server",

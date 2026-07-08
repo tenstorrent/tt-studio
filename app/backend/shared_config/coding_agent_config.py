@@ -51,8 +51,8 @@ def get_reasoning_parser(model_name) -> str | None:
 
 def get_gateway_model_names(model_name) -> list[str]:
     """
-        Return the names a model is exposed under to coding agents: the plain name, plus a
-        "-thinking" variant for reasoning models.
+    Return the names a model is exposed under to coding agents: the plain name, plus a
+    "-thinking" variant for reasoning models.
     """
     if model_name in REASONING_MODELS:
         return [model_name, model_name + THINKING_SUFFIX]

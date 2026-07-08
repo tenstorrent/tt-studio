@@ -25,7 +25,7 @@ async def health_check():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "checks": {}
+        "checks": {},
     }
 
     # Check Docker daemon

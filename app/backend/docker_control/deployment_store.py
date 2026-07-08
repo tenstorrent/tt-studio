@@ -21,7 +21,9 @@ from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 
 _STORE_PATH = (
-    Path(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume"))
+    Path(
+        os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume")
+    )
     / "backend_volume"
     / "deployments.json"
 )
@@ -284,7 +286,9 @@ class ModelDeployment:
                     _save_raw(data)
                     return
             # Not found — append as new (shouldn't happen in normal flow)
-            logger.warning(f"save() called on deployment id={self.id} not found in store; appending")
+            logger.warning(
+                f"save() called on deployment id={self.id} not found in store; appending"
+            )
             data["records"].append(self._to_dict())
             _save_raw(data)
 

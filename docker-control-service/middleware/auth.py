@@ -31,25 +31,22 @@ async def authenticate_request(request: Request, call_next):
     if not token:
         logger.warning(f"Missing authentication token from {request.client.host}")
         return JSONResponse(
-            status_code=401,
-            content={"error": "Missing authentication token"}
+            status_code=401, content={"error": "Missing authentication token"}
         )
 
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
         request.state.auth_payload = payload
-        logger.debug(f"Authenticated request from service: {payload.get('service', 'unknown')}")
+        logger.debug(
+            f"Authenticated request from service: {payload.get('service', 'unknown')}"
+        )
     except jwt.ExpiredSignatureError:
         logger.warning(f"Expired JWT token from {request.client.host}")
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Token has expired"}
-        )
+        return JSONResponse(status_code=401, content={"error": "Token has expired"})
     except jwt.InvalidTokenError as e:
         logger.warning(f"Invalid JWT token from {request.client.host}: {e}")
         return JSONResponse(
-            status_code=401,
-            content={"error": "Invalid authentication token"}
+            status_code=401, content={"error": "Invalid authentication token"}
         )
 
     return await call_next(request)

@@ -61,6 +61,7 @@ def _cleanup_stale_starting_records():
                     )
                     try:
                         from docker_control.docker_utils import stop_container
+
                         stop_container(dep.container_id)
                     except Exception as stop_err:
                         logger.debug(
@@ -85,7 +86,9 @@ def check_container_health():
         if not running_deployments.exists():
             return
 
-        logger.debug(f"Checking health of {running_deployments.count()} running deployments")
+        logger.debug(
+            f"Checking health of {running_deployments.count()} running deployments"
+        )
 
         # Check actual Docker container status via docker-control-service
         docker_client = get_docker_client()
@@ -94,19 +97,28 @@ def check_container_health():
             try:
                 # Get container info from docker-control-service
                 container_info = docker_client.get_container(deployment.container_id)
-                actual_status = container_info.get("status", "unknown")  # running, exited, dead, etc.
+                actual_status = container_info.get(
+                    "status", "unknown"
+                )  # running, exited, dead, etc.
 
                 # If container is not running but we didn't mark it as stopped by user
-                if actual_status not in ["running", "restarting"] and not deployment.stopped_by_user:
+                if (
+                    actual_status not in ["running", "restarting"]
+                    and not deployment.stopped_by_user
+                ):
                     # Container died unexpectedly!
-                    logger.warning(f"Container {deployment.container_name} died unexpectedly. Status: {actual_status}")
+                    logger.warning(
+                        f"Container {deployment.container_name} died unexpectedly. Status: {actual_status}"
+                    )
 
                     deployment.status = actual_status  # exited, dead, etc.
                     deployment.stopped_at = timezone.now()
                     deployment.save()
 
                     # TODO: Emit event for frontend notification
-                    logger.info(f"Updated deployment record for unexpected death: {deployment.container_name}")
+                    logger.info(
+                        f"Updated deployment record for unexpected death: {deployment.container_name}"
+                    )
 
             except Exception as e:
                 # Check if it's a 404 (container not found)
@@ -114,16 +126,22 @@ def check_container_health():
                 if "not found" in error_msg or "404" in error_msg:
                     # Container doesn't exist anymore - it died
                     if not deployment.stopped_by_user:
-                        logger.warning(f"Container {deployment.container_name} not found - marking as dead")
+                        logger.warning(
+                            f"Container {deployment.container_name} not found - marking as dead"
+                        )
                         deployment.status = "dead"
                         deployment.stopped_at = timezone.now()
                         deployment.save()
 
                         # TODO: Emit event for frontend notification
-                        logger.info(f"Updated deployment record for missing container: {deployment.container_name}")
+                        logger.info(
+                            f"Updated deployment record for missing container: {deployment.container_name}"
+                        )
                 else:
-                    logger.error(f"Error checking container {deployment.container_id}: {e}")
-                
+                    logger.error(
+                        f"Error checking container {deployment.container_id}: {e}"
+                    )
+
     except Exception as e:
         logger.error(f"Error in check_container_health: {e}")
 
@@ -135,7 +153,7 @@ def health_monitoring_loop():
     """Background thread that continuously monitors container health.
 
     Polls every _HEALTH_POLL_INTERVAL_SECONDS (5 s by default). Read-time
-    reconciliation in get_canonical_deployments now catches dead containers on the next status fetch regardless of this loop, so this thread is the persistence layer (writing status="dead" / etc. to the store) rather than the sole detection path. 
+    reconciliation in get_canonical_deployments now catches dead containers on the next status fetch regardless of this loop, so this thread is the persistence layer (writing status="dead" / etc. to the store) rather than the sole detection path.
     A 5s interval keeps the persistent store roughly current at negligible CPU cost.
     """
     global _stop_monitoring
@@ -159,11 +177,11 @@ def health_monitoring_loop():
 def start_health_monitoring():
     """Start the health monitoring background thread"""
     global _monitoring_thread, _stop_monitoring
-    
+
     if _monitoring_thread is not None and _monitoring_thread.is_alive():
         logger.info("Health monitoring is already running")
         return
-    
+
     _stop_monitoring = False
     _monitoring_thread = threading.Thread(target=health_monitoring_loop, daemon=True)
     _monitoring_thread.start()
@@ -173,9 +191,8 @@ def start_health_monitoring():
 def stop_health_monitoring():
     """Stop the health monitoring background thread"""
     global _stop_monitoring, _monitoring_thread
-    
+
     _stop_monitoring = True
     if _monitoring_thread:
         _monitoring_thread.join(timeout=5)
     logger.info("Health monitoring stopped")
-

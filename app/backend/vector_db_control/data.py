@@ -266,7 +266,7 @@ Tenstorrent is a hardware company that designs and produces AI accelerators. The
 designed for efficient AI and machine learning workloads. The company focuses on creating scalable solutions for AI computation.
 """
 
-TT_METAL="""
+TT_METAL = """
 # Install
 
 These instructions will guide you through the installation of Tenstorrent system tools and drivers, followed by the installation of TT-Metalium and TT-NN.
@@ -631,7 +631,6 @@ User-supplied: keyboard, mouse, certified HDMI cable, and a monitor.
 # Generated from docs.tenstorrent.com and the tt-inference-server / tt-studio
 # repositories. Each entry is one source page. Rebuild with build_data.py.
 _SCRAPED_DOCS = [
-
     # === section: guides ===
     """# Installing the Tenstorrent Software Stack
 
@@ -1353,7 +1352,6 @@ Now that your model endpoint is running:
 
 If you encounter any issues, or have a question that isn’t covered in the documentation, please [raise a support request.](https://tenstorrent.atlassian.net/servicedesk/customer/portal/1) Our team will review your request and provide assistance.
 """,
-
     # === section: hardware ===
     """# Add-In Boards and Accessories
 
@@ -4327,7 +4325,6 @@ For BIOS updates, non-Tenstorrent drivers, and other hardware support, visit the
 
 For support with the Tenstorrent add-in boards and related Tenstorrent software, you can visit the Tenstorrent [Discord](https://discord.gg/tvhGzHQwaj) server or contact [support@tenstorrent.com](mailto:support%40tenstorrent.com) with additional questions.
 """,
-
     # === section: syseng ===
     """# Systems Tools Developer Documentation
 
@@ -4450,7 +4447,6 @@ Now that your Tenstorrent Tensix Processor(s) up and running, there are two SDKs
 
 * [First 5 Things](https://tenstorrent.github.io/tt-metalium/latest/get_started/get_started.html) for **TT-Metalium**, our open source, low level SDK
 """,
-
     # === section: forge ===
     """# TT-Forge™ Backend Compiler
 
@@ -4521,7 +4517,6 @@ Tools
 
 * [TT-NPE](https://docs.tenstorrent.com/tt-npe/)
 """,
-
     # === section: tools ===
     """# Tools
 
@@ -4588,7 +4583,6 @@ For tools specific to individual components of the Tenstorrent software stack, s
 * TT-Metalium tools: <https://docs.tenstorrent.com/tt-metal/latest/tt-metalium/tools/index.html>
 * TT-NN tools: <https://docs.tenstorrent.com/tt-metal/latest/ttnn/tools/index.html>
 """,
-
     # === section: support ===
     """# Support & FAQ
 
@@ -4600,7 +4594,6 @@ If you encounter any issues, or have questions that are not covered by the docum
 
 For forums and community discussions, visit Tenstorrent’s [Discord channel](https://discord.gg/tvhGzHQwaj).
 """,
-
     # === section: misc ===
     """# Home
 
@@ -4913,7 +4906,6 @@ A Quick Note on Usage: To keep things transparent, please acknowledge the follow
 
 Any questions? Reach out on [Discord](https://discord.gg/tvhGzHQwaj).
 """,
-
     # === section: tt-metalium ===
     """# Getting Started
 
@@ -21901,7 +21893,6 @@ Source: https://docs.tenstorrent.com/tt-metal/latest/tt-metalium/tt_metal/progra
 
 Please find our architecture and programming model guide [here](https://github.com/tenstorrent/tt-metal/blob/main/METALIUM_GUIDE.md).
 """,
-
     # === section: tt-nn ===
     """# Welcome to TT-NN documentation!
 
@@ -53101,7 +53092,6 @@ To summarize:
 
 TT-NN Visualizer gives you everything you need to deeply understand your model’s interaction with the hardware — and where it can be improved.
 """,
-
     # === section: tt-lang ===
     """# Build System
 
@@ -57882,7 +57872,6 @@ x, y, z = ttl.node(dims=3)  # x in [0, 8), y in [0, 8), z = 0
 
 Both functions can be used inside operation functions and kernel functions.
 """,
-
     # === section: tt-blacksmith ===
     """# Welcome to TT-Blacksmith documentation!
 
@@ -58488,7 +58477,6 @@ The main goal of this project are:
 
 * **Demonstrations:** Practical examples and workflows showcasing how to train various ML models on Tenstorrent hardware.
 """,
-
     # === section: ttnn-visualizer ===
     """# Welcome to TT-NN Visualizer documentation!
 
@@ -59117,7 +59105,6 @@ The app is available to [install via PyPi](installing.html#installing-from-pypi)
 
 For the latest updates see [releases](https://github.com/tenstorrent/ttnn-visualizer/releases).
 """,
-
     # === section: tt-toplike ===
     """# Watchinferencehappen.
 
@@ -59506,7 +59493,6 @@ Keyboard shortcuts:
 `q` / `ESC` quit
 `r` force refresh
 """,
-
     # === section: tt-vscode-toolkit ===
     """# TTDeveloperToolkit
 
@@ -59801,7 +59787,6 @@ Copy
 Re-running the same command updates to the latest version
 (use `--clobber` to overwrite the existing `.vsix`).
 """,
-
     # === section: tt-inference-server ===
     """# tt-inference-server/.devcontainer/README.md
 
@@ -80333,7 +80318,6 @@ helm template charts/tt-inference-server \\
   --set hfCacheDir=/data/weights
 ```
 """,
-
     # === section: tt-studio ===
     """# tt-studio/CODE_OF_CONDUCT.md
 

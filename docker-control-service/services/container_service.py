@@ -7,7 +7,7 @@ Container Service - Business logic for Docker container operations
 
 import docker
 import logging
-from typing import Dict, List, Any
+from typing import Dict
 from models.requests import ContainerRunRequest
 from config import settings
 
@@ -72,7 +72,7 @@ class ContainerService:
             volumes = {}
             for host_path, container_path in request.volumes.items():
                 if isinstance(container_path, str):
-                    volumes[host_path] = {'bind': container_path, 'mode': 'rw'}
+                    volumes[host_path] = {"bind": container_path, "mode": "rw"}
                 else:
                     volumes[host_path] = container_path
             run_kwargs["volumes"] = volumes
@@ -104,7 +104,7 @@ class ContainerService:
 
             # Get port bindings from container attributes
             port_bindings = {}
-            if hasattr(container, 'attrs'):
+            if hasattr(container, "attrs"):
                 host_config = container.attrs.get("HostConfig", {})
                 port_bindings = host_config.get("PortBindings", {})
 
@@ -115,32 +115,23 @@ class ContainerService:
                 "container_id": container.id,
                 "name": container.name,  # Add 'name' for compatibility
                 "container_name": container.name,
-                "port_bindings": port_bindings
+                "port_bindings": port_bindings,
             }
 
         except docker.errors.ImageNotFound:
             error_msg = f"Image {request.image} not found"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "message": error_msg
-            }
+            return {"status": "error", "message": error_msg}
 
         except docker.errors.APIError as e:
             error_msg = str(e)
             logger.error(f"Docker API error: {error_msg}")
-            return {
-                "status": "error",
-                "message": error_msg
-            }
+            return {"status": "error", "message": error_msg}
 
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             logger.error(error_msg)
-            return {
-                "status": "error",
-                "message": error_msg
-            }
+            return {"status": "error", "message": error_msg}
 
     def stop_container(self, container_id: str, timeout: int = 10) -> Dict:
         """
@@ -218,26 +209,25 @@ class ContainerService:
                 image = image_tags[0] if image_tags else container.image.short_id
 
                 # Build comprehensive container info for backend compatibility
-                container_list.append({
-                    "id": container.id,
-                    "name": container.name,
-                    "status": container.status,
-                    "image": image,
-                    "image_tags": image_tags,
-                    # Include full attrs for backend compatibility
-                    "attrs": container.attrs,
-                    # Convenience fields extracted from attrs
-                    "Config": container.attrs.get("Config", {}),
-                    "NetworkSettings": container.attrs.get("NetworkSettings", {}),
-                    "HostConfig": container.attrs.get("HostConfig", {}),
-                    "environment": container.attrs.get("Config", {}).get("Env", [])
-                })
+                container_list.append(
+                    {
+                        "id": container.id,
+                        "name": container.name,
+                        "status": container.status,
+                        "image": image,
+                        "image_tags": image_tags,
+                        # Include full attrs for backend compatibility
+                        "attrs": container.attrs,
+                        # Convenience fields extracted from attrs
+                        "Config": container.attrs.get("Config", {}),
+                        "NetworkSettings": container.attrs.get("NetworkSettings", {}),
+                        "HostConfig": container.attrs.get("HostConfig", {}),
+                        "environment": container.attrs.get("Config", {}).get("Env", []),
+                    }
+                )
 
             logger.debug(f"Listed {len(container_list)} containers (all={all})")
-            return {
-                "status": "success",
-                "containers": container_list
-            }
+            return {"status": "success", "containers": container_list}
 
         except docker.errors.APIError as e:
             error_msg = str(e)
@@ -262,7 +252,9 @@ class ContainerService:
             image = image_tags[0] if image_tags else container.image.short_id
 
             # Get network information
-            networks = list(container.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+            networks = list(
+                container.attrs.get("NetworkSettings", {}).get("Networks", {}).keys()
+            )
 
             container_info = {
                 "id": container.id,
@@ -278,13 +270,13 @@ class ContainerService:
                 "Config": container.attrs.get("Config", {}),
                 "NetworkSettings": container.attrs.get("NetworkSettings", {}),
                 "HostConfig": container.attrs.get("HostConfig", {}),
-                "environment": container.attrs.get("Config", {}).get("Env", [])
+                "environment": container.attrs.get("Config", {}).get("Env", []),
             }
 
             logger.debug(f"Retrieved container info: {container_id[:12]}")
             return {
                 "status": "success",
-                **container_info  # Return container info directly (not nested under "container" key)
+                **container_info,  # Return container info directly (not nested under "container" key)
             }
 
         except docker.errors.NotFound:
@@ -317,7 +309,9 @@ class ContainerService:
 
         # Never allow privileged mode
         if request.privileged:
-            raise ValueError("Privileged containers are not allowed for security reasons")
+            raise ValueError(
+                "Privileged containers are not allowed for security reasons"
+            )
 
         # Validate network
         if request.network and request.network not in settings.ALLOWED_NETWORKS:

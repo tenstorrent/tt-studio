@@ -16,21 +16,35 @@ urlpatterns = [
     path("image-generation/", views.ImageGenerationInferenceView.as_view()),
     path("image-generation-cloud/", views.ImageGenerationInferenceCloudView.as_view()),
     path("video-generation/", views.VideoGenerationInferenceView.as_view()),
-    path("video-generation/status/<str:job_id>/", views.VideoGenerationStatusView.as_view()),
-    path("video-generation/download/<str:job_id>/", views.VideoGenerationDownloadView.as_view()),
+    path(
+        "video-generation/status/<str:job_id>/",
+        views.VideoGenerationStatusView.as_view(),
+    ),
+    path(
+        "video-generation/download/<str:job_id>/",
+        views.VideoGenerationDownloadView.as_view(),
+    ),
     path("object-detection/", views.ObjectDetectionInferenceView.as_view()),
     path("object-detection-cloud/", views.ObjectDetectionInferenceCloudView.as_view()),
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),
-    path("speech-recognition-cloud/", views.SpeechRecognitionInferenceCloudView.as_view()),
+    path(
+        "speech-recognition-cloud/", views.SpeechRecognitionInferenceCloudView.as_view()
+    ),
     path("face-recognition/recognize/", views.FaceRecognitionRecognizeView.as_view()),
     path("face-recognition/register/", views.FaceRecognitionRegisterView.as_view()),
     path("face-recognition/faces/", views.FaceRecognitionListView.as_view()),
-    path("face-recognition/faces/<str:name>/", views.FaceRecognitionDeleteView.as_view()),
+    path(
+        "face-recognition/faces/<str:name>/", views.FaceRecognitionDeleteView.as_view()
+    ),
     path("tts/", views.TtsInferenceView.as_view()),
     path("pipeline/voice/", VoicePipelineView.as_view()),
     path("health/", views.ModelHealthView.as_view()),
     path("inference_cloud/", views.InferenceCloudView.as_view()),
-    path("logs/<str:container_id>/", views.ContainerLogsView.as_view(), name="container-logs"),
+    path(
+        "logs/<str:container_id>/",
+        views.ContainerLogsView.as_view(),
+        name="container-logs",
+    ),
     path("api-info/", views.ModelAPIInfoView.as_view()),
     # Coding-agent gateway (LiteLLM) — OpenAI-compatible upstream + UI helper
     path("openai/v1/chat/completions", views.OpenAIChatCompletionsView.as_view()),

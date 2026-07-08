@@ -22,4 +22,5 @@ class ModelControlConfig(AppConfig):
             impl.setup()
 
         from model_control.connection_warmer import start_connection_warmer
+
         start_connection_warmer()

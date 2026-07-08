@@ -17,9 +17,11 @@ from models.responses import NetworkListResponse, OperationResponse
 class NetworkConnectRequest(BaseModel):
     container: str
 
+
 class NetworkDisconnectRequest(BaseModel):
     container: str
     force: bool = False
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,15 +40,12 @@ async def create_network(request: NetworkCreateRequest):
 
         logger.info(f"Creating network: {request.name} (driver={request.driver})")
 
-        network = client.networks.create(
-            name=request.name,
-            driver=request.driver
-        )
+        client.networks.create(name=request.name, driver=request.driver)
 
         logger.info(f"Network created successfully: {request.name}")
         return {
             "status": "success",
-            "message": f"Network {request.name} created successfully"
+            "message": f"Network {request.name} created successfully",
         }
 
     except docker.errors.APIError as e:
@@ -54,7 +53,9 @@ async def create_network(request: NetworkCreateRequest):
         logger.error(f"Error creating network: {error_msg}")
 
         if "already exists" in error_msg.lower():
-            raise HTTPException(status_code=409, detail=f"Network {request.name} already exists")
+            raise HTTPException(
+                status_code=409, detail=f"Network {request.name} already exists"
+            )
 
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -79,10 +80,7 @@ async def remove_network(name: str):
         network.remove()
 
         logger.info(f"Network removed successfully: {name}")
-        return {
-            "status": "success",
-            "message": f"Network {name} removed successfully"
-        }
+        return {"status": "success", "message": f"Network {name} removed successfully"}
 
     except docker.errors.NotFound:
         error_msg = f"Network {name} not found"
@@ -112,19 +110,18 @@ async def list_networks():
 
         network_list = []
         for network in networks:
-            network_list.append({
-                "id": network.id,
-                "name": network.name,
-                "driver": network.attrs.get("Driver", ""),
-                "scope": network.attrs.get("Scope", ""),
-                "created": network.attrs.get("Created", "")
-            })
+            network_list.append(
+                {
+                    "id": network.id,
+                    "name": network.name,
+                    "driver": network.attrs.get("Driver", ""),
+                    "scope": network.attrs.get("Scope", ""),
+                    "created": network.attrs.get("Created", ""),
+                }
+            )
 
         logger.info(f"Listed {len(network_list)} networks")
-        return {
-            "status": "success",
-            "networks": network_list
-        }
+        return {"status": "success", "networks": network_list}
 
     except docker.errors.APIError as e:
         error_msg = str(e)
@@ -156,7 +153,7 @@ async def connect_container_to_network(name: str, request: NetworkConnectRequest
         logger.info(f"Container connected successfully: {container_id} -> {name}")
         return {
             "status": "success",
-            "message": f"Container {container_id} connected to network {name}"
+            "message": f"Container {container_id} connected to network {name}",
         }
 
     except docker.errors.NotFound as e:
@@ -175,7 +172,9 @@ async def connect_container_to_network(name: str, request: NetworkConnectRequest
 
 
 @router.post("/networks/{name}/disconnect", response_model=OperationResponse)
-async def disconnect_container_from_network(name: str, request: NetworkDisconnectRequest):
+async def disconnect_container_from_network(
+    name: str, request: NetworkDisconnectRequest
+):
     """
     Disconnect a container from a network.
 
@@ -195,7 +194,7 @@ async def disconnect_container_from_network(name: str, request: NetworkDisconnec
         logger.info(f"Container disconnected successfully: {container_id} <- {name}")
         return {
             "status": "success",
-            "message": f"Container {container_id} disconnected from network {name}"
+            "message": f"Container {container_id} disconnected from network {name}",
         }
 
     except docker.errors.NotFound as e:

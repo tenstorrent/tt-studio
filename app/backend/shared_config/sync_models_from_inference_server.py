@@ -60,6 +60,7 @@ def resolve_source_json(override: str | None = None) -> Path:
         + "\n".join(f"  {c.resolve()}" for c in _CANDIDATE_SOURCES)
     )
 
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -114,9 +115,17 @@ def map_model_type(raw_model_type: str, inference_engine: str) -> str:
 
 
 CHAT_CAPABLE_PATTERNS = [
-    "instruct", "-chat", "chat-", "-it-", "-it", "assistant",
+    "instruct",
+    "-chat",
+    "chat-",
+    "-it-",
+    "-it",
+    "assistant",
     # Reasoning / thinking models that do have chat templates
-    "deepseek-r1", "qwq", "qwen3", "gpt-oss",
+    "deepseek-r1",
+    "qwq",
+    "qwen3",
+    "gpt-oss",
 ]
 
 
@@ -125,16 +134,22 @@ def is_chat_capable(hf_model_id: str) -> bool:
     return any(p in lower for p in CHAT_CAPABLE_PATTERNS)
 
 
-def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_type: str = "") -> str:
+def map_service_route(
+    inference_engine: str, hf_model_id: str = "", raw_model_type: str = ""
+) -> str:
     """Derive service_route from inference_engine, model type, and model id.
-    
+
     Args:
         inference_engine: Engine type (vLLM, media, forge)
         hf_model_id: HuggingFace model ID (for vLLM chat detection)
         raw_model_type: Raw model type from inference server (TEXT_TO_SPEECH, TTS, etc.)
     """
     if inference_engine == "vLLM":
-        return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
+        return (
+            "/v1/chat/completions"
+            if is_chat_capable(hf_model_id)
+            else "/v1/completions"
+        )
     if inference_engine == "media":
         # TTS models use OpenAI-compatible /v1/audio/speech endpoint
         if raw_model_type in ("TEXT_TO_SPEECH", "TTS"):
@@ -159,11 +174,11 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
 
 def map_health_route(inference_engine: str, service_route: str) -> str:
     """Derive health_route from inference_engine and service_route.
-    
+
     Args:
         inference_engine: Engine type (vLLM, media, forge)
         service_route: The service route (e.g., /enqueue, /v1/audio/speech)
-    
+
     Returns:
         The appropriate health check endpoint
     """
@@ -179,18 +194,18 @@ def filter_env_vars(env_vars: dict) -> dict:
     must be strings. The artifact emits int-valued vars (e.g.
     VLLM_ALLOW_LONG_MAX_MODEL_LEN=1) that would otherwise break.
     """
-    return {
-        k: str(v)
-        for k, v in env_vars.items()
-        if k not in DEVICE_SPECIFIC_ENV_KEYS
-    }
+    return {k: str(v) for k, v in env_vars.items() if k not in DEVICE_SPECIFIC_ENV_KEYS}
 
 
 def pick_higher_status(current: str | None, candidate: str) -> str:
     """Return whichever status is higher priority."""
     if current is None:
         return candidate
-    return current if STATUS_ORDER.get(current, 0) >= STATUS_ORDER.get(candidate, 0) else candidate
+    return (
+        current
+        if STATUS_ORDER.get(current, 0) >= STATUS_ORDER.get(candidate, 0)
+        else candidate
+    )
 
 
 def _version_key(entry: dict) -> tuple[int, tuple[int, ...]]:
@@ -284,33 +299,48 @@ def normalize(source_path: Path) -> list[dict]:
 
         inference_engine = first.get("inference_engine", "vLLM")
         raw_model_type = first.get("model_type", "LLM")
-        service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
+        service_route = map_service_route(
+            inference_engine,
+            hf_model_id=first.get("hf_model_repo", ""),
+            raw_model_type=raw_model_type,
+        )
 
-        models.append({
-            "model_name": model_name,
-            "model_type": map_model_type(raw_model_type, inference_engine),
-            "display_model_type": raw_model_type,
-            "device_configurations": device_configurations,
-            "hf_model_id": first.get("hf_model_repo"),
-            "inference_engine": inference_engine,
-            "status": status,
-            "version": canonical.get("version", "0.0.0"),
-            "docker_image": canonical.get("docker_image"),
-            "service_route": service_route,
-            "health_route": map_health_route(inference_engine, service_route),
-            "env_vars": env_vars,
-            "param_count": first.get("param_count"),
-        })
+        models.append(
+            {
+                "model_name": model_name,
+                "model_type": map_model_type(raw_model_type, inference_engine),
+                "display_model_type": raw_model_type,
+                "device_configurations": device_configurations,
+                "hf_model_id": first.get("hf_model_repo"),
+                "inference_engine": inference_engine,
+                "status": status,
+                "version": canonical.get("version", "0.0.0"),
+                "docker_image": canonical.get("docker_image"),
+                "service_route": service_route,
+                "health_route": map_health_route(inference_engine, service_route),
+                "env_vars": env_vars,
+                "param_count": first.get("param_count"),
+            }
+        )
 
     # Sort: by status (highest first), then alphabetically by model_name
-    models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
+    models.sort(
+        key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower())
+    )
     return models
 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Sync model catalog from tt-inference-server")
-    parser.add_argument("--source", default=None, help="Path to model_specs_output.json (overrides auto-detection)")
+
+    parser = argparse.ArgumentParser(
+        description="Sync model catalog from tt-inference-server"
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Path to model_specs_output.json (overrides auto-detection)",
+    )
     args = parser.parse_args()
 
     source_path = resolve_source_json(args.source)
@@ -351,6 +381,7 @@ def main():
 
     # Print a summary
     from collections import Counter
+
     status_counts = Counter(m["status"] for m in models)
     type_counts = Counter(m["model_type"] for m in models)
     display_type_counts = Counter(m["display_model_type"] for m in models)

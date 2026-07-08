@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Ruff configuration for TT-Studio Python services. Matches the pinned
+# pre-commit hook (dev-tools/.pre-commit-config.yaml, ruff v0.7.0) which runs
+# ruff with its default rule set (pyflakes `F` + a subset of pycodestyle `E`).
+
+target-version = "py311"
+
+extend-exclude = [
+    ".artifacts",
+    "tt_studio_persistent_volume",
+    "node_modules",
+    "**/migrations/**",
+    ".venv",
+]

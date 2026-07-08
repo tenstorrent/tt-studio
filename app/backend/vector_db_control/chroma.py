@@ -12,7 +12,10 @@ from chromadb.types import Collection
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
-from vector_db_control.singletons import ChromaClient, get_embedding_function
+from vector_db_control.singletons import (  # noqa: E402
+    ChromaClient,
+    get_embedding_function,
+)
 
 
 def list_collections(filter_func=None):
@@ -20,10 +23,6 @@ def list_collections(filter_func=None):
     if filter_func:
         return filter(filter_func, chroma_collections)
     return chroma_collections
-
-
-def delete_collection(collection_name: str):
-    ChromaClient().delete_collection(name=collection_name)
 
 
 def get_collection(collection_name: str, embedding_func_name: str):
@@ -59,7 +58,10 @@ def delete_collection(collection_name: str):
 
 
 def query_collection(
-    collection_name: str, embedding_func_name: str, query_texts: List[str], n_results: int = 10
+    collection_name: str,
+    embedding_func_name: str,
+    query_texts: List[str],
+    n_results: int = 10,
 ):
     embedding_func = get_embedding_function(model_name=embedding_func_name)
     target_collection = ChromaClient().get_collection(
