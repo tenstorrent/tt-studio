@@ -336,6 +336,20 @@ export default function NavBar() {
     [healthyModels],
   );
 
+  // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
+  // usable once a chat-capable model is healthy. Gate the navbar entries the
+  // same way we gate Voice Agent / Coding Agents.
+  const isLlmReady = useMemo(
+    () =>
+      healthyModels.some((m) => {
+        const t = m.model_type
+          ? getModelTypeFromBackendType(m.model_type)
+          : getModelTypeFromName(m.name, m.image);
+        return t === ModelType.ChatModel || t === ModelType.VLM;
+      }),
+    [healthyModels],
+  );
+
   // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
@@ -541,20 +555,26 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
-    {
-      type: "link",
-      to: "/workflows",
-      icon: Workflow,
-      label: "Workflows",
-      tooltip: "Build and run multi-step AI pipelines",
-    },
-    {
-      type: "link",
-      to: "/canvas",
-      icon: PanelLeft,
-      label: "Canvas",
-      tooltip: "AI code canvas with live preview",
-    },
+    // Workflows and Canvas both need a healthy chat-capable model to be useful,
+    // so only surface them once one is up.
+    ...(isLlmReady
+      ? [
+        {
+          type: "link" as const,
+          to: "/workflows",
+          icon: Workflow,
+          label: "Workflows",
+          tooltip: "Build and run multi-step AI pipelines",
+        },
+        {
+          type: "link" as const,
+          to: "/canvas",
+          icon: PanelLeft,
+          label: "Canvas",
+          tooltip: "AI code canvas with live preview",
+        },
+      ]
+      : []),
     // Coding Agents is only shown when a coding-agent-eligible model is deployed
     ...(isCodingAgentReady
       ? [
