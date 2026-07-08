@@ -181,6 +181,11 @@ class _ChecklistController:
         self._rows = 0
         self._build_last = {}     # svc -> last friendly label printed (dedupe)
         self._cleared_once = False  # collapse: clear the body on every phase after the first
+        self._pulse_frame = 0       # rotating-spinner frame for the active node
+        self._pulse_active = False  # animate the active node (during the build)
+        self._last_pulse = 0.0      # throttle repaints
+
+    _PULSE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # active-node spinner frames (the phase "pulse")
 
     def _enabled(self):
         return console.is_terminal and not VERBOSE
@@ -238,6 +243,20 @@ class _ChecklistController:
         f.write("\033[2;1H" + rule + "\033[K")     # row 2: separator from the body
         f.write("\0338")                          # restore cursor (back into region)
         f.flush()
+
+    def pulse(self):
+        """Advance the active node's spinner and repaint the header, so the current
+        phase visibly 'pulses' (used by the build stream). Throttled; no-op unless
+        the sticky header is installed."""
+        if not self._sticky_on:
+            return
+        now = time.monotonic()
+        if now - self._last_pulse < 0.12:
+            return
+        self._last_pulse = now
+        self._pulse_active = True
+        self._pulse_frame += 1
+        self._paint()
 
     def _clear_body(self):
         """Wipe the scrolling body (everything below the fixed stepper), so a
@@ -312,6 +331,7 @@ class _ChecklistController:
             return
         p.status = "failed" if failed else "done"
         p.end = time.monotonic()
+        self._pulse_active = False   # stop pulsing once the phase resolves
         if self._sticky_on:
             self._paint()
         else:
@@ -373,7 +393,8 @@ class _ChecklistController:
             if p.status == "done":
                 segs.append(f"[success]✓[/success] [muted]{p.title}[/muted]")
             elif p.status == "active":
-                segs.append(f"[bold accent]◉ {p.title}[/bold accent]")
+                node = self._PULSE[self._pulse_frame % len(self._PULSE)] if self._pulse_active else "◉"
+                segs.append(f"[bold accent]{node} {p.title}[/bold accent]")
             elif p.status == "failed":
                 segs.append(f"[bold error]✗ {p.title}[/bold error]")
             else:
@@ -505,6 +526,11 @@ def build_event(kind, svc=None, x=None, y=None, label=None):
 def build_log(line):
     """Feed a raw build-output line into the Build row's rolling tail."""
     _checklist.build_log(line)
+
+
+def pulse():
+    """Advance the active phase node's spinner (the top-of-screen 'pulse')."""
+    _checklist.pulse()
 
 
 def stop_active_phase():

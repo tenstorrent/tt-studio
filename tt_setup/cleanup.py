@@ -335,6 +335,26 @@ def _deployed_model_names(has_docker_access):
         return None
 
 
+def _port_owned_by_root(port):
+    """Best-effort: True if the process LISTENing on `port` is owned by root (so
+    stopping it will need sudo). Returns False on any error — never raises."""
+    try:
+        pids = subprocess.run(
+            ["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
+            capture_output=True, text=True, timeout=5,
+        )
+        pid = (pids.stdout or "").strip().split("\n")[0].strip()
+        if not pid:
+            return False
+        owner = subprocess.run(
+            ["ps", "-o", "user=", "-p", pid],
+            capture_output=True, text=True, timeout=5,
+        )
+        return owner.stdout.strip() == "root"
+    except Exception:
+        return False
+
+
 def _docker_daemon_status():
     """Classify Docker availability so teardown can react without leaking the raw
     'Cannot connect to the Docker daemon' error:

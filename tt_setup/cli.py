@@ -568,6 +568,7 @@ def _run(args):
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
             cwd=os.path.join(TT_STUDIO_ROOT, "app"),
+            dev_mode=args.dev,
         )
 
         # Result diagnostics/summary print outside the live region — suspend it first.
