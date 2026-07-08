@@ -56,27 +56,29 @@ def _read_user_config_env_value(path: Path, env_key: str) -> Optional[str]:
 
 def _resolve_tavily_api_key() -> Optional[str]:
     """Read TAVILY_API_KEY fresh from the shared user_config.env (with env fallback)
-    so UI changes apply without restarting the agent container."""
+    so UI changes apply without restarting the agent container. Fully guarded:
+    Path.exists() itself raises PermissionError when the parent directory is
+    not traversable by this container's user."""
     base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
     if base:
-        env_path = Path(base) / "backend_volume" / "user_config.env"
-        if env_path.exists():
-            val = _read_user_config_env_value(env_path, "TAVILY_API_KEY")
-            if val:
-                return val
-        else:
-            # Legacy user_config.json from before the .env migration; the
-            # backend converts and deletes it on its next load.
-            legacy = Path(base) / "backend_volume" / "user_config.json"
-            try:
+        try:
+            env_path = Path(base) / "backend_volume" / "user_config.env"
+            if env_path.exists():
+                val = _read_user_config_env_value(env_path, "TAVILY_API_KEY")
+                if val:
+                    return val
+            else:
+                # Legacy user_config.json from before the .env migration; the
+                # backend converts and deletes it on its next load.
+                legacy = Path(base) / "backend_volume" / "user_config.json"
                 if legacy.exists():
                     with legacy.open("r") as f:
                         data = json.load(f)
                     val = data.get("tavily_api_key") if isinstance(data, dict) else None
                     if val:
                         return val
-            except (OSError, json.JSONDecodeError):
-                pass
+        except (OSError, json.JSONDecodeError):
+            pass
     return os.environ.get("TAVILY_API_KEY") or None
 
 

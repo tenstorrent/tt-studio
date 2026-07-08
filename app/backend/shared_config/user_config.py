@@ -81,12 +81,12 @@ def _sanitize_value(value: str) -> str:
 
 
 def _write_env_file(config: dict) -> None:
+    # NOTE: do not tighten permissions on the parent directory — backend_volume
+    # is shared (model weights, deploy cache) and host-side processes such as
+    # the inference server must keep traversal access. Only the secrets file
+    # itself is restricted (0600).
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        pass
     lines = ["# TT Studio user secrets — managed via the Settings UI. Do not commit."]
     for py_key, env_key in _ENV_KEYS.items():
         value = config.get(py_key)

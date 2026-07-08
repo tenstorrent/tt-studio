@@ -127,6 +127,17 @@ def start_chat_deployment(
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
 
+    # Pass UI-managed secrets explicitly. The inference server runs on the host
+    # and cannot read user_config.env in the persistent volume when the backend
+    # container (root) wrote it, so the request payload is its reliable source.
+    from shared_config.user_config import get_hf_token, get_jwt_secret
+    hf_token = get_hf_token()
+    if hf_token:
+        payload["hf_token"] = hf_token
+    jwt_secret = get_jwt_secret()
+    if jwt_secret:
+        payload["jwt_secret"] = jwt_secret
+
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)
     except requests.exceptions.RequestException as e:

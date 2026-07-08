@@ -52,14 +52,18 @@ if artifact_path is None:
 
 def _get_hf_token_from_user_config() -> Optional[str]:
     """Read HF_TOKEN from TT Studio's persistent user_config.env (set via the
-    Settings UI). Returns None if absent so callers can fall back to .env."""
+    Settings UI). Returns None if absent or unreadable (e.g. the file is
+    root-owned because the backend container wrote it) so callers can fall
+    back to the request payload or .env. NOTE: Path.exists() itself raises
+    PermissionError when the parent directory is not traversable, so the
+    whole lookup is guarded."""
     root = os.getenv("TT_STUDIO_ROOT")
     if not root:
         return None
     volume_dir = Path(root) / "tt_studio_persistent_volume" / "backend_volume"
-    env_path = volume_dir / "user_config.env"
-    if env_path.exists():
-        try:
+    try:
+        env_path = volume_dir / "user_config.env"
+        if env_path.exists():
             for line in env_path.read_text().splitlines():
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -71,21 +75,19 @@ def _get_hf_token_from_user_config() -> Optional[str]:
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
                     value = value[1:-1]
                 return value or None
-        except OSError:
             return None
-        return None
-    # Legacy user_config.json from before the .env migration; the backend
-    # converts and deletes it on its next load.
-    legacy_path = volume_dir / "user_config.json"
-    if not legacy_path.exists():
-        return None
-    try:
+        # Legacy user_config.json from before the .env migration; the backend
+        # converts and deletes it on its next load.
+        legacy_path = volume_dir / "user_config.json"
+        if not legacy_path.exists():
+            return None
         with legacy_path.open("r") as f:
             data = json.load(f)
         if isinstance(data, dict):
             val = data.get("hf_token")
             return val or None
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(f"Could not read UI-managed secrets from {volume_dir}: {e}")
         return None
     return None
 

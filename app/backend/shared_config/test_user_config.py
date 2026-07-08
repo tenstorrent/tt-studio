@@ -37,6 +37,15 @@ class TestSaveLoadRoundTrip:
         mode = stat.S_IMODE(os.stat(volume / "backend_volume" / "user_config.env").st_mode)
         assert mode == 0o600
 
+    def test_parent_dir_stays_traversable(self, volume):
+        """backend_volume is shared (model weights, deploy cache); host-side
+        processes like the inference server must keep traversal access even
+        though the backend container writes this file as root. Locking the
+        dir to 0700 broke host deploys (PermissionError from Path.exists())."""
+        user_config.save_user_config({"hf_token": "hf_abc123"})
+        mode = stat.S_IMODE(os.stat(volume / "backend_volume").st_mode)
+        assert mode & 0o055 == 0o055, f"backend_volume must stay world-traversable, got {oct(mode)}"
+
     def test_empty_update_removes_key(self, volume):
         user_config.save_user_config({"hf_token": "hf_abc123"})
         user_config.save_user_config({"hf_token": ""})
