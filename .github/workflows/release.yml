@@ -1,0 +1,116 @@
+name: Tag and Release on Merge to Main
+
+# Every push to main produces a version tag and a published GitHub Release.
+# The version comes from the merge commit message (RC PRs are titled
+# "Rc vX.Y.Z"); pushes without a version fall back to a patch bump of the
+# latest tag. Add "[skip release]" to a commit message to opt out.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history and tags needed for version resolution
+
+      - name: Resolve release version
+        id: version
+        env:
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          if grep -qF '[skip release]' <<< "$HEAD_MESSAGE"; then
+            echo "Commit message contains [skip release]; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$(git tag --points-at HEAD)" ]; then
+            echo "HEAD is already tagged ($(git tag --points-at HEAD | tr '\n' ' ')); skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+          echo "Latest existing tag: ${latest_tag:-<none>}"
+
+          # GitHub merge commits carry the PR title in the message body,
+          # so search the full message for a version like v2.9.0 or 2.9.0.
+          version=$(grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' <<< "$HEAD_MESSAGE" | head -1 | sed 's/^v//') || true
+
+          if [ -n "$version" ]; then
+            echo "Version parsed from commit message: $version"
+          else
+            # No version in the message (e.g. a direct hotfix push):
+            # bump the patch component of the latest tag.
+            base=${latest_tag:-v0.0.0}
+            IFS=. read -r major minor patch <<< "${base#v}"
+            version="$major.$minor.$((patch + 1))"
+            echo "No version in commit message; auto-bumped patch: $version"
+          fi
+
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "Tag $tag already exists; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "skip=false"
+            echo "tag=$tag"
+            echo "previous_tag=$latest_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.version.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "TT Studio $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Publish release
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+
+          # Generated notes respect .github/release.yml categories and
+          # include the per-PR list plus the full-changelog compare link.
+          generate_args=(-f "tag_name=$TAG" -f "target_commitish=$GITHUB_SHA")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            generate_args+=(-f "previous_tag_name=$PREVIOUS_TAG")
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            "${generate_args[@]}" --jq '.body' > generated-notes.md
+
+          {
+            echo "## 🚀 TT Studio $TAG is out!"
+            echo ""
+            cat generated-notes.md
+          } > release-notes.md
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "TT Studio $TAG" \
+            --notes-file release-notes.md \
+            --latest

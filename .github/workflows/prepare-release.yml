@@ -1,0 +1,119 @@
+name: Prepare Release (open RC PR)
+
+# Manually triggered from the Actions tab. Opens (or refreshes) the
+# dev -> main release-candidate PR, pre-filled with the version and the
+# list of PRs merged since the last release. Merging that PR triggers the
+# release workflow, which tags main and publishes the GitHub Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 2.9.0). Leave empty to bump the minor version of the latest tag."
+        required: false
+        type: string
+
+jobs:
+  open-rc-pr:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0 # Full history and tags needed for version resolution
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+          echo "Latest existing tag: ${latest_tag:-<none>}"
+
+          version="${INPUT_VERSION#v}"
+          if [ -z "$version" ]; then
+            base=${latest_tag:-v0.0.0}
+            IFS=. read -r major minor _patch <<< "${base#v}"
+            version="$major.$((minor + 1)).0"
+            echo "No version input; auto-bumped minor: $version"
+          fi
+
+          if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$version"; then
+            echo "Invalid version: '$version' (expected X.Y.Z)" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "Tag $tag already exists; pick a different version." >&2
+            exit 1
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "previous_tag=$latest_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compose RC PR description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+
+          generate_args=(-f "tag_name=$TAG" -f "target_commitish=dev")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            generate_args+=(-f "previous_tag_name=$PREVIOUS_TAG")
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            "${generate_args[@]}" --jq '.body' > generated-notes.md
+
+          {
+            echo "## Release candidate $TAG"
+            echo ""
+            echo "This PR promotes \`dev\` to \`main\` for the $TAG release."
+            echo "Changes since ${PREVIOUS_TAG:-the beginning}:"
+            echo ""
+            cat generated-notes.md
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Release notes preview"
+            echo ""
+            echo "On merge, the release workflow tags \`main\` as \`$TAG\` and"
+            echo "publishes a GitHub Release titled \"TT Studio $TAG\" with the"
+            echo "notes above. Edit this PR title if the version should differ"
+            echo "(the workflow parses the version from the merge commit)."
+            echo ""
+            echo "### ⚠️ Merge instructions"
+            echo ""
+            echo "Merge with **\"Create a merge commit\"** — never squash."
+            echo "Squashing detaches \`main\` from \`dev\`'s history and brings"
+            echo "back merge conflicts on every future release."
+          } > pr-body.md
+
+      - name: Open or update RC PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --base main --head dev --state open --json number --jq '.[0].number // empty')
+
+          if [ -n "$existing" ]; then
+            echo "Updating existing RC PR #$existing"
+            gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" \
+              --title "Rc $TAG" --body-file pr-body.md
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base main --head dev \
+              --title "Rc $TAG" --body-file pr-body.md
+          fi
