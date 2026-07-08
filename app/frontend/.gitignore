@@ -21,3 +21,8 @@ dist-ssr
 *.sln
 *.sw?
 /node_modules
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
