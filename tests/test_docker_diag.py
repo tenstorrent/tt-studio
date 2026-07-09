@@ -31,21 +31,21 @@ class TestParseBuildLine(unittest.TestCase):
         line = "#22 [tt_studio_backend 2/8] RUN apt-get update && apt-get install -y curl"
         self.assertEqual(
             M.parse_build_line(line),
-            ("step", "tt_studio_backend", 2, 8, "RUN apt-get update && apt-get install -y curl"),
+            ("step", 22, "tt_studio_backend", 2, 8, "RUN apt-get update && apt-get install -y curl"),
         )
 
     def test_step_header_with_leading_spaces(self):
         line = "   #5 [tt_studio_frontend 3/9] COPY package.json ."
         self.assertEqual(
             M.parse_build_line(line),
-            ("step", "tt_studio_frontend", 3, 9, "COPY package.json ."),
+            ("step", 5, "tt_studio_frontend", 3, 9, "COPY package.json ."),
         )
 
     def test_cached_step_is_a_step(self):
         # CACHED steps still surface a header line and should render.
         line = "#7 [tt_studio_agent 4/6] COPY requirements.txt ."
-        kind, svc, x, y, _ = M.parse_build_line(line)
-        self.assertEqual((kind, svc, x, y), ("step", "tt_studio_agent", 4, 6))
+        kind, n, svc, x, y, _ = M.parse_build_line(line)
+        self.assertEqual((kind, n, svc, x, y), ("step", 7, "tt_studio_agent", 4, 6))
 
     def test_built_line(self):
         self.assertEqual(

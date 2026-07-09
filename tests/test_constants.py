@@ -18,8 +18,11 @@ class TestConstants(unittest.TestCase):
             self.assertTrue(getattr(M, name).startswith("\033["), name)
 
     def test_paths_derive_from_root(self):
-        self.assertTrue(M.ENV_FILE_PATH.endswith(os.path.join("app", ".env")))
-        self.assertTrue(M.ENV_FILE_DEFAULT.endswith(os.path.join("app", ".env.default")))
+        # The canonical .env now lives at the repo root; app/.env is the legacy
+        # location kept only for one-time migration.
+        self.assertEqual(M.ENV_FILE_PATH, os.path.join(M.TT_STUDIO_ROOT, ".env"))
+        self.assertEqual(M.ENV_FILE_DEFAULT, os.path.join(M.TT_STUDIO_ROOT, ".env.default"))
+        self.assertEqual(M.LEGACY_ENV_FILE_PATH, os.path.join(M.TT_STUDIO_ROOT, "app", ".env"))
         self.assertEqual(
             M.DOCKER_COMPOSE_FILE,
             os.path.join(M.TT_STUDIO_ROOT, "app", "docker-compose.yml"),
