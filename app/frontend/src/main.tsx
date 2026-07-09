@@ -59,6 +59,20 @@ async function applyCleanupSentinel(): Promise<void> {
   }
 }
 
+// Fallback for when the frontend server itself is unreachable (run.py
+// stopped, dev-server restart, container down): sw.js serves offline.html for
+// failed page navigations, so the tab shows "TT-Studio is not running" instead
+// of a dead browser error page, and reloads itself once the server is back.
+// (Backend-only outages are handled in-app by BackendHealthProvider.)
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Non-secure context or registration failure: degrade to current
+      // behavior (browser error page on refresh while down).
+    });
+  });
+}
+
 applyCleanupSentinel().finally(() => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

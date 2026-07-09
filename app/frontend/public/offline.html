@@ -1,0 +1,220 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: Apache-2.0
+SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+Offline fallback served by sw.js when a page navigation fails because the
+TT-Studio frontend server is unreachable (run.py stopped, dev server
+restarting, container down). Must stay fully self-contained — no external
+scripts, styles, or images — since it renders precisely when nothing else
+can be fetched. It polls the server and reloads automatically once it's back.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TT-Studio is not running</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f7f8;
+        --card: #ffffff;
+        --border: #e4e4e7;
+        --fg: #18181b;
+        --muted: #71717a;
+        --muted-bg: #f4f4f5;
+        --accent: #dc2626;
+        --accent-bg: rgba(220, 38, 38, 0.1);
+        --btn-bg: #18181b;
+        --btn-fg: #fafafa;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0c0c0d;
+          --card: #17171a;
+          --border: #2a2a2e;
+          --fg: #fafafa;
+          --muted: #a1a1aa;
+          --muted-bg: #202024;
+          --btn-bg: #fafafa;
+          --btn-fg: #18181b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+      }
+      .card {
+        width: 100%;
+        max-width: 28rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 2rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        text-align: center;
+      }
+      .icon {
+        width: 3.5rem;
+        height: 3.5rem;
+        margin: 0 auto 1.25rem;
+        border-radius: 9999px;
+        background: var(--accent-bg);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+      .sub {
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+      .tips {
+        margin-top: 1.25rem;
+        border: 1px solid var(--border);
+        background: var(--muted-bg);
+        border-radius: 0.375rem;
+        padding: 1rem;
+        text-align: left;
+        font-size: 0.875rem;
+        color: var(--muted);
+      }
+      .tips p {
+        font-weight: 500;
+        color: var(--fg);
+        margin-bottom: 0.5rem;
+      }
+      .tips ul {
+        padding-left: 1.25rem;
+        display: grid;
+        gap: 0.375rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.75rem;
+        background: var(--border);
+        color: var(--fg);
+        border-radius: 0.25rem;
+        padding: 0.125rem 0.375rem;
+      }
+      button {
+        margin-top: 1.5rem;
+        width: 100%;
+        padding: 0.625rem 1rem;
+        border: none;
+        border-radius: 0.375rem;
+        background: var(--btn-bg);
+        color: var(--btn-fg);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .note {
+        margin-top: 0.75rem;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card" role="alertdialog" aria-labelledby="title">
+      <div class="icon" aria-hidden="true">
+        <!-- server-crash glyph -->
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M6 10H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+          <path d="M6 14H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-2" />
+          <path d="M6 6h.01" />
+          <path d="M6 18h.01" />
+          <path d="m13 6-4 6h6l-4 6" />
+        </svg>
+      </div>
+
+      <h1 id="title">TT-Studio is not running</h1>
+      <p class="sub">
+        The app can't reach the TT-Studio server. It may have been stopped or
+        is restarting.
+      </p>
+
+      <div class="tips">
+        <p>Try this:</p>
+        <ul>
+          <li>Restart the application with <code>python run.py</code>.</li>
+          <li>Confirm the host machine is powered on and reachable.</li>
+          <li>
+            If you're connected over SSH, check that the port forward is still
+            active.
+          </li>
+        </ul>
+      </div>
+
+      <button type="button" id="retry">Retry now</button>
+      <p class="note">This page reloads automatically once TT-Studio is back.</p>
+    </div>
+
+    <script>
+      // Poll the server root; any HTTP response means the frontend is
+      // serving again, so reload into the real app (which then handles a
+      // still-down backend with its own overlay).
+      const POLL_INTERVAL_MS = 2500;
+      const POLL_TIMEOUT_MS = 3000;
+      const button = document.getElementById("retry");
+
+      async function probe() {
+        button.disabled = true;
+        button.textContent = "Checking…";
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
+          const response = await fetch("/", { cache: "no-store", signal: controller.signal });
+          clearTimeout(timer);
+          if (response.ok) {
+            location.reload();
+            return;
+          }
+        } catch {
+          // still unreachable
+        }
+        button.disabled = false;
+        button.textContent = "Retry now";
+      }
+
+      button.addEventListener("click", probe);
+      setInterval(probe, POLL_INTERVAL_MS);
+      probe();
+    </script>
+  </body>
+</html>
