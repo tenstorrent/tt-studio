@@ -93,6 +93,15 @@ proxyConfig["/ws-api"] = {
   rewrite: (path: string) => path.replace(/^\/ws-api/, "/ws"),
 };
 
+// Lightweight backend liveness probe used by the frontend to detect when the
+// backend becomes unreachable. Forwards to the backend's bare `/up/` endpoint
+// (path preserved, no rewrite).
+proxyConfig["/up"] = {
+  target: VITE_BACKEND_URL,
+  changeOrigin: true,
+  secure: true,
+};
+
 // Add specific proxy configuration for the /reset-board endpoint
 proxyConfig["/reset-board"] = {
   target: VITE_BACKEND_URL,
@@ -117,6 +126,11 @@ proxyConfig["/reset-board"] = {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // The canonical env file lives at the repo root. Point Vite there so local
+  // `npm run dev` reads the same VITE_* vars as the dockerized build. Vite only
+  // exposes VITE_-prefixed vars to the client bundle, so non-VITE_ secrets in
+  // the root .env (JWT_SECRET, HF_TOKEN, ...) are never bundled.
+  envDir: path.resolve(__dirname, "../.."),
   plugins: [
     react(),
     tailwindcss(),

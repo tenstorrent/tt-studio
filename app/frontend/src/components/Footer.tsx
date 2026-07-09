@@ -170,7 +170,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   // starts after the 64px (w-16) sidebar instead of overlapping it.
   const hasVerticalNav =
     location.pathname === "/chat" ||
-    location.pathname === "/image-generation";
+    location.pathname === "/image-generation" ||
+    location.pathname === "/video-generation";
   const footerLeft = hasVerticalNav ? "left-16" : "left-0";
 
   // Derive board info from DeviceStateContext

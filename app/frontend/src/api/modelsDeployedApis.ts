@@ -5,6 +5,7 @@ import axios from "axios";
 import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
 import { type Model } from "../contexts/ModelsContext";
+import { type HealthStatus } from "../types/models";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
@@ -144,6 +145,24 @@ export const fetchDeployments = async (): Promise<CanonicalDeployment[]> => {
   );
   const data = response.data || {};
   return Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
+};
+
+// Probe a single deployment's real readiness via the same endpoint HealthBadge
+// uses. 200 = ready to serve, 202 = still warming up, 503 = unavailable. This is
+// the authoritative "usable" signal; the deployments `health` field only carries
+// Docker's raw container health, which is not a readiness signal.
+export const fetchModelHealth = async (
+  deployId: string,
+): Promise<HealthStatus> => {
+  try {
+    const response = await fetch(`${modelAPIURL}health/?deploy_id=${deployId}`);
+    if (response.status === 200) return "healthy";
+    if (response.status === 202) return "starting";
+    if (response.status === 503) return "unavailable";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -358,7 +377,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
-      return "/chat"; // placeholder until video UI exists
+      return "/video-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:

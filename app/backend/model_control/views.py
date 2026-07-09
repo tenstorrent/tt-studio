@@ -674,6 +674,157 @@ class ImageGenerationInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class VideoGenerationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for tt-media-server T2V API."""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        prompt = data.get("prompt")
+        if not prompt:
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+
+        payload = {"prompt": prompt}
+        if data.get("seed") is not None:
+            try:
+                payload["seed"] = int(data["seed"])
+            except (TypeError, ValueError):
+                pass
+        if data.get("num_inference_steps") is not None:
+            try:
+                payload["num_inference_steps"] = int(data["num_inference_steps"])
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp.raise_for_status()
+
+            # Sync mode: server returned video bytes directly (use_async_video=False)
+            if init_resp.status_code == status.HTTP_200_OK:
+                content_type = init_resp.headers.get("Content-Type", "video/mp4")
+                django_response = HttpResponse(init_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                return django_response
+
+            # Async mode: server returned 202 with job_id — return it immediately so the
+            # frontend can poll status (see VideoGenerationStatusView) and then download
+            # (VideoGenerationDownloadView). The blocking poll loop used to live here.
+            job_data = init_resp.json()
+            job_id = job_data.get("job_id") or job_data.get("id")
+            if not job_id:
+                logger.error(f"No job_id in async response: {job_data}")
+                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationInferenceView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = 0
+            if err_status == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif err_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _video_base_url(deploy_id):
+    """Resolve the tt-media-server base URL for a deployed video model."""
+    deploy = get_deploy_cache()[deploy_id]
+    internal_url = "http://" + deploy["internal_url"]
+    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+
+
+def _normalize_video_phase(raw_status):
+    """Map the tt-media-server status string to a coarse phase for the frontend."""
+    s = (raw_status or "").lower()
+    if s in ("completed", "complete", "done", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "canceled", "cancelling", "canceling"):
+        return "cancelled"
+    if s in ("in_progress", "running", "processing"):
+        return "in_progress"
+    return "queued"
+
+
+class VideoGenerationStatusView(APIView):
+    """Proxy the tt-media-server video job status so the frontend can poll progress."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+            poll_resp.raise_for_status()
+
+            phase = _normalize_video_phase(poll_resp.json().get("status"))
+            return Response({"phase": phase}, status=status.HTTP_200_OK)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationStatusView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VideoGenerationDownloadView(APIView):
+    """Proxy the finished video file from the tt-media-server."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationDownloadView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class SpeechRecognitionInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special automatic speec recognition inference view"""
@@ -1614,7 +1765,11 @@ class ModelAPIInfoView(APIView):
 
 # Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
 # is the SSOT in shared_config.coding_agent_config.
-from shared_config.coding_agent_config import is_coding_agent_eligible  # noqa: E402
+from shared_config.coding_agent_config import (  # noqa: E402
+    is_coding_agent_eligible,
+    get_gateway_model_names,
+    resolve_thinking_variant,
+)
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -1701,14 +1856,21 @@ class OpenAIChatCompletionsView(View):
         except json.JSONDecodeError:
             return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
 
-        requested_model = data.get("model")
-        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, requested_model)
+        # Reasoning models are exposed as both "<name>" and "<name>-thinking";
+        # both resolve to the same deployment but flip vLLM's enable_thinking flag.
+        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
+        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
         if deploy is None:
             return JsonResponse(
-                {"error": {"message": f"No running model named '{requested_model}'.",
+                {"error": {"message": f"No running model named '{base_model}'.",
                            "type": "model_not_found"}},
                 status=404,
             )
+        if enable_thinking is not None:
+            ctk_raw = data.get("chat_template_kwargs")
+            ctk = ctk_raw if isinstance(ctk_raw, dict) else {}
+            ctk["enable_thinking"] = enable_thinking
+            data["chat_template_kwargs"] = ctk
 
         internal_url = "http://" + deploy["internal_url"]
         data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
@@ -1774,10 +1936,13 @@ class OpenAIModelsView(APIView):
         data = []
         for _, entry in _running_coding_agent_deploys():
             name = getattr(entry.get("model_impl"), "model_name", None)
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
-            data.append({"id": name, "object": "model", "owned_by": "tt-studio"})
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                data.append({"id": exposed, "object": "model", "owned_by": "tt-studio"})
         return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
 
 
@@ -1802,11 +1967,14 @@ class CodingAgentsView(APIView):
         for _, entry in _running_coding_agent_deploys():
             impl = entry.get("model_impl")
             name = getattr(impl, "model_name", None)
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
             mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
-            models.append({"name": name, "type": mtype})
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                models.append({"name": exposed, "type": mtype})
 
         return Response(
             {

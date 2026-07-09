@@ -123,7 +123,7 @@ Follow these step-by-step instructions to smoothly automate the process of setti
      The script will:
      1. Validate your Hugging Face token (`HF_TOKEN`).
      2. Prompt you for an `HF_HOME` location (default is often `~/.cache/huggingface`).
-     3. Ask for a JWT secret, which should match the one in `tt-studio/app/.env` (commonly `test-secret-456`).
+     3. Ask for a JWT secret, which should match the one in `tt-studio/.env` (commonly `test-secret-456`).
 
 By following these steps, your tt-inference-server model infrastructure will be correctly configured and ready for inference via the TT-Studio GUI.
 
