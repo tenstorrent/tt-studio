@@ -18,6 +18,7 @@ from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compos
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
 from tt_setup.bug_report import report_bug
+from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut
 from tt_setup.cleanup import cleanup_resources
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
@@ -93,6 +94,7 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
         if docker_control_enabled:
             footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
     footer.append("[muted]Info · python run.py --info[/muted]")
+    footer.append("[muted]Help · python run.py --help[/muted]")
 
     console.print()
     console.print(ready_panel("TT Studio is ready", rows, footer))
@@ -183,6 +185,10 @@ def _run(args):
 
         if args.report_bug:
             report_bug(args=args, open_browser=not args.no_browser)
+            return
+
+        if args.install_shortcut:
+            install_shortcut()
             return
 
         if args.cleanup or args.cleanup_all:
@@ -707,6 +713,10 @@ def _run(args):
         startup_log.step("startup_complete", "OK")
         startup_log.summary(exit_code=0)
         startup_log.close()
+
+        # First-run, one-time offer to add the `tt-studio` shell shortcut (only
+        # when interactive and not already set up).
+        maybe_offer_shortcut(args)
 
         # Wait for services if requested
         if args.wait_for_services:

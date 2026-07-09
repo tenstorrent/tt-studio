@@ -24,6 +24,7 @@ def _entry(
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults).", rich_help_panel="Setup & Configuration"),
     reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", help="Reconfigure the TT Inference Server artifact.", rich_help_panel="Setup & Configuration"),
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
+    install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
     auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup.", rich_help_panel="Model Deployment"),
     device_id: int = typer.Option(0, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for --auto-deploy.", rich_help_panel="Model Deployment"),
@@ -79,6 +80,7 @@ def _entry(
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
         status=status, logs=logs, info=info, report_bug=report_bug,
+        install_shortcut=install_shortcut,
     )
     _run(args)
 

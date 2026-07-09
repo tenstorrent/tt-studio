@@ -37,6 +37,7 @@ The script will guide you through all configuration options and set up everythin
 | `--help`        | Display help message with usage details.                                     |
 | `--dev`         | Run in development mode with suggested defaults.                             |
 | `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
+| `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
 | `--stop`        | Stop and remove all Docker services. (Deprecated alias: `--cleanup`.)        |
 | `--purge-all`   | Stop and wipe everything including persistent data and .env file. (Deprecated alias: `--cleanup-all`.) |
 | `--logs`        | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
@@ -391,6 +392,18 @@ python run.py --stop
 ```bash
 python run.py --purge-all
 ```
+
+### A Shorter Command (`tt-studio`)
+```bash
+python run.py --install-shortcut
+```
+Adds a `tt-studio` shell function to your `~/.zshrc` / `~/.bashrc` that runs the
+launcher from the repo no matter which directory you're in (it `cd`s in a
+subshell, so your current directory is untouched). Reopen your terminal (or
+`source` your rc), then use `tt-studio`, `tt-studio --dev`, `tt-studio --stop`,
+etc. The first time you launch without the shortcut installed, TT-Studio also
+offers to set it up for you (once). Bash/zsh are handled automatically; other
+shells get a snippet to paste.
 
 ### Reporting a Bug
 ```bash
