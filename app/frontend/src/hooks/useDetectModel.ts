@@ -7,7 +7,7 @@ export interface DetectedModelInfo {
   hf_model_id?: string;
   model_type?: string;
   port?: number;
-  source?: "logs" | "api" | "paste";
+  source?: "container" | "api" | "logs";
 }
 
 // Probe a discovered container's logs (and, if reachable, its live /v1/models
@@ -22,17 +22,23 @@ export function useDetectModel(containerId: string) {
       setDetected(null);
       return;
     }
+    let cancelled = false;
     setDetecting(true);
     setDetected(null);
     const controller = new AbortController();
     fetch(`/docker-api/detect-model/${containerId}/`, { signal: controller.signal })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : {}))
       .then((data: DetectedModelInfo & { error?: string }) => {
-        if (!data.error && Object.keys(data).length > 0) setDetected(data);
+        if (!cancelled && !data.error && Object.keys(data).length > 0) setDetected(data);
       })
       .catch(() => {})
-      .finally(() => setDetecting(false));
-    return () => controller.abort();
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [containerId]);
 
   return { detecting, detected, setDetected };

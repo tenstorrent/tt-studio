@@ -167,6 +167,9 @@ export function isVisibleDeployment(d: CanonicalDeployment): boolean {
 }
 
 export function canonicalToModel(d: CanonicalDeployment): Model {
+  // A managed deployment whose container has fallen off tt_studio_network is a
+  // stray — it can't be reached, so flag it for the UI to surface a reconnect path.
+  const onTtNetwork = Object.keys(d.networks ?? {}).some((n) => n.includes("tt_studio"));
   return {
     id: d.id,
     name: d.deployment_model_name ?? d.model_impl?.model_name ?? d.name ?? "Unnamed",
@@ -178,6 +181,7 @@ export function canonicalToModel(d: CanonicalDeployment): Model {
     device_ids: d.device_ids ?? undefined,
     model_type: d.model_type ?? undefined,
     coding_agent_eligible: d.coding_agent_eligible ?? false,
+    disconnected: d.source === "managed" && !onTtNetwork,
   };
 }
 
@@ -663,8 +667,10 @@ export interface DiscoveredContainer {
 }
 
 export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
+  // no-cache so polling reflects connect/disconnect live
   const response = await axios.get<DiscoveredContainer[]>(
-    "/docker-api/discover-containers/"
+    "/docker-api/discover-containers/",
+    { headers: { "Cache-Control": "no-cache" } }
   );
   return response.data;
 };

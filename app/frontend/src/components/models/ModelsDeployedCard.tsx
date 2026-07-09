@@ -344,11 +344,15 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
+    // A disconnected (off-network) managed model is a stray — show that
+    for (const m of models) {
+      if (m.disconnected) merged[m.id] = "disconnected";
+    }
     for (const id of Object.keys(failedMap)) {
       merged[id] = "failed";
     }
     return merged;
-  }, [healthMap, failedMap]);
+  }, [healthMap, failedMap, models]);
 
   // Workflow log dialog state (used when opening logs on a failed row)
   const [workflowDialogDeploymentId, setWorkflowDialogDeploymentId] = useState<number | null>(null);

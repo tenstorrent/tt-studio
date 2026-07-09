@@ -8,7 +8,7 @@ import { discoverContainers } from "../api/modelsDeployedApis";
 // infrastructure and aren't yet registered as deployments (i.e. registration
 // candidates). Used to surface the Register Model nav entry only when there's
 // actually something to register.
-export function useStrayContainers(pollMs = 7000): { count: number; hasStray: boolean } {
+export function useStrayContainers(pollMs = 4000): { count: number; hasStray: boolean } {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
@@ -18,7 +18,8 @@ export function useStrayContainers(pollMs = 7000): { count: number; hasStray: bo
         const containers = await discoverContainers();
         if (!cancelled) setCount(containers.length);
       } catch {
-        if (!cancelled) setCount(0);
+        // Keep the last-known count on transient errors so the nav entry
+        // doesn't flicker during brief backend/Docker hiccups.
       }
     };
     check();

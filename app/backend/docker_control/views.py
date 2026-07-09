@@ -1963,9 +1963,10 @@ class DeploymentHistoryView(APIView):
 class DiscoverContainersView(APIView):
     """List running containers that are candidates for registration.
 
-    A candidate is any running container that is notralready registered as a deployment. 
-    Being attached to tt_studio_network is NOT a disqualifier: a container can be on the network yet unregistered 
-    (a stray from a prior/partial registration), and those must still be offered.
+    A candidate is any running container that is either unregistered, or registered
+    but no longer on tt_studio_network (a disconnected stray). Being attached to the
+    network is not itself a disqualifier — only a registered container that is still
+    on the network is excluded; everything else is offered so it can be (re)registered.
     """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
@@ -2182,14 +2183,13 @@ class RegisterExternalModelView(APIView):
         try:
             data = request.data
             container_id = data.get("container_id")
-            model_type = data.get("model_type", "").lower()
-            model_name = data.get("model_name", "").strip()
-            hf_model_id = data.get("hf_model_id", "").strip() or None
-            service_port = data.get("service_port", 7000)
+            model_type = (data.get("model_type") or "").lower()
+            model_name = (data.get("model_name") or "").strip()
+            hf_model_id = (data.get("hf_model_id") or "").strip() or None
             device_id = data.get("device_id", 0)
             chips_required = data.get("chips_required", 1)
 
-            # Normalise device_id / chips_required to int
+            # Normalise device_id / chips_required / service_port to int
             try:
                 device_id = int(device_id)
             except (TypeError, ValueError):
@@ -2198,6 +2198,10 @@ class RegisterExternalModelView(APIView):
                 chips_required = int(chips_required)
             except (TypeError, ValueError):
                 chips_required = 1
+            try:
+                service_port = int(data.get("service_port", 7000))
+            except (TypeError, ValueError):
+                service_port = 7000
 
             # --- Only the container is required; model identity is derived below ---
             if not container_id:
