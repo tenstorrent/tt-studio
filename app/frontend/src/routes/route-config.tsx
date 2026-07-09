@@ -42,6 +42,7 @@ import React from "react";
 import { Navigate } from "react-router-dom";
 import HomePage from "../pages/HomePage";
 import ModelsDeployed from "../pages/ModelsDeployed";
+import RegisterModelPage from "../pages/RegisterModelPage";
 import ChatUI from "../pages/ChatUIPage";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
@@ -72,6 +73,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/",
       element: isDeployedEnabled ? <DeployedHomePage /> : <HomePage />,
+      condition: true,
+    },
+    {
+      path: "/register-model",
+      element: <RegisterModelPage />,
       condition: true,
     },
     {

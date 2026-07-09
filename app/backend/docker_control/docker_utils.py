@@ -943,6 +943,10 @@ def _enrich_container_with_model_impl(con, con_id):
 _CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
 
+# Grace window before a running deployment that briefly vanishes from the Docker listing is reconciled to stopped.
+_CANONICAL_RUNNING_GRACE_SECONDS = 30
+_running_missing_since: dict = {}
+
 
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
@@ -990,6 +994,7 @@ def get_canonical_deployments():
 
         if match_data is not None:
             matched_live_ids.add(match_id)
+            _running_missing_since.pop(dep.id, None)
             entry = dict(match_data)  # shallow copy so we don't mutate the original
             enriched = _enrich_container_with_model_impl(entry, match_id)
             entry["source"] = "managed"
@@ -1043,6 +1048,21 @@ def get_canonical_deployments():
                     "deployment_model_name": dep.model_name,
                 }
                 continue
+
+        # Running but absent from this listing — likely a transient/partial
+        # listing. Re-surface the last-known-good cached entry within the grace
+        # window instead of demoting it; only reconcile once the miss persists.
+        if dep.status == "running":
+            first_missed = _running_missing_since.setdefault(dep.id, now_utc)
+            if (now_utc - first_missed).total_seconds() < _CANONICAL_RUNNING_GRACE_SECONDS:
+                cache = caches[backend_config.django_deploy_cache_name]
+                for key in (full_id, short_id):
+                    cached = cache.get(key) if key else None
+                    if cached is not None:
+                        result[key] = cached
+                        break
+                continue
+            _running_missing_since.pop(dep.id, None)
 
         # Stale: reconcile to stopped so the slot frees up.
         try:

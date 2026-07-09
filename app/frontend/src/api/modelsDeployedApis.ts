@@ -147,6 +147,40 @@ export const fetchDeployments = async (): Promise<CanonicalDeployment[]> => {
   return Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
 };
 
+/** Format Docker port_bindings into the "host:port->container/proto" string the UI expects. */
+function formatPortBindings(bindings: CanonicalDeployment["port_bindings"]): string {
+  if (!bindings || Object.keys(bindings).length === 0) return "No ports";
+  return Object.keys(bindings)
+    .map((containerPort) => {
+      const bindList = bindings[containerPort];
+      if (!bindList || bindList.length === 0) return `${containerPort} (unbound)`;
+      const b = bindList[0];
+      return `${b.HostIp}:${b.HostPort}->${containerPort}`;
+    })
+    .join(", ");
+}
+
+
+// A deployment is "deployed" (visible in the models list) when it is a managed, non-pending deployment.
+export function isVisibleDeployment(d: CanonicalDeployment): boolean {
+  return d.source === "managed" && !d.is_pending;
+}
+
+export function canonicalToModel(d: CanonicalDeployment): Model {
+  return {
+    id: d.id,
+    name: d.deployment_model_name ?? d.model_impl?.model_name ?? d.name ?? "Unnamed",
+    image: d.image_name ?? "Unknown image",
+    status: d.status ?? "unknown",
+    health: (typeof d.health === "string" ? d.health : "") || "unknown",
+    ports: formatPortBindings(d.port_bindings),
+    device_id: d.device_id ?? null,
+    device_ids: d.device_ids ?? undefined,
+    model_type: d.model_type ?? undefined,
+    coding_agent_eligible: d.coding_agent_eligible ?? false,
+  };
+}
+
 // Probe a single deployment's real readiness via the same endpoint HealthBadge
 // uses. 200 = ready to serve, 202 = still warming up, 503 = unavailable. This is
 // the authoritative "usable" signal; the deployments `health` field only carries
@@ -213,7 +247,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         id: key,
         image: container.image_name || "Unknown image",
         status: container.status || "unknown",
-        health: container.health || "unknown",
+        health: (typeof container.health === "string" ? container.health : "") || "unknown",
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,
@@ -624,6 +658,8 @@ export interface DiscoveredContainer {
   image: string;
   status: string;
   port_bindings: Record<string, { HostIp: string; HostPort: string }[] | null>;
+  /** Chips auto-detected from bound /dev/tenstorrent nodes. Non-null → enforced. */
+  device_ids?: number[] | null;
 }
 
 export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
@@ -635,13 +671,12 @@ export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
 
 export interface RegisterExternalModelRequest {
   container_id: string;
-  model_type: string;
-  model_name: string;
+  // Identity/routes/port are derived server-side from the container; these are
+  // only sent when the user provides them as a last-resort override.
+  model_type?: string;
+  model_name?: string;
   hf_model_id?: string;
-  service_port?: number;
-  service_route?: string;
-  health_route?: string;
-  device_id: number;
+  device_id?: number;
   chips_required?: number;
 }
 

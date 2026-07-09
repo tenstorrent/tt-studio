@@ -21,9 +21,11 @@ import {
   type LucideIcon,
   History,
   Terminal,
+  Plus,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
+import { useStrayContainers } from "../hooks/useStrayContainers";
 
 import {
   NavigationMenu,
@@ -335,6 +337,9 @@ export default function NavBar() {
     [healthyModels],
   );
 
+  // Surface the Register Model entry only when there's a stray container to adopt.
+  const { hasStray } = useStrayContainers();
+
   // Check if we're in Chat UI, Image Generation, or Video Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
@@ -537,6 +542,17 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    ...(hasStray
+      ? [
+        {
+          type: "link" as const,
+          to: "/register-model",
+          icon: Plus,
+          label: "Register Model",
+          tooltip: "Adopt a running container as a deployed model",
+        },
+      ]
+      : []),
     // Coding Agents is only shown when a coding-agent-eligible model is deployed
     ...(isCodingAgentReady
       ? [

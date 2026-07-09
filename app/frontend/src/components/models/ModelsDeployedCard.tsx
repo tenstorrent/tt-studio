@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Plus, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
@@ -28,8 +28,9 @@ import { useColumnPrefs } from "../../hooks/useColumnPrefs";
 import {
   handleRedeploy,
   handleModelNavigationClick,
-  fetchModels,
-  fetchDeployedModelsInfo,
+  fetchDeployments,
+  canonicalToModel,
+  isVisibleDeployment,
   getModelTypeFromBackendType,
   ModelType,
   getModelTypeFromName,
@@ -44,7 +45,6 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
-import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import WorkflowLogDialog from "../deployment/WorkflowLogDialog";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
@@ -63,7 +63,7 @@ const deviceIdsForRow = (
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce } =
+  const { refreshTrigger, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
   // True while any board/device reset is in progress (global, backend-sourced).
   const isResetting = useIsResetting();
@@ -106,19 +106,14 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const navigate = useNavigate();
   const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
-  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
-      const fetched = await fetchModels();
-      const deployedInfo = await fetchDeployedModelsInfo();
-      const typeById = Object.fromEntries(deployedInfo.map(d => [d.id, d.model_type]));
-      const enriched = fetched.map(m => ({ ...m, model_type: m.model_type ?? typeById[m.id] }));
-      setModels(enriched);
-      if (fetched.length === 0) {
-        triggerRefresh();
-      }
+      // Same canonical source and visibility filter the provider uses, so the
+      // two writers of the shared models list can never disagree.
+      const deployments = await fetchDeployments();
+      setModels(deployments.filter(isVisibleDeployment).map(canonicalToModel));
     } catch (error) {
       let errorMessage = "Failed to fetch models. Check network connection.";
       if (error instanceof Error) {
@@ -129,7 +124,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [setModels, triggerRefresh]);
+  }, [setModels]);
 
   // Density/refresh prefs
   const { prefs, setDensity, setAutoRefreshSec, setHealthRefreshSec } =
@@ -255,7 +250,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
-  // Set of container IDs currently returned by /docker-api/status/ via fetchModels.
+  // Set of container IDs currently in the deployed models list.
   const liveContainerIds = useMemo(
     () => new Set(models.map((m: { id: string }) => m.id)),
     [models],
@@ -612,16 +607,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           <div className="flex items-center justify-between gap-3">
             {/* Left */}
             <CardTitle className="text-xl">Models Deployed</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowRegisterDialog(true)}
-              disabled={isResetting}
-              title={isResetting ? "Disabled while the board is resetting" : undefined}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Register Model
-            </Button>
             {/* Center intentionally empty per redesign */}
             <div className="flex-1" />
             {/* Right */}
@@ -799,15 +784,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           onClose={() => {
             setWorkflowDialogDeploymentId(null);
             setWorkflowDialogModelName(undefined);
-          }}
-        />
-
-        <RegisterModelDialog
-          open={showRegisterDialog}
-          onClose={() => setShowRegisterDialog(false)}
-          onSuccess={() => {
-            setShowRegisterDialog(false);
-            loadModels();
           }}
         />
       </ElevatedCard>
