@@ -48,6 +48,8 @@ python run.py                 # full setup + start (venv, .env, artifact, Docker
 python run.py --dev           # dev mode: hot-reload frontend & backend, mount source
 python run.py --stop          # stop containers, keep the persistent volume
 python run.py --purge-all     # wipe containers, volumes, and .env
+python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
+python run.py --info          # re-show the "TT Studio is ready" summary (URLs, mode, hardware)
 python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + open a GitHub issue
 python run.py --check-headers # report files missing SPDX headers
 ```

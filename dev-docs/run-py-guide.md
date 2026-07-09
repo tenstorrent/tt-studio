@@ -39,6 +39,9 @@ The script will guide you through all configuration options and set up everythin
 | `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
 | `--stop`        | Stop and remove all Docker services. (Deprecated alias: `--cleanup`.)        |
 | `--purge-all`   | Stop and wipe everything including persistent data and .env file. (Deprecated alias: `--cleanup-all`.) |
+| `--logs`        | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
+| `--info`        | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
+| `--status`      | Open the live monitor TUI for a running stack.                              |
 | `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
 | `--no-sudo`     | Skip sudo usage for FastAPI setup.                                           |
 | `--help-env`    | Show help for environment variables.                                         |
@@ -309,6 +312,24 @@ The startup script now automatically detects Tenstorrent hardware by checking fo
 You can still use the `--tt-hardware` flag to explicitly enable hardware support if needed.
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
+
+### QB2 assumption (`IS_QB2`)
+
+TT Studio ships on a QB2 (Blackhole QuietBox, `P300x2`), so `IS_QB2` defaults to
+`true`. On startup it verifies the QB2 with `tt-smi`:
+
+- **Confirmed** (a `P300x2` board): the ready panel shows `QuietBox (QB2)`.
+- **Wrong board** (tt-smi reads a different board): a non-fatal warning — the
+  machine is likely misconfigured, but startup continues.
+- **Can't read the chips** on a machine that clearly has TT tooling/hardware:
+  startup **stops** at the Checks phase and tells you to fix your tooling (or set
+  `IS_QB2=false`).
+- **No TT tooling at all** (a dev laptop — no `tt-smi`, no `/dev/tenstorrent`):
+  the check is skipped; the panel shows "No accelerator".
+
+Set `IS_QB2=false` in `.env` for a dev laptop, cloud mode, or a different board.
+This is independent of `TT_INFERENCE_ARTIFACT_BRANCH`, which only selects which
+inference-server build to download.
 
 ---
 

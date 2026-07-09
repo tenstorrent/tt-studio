@@ -10,10 +10,10 @@ import subprocess
 import time
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, begin_phase, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, show_detail, step, steps_panel, stop_active_phase
+from tt_setup.console import _fmt_duration, add_note, begin_phase, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
-from tt_setup.shell import check_tt_smi, display_welcome_banner, run_preflight_checks
+from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
@@ -22,6 +22,81 @@ from tt_setup.cleanup import cleanup_resources
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
+
+
+def _qb2_configured():
+    """Whether this deployment is configured as a QB2.
+
+    Defaults to TRUE — TT Studio ships on a QB2, so it assumes one unless the
+    operator explicitly sets IS_QB2=false (a dev laptop, cloud mode, or a
+    different board). This is independent of TT_INFERENCE_ARTIFACT_BRANCH, which
+    only selects which inference-server version to download.
+    """
+    return parse_boolean_env(get_env_var("IS_QB2", "true"))
+
+
+def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode=None):
+    """Render the "TT Studio is ready" summary panel from live probes.
+
+    Shared by the end of a normal startup and the standalone re-view
+    (`python run.py --info`). When run_start is None (the --info case) the
+    "Ready in …" line is omitted and the hardware label is (re)probed via tt-smi
+    rather than reused from Phase 1.
+    """
+    if is_deployed_mode is None:
+        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED", "false"))
+
+    fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
+    docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
+
+    # Hardware — reuse the Phase-1 label when given, else probe tt-smi now (--info).
+    if hardware_label is None:
+        tt_status, tt_detail, tt_board = None, "", ""
+        tt_smi_present = bool(shutil.which("tt-smi"))
+        if tt_smi_present:
+            tt_status, tt_detail, tt_board = check_tt_smi()
+        # Verify QB2 only when configured AND there's real TT tooling/hardware to
+        # check against — a pure dev laptop (no tt-smi, no device) shows plain
+        # "no accelerator" even though IS_QB2 defaults to true.
+        hw_present = tt_smi_present or detect_tt_hardware()
+        hardware_label, _ = resolve_hardware_label(
+            tt_status, tt_detail, tt_board, _qb2_configured() and hw_present,
+            hw_present=detect_tt_hardware())
+
+    # Only the app URL by default — FastAPI / Docker Control fold into --verbose.
+    endpoints = [("URL", "http://localhost:3000", "http://localhost:3000/")]
+    if is_verbose() and fastapi_enabled:
+        endpoints.append(("FastAPI", "http://localhost:8001", "http://localhost:8001/"))
+    if is_verbose() and docker_control_enabled:
+        endpoints.append(("Docker Control", "http://localhost:8002", "http://localhost:8002/api/v1/health"))
+
+    health = snapshot_health([health_url for _, _, health_url in endpoints])
+    rows = [(label, url, "up" if health.get(health_url) else "starting")
+            for label, url, health_url in endpoints]
+
+    mode_parts = ["AI Playground"] if is_deployed_mode else ["Local"]
+    if args.dev:
+        mode_parts.append("Dev")
+    if detect_tt_hardware():
+        mode_parts.append("TT Hardware")
+    rows.append(("Mode", " + ".join(mode_parts)))
+    rows.append(("Hardware", hardware_label or "No accelerator (remote/cloud mode)"))
+
+    footer = []
+    if run_start is not None:
+        footer.append(f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]")
+    footer.append("[muted]Stop · python run.py --stop[/muted]")
+    footer.append("[muted]Logs · python run.py --logs[/muted]")
+    if is_verbose():
+        if fastapi_enabled:
+            footer.append(f"[muted]     · tail -f {MODEL_RUN_LOG_FILE}[/muted]")
+        if docker_control_enabled:
+            footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
+    footer.append("[muted]Info · python run.py --info[/muted]")
+
+    console.print()
+    console.print(ready_panel("TT Studio is ready", rows, footer))
+    console.print()
 
 
 def _run(args):
@@ -89,6 +164,23 @@ def _run(args):
             from tt_setup.monitor import run_status
             sys.exit(run_status(dev_mode=args.dev))
 
+        if args.info:
+            # Re-render the "TT Studio is ready" summary from live probes.
+            show_ready_panel(args)
+            return
+
+        if args.logs:
+            # Stream all container logs. Reuse build_docker_compose_command so the
+            # invocation carries --env-file <root>/.env + the -f files — a bare
+            # `docker compose logs -f` would emit a wall of "variable is not set"
+            # warnings (the vars reach compose only via --env-file, never the shell).
+            cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False, quiet=True)
+            cmd += ["logs", "-f"]
+            try:
+                sys.exit(subprocess.run(cmd, cwd=TT_STUDIO_ROOT).returncode)
+            except KeyboardInterrupt:
+                sys.exit(0)
+
         if args.report_bug:
             report_bug(args=args, open_browser=not args.no_browser)
             return
@@ -145,11 +237,16 @@ def _run(args):
         ph = begin_phase(1, 5, "Checks")
 
         # Captured by the tt-smi probe below; surfaced in the ready panel later.
-        tt_status, tt_detail = None, ""
+        tt_status, tt_detail, tt_board = None, "", ""
+        hardware_label = None  # final "Hardware" row value, computed after the probe
 
         # Update freshness is itself a check — fold it into this phase.
         ph.set("checking for updates")
         freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+        # TT Studio ships on a QB2, so IS_QB2 defaults to true; we then verify that
+        # claim against tt-smi below. Set IS_QB2=false for a dev laptop / cloud /
+        # other board. (Independent of the inference-server artifact branch.)
+        is_qb2 = _qb2_configured()
         # Hard-stop only on release branches behind origin (feature branches just
         # continue). The actionable warning is printed by startup_checks.
         if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
@@ -167,22 +264,60 @@ def _run(args):
         run_preflight_checks()
         startup_log.step("preflight_checks", "OK")
 
-        # tt-smi health probe — non-fatal. Skips silently when tt-smi isn't on
-        # PATH (e.g. a Mac dev box with no TT tooling).
-        if shutil.which("tt-smi"):
+        # tt-smi health probe. Skips silently when tt-smi isn't on PATH (e.g. a
+        # Mac dev box with no TT tooling).
+        tt_smi_present = bool(shutil.which("tt-smi"))
+        if tt_smi_present:
             ph.set("tt-smi")
             startup_log.step("tt_smi_check", "START")
-            tt_status, tt_detail = check_tt_smi()
+            tt_status, tt_detail, tt_board = check_tt_smi()
             if tt_status == "ok":
-                startup_log.step("tt_smi_check", "OK", tt_detail)
+                startup_log.step("tt_smi_check", "OK", f"{tt_detail} [{tt_board or 'unclassified'}]")
             else:
                 startup_log.step("tt_smi_check", "WARN", tt_detail)
-                with ph.pause():  # surface the warning panel without the spinner
-                    console.print(notice_panel(
-                        "[bold]⚠  tt-smi may not be working[/bold]",
-                        ["Couldn't read Tenstorrent devices via tt-smi — your TT tooling or board may need attention.",
-                         "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
-                        border_style="warning"))
+
+        # This machine is configured as a QB2 (IS_QB2), so fail fast when tt-smi
+        # can't confirm a working device — better to stop at Checks than to fail
+        # deep in Build/Launch. Escape hatch: a pure dev laptop with NO TT tooling
+        # at all (no tt-smi, no /dev/tenstorrent) is left alone even with the QB2
+        # default on — it just shows "no accelerator". So we only stop when QB2 is
+        # configured AND there's real TT tooling/hardware present to read.
+        tt_present = tt_smi_present or detect_tt_hardware()
+        if is_qb2 and tt_present and tt_status != "ok":
+            reason = (tt_detail or "unreadable output") if tt_smi_present else "tt-smi not found on PATH"
+            startup_log.step("tt_smi_check", "FAIL", reason)
+            stop_active_phase()  # stop the phase spinner without a ✓, before the panel
+            console.print(notice_panel(
+                "[bold]⛔ This is set up as a QB2, but tt-smi couldn't read its devices[/bold]",
+                [f"tt-smi did not report a working Tenstorrent device ({reason}).",
+                 "Your Tenstorrent tooling or board may need attention.",
+                 "",
+                 "Fix your TT tooling and re-run [accent]python run.py[/accent],",
+                 "or set [accent]IS_QB2=false[/accent] in .env if this isn't a QB2 "
+                 "(dev laptop, cloud mode, or a different board).",
+                 "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
+                border_style="error"))
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+
+        # Not blocked → tt_status is "ok" (confirmed), or there's no TT tooling to
+        # check (dev laptop / cloud). Build the Hardware label; when QB2 is
+        # configured and tt-smi reports a *different* board (mismatch), surface it —
+        # still a likely-misconfigured system even though tt-smi read fine. Gated
+        # on real hardware so the QB2 default doesn't warn on a no-accelerator box.
+        hardware_label, hw_warning = resolve_hardware_label(
+            tt_status, tt_detail, tt_board, is_qb2 and tt_present,
+            hw_present=detect_tt_hardware())
+        if hw_warning:
+            startup_log.step("qb2_check", "WARN", hw_warning)
+            add_note(f"[warning]⚠  {hw_warning}[/warning]")
+            with ph.pause():
+                console.print(notice_panel(
+                    "[bold]⚠  QB2 configuration doesn't match the hardware[/bold]",
+                    [hw_warning,
+                     "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
+                    border_style="warning"))
 
         ph.set("Docker")
         startup_log.step("docker_install_check", "START")
@@ -553,62 +688,9 @@ def _run(args):
         end_phase(ph)  # ── end Phase 5 · Launch
         end_run()  # clear the pinned checklist; the ready panel follows
 
-        fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
-        docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
-
-        # Endpoints + mode go in the ready card; stop/logs hints sit beneath it.
-        # Each endpoint carries the health URL to probe; a quick concurrent
-        # snapshot gives the live ● (up) / … (starting) dot in the panel.
-        endpoints = [("URL", "http://localhost:3000", "http://localhost:3000/")]
-        if fastapi_enabled:
-            endpoints.append(("FastAPI", "http://localhost:8001", "http://localhost:8001/"))
-        if docker_control_enabled:
-            endpoints.append(("Docker Control", "http://localhost:8002", "http://localhost:8002/api/v1/health"))
-
-        health = snapshot_health([health_url for _, _, health_url in endpoints])
-        rows = [
-            (label, url, "up" if health.get(health_url) else "starting")
-            for label, url, health_url in endpoints
-        ]
-
-        mode_parts = []
-        if is_deployed_mode:
-            mode_parts.append("AI Playground")
-        else:
-            mode_parts.append("Local")
-        if args.dev:
-            mode_parts.append("Dev")
-        if detect_tt_hardware():
-            mode_parts.append("TT Hardware")
-        rows.append(("Mode", " + ".join(mode_parts)))
-
-        # Hardware row — reuse the tt-smi result from Phase 1 (free, already
-        # probed) so the device count shows without re-running tt-smi here.
-        if tt_status == "ok":
-            hardware = tt_detail or "Tenstorrent device detected"
-        elif detect_tt_hardware():
-            hardware = "Tenstorrent device detected"
-        else:
-            hardware = "No accelerator (remote/cloud mode)"
-        rows.append(("Hardware", hardware))
-
-        # Full log paths only with --verbose; otherwise one compact hint.
-        footer = [
-            f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]",
-            "[muted]Stop · python run.py --stop[/muted]",
-        ]
-        if is_verbose():
-            footer.append("[muted]Logs · cd app && docker compose logs -f[/muted]")
-            if fastapi_enabled:
-                footer.append(f"[muted]     · tail -f {MODEL_RUN_LOG_FILE}[/muted]")
-            if docker_control_enabled:
-                footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
-        else:
-            footer.append("[muted]Logs · cd app && docker compose logs -f   (-v for paths)[/muted]")
-
-        console.print()
-        console.print(ready_panel("TT Studio is ready", rows, footer))
-        console.print()
+        # Ready summary — same panel re-viewable later via `python run.py --info`.
+        show_ready_panel(args, run_start=run_start, hardware_label=hardware_label,
+                         is_deployed_mode=is_deployed_mode)
 
         # Recap actionable notes (HF-access blocks, warnings) that per-phase
         # collapse cleared from the scroll, so they're easy to get back. Full

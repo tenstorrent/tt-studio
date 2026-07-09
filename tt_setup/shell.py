@@ -92,14 +92,131 @@ def run_preflight_checks():
     return True
 
 
+# QB2 (Blackhole QuietBox) is the P300x2 board (2× P300 cards = 4 chips); the
+# 4-card variant reports P300Cx4. Kept as a set so callers can verify a
+# configured "QB2 mode" against what tt-smi actually reports.
+QB2_BOARD_TYPES = {"P300x2", "P300Cx4"}
+
+# Internal board type -> friendly system name for the ready panel. Mirrors the
+# board strings produced by _classify_boards (which mirrors
+# board_control.services.get_board_type). Types not listed fall back to the
+# board string itself.
+_BOARD_DISPLAY_NAMES = {
+    "P300x2": "QuietBox (QB2)",
+    "P300Cx4": "QuietBox (QB2)",
+    "T3K": "T3K",
+    "N150X4": "N150 ×4",
+    "N150": "N150",
+    "N300": "N300",
+    "P150X8": "P150 ×8",
+    "P150X4": "P150 ×4",
+    "P150": "P150",
+    "P300": "P300",
+    "P100": "P100",
+    "E150": "E150",
+    "GALAXY_T3K": "Galaxy (T3K)",
+    "GALAXY": "Galaxy",
+}
+
+
+def _classify_boards(device_info):
+    """Map a tt-smi `device_info` list to an internal board-type string.
+
+    Mirrors board_control.services.get_board_type (which runs in-container and
+    can't be imported host-side): strip the trailing " local"/" remote"
+    qualifier, require a single homogeneous board type, then substring-match the
+    raw type + device count. Returns "" when the type is unknown or the devices
+    aren't a single board family (so callers fall back to a plain count).
+    """
+    try:
+        raw_types = [str((d or {}).get("board_info", {}).get("board_type", "") or "")
+                     for d in (device_info or [])]
+    except Exception:
+        return ""
+    # Strip the " local"/" remote" suffix tt-smi appends to each board_type.
+    filtered = {t.rsplit(" ", 1)[0] for t in raw_types if t}
+    if len(filtered) != 1:
+        return ""  # no devices, or a mix of board types → can't classify
+    raw = filtered.pop().lower()
+    n = len(device_info or [])
+    if "n150" in raw:
+        return "N150X4" if n >= 4 else "N150"
+    if "n300" in raw:
+        return "T3K" if n >= 4 else "N300"
+    if "p300" in raw:
+        return "P300Cx4" if n >= 8 else "P300x2" if n >= 4 else "P300"
+    if "p150" in raw:
+        return "P150X8" if n >= 8 else "P150X4" if n >= 4 else "P150"
+    if "p100" in raw:
+        return "P100"
+    if "e150" in raw:
+        return "E150"
+    if "galaxy" in raw:
+        return "GALAXY_T3K" if "t3k" in raw else "GALAXY"
+    return ""
+
+
+def describe_board(board_type):
+    """Friendly system name for an internal board type (e.g. "QuietBox (QB2)"),
+    or None when there's nothing to classify (caller falls back to the count)."""
+    if not board_type:
+        return None
+    return _BOARD_DISPLAY_NAMES.get(board_type, board_type)
+
+
+def resolve_hardware_label(tt_status, detail, board_type, qb2_configured, hw_present=False):
+    """Build the ready-panel "Hardware" label + an optional problem warning.
+
+    Pure/testable (no I/O). Inputs are the check_tt_smi() result plus whether QB2
+    is configured (qb2_configured, from IS_QB2) and whether /dev/tenstorrent
+    exists (hw_present).
+
+    Returns (label, warning): `warning` is None normally, or a short problem
+    string when QB2 is configured but the hardware doesn't confirm it — the
+    caller surfaces that as a notice + a "Needs attention" recap note. QB2 is a
+    *claim* we verify against tt-smi, not a label we trust blindly.
+    """
+    # Base label from what tt-smi actually reports.
+    if tt_status == "ok":
+        system = describe_board(board_type)
+        base = f"{system} · {detail}" if system else (detail or "Tenstorrent device detected")
+    elif tt_status == "bad":
+        base = "tt-smi couldn't read the device"
+    elif hw_present:
+        base = "Tenstorrent device detected"
+    else:
+        base = "No accelerator (remote/cloud mode)"
+
+    if not qb2_configured:
+        return (base, None)
+
+    # QB2 is configured → verify it against tt-smi.
+    if tt_status == "ok" and board_type in QB2_BOARD_TYPES:
+        return (f"QuietBox (QB2) · {detail}", None)          # confirmed
+    if tt_status == "ok" and board_type:
+        return (
+            f"⚠ Configured as QB2 but found {board_type}",
+            f"This machine is set up as a QB2 (IS_QB2=true), but tt-smi reports a "
+            f"{board_type} board — the system may be misconfigured or not a QB2.",
+        )
+    # tt-smi unreadable / missing / unclassifiable → can't confirm QB2.
+    return (
+        "⚠ Configured as QB2 but tt-smi couldn't confirm it",
+        "This machine is set up as a QB2 (IS_QB2=true), but tt-smi couldn't confirm "
+        "a QB2 (P300x2) board — check your Tenstorrent tooling / hardware.",
+    )
+
+
 def check_tt_smi(timeout=20):
     """Run `tt-smi -s` as a fast preflight health probe for Tenstorrent devices.
 
     Mirrors board_control.services.get_tt_smi_data: spawns tt-smi in its own
     process group so a hung call can be killed cleanly. Returns a tuple
-    (status, detail) where status is "ok" or "bad". On success, detail is a
-    short "N device(s)" summary (or "" if unknown); on failure it's a short
-    reason. NEVER raises — callers can treat this as a non-fatal check.
+    (status, detail, board_type) where status is "ok" or "bad". On success,
+    detail is a short "N device(s)" summary (or "" if unknown) and board_type is
+    the classified internal board string (e.g. "P300x2") or "" if unclassifiable;
+    on failure detail is a short reason and board_type is "". NEVER raises —
+    callers can treat this as a non-fatal check.
     """
     proc = None
     try:
@@ -121,29 +238,32 @@ def check_tt_smi(timeout=20):
                     proc.kill()
             except Exception:
                 pass
-            return ("bad", f"timed out after {timeout}s")
+            return ("bad", f"timed out after {timeout}s", "")
 
         if proc.returncode != 0:
-            return ("bad", f"exit {proc.returncode}")
+            return ("bad", f"exit {proc.returncode}", "")
 
         try:
             data = json.loads(stdout)
         except (ValueError, TypeError):
-            return ("bad", "unreadable output")
+            return ("bad", "unreadable output", "")
 
         try:
-            n = len(data.get("device_info", []) or [])
+            device_info = data.get("device_info", []) or []
+            n = len(device_info)
             detail = f"{n} device(s)" if n else ""
+            board_type = _classify_boards(device_info)
         except Exception:
             detail = ""
-        return ("ok", detail)
+            board_type = ""
+        return ("ok", detail, board_type)
     except Exception:
         if proc is not None:
             try:
                 proc.kill()
             except Exception:
                 pass
-        return ("bad", "unreadable output")
+        return ("bad", "unreadable output", "")
 
 
 def copy_to_clipboard(text):

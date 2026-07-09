@@ -111,7 +111,6 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         "tt_studio_behind": False,
         "artifact_behind": False,
         "artifact_branch": None,
-        "qb2_mode": False,
         "tt_studio_branch_is_release": False,
     }
 
@@ -127,9 +126,11 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     actionable = []   # ALWAYS shown: there's something for the user to do
     quiet = []        # informational (feature-branch-behind, SHA detail) — verbose-only
 
-    # Detect QB2 mode first — it affects both checks below.
-    # Triggered by TT_QB2_LAUNCH_BRANCH, or implicitly when
-    # TT_INFERENCE_ARTIFACT_BRANCH is set to the QB2 launch branch.
+    # Which inference-server artifact branch to check for freshness. Triggered by
+    # TT_QB2_LAUNCH_BRANCH, or implicitly when TT_INFERENCE_ARTIFACT_BRANCH is the
+    # QB2 launch branch. NOTE: this is purely artifact-branch selection — it does
+    # NOT imply the machine is a QB2. QB2 *hardware* is a separate flag (IS_QB2,
+    # read in cli/_run.py); the two are intentionally decoupled.
     qb2_branch = (
         get_env_var_fn("TT_QB2_LAUNCH_BRANCH")
         or os.getenv("TT_QB2_LAUNCH_BRANCH", "")
@@ -141,8 +142,6 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         )
         if artifact_env == "tt_qb2_launch_branch":
             qb2_branch = artifact_env
-    if qb2_branch:
-        result["qb2_mode"] = True
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
     try:

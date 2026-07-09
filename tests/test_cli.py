@@ -22,8 +22,22 @@ class TestCli(unittest.TestCase):
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo"):
+        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
+                     "--logs", "--info"):
             self.assertIn(flag, result.output)
+
+    def test_info_flag_dispatches_to_ready_panel(self):
+        with patch.object(_cli_run, "show_ready_panel") as ready:
+            result = runner.invoke(M.app, ["--info"])
+        self.assertEqual(result.exit_code, 0)
+        ready.assert_called_once()
+
+    def test_qb2_defaults_true_and_honors_false(self):
+        # IS_QB2 defaults to true — TT Studio assumes a QB2 unless told otherwise.
+        with patch.object(_cli_run, "get_env_var", side_effect=lambda name, default="": default):
+            self.assertTrue(_cli_run._qb2_configured())
+        with patch.object(_cli_run, "get_env_var", side_effect=lambda name, default="": "false"):
+            self.assertFalse(_cli_run._qb2_configured())
 
     def test_help_hides_deprecated_aliases(self):
         # --cleanup/--cleanup-all and --fix-docker still work but must not clutter --help.
