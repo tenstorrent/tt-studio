@@ -145,6 +145,9 @@ panel → `✓ Stopped`. If the Docker daemon is down it skips container teardow
 "Cannot connect to the Docker daemon" leak) and stops only the host services.
 
 **Errors / Ctrl-C** — themed `notice_panel`s (resume/clean-up/help, or error + next steps).
+On an unexpected error the next-steps panel points to `python run.py --report-bug` and then
+interactively offers to package a diagnostics bundle (`tt_setup/bug_report.py`) — the CLI
+counterpart of the web UI's Report Bug button.
 
 ---
 

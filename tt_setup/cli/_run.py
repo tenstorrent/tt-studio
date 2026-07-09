@@ -17,6 +17,7 @@ from tt_setup.shell import check_tt_smi, display_welcome_banner, run_preflight_c
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.bug_report import report_bug
 from tt_setup.cleanup import cleanup_resources
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
@@ -87,6 +88,10 @@ def _run(args):
         if args.status:
             from tt_setup.monitor import run_status
             sys.exit(run_status(dev_mode=args.dev))
+
+        if args.report_bug:
+            report_bug(args=args, open_browser=not args.no_browser)
+            return
 
         if args.cleanup or args.cleanup_all:
             cleanup_resources(args)
@@ -738,9 +743,19 @@ def _run(args):
                 f"[muted]Startup log →[/muted]  {STARTUP_LOG_FILE}",
                 "[muted]Help        →[/muted]  python run.py --help",
                 "[muted]Clean up    →[/muted]  python run.py --stop",
-                "[muted]Report bugs →[/muted]  https://github.com/tenstorrent/tt-studio/issues",
+                "[muted]Report bug  →[/muted]  python run.py --report-bug",
             ],
             border_style="error",
         ))
+
+        # Offer to package logs + a pre-filled GitHub issue right now, mirroring
+        # the web UI's Report Bug button. Guard the prompt: a Ctrl+C here should
+        # exit cleanly rather than surface a second traceback.
+        try:
+            if confirm("Generate a diagnostics bundle to report this bug now?", default=False):
+                report_bug(exc=e, args=args, open_browser=not args.no_browser)
+        except (KeyboardInterrupt, EOFError):
+            pass
+
         sys.exit(1)
 

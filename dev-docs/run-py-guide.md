@@ -42,6 +42,7 @@ The script will guide you through all configuration options and set up everythin
 | `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
 | `--no-sudo`     | Skip sudo usage for FastAPI setup.                                           |
 | `--help-env`    | Show help for environment variables.                                         |
+| `--report-bug`  | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
@@ -369,6 +370,16 @@ python run.py --stop
 ```bash
 python run.py --purge-all
 ```
+
+### Reporting a Bug
+```bash
+python run.py --report-bug
+```
+Collects the available host-side logs (startup, model-run, docker-control) plus a
+non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip` and opens a
+pre-filled GitHub issue in your browser — attach the ZIP to that issue. The
+bundle never includes your `.env` (only whether it exists). If `python run.py`
+itself errors, it offers the same flow interactively from the "Next steps" panel.
 
 ### Running on Remote Machine
 To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser:
