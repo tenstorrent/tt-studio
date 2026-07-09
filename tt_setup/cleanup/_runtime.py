@@ -48,9 +48,18 @@ def _cleanup_runtime(args, has_docker_access):
         with step("Stopping Docker containers", spinner=True) as s:
             docker_compose_cmd = build_docker_compose_command(
                 dev_mode=args.dev, show_hardware_info=False, quiet=True)
+            # `--ansi never` is a top-level compose flag (must precede the
+            # subcommand): it disables Compose's in-place ANSI progress redraws,
+            # which otherwise write cursor-up sequences straight to the terminal
+            # and fight the live step spinner — leaving a stranded "⠴ Stopping
+            # Docker containers…" frame after the step should have collapsed.
+            docker_compose_cmd[2:2] = ["--ansi", "never"]
             docker_compose_cmd.extend(["down", "-v"])
             try:
-                run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
+                # interactive=False → captured even under (pre-authenticated) sudo,
+                # so nothing reaches the terminal and fights the live spinner.
+                run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access,
+                                   capture_output=True, interactive=False)
             except Exception:
                 s.skip("none running")
 

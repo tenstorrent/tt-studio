@@ -155,7 +155,7 @@ def check_docker_access():
         return False
 
 
-def run_docker_command(command, use_sudo=False, capture_output=False, check=False):
+def run_docker_command(command, use_sudo=False, capture_output=False, check=False, interactive=True):
     """
     Run a Docker command with automatic sudo fallback if permission denied.
 
@@ -164,22 +164,35 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
         use_sudo (bool): Force use of sudo
         capture_output (bool): Capture command output (only for non-sudo or successful commands)
         check (bool): Raise exception on non-zero exit code
+        interactive (bool): When sudo is used, whether to allow an interactive
+            password prompt. The default (True) inherits the terminal so the
+            prompt is visible. Pass False when sudo has already been
+            pre-authenticated (``sudo -v``) AND the output must be captured — e.g.
+            under a live step spinner, where an uncaptured sudo subprocess would
+            print straight to the terminal and strand the spinner line. False runs
+            ``sudo -n`` (non-interactive) with output captured.
 
     Returns:
         subprocess.CompletedProcess: Result of command execution
     """
+    def _run_sudo(cmd):
+        if interactive:
+            # Inherit the terminal so the sudo password prompt is visible.
+            return subprocess.run(["sudo"] + cmd, capture_output=False, text=True, check=check)
+        # Pre-authenticated: keep sudo non-interactive and capture, so nothing
+        # leaks to the terminal (e.g. under a spinner).
+        return subprocess.run(["sudo", "-n"] + cmd, capture_output=True, text=True,
+                              check=check, stdin=subprocess.DEVNULL)
+
     # First try without sudo if not forced
     if not use_sudo:
         result = subprocess.run(command, capture_output=True, text=True, check=False)
 
         # If permission denied, try with sudo
         if result.returncode != 0 and "permission denied" in result.stderr.lower():
-            console.print("[warning]⚠️  Permission denied, retrying with sudo (you may be prompted for password)...[/warning]")
-            sudo_command = ["sudo"] + command
-            # Don't capture output when using sudo interactively - allow password prompt to show
-            # But capture stderr to check for errors after authentication
-            result = subprocess.run(sudo_command, capture_output=False, text=True, check=check)
-            return result
+            if interactive:
+                console.print("[warning]⚠️  Permission denied, retrying with sudo (you may be prompted for password)...[/warning]")
+            return _run_sudo(command)
 
         # If check=True and command failed, raise exception
         if check and result.returncode != 0:
@@ -187,9 +200,7 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
 
         return result
     else:
-        # Use sudo directly - don't capture output to allow interactive password prompt
-        sudo_command = ["sudo"] + command
-        return subprocess.run(sudo_command, capture_output=False, text=True, check=check)
+        return _run_sudo(command)
 
 
 def ensure_docker_group_membership():
