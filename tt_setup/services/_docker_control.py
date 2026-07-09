@@ -67,10 +67,6 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
 
     # Check for virtual environment
     venv_dir = os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv")
-    venv_python = os.path.join(venv_dir, "bin", "python")
-
-    if OS_NAME == "Windows":
-        venv_python = os.path.join(venv_dir, "Scripts", "python.exe")
 
     # Create virtual environment and install dependencies if needed
     if not os.path.exists(venv_dir) or recreate_venv_if_stale(venv_dir, C_YELLOW, C_RESET):

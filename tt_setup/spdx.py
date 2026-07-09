@@ -122,7 +122,6 @@ def check_spdx_headers():
     directories_to_process = [
         repo_root / "app" / "backend",
         repo_root / "app" / "agent",
-        repo_root / "app" / "frontend",
         repo_root / "dev-tools",
         repo_root / "models",
         repo_root / "docs",

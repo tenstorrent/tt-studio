@@ -23,5 +23,5 @@ tt-studio = "tt_setup.cli:app"
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["tt_setup"]
+[tool.setuptools.packages.find]
+include = ["tt_setup*"]

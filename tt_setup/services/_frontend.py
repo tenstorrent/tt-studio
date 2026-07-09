@@ -70,5 +70,3 @@ def ensure_frontend_dependencies(force_prompt=False, quick_setup=False):
         )
     return True
 
-    return True
-
