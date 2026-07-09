@@ -59,7 +59,7 @@ export default function StepperDemo() {
   const [chipStatus, setChipStatus] = useState<{
     board_type: string;
     total_slots: number;
-    slots: { slot_id: number; status: "available" | "occupied"; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
+    slots: { slot_id: number; status: "available" | "occupied"; model_name?: string; port?: number; deployment_id?: number; is_multi_chip?: boolean }[];
   } | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
@@ -653,6 +653,7 @@ export default function StepperDemo() {
                     requireDeviceSelection={requireDeviceSelection}
                     deviceAutoSelected={!advancedActive}
                     placementBlocked={placementBlocked}
+                    chipStatus={effectiveChipStatus}
                     registerDeployment={(d) => addDeployment({ ...d, startedAt: Date.now() })}
                     activeDeployment={deploymentForSelected}
                     activeProgress={progressForSelected}

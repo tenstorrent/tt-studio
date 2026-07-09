@@ -23,6 +23,7 @@ export function DeployModelStep({
   requireDeviceSelection,
   deviceAutoSelected,
   placementBlocked,
+  chipStatus,
   registerDeployment,
   activeDeployment,
   activeProgress,
@@ -42,6 +43,12 @@ export function DeployModelStep({
   deviceAutoSelected?: boolean;
   // True when no valid device configuration is currently free (auto mode).
   placementBlocked?: boolean;
+  // Reservation-aware chip status from the parent (in-flight deploys overlaid)
+  chipStatus?: {
+    board_type: string;
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string; port?: number }[];
+  } | null;
   // Registers a fired deploy with the session-wide tracker (progress tray + reservations).
   registerDeployment: (d: {
     jobId: string;
@@ -59,15 +66,22 @@ export function DeployModelStep({
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
-  const [slotInfo, setSlotInfo] = useState<{
-    totalSlots: number;
-    availableSlots: number;
-    occupiedDetails: { slot_id: number; model_name: string; port?: number }[];
-  }>({
-    totalSlots: 0,
-    availableSlots: 0,
-    occupiedDetails: [],
-  });
+
+  const slotInfo = useMemo(() => {
+    if (!chipStatus) {
+      return { totalSlots: 0, availableSlots: 0, occupiedDetails: [] as { slot_id: number; model_name: string; port?: number }[] };
+    }
+    const occupied = chipStatus.slots.filter((s) => s.status === "occupied");
+    return {
+      totalSlots: chipStatus.total_slots,
+      availableSlots: chipStatus.total_slots - occupied.length,
+      occupiedDetails: occupied.map((s) => ({
+        slot_id: s.slot_id,
+        model_name: s.model_name || "Unknown",
+        port: s.port,
+      })),
+    };
+  }, [chipStatus]);
 
   useEffect(() => {
     const fetchModelName = async () => {
@@ -89,32 +103,6 @@ export function DeployModelStep({
 
     fetchModelName();
   }, [selectedModel]);
-
-  useEffect(() => {
-    const fetchSlotStatus = async () => {
-      try {
-        const response = await axios.get("/docker-api/chip-status/");
-        const data = response.data as {
-          total_slots: number;
-          slots: { slot_id: number; status: string; model_name?: string; port?: number }[];
-        };
-        const occupied = data.slots.filter((s) => s.status === "occupied");
-        setSlotInfo({
-          totalSlots: data.total_slots,
-          availableSlots: data.total_slots - occupied.length,
-          occupiedDetails: occupied.map((s) => ({
-            slot_id: s.slot_id,
-            model_name: s.model_name || "Unknown",
-            port: s.port,
-          })),
-        });
-      } catch (error) {
-        console.error("Error fetching chip status:", error);
-      }
-    };
-
-    fetchSlotStatus();
-  }, []);
 
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);

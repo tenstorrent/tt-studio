@@ -87,6 +87,9 @@ export function useActiveDeployments(
   const onResolvedRef = useRef(options.onResolved);
   onResolvedRef.current = options.onResolved;
 
+  const deploymentsRef = useRef(deployments);
+  deploymentsRef.current = deployments;
+
   // Timers we must clear on unmount (completed-card linger removals).
   const lingerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -153,7 +156,7 @@ export function useActiveDeployments(
         // Tolerate not_found briefly — a fresh job may not be registered yet.
         if (data.status === "not_found") {
           notFoundCounts[jobId] = (notFoundCounts[jobId] ?? 0) + 1;
-          const started = deployments.find((d) => d.jobId === jobId)?.startedAt ?? 0;
+          const started = deploymentsRef.current.find((d) => d.jobId === jobId)?.startedAt ?? 0;
           const withinGrace = Date.now() - started < NOT_FOUND_GRACE_MS;
           if (withinGrace && notFoundCounts[jobId] <= MAX_NOT_FOUND_RETRIES) return;
           resolve(jobId, "failed");
@@ -191,9 +194,8 @@ export function useActiveDeployments(
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-    // deployments intentionally omitted: startedAt is read at fire time and the
-    // key already re-runs the effect when the active set changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Re-runs only when the active job set changes; per-job state is read live via
+    // deploymentsRef, so `deployments` itself isn't a dependency.
   }, [activeJobKey, resolve]);
 
   useEffect(() => {
