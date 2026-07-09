@@ -3,6 +3,7 @@
 
 """Branch/commit-SHA resolution against the GitHub API."""
 
+import urllib.request
 from tt_setup.constants import *
 
 

@@ -14,7 +14,10 @@ Stdlib-only — it runs *before* the deps are available.
 import os
 import sys
 import hashlib
+import itertools
 import subprocess
+import threading
+import time
 
 try:
     import tomllib  # Python 3.11+
@@ -41,11 +44,77 @@ def _supports_color():
 
 _USE_COLOR = _supports_color()
 _C_RED = "\x1b[1;31m" if _USE_COLOR else ""
+_C_GREEN = "\x1b[32m" if _USE_COLOR else ""
 _C_YELLOW = "\x1b[33m" if _USE_COLOR else ""
 _C_CYAN = "\x1b[36m" if _USE_COLOR else ""
+_C_PURPLE = "\x1b[38;5;99m" if _USE_COLOR else ""
 _C_BOLD = "\x1b[1m" if _USE_COLOR else ""
 _C_DIM = "\x1b[2m" if _USE_COLOR else ""
 _C_RESET = "\x1b[0m" if _USE_COLOR else ""
+
+# Braille "dots" frames, matching the launcher's phase spinner
+# (tt_setup/console/_stepper.py). Kept here as a literal so bootstrap stays
+# stdlib-only — it runs before Rich (and tt_setup.console) is importable.
+_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+class _Spinner:
+    """A tiny stdlib stand-in for `console.step()` for the pre-Rich bootstrap.
+
+    Shows one calm line (`⠙ label…` in accent purple) while a block runs, then
+    collapses it to `✓ label` (green) / `✗ label` (red). Animates only on a
+    color-capable TTY; on a non-TTY / NO_COLOR it prints a single plain
+    `⚙️  label…` start line and a plain `✓/✗ label`, so piped logs stay free of
+    escape codes.
+    """
+
+    def __init__(self, label):
+        self.label = label
+        self._stop = threading.Event()
+        self._thread = None
+        # _supports_color() gates on stderr; the spinner writes to stdout, so
+        # require stdout to be a TTY too before animating in place.
+        self._animate = _USE_COLOR and sys.stdout.isatty()
+
+    def __enter__(self):
+        if self._animate:
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+        else:
+            print(f"⚙️  {self.label}…")
+        return self
+
+    def _spin(self):
+        for frame in itertools.cycle(_SPINNER_FRAMES):
+            if self._stop.is_set():
+                break
+            sys.stdout.write(f"\r{_C_PURPLE}{frame}{_C_RESET} {_C_DIM}{self.label}…{_C_RESET}")
+            sys.stdout.flush()
+            time.sleep(0.1)
+
+    def _halt(self):
+        """Stop the animation thread and wipe the spinner line (TTY only)."""
+        if self._animate and not self._stop.is_set():
+            self._stop.set()
+            if self._thread:
+                self._thread.join()
+            sys.stdout.write("\r\033[2K")  # carriage return + erase line
+            sys.stdout.flush()
+
+    def done(self, ok=True):
+        """Collapse the line to a ✓/✗ result. Call on success or handled failure."""
+        self._halt()
+        if self._animate:
+            glyph = f"{_C_GREEN}✓{_C_RESET}" if ok else f"{_C_RED}✗{_C_RESET}"
+        else:
+            glyph = "✓" if ok else "✗"
+        print(f"{glyph} {self.label}")
+
+    def __exit__(self, exc_type, exc, tb):
+        # If the block raised before done() ran, just wipe the spinner line so a
+        # following _die() panel isn't corrupted; the caller surfaces the error.
+        self._halt()
+        return False
 
 
 def _die(*lines):
@@ -101,25 +170,34 @@ def _write_marker(value):
         pass
 
 
+def _run_quiet(cmd):
+    """Run a subprocess, capturing combined stdout+stderr instead of letting it
+    flood the terminal. On failure the captured text rides along on
+    CalledProcessError.output so the caller can surface it."""
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
 def _install(venv_dir, deps):
     py = _venv_python(venv_dir)
-    subprocess.run([py, "-m", "pip", "install", "--upgrade", "pip"], check=True)
-    subprocess.run([py, "-m", "pip", "install", *deps], check=True)
+    _run_quiet([py, "-m", "pip", "install", "--upgrade", "pip"])
+    _run_quiet([py, "-m", "pip", "install", *deps])
 
 
 def _ensure_venv_with_deps(venv_dir, deps):
     """Create the venv if missing/stale and install deps when the dep set changes."""
     want = _deps_hash(deps)
-    needs_create = recreate_venv_if_stale(venv_dir) or not os.path.exists(venv_dir)
+    needs_create = recreate_venv_if_stale(venv_dir, _C_YELLOW, _C_RESET) or not os.path.exists(venv_dir)
     if needs_create:
-        print("⚙️  First run: preparing tt-studio tooling (one-time, ~a few seconds)...")
-        subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
-        _install(venv_dir, deps)
+        with _Spinner("Preparing tt-studio tooling (one-time)") as sp:
+            _run_quiet([sys.executable, "-m", "venv", venv_dir])
+            _install(venv_dir, deps)
+            sp.done()
         _write_marker(want)
         return
     if _read_marker() != want:
-        print("⚙️  Updating tt-studio tooling dependencies...")
-        _install(venv_dir, deps)
+        with _Spinner("Updating tooling dependencies") as sp:
+            _install(venv_dir, deps)
+            sp.done()
         _write_marker(want)
 
 
@@ -176,11 +254,19 @@ def ensure_environment():
     try:
         _ensure_venv_with_deps(_VENV_DIR, deps)
     except (subprocess.CalledProcessError, OSError) as e:
+        # pip/venv output was captured (not streamed); surface the tail here so a
+        # failure is still debuggable now that the firehose is silenced.
+        output = getattr(e, "output", None)
+        detail = []
+        if output and output.strip():
+            tail = output.strip().splitlines()[-20:]
+            detail = ["", f"      {_C_DIM}Last output:{_C_RESET}", *(f"        {ln}" for ln in tail)]
         _die(
             "",
             f"  {_C_RED}⚠️  Could not prepare the tooling venv{_C_RESET}",
             "",
             f"      {_C_DIM}Error:{_C_RESET}  {e}",
+            *detail,
             "",
             f"      {_C_BOLD}Fix{_C_RESET} — install manually:",
             f"          {_C_CYAN}python3 -m pip install {' '.join(deps)}{_C_RESET}",

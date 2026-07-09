@@ -6,6 +6,9 @@ the lazy inference-server-artifact wrapper that breaks the import cycle)."""
 
 import os
 import secrets
+import shutil
+import sys
+from rich.markup import escape as escape_markup
 from tt_setup.constants import *
 from tt_setup.console import ask, confirm, console, in_phase, secret
 from tt_setup.env_config._values import is_placeholder, parse_boolean_env

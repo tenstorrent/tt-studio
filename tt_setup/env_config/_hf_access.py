@@ -10,7 +10,7 @@ except ImportError:
     import urllib.request  # noqa: F401
     HAS_REQUESTS = False
 from tt_setup.constants import *
-from tt_setup.console import add_note, console
+from tt_setup.console import add_note, console, in_phase, is_verbose
 
 
 def _hf_check_repo(token, repo_id, filename="config.json"):

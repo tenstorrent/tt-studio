@@ -6,6 +6,7 @@
 import json
 import os
 from tt_setup.constants import *
+from tt_setup.console import console
 
 
 def load_preferences():

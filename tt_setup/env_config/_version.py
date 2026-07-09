@@ -6,7 +6,7 @@
 import json
 import subprocess
 from tt_setup.constants import *
-from tt_setup.console import console
+from tt_setup.console import console, is_verbose
 from tt_setup.env_config._dotenv import write_env_var
 
 
