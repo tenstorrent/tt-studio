@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC */
+
+/* Strip React Flow's default node chrome -- BaseNode renders its own */
+.react-flow__node {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.react-flow__node.selected {
+  box-shadow: none !important;
+  outline: none !important;
+}

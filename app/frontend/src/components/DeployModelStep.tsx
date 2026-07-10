@@ -8,9 +8,9 @@ import { useStepper } from "./ui/stepper";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
+import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
-import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -473,7 +473,7 @@ export function DeployModelStep({
           disabled={isDeployDisabled}
           onDeploymentComplete={onDeploymentComplete}
         />
-        <div className="mt-6 flex flex-col items-start justify-center space-y-2">
+        <div className="mt-6 flex flex-col items-center justify-center space-y-2">
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />

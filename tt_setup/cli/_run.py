@@ -83,6 +83,13 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     rows.append(("Mode", " + ".join(mode_parts)))
     rows.append(("Hardware", hardware_label or "No accelerator (remote/cloud mode)"))
 
+    # Search Agent (Tavily) status — enabled only when a real key is set.
+    tavily = get_env_var("TAVILY_API_KEY", "")
+    if tavily and tavily != "tavily-api-key-not-configured":
+        rows.append(("Search Agent", "[success]Enabled[/success] · Tavily configured"))
+    else:
+        rows.append(("Search Agent", "[warning]Disabled[/warning] · set TAVILY_API_KEY (app.tavily.com)"))
+
     footer = []
     if run_start is not None:
         footer.append(f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]")

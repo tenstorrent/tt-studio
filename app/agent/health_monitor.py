@@ -111,7 +111,10 @@ class LLMHealthMonitor:
                         'container_name': fallback_llm.container_name,
                         'internal_url': fallback_llm.internal_url,
                         'health_url': fallback_llm.health_url,
-                        'model_name': fallback_llm.model_name
+                        'model_name': fallback_llm.model_name,
+                        'model_type': getattr(fallback_llm, 'model_type', 'chat'),
+                        'status': fallback_llm.status.value if hasattr(fallback_llm, 'status') else 'healthy',
+                        'hf_model_id': getattr(fallback_llm, 'hf_model_id', None),
                     }
                 )
                 
