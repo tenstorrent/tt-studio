@@ -192,7 +192,9 @@ def kill_process_on_port(port, no_sudo=False, quiet=False):
     kill_cmd_graceful = ["kill", "-15", pid]
     kill_cmd_force = ["kill", "-9", pid]
     check_alive_cmd = ["kill", "-0", pid]
-    use_sudo_for_kill = not no_sudo and os.geteuid() != 0
+    # os.geteuid() is POSIX-only; guard it so a non-POSIX host doesn't crash with
+    # AttributeError. (The kill/-15/-9 commands here are POSIX anyway.)
+    use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
 
     if use_sudo_for_kill:
         kill_cmd_graceful.insert(0, "sudo")

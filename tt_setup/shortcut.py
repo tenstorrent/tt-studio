@@ -57,7 +57,17 @@ def _shortcut_block():
 
 
 def _strip_block(lines):
-    """Drop any existing marked block (inclusive) so re-install replaces cleanly."""
+    """Drop a *complete* marked block (inclusive) so re-install replaces cleanly.
+
+    If the start marker has no matching end marker (a partial previous install or
+    a manual edit), leave the file untouched — dropping everything after an
+    unclosed start marker would truncate the user's shell config.
+    """
+    starts = sum(1 for ln in lines if ln.strip() == _MARKER_START)
+    ends = sum(1 for ln in lines if ln.strip() == _MARKER_END)
+    if starts != ends:
+        return list(lines)  # unbalanced markers → don't touch anything
+
     out, skipping = [], False
     for line in lines:
         stripped = line.strip()

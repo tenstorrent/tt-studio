@@ -72,6 +72,7 @@ def should_skip_spdx_directory(directory_path):
         'node_modules',
         '.git',
         '.venv',
+        '.tt_studio_run_venv',  # the launcher's managed venv — never add headers here
         '__pycache__',
         '.pytest_cache',
         'dist',
@@ -81,6 +82,8 @@ def should_skip_spdx_directory(directory_path):
         '.nyc_output',
         'frontend',  # Explicitly exclude frontend directory
         'tt-inference-server',  # Exclude (no longer used, replaced by artifact)
+        '.artifacts',  # Downloaded inference-server artifact — not our source
+        'logs',  # Host-side runtime logs
         'tt_studio_persistent_volume',  # Exclude runtime data
     }
     
@@ -102,7 +105,13 @@ def add_spdx_header_to_file(file_path, headers):
             content = file.read()
             if "SPDX-License-Identifier" not in content:
                 file.seek(0, 0)
-                file.write(header + "\n" + content)
+                # Preserve a leading shebang: inserting the SPDX block at byte 0
+                # would push `#!/usr/bin/env …` off line 1 and break execution.
+                if content.startswith("#!"):
+                    shebang, _, rest = content.partition("\n")
+                    file.write(shebang + "\n" + header + "\n" + rest)
+                else:
+                    file.write(header + "\n" + content)
                 console.print(f"[success]✅ Added SPDX header to: {file_path}[/success]")
                 return True
             else:

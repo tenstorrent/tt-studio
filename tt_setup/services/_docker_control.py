@@ -27,6 +27,14 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     mode_label = " (dev/reload)" if dev_mode else ""
     console.print(f"[info]🔧 Starting Docker Control Service{mode_label}...[/info]")
 
+    # The venv-create + bash wrapper (.sh + chmod) path below is POSIX-only. TT
+    # Studio's launcher supports macOS/Linux; on other platforms degrade cleanly
+    # instead of failing deep on chmod / a bash script.
+    if os.name != "posix":
+        console.print("[warning]⚠️  The Docker Control Service launcher supports macOS/Linux only; skipping it here.[/warning]")
+        console.print("[muted]   Backend will use the direct Docker SDK instead.[/muted]")
+        return False
+
     # Check if user has Docker access
     if not check_docker_access():
         console.print("[warning]⚠️  Docker Control Service requires direct Docker socket access[/warning]")
@@ -121,6 +129,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     env["MODEL_RUN_LOG_FILE"] = MODEL_RUN_LOG_FILE
 
     # Start the service using uvicorn
+    temp_script_path = None  # so the finally cleanup is safe if creation fails
     try:
         # Create a temporary wrapper script similar to FastAPI
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
@@ -196,11 +205,12 @@ fi
         console.print(f"[error]⛔ Error starting Docker Control Service: {e}[/error]")
         return False
     finally:
-        # Clean up the temporary script
-        try:
-            os.unlink(temp_script_path)
-        except:
-            pass
+        # Clean up the temporary script (only if it was actually created)
+        if temp_script_path:
+            try:
+                os.unlink(temp_script_path)
+            except OSError:
+                pass
 
     return True
 
