@@ -32,21 +32,77 @@ The script will guide you through all configuration options and set up everythin
 
 ## Command-Line Options
 
-| Option          | Description                                                                  |
-| --------------- | ---------------------------------------------------------------------------- |
-| `--help`        | Display help message with usage details.                                     |
-| `--dev`         | Run in development mode with suggested defaults.                             |
-| `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
+The options below mirror `python run.py --help` exactly, grouped by the same help
+panels. Run with no flags for the default minimal setup; every flag is optional.
+
+### Setup & Configuration
+
+| Option | Description |
+| --- | --- |
+| `--help`, `-h` | Display the help message with all options grouped by panel. |
+| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. |
+| `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
+| `--reconfigure-inference-server` | Reconfigure the TT Inference Server artifact (version/branch selection). |
 | `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
-| `--stop`        | Stop and remove all Docker services. (Deprecated alias: `--cleanup`.)        |
-| `--purge-all`   | Stop and wipe everything including persistent data and .env file. (Deprecated alias: `--cleanup-all`.) |
-| `--logs`        | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
-| `--info`        | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
-| `--status`      | Open the live monitor TUI for a running stack.                              |
-| `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
-| `--no-sudo`     | Skip sudo usage for FastAPI setup.                                           |
-| `--help-env`    | Show help for environment variables.                                         |
-| `--report-bug`  | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
+
+### Model Deployment
+
+| Option | Description |
+| --- | --- |
+| `--auto-deploy MODEL_NAME` | Auto-deploy the given model once the stack is up. |
+| `--device-id CHIP_ID` | Chip slot index (0–7) to target with `--auto-deploy` (default `0`). |
+
+> **⚠️ Not yet available**: `--auto-deploy` (and its `--device-id`) is a
+> **work in progress and not fully developed**. The launcher currently only
+> forwards the request to the frontend as a URL parameter
+> (`?auto-deploy=<model>&device-id=<id>`); end-to-end automatic deployment is not
+> functional yet. Deploy models from the UI for now. This flag and note will be
+> updated once the feature lands.
+
+### Lifecycle
+
+| Option | Description |
+| --- | --- |
+| `--stop` | Stop TT Studio: tear down Docker containers and networks, keep the persistent volume. (Deprecated alias: `--cleanup`.) |
+| `--status` | Open the live monitor TUI for a running stack (health, ports, hardware). |
+| `--logs` | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
+| `--info` | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
+
+### Reset
+
+| Option | Description |
+| --- | --- |
+| `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
+| `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
+
+### Advanced
+
+| Option | Description |
+| --- | --- |
+| `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
+| `--resync` | Force a resync of the model catalog. |
+| `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
+| `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
+| `--skip-docker-control` | Skip starting the Docker Control Service (port 8002). |
+| `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
+| `--no-browser` | Don't open the frontend in a browser automatically. |
+| `--wait-for-services` | Block until all services report healthy before returning. |
+| `--browser-timeout N` | Seconds to wait for the frontend before opening the browser (default `60`). |
+
+### Developer Tools
+
+| Option | Description |
+| --- | --- |
+| `--add-headers` | Add missing SPDX license headers (excludes frontend). |
+| `--check-headers` | Report files missing SPDX license headers (no changes). |
+
+### Troubleshooting & Info
+
+| Option | Description |
+| --- | --- |
+| `--help-env` | Show detailed help for environment variables. |
+| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
+| `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
@@ -57,6 +113,31 @@ To display the same help section in the terminal, run:
 ```bash
 python run.py --help
 ```
+
+### Verbose & calm output
+
+By default the launcher runs in **calm mode**: each setup phase (environment,
+inference artifact, Docker services, health checks) collapses to a single
+summary line with a ✓/⚠/⛔ status, so the terminal stays readable and you see the
+overall shape of the run at a glance. A sticky header keeps the current phase
+pinned while output scrolls.
+
+When something goes wrong — or you just want to watch every command — add
+`--verbose` (or `-v`):
+
+```bash
+python run.py --verbose
+```
+
+This streams the full per-phase output (Docker build logs, artifact download,
+sudo/FastAPI steps) instead of the collapsed summary. Reach for it first when a
+phase reports ⚠ or ⛔ and you want the underlying error. For a run that already
+finished, `--logs` and `--status` (below) are the equivalent live views, and
+`--report-bug` bundles the logs for you.
+
+> The design of the calm output (phase stepper, sticky header, status glyphs) is
+> documented in [Launcher terminal design](launcher-terminal-design.md) — read
+> that before changing anything the launcher prints.
 
 ---
 
@@ -314,7 +395,8 @@ The startup script now automatically detects Tenstorrent hardware by checking fo
 2. Container access to hardware is configured
 3. A confirmation message is displayed during startup
 
-You can still use the `--tt-hardware` flag to explicitly enable hardware support if needed.
+Detection is fully automatic — there is no flag to toggle it. (Earlier versions
+had a `--tt-hardware` flag; it has been removed.)
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
 

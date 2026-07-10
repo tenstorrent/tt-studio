@@ -4,10 +4,63 @@ This guide covers common issues you might encounter when working with TT-Studio 
 
 ## Table of Contents
 
-1. [Hardware Issues](#hardware-issues)
-2. [Docker and Deployment Issues](#docker-and-deployment-issues)
-3. [Frontend Issues](#frontend-issues)
-4. [Backend Issues](#backend-issues)
+1. [Debugging with the launcher](#debugging-with-the-launcher)
+2. [Hardware Issues](#hardware-issues)
+3. [Docker and Deployment Issues](#docker-and-deployment-issues)
+4. [Frontend Issues](#frontend-issues)
+5. [Backend Issues](#backend-issues)
+
+---
+
+## Debugging with the launcher
+
+Start here before dropping to raw `docker` commands — `run.py` has built-in
+tooling for diagnosing a failed or unhealthy run.
+
+- **See the real error.** Re-run with `--verbose` (or `-v`). The default calm
+  output collapses each phase to one line; `--verbose` streams the full
+  per-phase output so you can see exactly which command failed.
+
+  ```bash
+  python run.py --verbose
+  ```
+
+- **Inspect a stack that's already up.** `--status` opens the live monitor TUI
+  (per-service health, ports, hardware); `--info` re-prints the "ready" summary
+  (URLs, mode, classified hardware) if the banner scrolled away.
+
+  ```bash
+  python run.py --status
+  python run.py --info
+  ```
+
+- **Stream container logs.** `--logs` runs `docker compose logs -f` with the
+  env-file wired up (no "variable is not set" warnings). Add `--dev` if you
+  brought the stack up with `--dev`.
+
+  ```bash
+  python run.py --logs
+  ```
+
+- **Bundle everything for a bug report.** `--report-bug` collects the host-side
+  logs plus a non-secret system snapshot into
+  `logs/tt-studio-logs-ttbr-*.zip` and opens a pre-filled GitHub issue. The
+  bundle never includes your `.env`. If `python run.py` itself errors, it offers
+  this same flow from the "Next steps" panel.
+
+  ```bash
+  python run.py --report-bug
+  ```
+
+- **Docker daemon not running.** The launcher detects this and prints
+  install/start links for your platform — start Docker yourself, then re-run.
+  (The old `--fix-docker` flag is deprecated.)
+
+- **Port already in use.** The launcher checks its core ports (3000, 8000, 8080,
+  8111) and automatically frees a non-Docker process holding one; ports held by a
+  running TT Studio container are left alone. The FastAPI (8001) and Docker
+  Control (8002) ports are checked separately as those services start. If a port
+  can't be freed, run `python run.py --stop` and re-run, or free it manually.
 
 ---
 
