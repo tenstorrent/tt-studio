@@ -575,16 +575,16 @@ export default function NavBar() {
         },
       ]
       : []),
-    // Coding Agents is only shown when a coding-agent-eligible model is deployed
+    // Only shown when a gateway-eligible model is deployed
     ...(isCodingAgentReady
       ? [
         {
           type: "link" as const,
           to: "/coding-agents",
           icon: Terminal,
-          label: "Coding Agents",
+          label: "Connect Agents",
           tooltip:
-            "Connect Claude Code or any OpenAI client to your models",
+            "Connect Claude Code, OpenClaw, or any OpenAI client to your models",
         },
       ]
       : []),
