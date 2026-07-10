@@ -117,15 +117,28 @@ def install_shortcut():
         console.print(f"[error]❌ Could not update {rc_path}: {e}[/error]")
         return False
 
+    # Put the activation command on the clipboard so it's one paste away — the
+    # shortcut is useless until the shell reloads, and that's the easy-to-miss bit.
+    activate_cmd = f"source {rc_path}"
+    copied = False
+    try:
+        from tt_setup.shell import copy_to_clipboard
+        copied = copy_to_clipboard(activate_cmd)
+    except Exception:
+        copied = False
+
     console.print(notice_panel(
-        f"[bold]✅ `{SHORTCUT_NAME}` shortcut {'updated' if already else 'added'}[/bold]",
+        f"[bold]✅ `{SHORTCUT_NAME}` shortcut {'updated' if already else 'added'} — one step left[/bold]",
         [
-            f"[muted]File     →[/muted]  {rc_path}",
-            f"[muted]Use it   →[/muted]  {SHORTCUT_NAME}          (from any directory)",
-            f"[muted]         →[/muted]  {SHORTCUT_NAME} --dev / --stop / --help",
+            "[warning]⚠  It's not active in this terminal yet[/warning] — your shell has to reload first.",
             "",
-            f"[muted]Activate now →[/muted]  source {rc_path}",
-            "[muted]…or just open a new terminal.[/muted]",
+            f"[bold]Activate it →[/bold]  [info]{activate_cmd}[/info]"
+            + ("   [muted](copied to your clipboard — just paste)[/muted]" if copied else ""),
+            "[muted]…or just open a new terminal window.[/muted]",
+            "",
+            f"[muted]Then, from any directory:[/muted]  [info]{SHORTCUT_NAME}[/info]"
+            f"   [muted]· {SHORTCUT_NAME} --dev / --stop / --help[/muted]",
+            f"[muted]Added to:[/muted]  {rc_path}",
         ],
         border_style="accent",
     ))

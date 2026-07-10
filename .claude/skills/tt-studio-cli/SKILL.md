@@ -1,17 +1,18 @@
 ---
-name: tt-studio-launcher
+name: tt-studio-cli
 description: >-
-  How the `python run.py` launcher (the `tt_setup/` package) is built and how to
-  change it the TT-Studio way: package layout and the re-export pattern, Typer
-  CLI conventions (flag grouping, early-dispatch utility flags), the calm
-  minimal-by-default terminal output, hardware/QB2 detection (IS_QB2 opt-in,
-  verify-don't-trust), and the testing/verification patterns (pure helpers, PTY
-  render checks). Use BEFORE adding or changing a `python run.py` flag, editing
-  anything under `tt_setup/` or its terminal output, touching startup/teardown
-  flow, or changing hardware detection.
+  The TT-Studio CLI skill — how the `python run.py` command-line interface (the
+  `tt_setup/` package) is built and how to change it the TT-Studio way: Typer CLI
+  conventions (flag grouping, early-dispatch utility flags, `--help`/`--help-env`
+  docs), package layout and the re-export pattern, the calm minimal-by-default
+  terminal output, hardware/QB2 detection (IS_QB2 opt-in, verify-don't-trust), and
+  the testing/verification patterns (pure helpers, PTY render checks). Use for any
+  CLI work: BEFORE adding or changing a `python run.py` flag or its help text,
+  editing anything under `tt_setup/` or its terminal output, touching
+  startup/teardown flow, or changing hardware detection.
 ---
 
-# TT-Studio launcher (`run.py` / `tt_setup/`)
+# TT-Studio CLI (`python run.py` / `tt_setup/`)
 
 `python run.py` is the one entrypoint for everything (setup, start, stop, purge,
 logs, status, bug reports). `run.py` itself is a thin shim: it bootstraps deps
