@@ -5,7 +5,7 @@ The `run.py` script automates the complete TT-Studio setup process, including en
 ## Table of Contents
 1. [Basic Usage](#basic-usage)
 2. [Command-Line Options](#command-line-options)
-3. [Easy Mode Setup](#easy-mode-setup)
+3. [Quick Setup (Default)](#quick-setup-default)
 4. [Environment Configuration](#environment-configuration)
 5. [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
 6. [Authentication Requirements](#authentication-requirements)
@@ -36,7 +36,7 @@ The script will guide you through all configuration options and set up everythin
 | --------------- | ---------------------------------------------------------------------------- |
 | `--help`        | Display help message with usage details.                                     |
 | `--dev`         | Run in development mode with suggested defaults.                             |
-| `--easy`        | Easy setup mode - only prompts for HF_TOKEN, uses defaults for everything else. |
+| `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
 | `--cleanup`     | Stop and remove all Docker services.                                         |
 | `--cleanup-all` | Clean up everything including persistent data and .env file.                 |
 | `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
@@ -55,39 +55,41 @@ python run.py --help
 
 ---
 
-## Easy Mode Setup
+## Quick Setup (Default)
 
-Easy Mode provides a streamlined setup experience designed for first-time users, quick testing, and development environments. It minimizes the configuration prompts and uses sensible defaults for everything except the Hugging Face token.
+Running `python run.py` with no extra flags performs a streamlined setup designed for first-time users, quick testing, and development environments. It minimizes the configuration prompts and uses sensible defaults for everything except the Hugging Face token. To interactively configure every environment variable instead, use [`--configure-env`](#full-interactive-configuration).
 
-### When to Use Easy Mode
+### When the Default Setup Is Appropriate
 
-**✅ Use Easy Mode for:**
+**✅ Good for:**
 - First-time exploration of TT-Studio
 - Quick testing and evaluation
 - Development and debugging
 - Local prototyping
 - Learning how TT-Studio works
 
-**❌ Do NOT use Easy Mode for:**
+**❌ Not appropriate for:**
 - Production deployments
 - Public-facing services
 - Environments with sensitive data
 - Production model serving
 
-### How Easy Mode Works
+For those cases, use `--configure-env` and supply your own secure values.
 
-Easy Mode (`--easy`) simplifies setup by:
+### How the Default Setup Works
+
+The default setup simplifies things by:
 
 1. **Minimal Prompting**: Only prompts for your HF_TOKEN (Hugging Face token)
 2. **Automatic Defaults**: Uses pre-configured default values for all other settings
 3. **Faster Setup**: Skips local npm installation automatically
 4. **TT Studio Mode**: Automatically configures for TT Studio mode (not AI Playground)
-5. **Saves Configuration**: Stores settings in `.tt_studio_easy_config.json` for reference
+5. **Saves Configuration**: Stores settings in `.tt_studio_setup_config.json` for reference
 
 ### Usage
 
 ```bash
-python3 run.py --easy
+python3 run.py
 ```
 
 You'll only be prompted for:
@@ -95,9 +97,9 @@ You'll only be prompted for:
 
 All other values are set automatically using defaults.
 
-### Default Values Used in Easy Mode
+### Default Values Used
 
-Easy Mode uses the following default values:
+The default setup uses the following values:
 
 | Variable | Default Value | Description |
 |----------|---------------|-------------|
@@ -114,27 +116,37 @@ Easy Mode uses the following default values:
 | Cloud Model Variables | Empty strings | All cloud/external model endpoints (disabled) |
 | npm Installation | Automatically skipped | Local IDE support (skipped) |
 
-> **⚠️ CRITICAL SECURITY WARNING**: The default values above are **NOT secure for production use**. They are intended only for development, testing, and quick evaluation. Never use Easy Mode for production deployments or public-facing services.
+> **⚠️ CRITICAL SECURITY WARNING**: The default values above are **NOT secure for production use**. They are intended only for development, testing, and quick evaluation. Never use these defaults for production deployments or public-facing services — use `--configure-env` and provide secure values instead.
 
 ### Configuration File
 
-Easy Mode saves your setup configuration to `.tt_studio_easy_config.json` in the repository root. This file contains:
+The default setup saves a snapshot of your setup to `.tt_studio_setup_config.json` in the repository root. This file contains:
 
 - Setup timestamp
-- Mode indicator (`"mode": "easy"`)
+- Mode indicator (`"mode": "quick"`)
 - Record of default values used
 - Configuration flags
 
-This file is for reference only and does not affect the actual runtime configuration (which is stored in `app/.env`).
+This file is for reference only and does not affect the actual runtime configuration (which is stored in the repo-root `.env`).
+
+### Full Interactive Configuration
+
+To configure every environment variable yourself — secrets, application modes, and cloud endpoints — run:
+
+```bash
+python3 run.py --configure-env
+```
+
+This is the path to use for production-ready or public-facing setups where the insecure defaults above are not acceptable.
 
 ### Mode Comparison
 
-Here's how Easy Mode compares to other setup modes:
+Here's how the setup paths compare:
 
-| Feature | Easy Mode<br>`--easy` | Normal Mode<br>(default) | Development Mode<br>`--dev` |
-|---------|----------------------|-------------------------|----------------------------|
+| Feature | Default<br>`python run.py` | Full Config<br>`--configure-env` | Development<br>`--dev` |
+|---------|----------------------------|----------------------------------|------------------------|
 | **Primary Use** | First-time users, quick testing | Production deployments | Development work |
-| **Prompts Required** | HF_TOKEN only | All security credentials | All with suggested defaults |
+| **Prompts Required** | HF_TOKEN only | All security credentials | HF_TOKEN only (use `--dev --configure-env` for full interactive prompts) |
 | **Security** | ⚠️ Insecure defaults | ✅ User-provided secure values | ⚠️ Dev defaults available |
 | **AI Playground** | Disabled | User choice | User choice |
 | **RAG Admin** | Disabled | User choice | User choice |
@@ -143,15 +155,15 @@ Here's how Easy Mode compares to other setup modes:
 | **Setup Time** | Fastest (~1 minute) | Moderate (~5 minutes) | Moderate (~5 minutes) |
 | **Production Ready** | ❌ No | ✅ Yes | ❌ No |
 
-### Example: Easy Mode Setup
+### Example: Default Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/tenstorrent/tt-studio.git
 cd tt-studio
 
-# Run with easy mode
-python3 run.py --easy
+# Run the default setup
+python3 run.py
 
 # You'll only see:
 # 🤗 Enter HF_TOKEN (Hugging Face token): ****
@@ -159,9 +171,9 @@ python3 run.py --easy
 # That's it! Everything else is configured automatically.
 ```
 
-### Switching from Easy Mode to Production
+### Switching from the Default Setup to Production
 
-If you started with Easy Mode and want to switch to a production-ready setup:
+If you started with the default setup and want to switch to a production-ready setup:
 
 1. **Stop TT-Studio** (if running):
    ```bash
@@ -170,12 +182,12 @@ If you started with Easy Mode and want to switch to a production-ready setup:
 
 2. **Reconfigure with secure values**:
    ```bash
-   python3 run.py
+   python3 run.py --configure-env
    ```
    
-   Or use the reconfigure flag:
+   Or use the reconfigure flag to reset preferences first:
    ```bash
-   python3 run.py --reconfigure
+   python3 run.py --reconfigure --configure-env
    ```
 
 3. **Provide secure credentials** when prompted:
@@ -189,11 +201,11 @@ If you started with Easy Mode and want to switch to a production-ready setup:
 
 ## Environment Configuration
 
-The `run.py` script manages environment configuration through the `.env` file located in the `app/` directory. During setup, it uses `app/.env.default` as a template with placeholder values that are replaced with your inputs.
+The `run.py` script manages environment configuration through the `.env` file located at the repo root. During setup, it uses the repo-root `.env.default` as a template with placeholder values that are replaced with your inputs.
 
 ### Default Environment Template
 
-The default environment template (`app/.env.default`) contains the following structure:
+The default environment template (`.env.default`) contains the following structure:
 
 ```
 # TT Studio Environment Configuration
@@ -216,17 +228,17 @@ TAVILY_API_KEY=tvly-xxx
 # Application Configuration
 VITE_APP_TITLE="TT Studio"
 
-# Application Modes
-VITE_ENABLE_DEPLOYED=true or false to enable deployed mode
-VITE_ENABLE_RAG_ADMIN=true or false to enable RAG admin
+# Application Modes (true or false)
+VITE_ENABLE_DEPLOYED=false
+VITE_ENABLE_RAG_ADMIN=false
 
 # RAG Configuration (required if VITE_ENABLE_RAG_ADMIN=true)
 RAG_ADMIN_PASSWORD=tt-studio-rag-admin-password
 
 # Cloud/External Model APIs (only used when VITE_ENABLE_DEPLOYED=true)
 # Chat UI
-CLOUD_CHAT_UI_URL=cloud llama chat ui url
-CLOUD_CHAT_UI_AUTH_TOKEN=cloud llama chat ui auth token
+CLOUD_CHAT_UI_URL=
+CLOUD_CHAT_UI_AUTH_TOKEN=
 
 # Computer Vision
 CLOUD_YOLOV4_API_URL=
@@ -338,9 +350,9 @@ These credentials are securely used by the TT Inference Server to authenticate r
 python run.py
 ```
 
-### Running in Easy Mode (First-Time Users)
+### Full Interactive Configuration
 ```bash
-python run.py --easy
+python run.py --configure-env
 ```
 
 ### Running in Development Mode

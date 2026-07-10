@@ -146,7 +146,7 @@ response = requests.get(
 
 ## Logging
 
-Logs are written to `fastapi.log` in the project root when managed by `run.py`.
+Logs are written to `logs/model_run.log` in the project root when managed by `run.py`.
 
 Log format:
 ```

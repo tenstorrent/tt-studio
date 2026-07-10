@@ -168,6 +168,11 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
           : "bg-gray-600 hover:bg-gray-700"
     } text-white dark:text-gray-200`;
 
+  // Uncached deploys surface the unified image-pull panel below; once it's up we
+  // drop the button spinner so only one progress indicator shows at a time.
+  const showProgressPanel =
+    isDeploying && !!progress && (progress.stage === "pulling_image" || hadImagePull);
+
   const particles = Array.from({ length: 5 }, (_, i) => (
     <motion.div
       key={`particle-${i}`}
@@ -205,7 +210,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
             initial={{ x: 0 }}
             exit={{ x: 50, transition: { duration: 0.6, ease: "easeIn" } }}
           >
-            {isDeploying ? (
+            {isDeploying && !showProgressPanel ? (
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                 <span>Starting Deployment...</span>
@@ -257,7 +262,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
           unified bar: real byte-level pull (0–50%) then container-start milestones
           (50–100%), then it disappears on completion → redirect. Cached deploys never
           report 'pulling_image', so the panel never appears for them — just the spinner. */}
-      {isDeploying && progress && (progress.stage === 'pulling_image' || hadImagePull) && (
+      {showProgressPanel && progress && (
         <DeploymentProgress
           progress={progress}
           startTime={deployStartTime}

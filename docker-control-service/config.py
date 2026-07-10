@@ -48,7 +48,7 @@ class Settings:
     # Host log file paths (passed in as env vars from run.py)
     SERVICE_LOG_FILE: str = os.getenv("DOCKER_CONTROL_LOG_FILE", "")
     STARTUP_LOG_FILE: str = os.getenv("STARTUP_LOG_FILE", "")
-    FASTAPI_LOG_FILE: str = os.getenv("FASTAPI_LOG_FILE", "")
+    MODEL_RUN_LOG_FILE: str = os.getenv("MODEL_RUN_LOG_FILE", "")
 
 
 # Global settings instance

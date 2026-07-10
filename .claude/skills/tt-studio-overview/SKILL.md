@@ -1,3 +1,13 @@
+---
+name: tt-studio-overview
+description: >-
+  Project map for TT-Studio — what the platform is, where its docs live, its
+  key components (React frontend, Django backend, FastAPI inference server,
+  Docker), and the AI model types it supports. Use when you need a high-level
+  orientation of the repo, want to know which doc covers a topic, or are trying
+  to locate where a component or capability lives before diving into code.
+---
+
 # TT-Studio
 
 > TT-Studio is an easy-to-use web interface for running AI models on Tenstorrent hardware.
@@ -15,23 +25,23 @@ Important notes:
 ## Docs
 
 - [Main README](README.md): Complete overview, setup instructions, and quick start guide
-- [Setup Guide](docs/run-py-guide.md): Complete installation & configuration using run.py
-- [FAQ](docs/FAQ.md): Quick answers to common questions about TT-Studio
-- [Model Interface Guide](docs/model-interface.md): Using TT-Studio as AI playground (Chat, Vision, Speech, Images)
-- [Troubleshooting Guide](docs/troubleshooting.md): Solutions for common setup and runtime issues
+- [Setup Guide](dev-docs/run-py-guide.md): Complete installation & configuration using run.py
+- [FAQ](dev-docs/FAQ.md): Quick answers to common questions about TT-Studio
+- [Model Interface Guide](dev-docs/model-interface.md): Using TT-Studio as AI playground (Chat, Vision, Speech, Images)
+- [Troubleshooting Guide](dev-docs/troubleshooting.md): Solutions for common setup and runtime issues
 - [Contributing Guide](CONTRIBUTING.md): How to contribute code to the project
-- [Development Setup](docs/development.md): Development environment configuration
+- [Development Setup](dev-docs/development.md): Development environment configuration
 
 ## Examples
 
-- [AI Model Interface](docs/model-interface.md): Complete examples of using Chat, Vision, Speech, and Image models
-- [vLLM Models Guide](docs/HowToRun_vLLM_Models.md): Specific examples for running vLLM models
+- [AI Model Interface](dev-docs/model-interface.md): Complete examples of using Chat, Vision, Speech, and Image models
+- [vLLM Models Guide](dev-docs/HowToRun_vLLM_Models.md): Specific examples for running vLLM models
 - [AI Agent Setup](app/agent/README.md): Setting up and using the AI assistant functionality
 
 ## Key Components
 
 - **Frontend Interface**: Modern React-based UI for model interaction and management
-- **Backend API**: Django-based service for model management, deployment, and API endpoints  
+- **Backend API**: Django-based service for model management, deployment, and API endpoints
 - **TT Inference Server**: FastAPI server for handling model inference requests
 - **Docker Containers**: Complete containerization for isolation and easy deployment
 - **Automatic Hardware Detection**: Seamless integration and auto-mounting of Tenstorrent devices (/dev/tenstorrent)

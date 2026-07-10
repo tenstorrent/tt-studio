@@ -15,6 +15,7 @@ import { useChat } from "./hooks/useChat";
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
   modelID,
+  modelName,
   initialPrompt = "",
 }) => {
   const {
@@ -43,6 +44,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
     <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f]">
       <Header
         onBack={onBack}
+        modelName={modelName}
         isHistoryPanelOpen={isHistoryPanelOpen}
         setIsHistoryPanelOpen={setIsHistoryPanelOpen}
       />

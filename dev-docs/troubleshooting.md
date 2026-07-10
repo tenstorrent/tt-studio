@@ -73,7 +73,7 @@ Then restart TT-Studio.
 
 ### FastAPI Server Fails to Start
 
-Check the logs in `fastapi.log` for specific errors. Common causes include:
+Check the logs in `logs/model_run.log` for specific errors. Common causes include:
 
 - Insufficient permissions
 - Missing environment variables

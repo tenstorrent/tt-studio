@@ -30,7 +30,11 @@ AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
-    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+    limits=httpx.Limits(
+        max_connections=50,
+        max_keepalive_connections=20,
+        keepalive_expiry=3600.0,
+    ),
 )
 _cloud_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
@@ -214,8 +218,16 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
                 if chunk.strip() == "[DONE]":
                     yield f"data: [DONE]\n\n"
                 elif chunk.strip():
-                    json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
-                    yield "data: " + json.dumps(json_chunk) + "\n\n"
+                    stripped = chunk.strip()
+                    if stripped.startswith("[STATS]"):
+                        yield "data: " + stripped[len("[STATS]"):] + "\n\n"
+                    else:
+                        import re
+                        clean = re.sub(r'[\[<|]*python_tag[\]>|]*', '', chunk, flags=re.IGNORECASE)
+                        if not clean.strip():
+                            continue
+                        json_chunk = {"choices": [{"index": 0, "delta": {"content": clean}}]}
+                        yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")
     except httpx.HTTPStatusError as e:
         logger.error(f"Agent HTTPStatusError {e.response.status_code}: {e.response.text[:200]}")
@@ -349,6 +361,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
 
+    from model_control.connection_warmer import note_inference_loop
+    note_inference_loop()
+
     # Coerce and forward parameters
     temperature = json_data.get("temperature")
     top_k = json_data.get("top_k")
@@ -429,5 +444,34 @@ async def stream_response_from_external_api(url: str, json_data: dict):
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"RequestError: {str(e)}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+
+async def stream_openai_passthrough(url: str, json_data: dict):
+    """Clean OpenAI SSE passthrough for the coding-agent gateway.
+
+    Forwards the upstream vLLM stream verbatim — no injected
+    `stream_options`/`include_usage`, no TT-Studio TTFT/TPOT stats trailer, no
+    param coercion. This keeps the bytes spec-compliant OpenAI streaming chunks
+    so downstream Anthropic adapters (e.g. LiteLLM's /v1/messages, whose
+    streaming iterator does `chunk.choices[0]`) don't choke on the empty-`choices`
+    usage/stats chunks that `stream_response_from_external_api` emits for the
+    in-app chat UI.
+    """
+    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    try:
+        async with _vllm_client.stream(
+            "POST", url, json=json_data, headers=headers
+        ) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_text():
+                if chunk:
+                    yield chunk
+    except httpx.HTTPStatusError as e:
+        body = e.response.text if e.response is not None else "(no body)"
+        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    except httpx.RequestError as e:
+        logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 

@@ -33,8 +33,8 @@ BUG_REPORT_MANIFEST = [
     # key in data dict         zip path                         how it's fetched
     # ─────────────────────── ──────────────────────────────── ───────────────────────────────────────────
     ("backend_log",           "backend.log",                   "persistent volume: backend_volume/python_logs/"),
-    ("fastapi_log",           "fastapi.log",                   "docker-control-service HTTP /api/v1/logs/fastapi"),
-    ("fastapi_deployment_logs","fastapi_logs/<name>.log (×5)", "volume mount: TT_STUDIO_ROOT/fastapi_logs/ (ro)"),
+    ("model_run_log",         "model_run.log",                 "docker-control-service HTTP /api/v1/logs/fastapi"),
+    ("model_run_deployment_logs","model_run_logs/<name>.log (×5)", "volume mount: TT_STUDIO_ROOT/logs/model_run_logs/ (ro)"),
     ("docker_control_log",    "docker-control-service.log",    "docker-control-service HTTP /api/v1/logs/service"),
     ("startup_log",           "startup.log",                   "docker-control-service HTTP /api/v1/logs/startup"),
     ("agent_log",             "agent.log",                     "docker-control-service HTTP /api/v1/containers/<id>/logs"),
@@ -123,44 +123,46 @@ class FastAPILogsView(APIView):
     def get(self, request, *args, **kwargs):
         logger.info("FastAPILogsView endpoint hit")
         
-        # Check if fastapi.log exists in multiple possible locations using relative paths
-        possible_fastapi_logs = [
-            "fastapi.log",  # Current directory
-            os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/logs_control/views.py
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-            os.path.join(LOGS_ROOT, "fastapi.log"),  # Try in logs directory
-            "/app/fastapi.log",  # Container path as fallback
+        # Check if model_run.log exists in multiple possible locations using relative paths
+        possible_model_run_logs = [
+            os.path.join(TT_STUDIO_ROOT, "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+            "logs/model_run.log",  # Relative to current directory
+            os.path.join(LOGS_ROOT, "model_run.log"),  # Try in logs directory
+            "/app/model_run.log",  # Container path as fallback
+            # Legacy fastapi.log locations (pre-rename) kept for backward compatibility
+            os.path.join(TT_STUDIO_ROOT, "logs", "fastapi.log"),
+            "logs/fastapi.log",
+            "fastapi.log",
+            os.path.join(LOGS_ROOT, "fastapi.log"),
         ]
-        
-        fastapi_log_found = False
+
+        model_run_log_found = False
         log_content = ""
-        
-        for fastapi_log_path in possible_fastapi_logs:
-            if os.path.exists(fastapi_log_path):
+
+        for model_run_log_path in possible_model_run_logs:
+            if os.path.exists(model_run_log_path):
                 try:
-                    with open(fastapi_log_path, 'r') as f:
+                    with open(model_run_log_path, 'r') as f:
                         lines = f.readlines()
                         # Get last 20 lines and limit size
                         log_content = ''.join(lines[-20:])
                         if len(log_content) > 2000:
                             log_content = log_content[-2000:] + "\n\n... (truncated)"
-                    fastapi_log_found = True
-                    logger.info(f"Successfully read FastAPI logs from: {fastapi_log_path}")
+                    model_run_log_found = True
+                    logger.info(f"Successfully read model run logs from: {model_run_log_path}")
                     break
                 except Exception as read_error:
-                    logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                    logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
                     continue
-        
-        if not fastapi_log_found:
-            log_content = "fastapi.log not accessible from container (logs available from Docker containers above)"
-            logger.warning("FastAPI log file not found in any expected location")
-        
+
+        if not model_run_log_found:
+            log_content = "model_run.log not accessible from container (logs available from Docker containers above)"
+            logger.warning("Model run log file not found in any expected location")
+
         return JsonResponse({
             "fastapi_logs": log_content,
-            "found": fastapi_log_found,
-            "timestamp": os.path.getmtime(fastapi_log_path) if fastapi_log_found else None
+            "found": model_run_log_found,
+            "timestamp": os.path.getmtime(model_run_log_path) if model_run_log_found else None
         }, status=200)
 
 
@@ -426,31 +428,44 @@ def _collect_bug_report_data() -> dict:
     else:
         data["backend_log"] = {"file": None, "content": f"python_logs directory not found: {python_logs_dir}"}
 
-    # 2. FastAPI inference main log — fetched from docker-control-service running on host
+    # 2. Model run main log — fetched from docker-control-service running on host
     try:
         from docker_control.docker_control_client import DockerControlClient as _DCSClient0
-        _fastapi_result = _DCSClient0().get_fastapi_log(tail=500)
-        data["fastapi_log"] = {"file": _fastapi_result.get("file"), "content": _fastapi_result.get("content", "")}
+        _model_run_result = _DCSClient0().get_model_run_log(tail=500)
+        data["model_run_log"] = {"file": _model_run_result.get("file"), "content": _model_run_result.get("content", "")}
     except Exception as _e0:
-        data["fastapi_log"] = {"file": None, "content": f"fastapi.log not accessible: {_e0}"}
+        data["model_run_log"] = {"file": None, "content": f"model_run.log not accessible: {_e0}"}
 
-    # 3. Per-deployment FastAPI logs (fastapi_logs/ directory, newest 5)
-    fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
-    if os.path.isdir(fastapi_logs_dir):
+    # 3. Per-deployment model run logs (logs/model_run_logs/ directory, newest 5).
+    # Fall back to the legacy fastapi_logs/ locations so bundles captured before
+    # the consolidation + rename still surface their per-deployment logs.
+    model_run_logs_dir = next(
+        (
+            d
+            for d in (
+                os.path.join(TT_STUDIO_ROOT, "logs", "model_run_logs"),
+                os.path.join(TT_STUDIO_ROOT, "logs", "fastapi_logs"),
+                os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
+            )
+            if os.path.isdir(d)
+        ),
+        None,
+    )
+    if model_run_logs_dir:
         dep_logs = sorted(
             [
-                os.path.join(fastapi_logs_dir, f)
-                for f in os.listdir(fastapi_logs_dir)
+                os.path.join(model_run_logs_dir, f)
+                for f in os.listdir(model_run_logs_dir)
                 if f.endswith(".log")
             ],
             key=os.path.getmtime,
             reverse=True,
         )[:5]
-        data["fastapi_deployment_logs"] = [
+        data["model_run_deployment_logs"] = [
             {"file": f, "content": _read_log_tail(f, 300)} for f in dep_logs
         ]
     else:
-        data["fastapi_deployment_logs"] = []
+        data["model_run_deployment_logs"] = []
 
     # 4 & 5. Docker control service log + startup log — fetched from docker-control-service on host
     try:
@@ -571,14 +586,14 @@ class BugReportDownloadView(APIView):
 
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("backend.log", data["backend_log"]["content"])
-                zf.writestr("fastapi.log", data["fastapi_log"]["content"])
+                zf.writestr("model_run.log", data["model_run_log"]["content"])
                 zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
                 zf.writestr("startup.log", data["startup_log"]["content"])
                 zf.writestr("agent.log", data["agent_log"]["content"])
 
-                for entry in data["fastapi_deployment_logs"]:
+                for entry in data["model_run_deployment_logs"]:
                     fname = os.path.basename(entry["file"])
-                    zf.writestr(f"fastapi_logs/{fname}", entry["content"])
+                    zf.writestr(f"model_run_logs/{fname}", entry["content"])
 
                 for entry in data["inference_run_logs"]:
                     fname = os.path.basename(entry["file"])
