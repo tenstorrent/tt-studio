@@ -1,0 +1,45 @@
+name: TT-Studio Launcher Tests
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches:
+      - "main"
+      - "staging"
+      - "dev"
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - "tt_setup/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/launcher-tests.yml"
+
+jobs:
+  launcher-tests:
+    name: run.py / tt_setup tests
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install the launcher package and test runner
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pytest
+
+      - name: Run the tt_setup test suite
+        run: python -m pytest tests/ -q
