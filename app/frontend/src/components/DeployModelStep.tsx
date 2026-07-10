@@ -6,7 +6,6 @@ import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { StepperFormActions } from "./StepperFormActions";
 import { useRefresh } from "../hooks/useRefresh";
-import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
