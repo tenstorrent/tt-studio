@@ -94,6 +94,15 @@ proxyConfig["/ws-api"] = {
   rewrite: (path: string) => path.replace(/^\/ws-api/, "/ws"),
 };
 
+// Lightweight backend liveness probe used by the frontend to detect when the
+// backend becomes unreachable. Forwards to the backend's bare `/up/` endpoint
+// (path preserved, no rewrite).
+proxyConfig["/up"] = {
+  target: VITE_BACKEND_URL,
+  changeOrigin: true,
+  secure: true,
+};
+
 // Add specific proxy configuration for the /reset-board endpoint
 proxyConfig["/reset-board"] = {
   target: VITE_BACKEND_URL,
