@@ -84,6 +84,16 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
   - The release branch undergoes **testing before deployment**.
   - **Bug fixes and PR comments** follow the standard development flow and can be cherry-picked into the same release branch.
 
+- **QB2 launch branch (`tt_qb2_launch_branch`):**
+
+  - This release targets QB2 hardware, so it must **enable the QB2 hardware
+    check**. `IS_QB2` is opt-in and defaults to off everywhere else.
+  - In the branch's committed `.env.default`, set **`IS_QB2=true`** (uncomment /
+    add the line under the `Hardware` section).
+  - This turns on the strict startup tt-smi verification (fails fast if a QB2
+    board isn't confirmed). Leave `IS_QB2` unset/off on `main`, `dev`, and
+    `rc-*` branches so dev laptops and cloud runs aren't blocked.
+
 ---
 
 #### **Final Deployment**

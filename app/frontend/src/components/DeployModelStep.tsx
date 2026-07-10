@@ -6,10 +6,12 @@ import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { StepperFormActions } from "./StepperFormActions";
 import { useRefresh } from "../hooks/useRefresh";
+import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
+import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -325,7 +327,7 @@ export function DeployModelStep({
           disabled={isDeployDisabled}
           onDeployStarted={onDeployStarted}
         />
-        <div className="mt-6 flex flex-col items-start justify-center space-y-2">
+        <div className="mt-6 flex flex-col items-center justify-center space-y-2">
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
