@@ -292,6 +292,10 @@ When you run `python run.py`, the script:
 | | VITE_ENABLE_DEPLOYED | Enable AI Playground mode | Yes |
 | | VITE_ENABLE_RAG_ADMIN | Enable RAG admin interface | Yes |
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
+| **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
+| **Inference Artifact** | TT_INFERENCE_ARTIFACT_VERSION | Pinned tt-inference-server release to download | Auto-configured |
+| | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |
+| | TT_QB2_LAUNCH_BRANCH | Artifact branch for the QB2 launch (branch selection only) | Optional |
 | **Cloud Models** | CLOUD_*_URL | Model endpoint URLs | If AI Playground enabled |
 | | CLOUD_*_AUTH_TOKEN | Model authentication tokens | If AI Playground enabled |
 
@@ -314,23 +318,29 @@ You can still use the `--tt-hardware` flag to explicitly enable hardware support
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
 
-### QB2 assumption (`IS_QB2`)
+### QB2 hardware verification (`IS_QB2`)
 
-TT Studio ships on a QB2 (Blackhole QuietBox, `P300x2`), so `IS_QB2` defaults to
-`true`. On startup it verifies the QB2 with `tt-smi`:
+QB2 (Blackhole QuietBox, `P300x2`) verification is **opt-in and off by default**,
+so a dev laptop, cloud mode, or a different board is never held to the strict
+check. Set `IS_QB2=true` in `.env` **only on an actual QB2** to have startup
+verify the board with `tt-smi`. (The `tt_qb2_launch` release branch ships with it
+set — see [CONTRIBUTING.md](../CONTRIBUTING.md) → Release Process.)
 
-- **Confirmed** (a `P300x2` board): the ready panel shows `QuietBox (QB2)`.
-- **Wrong board** (tt-smi reads a different board): a non-fatal warning — the
-  machine is likely misconfigured, but startup continues.
-- **Can't read the chips** on a machine that clearly has TT tooling/hardware:
-  startup **stops** at the Checks phase and tells you to fix your tooling (or set
-  `IS_QB2=false`).
-- **No TT tooling at all** (a dev laptop — no `tt-smi`, no `/dev/tenstorrent`):
-  the check is skipped; the panel shows "No accelerator".
+When `IS_QB2=true`, startup behaves as follows:
 
-Set `IS_QB2=false` in `.env` for a dev laptop, cloud mode, or a different board.
-This is independent of `TT_INFERENCE_ARTIFACT_BRANCH`, which only selects which
-inference-server build to download.
+| tt-smi state | Result |
+|---|---|
+| Confirms a QB2 (`P300x2`) | ✓ proceeds — ready panel shows `QuietBox (QB2)` |
+| Reports a **different** board | ⚠ non-fatal warning (likely misconfigured), proceeds |
+| **Installed but can't read the chips** (real TT tooling present) | ⛔ **stops** at Checks — fix your tooling, or set `IS_QB2=false` |
+| **Not installed** (`tt-smi` not on PATH) | ⚠ can't verify from the CLI — warns and **proceeds with caution** |
+| No TT tooling at all (no `tt-smi`, no `/dev/tenstorrent`) | check skipped; panel shows "No accelerator" |
+
+When `IS_QB2` is unset (the default), the whole verification path is skipped —
+startup is never blocked or warned on hardware grounds.
+
+`IS_QB2` is independent of `TT_INFERENCE_ARTIFACT_BRANCH` / `TT_QB2_LAUNCH_BRANCH`,
+which only select which inference-server build to download.
 
 ---
 

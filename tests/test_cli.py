@@ -32,9 +32,12 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         ready.assert_called_once()
 
-    def test_qb2_defaults_true_and_honors_false(self):
-        # IS_QB2 defaults to true — TT Studio assumes a QB2 unless told otherwise.
+    def test_qb2_defaults_false_and_honors_true(self):
+        # IS_QB2 is opt-in: unset defaults to false so the strict QB2 check only
+        # runs when a QB2 machine (or the tt_qb2_launch release branch) opts in.
         with patch.object(_cli_run, "get_env_var", side_effect=lambda name, default="": default):
+            self.assertFalse(_cli_run._qb2_configured())
+        with patch.object(_cli_run, "get_env_var", side_effect=lambda name, default="": "true"):
             self.assertTrue(_cli_run._qb2_configured())
         with patch.object(_cli_run, "get_env_var", side_effect=lambda name, default="": "false"):
             self.assertFalse(_cli_run._qb2_configured())

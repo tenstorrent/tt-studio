@@ -26,14 +26,15 @@ from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
 def _qb2_configured():
-    """Whether this deployment is configured as a QB2.
+    """Whether this deployment is explicitly configured as a QB2.
 
-    Defaults to TRUE — TT Studio ships on a QB2, so it assumes one unless the
-    operator explicitly sets IS_QB2=false (a dev laptop, cloud mode, or a
-    different board). This is independent of TT_INFERENCE_ARTIFACT_BRANCH, which
-    only selects which inference-server version to download.
+    Defaults to FALSE — the strict QB2 tt-smi verification is opt-in, so a dev
+    laptop, cloud mode, or a different board isn't held to it. Turn it on by
+    setting IS_QB2=true (the tt_qb2_launch release branch ships with it set; see
+    CONTRIBUTING.md → Release Process). This is independent of
+    TT_INFERENCE_ARTIFACT_BRANCH, which only selects the inference-server version.
     """
-    return parse_boolean_env(get_env_var("IS_QB2", "true"))
+    return parse_boolean_env(get_env_var("IS_QB2", "false"))
 
 
 def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode=None):
@@ -56,12 +57,11 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
         tt_smi_present = bool(shutil.which("tt-smi"))
         if tt_smi_present:
             tt_status, tt_detail, tt_board = check_tt_smi()
-        # Verify QB2 only when configured AND there's real TT tooling/hardware to
-        # check against — a pure dev laptop (no tt-smi, no device) shows plain
-        # "no accelerator" even though IS_QB2 defaults to true.
-        hw_present = tt_smi_present or detect_tt_hardware()
+        # Verify QB2 only when configured (IS_QB2=true, opt-in) AND tt-smi actually
+        # ran — without tt-smi there's nothing to compare against, so the label
+        # just reflects what's detected rather than a "couldn't confirm" warning.
         hardware_label, _ = resolve_hardware_label(
-            tt_status, tt_detail, tt_board, _qb2_configured() and hw_present,
+            tt_status, tt_detail, tt_board, _qb2_configured() and tt_smi_present,
             hw_present=detect_tt_hardware())
 
     # Only the app URL by default — FastAPI / Docker Control fold into --verbose.
@@ -126,6 +126,31 @@ def _run(args):
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
 
+{C_ORANGE}{C_BOLD}Hardware:{C_RESET}
+{'=' * 80}
+  {C_YELLOW}IS_QB2{C_RESET}                              Opt-in QB2 (Blackhole QuietBox / P300x2)
+                                      verification. Unset/false (default) = off;
+                                      true = verify the board via tt-smi at
+                                      startup. Set on the tt_qb2_launch release
+                                      branch (see CONTRIBUTING.md).
+
+{C_ORANGE}{C_BOLD}Inference Server Artifact (which tt-inference-server build to use):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}TT_INFERENCE_ARTIFACT_VERSION{C_RESET}       Pinned release to download (e.g. v0.17.0)
+  {C_YELLOW}TT_INFERENCE_ARTIFACT_BRANCH{C_RESET}        Dev override: fetch a branch/SHA instead
+                                      of a release
+  {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
+                                      (branch selection only — hardware is
+                                      governed by IS_QB2, not this)
+
+{C_CYAN}{C_BOLD}QB2 hardware verification (only when IS_QB2=true):{C_RESET}
+{'=' * 80}
+  {C_GREEN}tt-smi confirms QB2 (P300x2){C_RESET}        {C_GREEN}✓{C_RESET} proceed — labeled "QuietBox (QB2)"
+  {C_YELLOW}tt-smi reports a different board{C_RESET}    {C_YELLOW}⚠{C_RESET} warn (possible misconfig), proceed
+  {C_RED}tt-smi installed but unreadable{C_RESET}     {C_RED}⛔{C_RESET} stop — tooling/board needs attention
+  {C_YELLOW}tt-smi not installed (not on PATH){C_RESET}  {C_YELLOW}⚠{C_RESET} can't verify, proceed with caution
+  {C_WHITE}IS_QB2 unset (default){C_RESET}              ○ check skipped entirely (never blocks)
+
 {C_GREEN}{C_BOLD}Application Modes:{C_RESET}
 {'=' * 80}
   {C_YELLOW}VITE_APP_TITLE{C_RESET}                      Application title
@@ -152,6 +177,11 @@ def _run(args):
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
   {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
+  {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
+  {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
+  {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
+  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + open a pre-filled GitHub issue
+  {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
@@ -249,9 +279,9 @@ def _run(args):
         # Update freshness is itself a check — fold it into this phase.
         ph.set("checking for updates")
         freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
-        # TT Studio ships on a QB2, so IS_QB2 defaults to true; we then verify that
-        # claim against tt-smi below. Set IS_QB2=false for a dev laptop / cloud /
-        # other board. (Independent of the inference-server artifact branch.)
+        # QB2 verification is opt-in: IS_QB2 defaults to false, so the strict
+        # tt-smi check below only runs when a QB2 machine (or the tt_qb2_launch
+        # release branch) sets IS_QB2=true. (Independent of the artifact branch.)
         is_qb2 = _qb2_configured()
         # Hard-stop only on release branches behind origin (feature branches just
         # continue). The actionable warning is printed by startup_checks.
@@ -282,20 +312,22 @@ def _run(args):
             else:
                 startup_log.step("tt_smi_check", "WARN", tt_detail)
 
-        # This machine is configured as a QB2 (IS_QB2), so fail fast when tt-smi
-        # can't confirm a working device — better to stop at Checks than to fail
-        # deep in Build/Launch. Escape hatch: a pure dev laptop with NO TT tooling
-        # at all (no tt-smi, no /dev/tenstorrent) is left alone even with the QB2
-        # default on — it just shows "no accelerator". So we only stop when QB2 is
-        # configured AND there's real TT tooling/hardware present to read.
-        tt_present = tt_smi_present or detect_tt_hardware()
-        if is_qb2 and tt_present and tt_status != "ok":
-            reason = (tt_detail or "unreadable output") if tt_smi_present else "tt-smi not found on PATH"
+        # QB2 verification runs only when explicitly configured (IS_QB2=true), and
+        # separates two very different failure modes:
+        #   • tt-smi IS installed but can't read a healthy device → real red flag;
+        #     stop at Checks rather than failing deep in Build/Launch.
+        #   • tt-smi is NOT installed → we simply can't verify from the CLI; warn
+        #     and proceed with caution instead of blocking (the deploy may still
+        #     work, and the user can install tt-smi later).
+        # With IS_QB2 unset (the default) both branches are skipped, so a dev
+        # laptop / cloud box is never blocked or warned.
+        if is_qb2 and tt_smi_present and tt_status != "ok":
+            reason = tt_detail or "unreadable output"
             startup_log.step("tt_smi_check", "FAIL", reason)
             stop_active_phase()  # stop the phase spinner without a ✓, before the panel
             console.print(notice_panel(
                 "[bold]⛔ This is set up as a QB2, but tt-smi couldn't read its devices[/bold]",
-                [f"tt-smi did not report a working Tenstorrent device ({reason}).",
+                [f"tt-smi is installed but did not report a working Tenstorrent device ({reason}).",
                  "Your Tenstorrent tooling or board may need attention.",
                  "",
                  "Fix your TT tooling and re-run [accent]python run.py[/accent],",
@@ -307,13 +339,24 @@ def _run(args):
             startup_log.close()
             sys.exit(1)
 
-        # Not blocked → tt_status is "ok" (confirmed), or there's no TT tooling to
-        # check (dev laptop / cloud). Build the Hardware label; when QB2 is
-        # configured and tt-smi reports a *different* board (mismatch), surface it —
-        # still a likely-misconfigured system even though tt-smi read fine. Gated
-        # on real hardware so the QB2 default doesn't warn on a no-accelerator box.
+        if is_qb2 and not tt_smi_present:
+            # Can't verify from the CLI — warn and keep going (don't block setup).
+            startup_log.step("tt_smi_check", "WARN", "tt-smi not on PATH — QB2 unverified")
+            add_note("[warning]⚠  tt-smi not installed — couldn't verify the QB2; proceeded with caution.[/warning]")
+            with ph.pause():
+                console.print(notice_panel(
+                    "[bold]⚠  Couldn't verify the QB2 — tt-smi isn't installed[/bold]",
+                    ["tt-smi isn't on PATH, so the QB2 board couldn't be verified.",
+                     "Proceeding with caution — install tt-smi to enable the hardware check,",
+                     "or set [accent]IS_QB2=false[/accent] in .env if this isn't a QB2.",
+                     "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
+                    border_style="warning"))
+
+        # Build the Hardware label. The QB2 mismatch check inside resolve_* only
+        # makes sense when tt-smi actually ran, so gate it on tt_smi_present — the
+        # "not installed" case is already handled above and shouldn't warn twice.
         hardware_label, hw_warning = resolve_hardware_label(
-            tt_status, tt_detail, tt_board, is_qb2 and tt_present,
+            tt_status, tt_detail, tt_board, is_qb2 and tt_smi_present,
             hw_present=detect_tt_hardware())
         if hw_warning:
             startup_log.step("qb2_check", "WARN", hw_warning)
