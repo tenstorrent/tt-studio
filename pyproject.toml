@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tt-studio = "tt_setup.cli:app"
+tt-studio = "tt_setup.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]

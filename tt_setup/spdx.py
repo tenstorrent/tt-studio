@@ -90,6 +90,45 @@ def should_skip_spdx_directory(directory_path):
     return directory_name in skip_dirs
 
 
+def _is_spdx_candidate(file_path):
+    """True if `file_path` is a file we should check/add an SPDX header on:
+    a supported source type, not inside a skipped directory."""
+    if not file_path.is_file():
+        return False
+    if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
+        return False
+    return get_spdx_header_type(file_path) is not None
+
+
+def _iter_spdx_files(repo_root):
+    """Yield the source files eligible for SPDX processing, each exactly once.
+
+    The tracked subtrees are walked recursively; the repo root itself is scanned
+    non-recursively so root-level files (run.py, startup.sh, …) are covered
+    without descending the whole tree (node_modules, .git, .venv) — which also
+    avoids processing files under the subtrees twice."""
+    subtrees = [
+        repo_root / "app" / "backend",
+        repo_root / "app" / "agent",
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+    ]
+    seen = set()
+    for directory in subtrees:
+        if not directory.exists():
+            continue
+        for file_path in directory.rglob("*"):
+            if file_path not in seen and _is_spdx_candidate(file_path):
+                seen.add(file_path)
+                yield file_path
+    # Root-level files only (non-recursive).
+    for file_path in repo_root.iterdir():
+        if file_path not in seen and _is_spdx_candidate(file_path):
+            seen.add(file_path)
+            yield file_path
+
+
 def add_spdx_header_to_file(file_path, headers):
     """
     Adds the SPDX header to the file if it doesn't already contain it.
@@ -128,40 +167,19 @@ def check_spdx_headers():
     console.print("[info]🔍 Checking for missing SPDX license headers...[/info]")
 
     repo_root = Path(TT_STUDIO_ROOT)
-    directories_to_process = [
-        repo_root / "app" / "backend",
-        repo_root / "app" / "agent",
-        repo_root / "dev-tools",
-        repo_root / "models",
-        repo_root / "docs",
-        repo_root,  # Root level files (like run.py, startup.sh)
-    ]
 
     missing_headers = []
     total_files_checked = 0
 
-    for directory in directories_to_process:
-        if not directory.exists():
-            console.print(f"[muted]⚠️  Directory does not exist: {directory}[/muted]")
-            continue
-
-        console.print(f"[muted]📁 Checking directory: {directory}[/muted]")
-        for file_path in directory.rglob("*"):
-            if file_path.is_file():
-                # Skip files in excluded directories
-                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
-                    continue
-
-                # Check if the file is a supported type
-                if get_spdx_header_type(file_path) is not None:
-                    total_files_checked += 1
-                    try:
-                        with open(file_path, "r", encoding='utf-8') as file:
-                            content = file.read()
-                            if "SPDX-License-Identifier" not in content:
-                                missing_headers.append(str(file_path))
-                    except Exception as e:
-                        console.print(f"[muted]⚠️  Could not read {file_path}: {e}[/muted]")
+    for file_path in _iter_spdx_files(repo_root):
+        total_files_checked += 1
+        try:
+            with open(file_path, "r", encoding='utf-8') as file:
+                content = file.read()
+                if "SPDX-License-Identifier" not in content:
+                    missing_headers.append(str(file_path))
+        except Exception as e:
+            console.print(f"[muted]⚠️  Could not read {file_path}: {e}[/muted]")
 
     if missing_headers:
         summary = [
@@ -200,36 +218,15 @@ def add_spdx_headers():
     console.print("[info]📝 Adding missing SPDX license headers...[/info]")
 
     repo_root = Path(TT_STUDIO_ROOT)
-    directories_to_process = [
-        repo_root / "app" / "backend",
-        repo_root / "app" / "agent",
-        repo_root / "dev-tools",
-        repo_root / "models",
-        repo_root / "docs",
-        repo_root,  # Root level files (like run.py, startup.sh)
-    ]
 
     headers = get_spdx_headers()
     files_modified = 0
     total_files_checked = 0
 
-    for directory in directories_to_process:
-        if not directory.exists():
-            console.print(f"[muted]⚠️  Directory does not exist: {directory}[/muted]")
-            continue
-
-        console.print(f"[muted]📁 Processing directory: {directory}[/muted]")
-        for file_path in directory.rglob("*"):
-            if file_path.is_file():
-                # Skip files in excluded directories
-                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
-                    continue
-
-                # Check if the file is a supported type
-                if get_spdx_header_type(file_path) is not None:
-                    total_files_checked += 1
-                    if add_spdx_header_to_file(file_path, headers):
-                        files_modified += 1
+    for file_path in _iter_spdx_files(repo_root):
+        total_files_checked += 1
+        if add_spdx_header_to_file(file_path, headers):
+            files_modified += 1
 
     if files_modified > 0:
         result_line = f"[success]Successfully added SPDX headers to {files_modified} files![/success]"

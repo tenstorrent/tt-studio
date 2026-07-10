@@ -23,9 +23,11 @@ def probe_service(health_url, timeout=2):
     `timeout`s. Used for the ready-panel snapshot dot — not the long wait loop."""
     try:
         if HAS_REQUESTS:
-            return requests.get(health_url, timeout=timeout).status_code == 200
+            with requests.get(health_url, timeout=timeout) as resp:
+                return resp.status_code == 200
         import urllib.request
-        return urllib.request.urlopen(health_url, timeout=timeout).getcode() == 200
+        with urllib.request.urlopen(health_url, timeout=timeout) as resp:
+            return resp.getcode() == 200
     except Exception:
         return False
 
@@ -56,11 +58,11 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
 
             if HAS_REQUESTS:
                 try:
-                    response = requests.get(health_url, timeout=5)
-                    if response.status_code == 200:
-                        # Spinner clears on exiting the context manager; succeed silently.
-                        return True
-                    failure_reason = f"HTTP {response.status_code}"
+                    with requests.get(health_url, timeout=5) as response:
+                        if response.status_code == 200:
+                            # Spinner clears on exiting the context manager; succeed silently.
+                            return True
+                        failure_reason = f"HTTP {response.status_code}"
                 except requests.exceptions.ConnectionError:
                     failure_reason = "connection refused"
                 except requests.exceptions.Timeout:
@@ -70,10 +72,10 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
             else:
                 try:
                     import urllib.error
-                    resp = urllib.request.urlopen(health_url, timeout=5)
-                    if resp.getcode() == 200:
-                        return True
-                    failure_reason = f"HTTP {resp.getcode()}"
+                    with urllib.request.urlopen(health_url, timeout=5) as resp:
+                        if resp.getcode() == 200:
+                            return True
+                        failure_reason = f"HTTP {resp.getcode()}"
                 except urllib.error.URLError as exc:
                     reason = str(exc.reason) if hasattr(exc, 'reason') else str(exc)
                     if "refused" in reason.lower():
