@@ -25,9 +25,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           # 3.11 is the floor declared in pyproject.toml (requires-python).
           python-version: "3.11"
@@ -36,7 +36,9 @@ jobs:
       - name: Install the launcher package and test runner
         run: |
           python -m pip install --upgrade pip
-          pip install . pytest==9.0.3
+          pip install . pytest==9.0.3 coverage==7.15.1
 
-      - name: Run the tt_setup test suite
-        run: python -m pytest tests/ -q
+      - name: Run the tt_setup test suite with coverage
+        run: |
+          coverage run --source=tt_setup -m pytest tests/ -q
+          coverage report -m --fail-under=25
