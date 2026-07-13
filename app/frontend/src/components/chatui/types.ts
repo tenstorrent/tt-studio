@@ -45,6 +45,7 @@ export interface ChatMessage {
   finishReason?: string | null;
   timing?: TimingInfo;
   sources?: SourceLink[];
+  modelName?: string;
 }
 
 export type MessageContent =
