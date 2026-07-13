@@ -8,13 +8,17 @@ import {
   Controls,
   MiniMap,
   type NodeMouseHandler,
+  type EdgeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas-overrides.css";
 
 import { useWorkflowStore } from "../../store/workflowStore";
 import { nodeTypes } from "./nodes/nodeTypes";
+import DeletableEdge from "./edges/DeletableEdge";
 import type { WorkflowNodeType, WorkflowNode } from "../../types/workflow";
+
+const edgeTypes = { default: DeletableEdge };
 
 const NODE_DEFAULTS: Record<string, Record<string, unknown>> = {
   input: { label: "User Input", text: "" },
@@ -44,8 +48,10 @@ export default function WorkflowCanvas() {
     onConnect,
     addNode,
     setSelectedNode,
+    setSelectedEdge,
     deleteSelected,
     selectedNodeId,
+    selectedEdgeId,
   } = useWorkflowStore();
 
   const onNodeClick: NodeMouseHandler<WorkflowNode> = useCallback(
@@ -55,13 +61,24 @@ export default function WorkflowCanvas() {
     [setSelectedNode]
   );
 
+  const onEdgeClick: EdgeMouseHandler = useCallback(
+    (_event, edge) => {
+      setSelectedEdge(edge.id);
+    },
+    [setSelectedEdge]
+  );
+
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
-  }, [setSelectedNode]);
+    setSelectedEdge(null);
+  }, [setSelectedNode, setSelectedEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        (selectedNodeId || selectedEdgeId)
+      ) {
         const tag = (e.target as HTMLElement).tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         e.preventDefault();
@@ -70,7 +87,7 @@ export default function WorkflowCanvas() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNodeId, deleteSelected]);
+  }, [selectedNodeId, selectedEdgeId, deleteSelected]);
 
   const onDragOver: DragEventHandler<HTMLDivElement> = useCallback((event) => {
     event.preventDefault();
@@ -115,10 +132,12 @@ export default function WorkflowCanvas() {
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onNodeClick={onNodeClick}
+      onEdgeClick={onEdgeClick}
       onPaneClick={onPaneClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       colorMode="dark"
       fitView
       defaultEdgeOptions={{

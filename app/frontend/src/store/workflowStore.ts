@@ -37,6 +37,7 @@ export interface WorkflowState {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   selectedNodeId: string | null;
+  selectedEdgeId: string | null;
 
   // Execution
   isRunning: boolean;
@@ -62,6 +63,7 @@ export interface WorkflowState {
   onConnect: (connection: Connection) => void;
   addNode: (node: WorkflowNode) => void;
   setSelectedNode: (id: string | null) => void;
+  setSelectedEdge: (id: string | null) => void;
   updateNodeData: (nodeId: string, data: Record<string, unknown>) => void;
   deleteSelected: () => void;
 
@@ -84,6 +86,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  selectedEdgeId: null,
 
   isRunning: false,
   nodeStatuses: {},
@@ -212,7 +215,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   setSelectedNode: (id) => {
-    set({ selectedNodeId: id });
+    set({ selectedNodeId: id, selectedEdgeId: null });
+  },
+
+  setSelectedEdge: (id) => {
+    set({ selectedEdgeId: id, selectedNodeId: null });
   },
 
   updateNodeData: (nodeId, data) => {
@@ -224,8 +231,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   deleteSelected: () => {
-    const { selectedNodeId } = get();
+    const { selectedNodeId, selectedEdgeId, nodes } = get();
+
+    // Delete a selected edge
+    if (selectedEdgeId) {
+      set((s) => ({
+        edges: s.edges.filter((e) => e.id !== selectedEdgeId),
+        selectedEdgeId: null,
+      }));
+      return;
+    }
+
+    // Delete a selected node (guard input/output)
     if (!selectedNodeId) return;
+    const node = nodes.find((n) => n.id === selectedNodeId);
+    if (!node || node.type === "input" || node.type === "output") return;
+
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== selectedNodeId),
       edges: s.edges.filter(
