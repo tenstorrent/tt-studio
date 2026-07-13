@@ -18,10 +18,16 @@ on:
       - "pyproject.toml"
       - ".github/workflows/launcher-tests.yml"
 
+# Cancel superseded runs on the same ref so rapid pushes don't pile up.
+concurrency:
+  group: launcher-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   launcher-tests:
     name: run.py / tt_setup tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
