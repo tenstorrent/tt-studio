@@ -32,7 +32,10 @@ services:
     # container start, then launch Vite. The node_modules anonymous volume is
     # only seeded once at creation, so newly added deps in the bind-mounted
     # package.json would otherwise never be installed without a full rebuild.
-    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+    # --no-package-lock keeps a routine start from rewriting the bind-mounted
+    # lockfile; the "|| echo" keeps a registry outage from taking down the dev
+    # server when the cached node_modules is already usable.
+    command: sh -c "npm install --no-audit --no-fund --no-package-lock || echo 'npm install skipped/failed; using cached node_modules'; npm run dev"
 
     # Override ports for Vite dev server
     ports:
