@@ -35,8 +35,9 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          # 3.11 is the floor declared in pyproject.toml (requires-python).
-          python-version: "3.11"
+          # 3.12 matches the QB2 ISO (Ubuntu 24.04) deployment target and the
+          # floor declared in pyproject.toml (requires-python).
+          python-version: "3.12"
           cache: "pip"
 
       - name: Install the launcher package and test runner
@@ -48,3 +49,9 @@ jobs:
         run: |
           coverage run --source=tt_setup -m pytest tests/ -q
           coverage report -m --fail-under=25
+          # Render a coverage table on the run's Summary tab (not just the log).
+          {
+            echo "### Launcher test coverage"
+            echo ""
+            coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
