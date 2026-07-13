@@ -25,8 +25,9 @@ import { cn } from "../lib/utils";
 
 const PLACEHOLDER_MODEL = "your-model-name";
 // Fallbacks when the gateway hasn't reported a model's limits yet.
+// maxTokens mirrors the gateway's 75%-of-context ceiling.
 const DEFAULT_CONTEXT_WINDOW = 32768;
-const DEFAULT_MAX_TOKENS = 8192;
+const DEFAULT_MAX_TOKENS = Math.floor((DEFAULT_CONTEXT_WINDOW * 3) / 4);
 
 export default function CodingAgentsPage() {
   const [info, setInfo] = useState<CodingAgentsInfo | null>(null);
