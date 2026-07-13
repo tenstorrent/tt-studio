@@ -28,6 +28,8 @@ const PLACEHOLDER_MODEL = "your-model-name";
 // maxTokens mirrors the gateway's 75%-of-context ceiling.
 const DEFAULT_CONTEXT_WINDOW = 32768;
 const DEFAULT_MAX_TOKENS = Math.floor((DEFAULT_CONTEXT_WINDOW * 3) / 4);
+// Per-turn output budget advertised to OpenClaw. Consistent with industry norms.
+const OPENCLAW_MAX_OUTPUT_TOKENS = 8192;
 
 export default function CodingAgentsPage() {
   const [info, setInfo] = useState<CodingAgentsInfo | null>(null);
@@ -151,7 +153,10 @@ PY`;
       name: m.name,
       input: ["text"],
       contextWindow: m.context_window ?? DEFAULT_CONTEXT_WINDOW,
-      maxTokens: m.max_tokens ?? DEFAULT_MAX_TOKENS,
+      maxTokens: Math.min(
+        m.max_tokens ?? DEFAULT_MAX_TOKENS,
+        OPENCLAW_MAX_OUTPUT_TOKENS,
+      ),
     };
     if (m.name.endsWith("-thinking")) entry.reasoning = true;
     return entry;
@@ -168,7 +173,7 @@ PY`;
           name: PLACEHOLDER_MODEL,
           input: ["text"],
           contextWindow: DEFAULT_CONTEXT_WINDOW,
-          maxTokens: DEFAULT_MAX_TOKENS,
+          maxTokens: OPENCLAW_MAX_OUTPUT_TOKENS,
         },
       ],
   };
