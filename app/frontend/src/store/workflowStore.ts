@@ -38,6 +38,10 @@ export interface WorkflowState {
   edges: WorkflowEdge[];
   selectedNodeId: string | null;
 
+  // Template tracking
+  sourceTemplateName: string | null;
+  isTemplateModified: boolean;
+
   // Execution
   isRunning: boolean;
   nodeStatuses: Record<string, NodeStatus>;
@@ -85,6 +89,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
 
+  sourceTemplateName: null,
+  isTemplateModified: false,
+
   isRunning: false,
   nodeStatuses: {},
   nodeOutputs: {},
@@ -127,6 +134,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set((s) => ({
       workflows: [wf, ...s.workflows],
       currentWorkflow: wf,
+      sourceTemplateName: null,
+      isTemplateModified: false,
       ...(blank ? { nodes: [], edges: [], selectedNodeId: null } : {}),
     }));
     if (blank) get().resetExecution();
@@ -163,6 +172,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: (wf.graph_data?.nodes ?? []) as WorkflowNode[],
         edges: (wf.graph_data?.edges ?? []) as WorkflowEdge[],
         selectedNodeId: null,
+        sourceTemplateName: null,
+        isTemplateModified: false,
       });
     } else {
       set({
@@ -170,6 +181,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        sourceTemplateName: null,
+        isTemplateModified: false,
       });
     }
     get().resetExecution();
@@ -181,6 +194,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: (template.graph_data?.nodes ?? []) as WorkflowNode[],
       edges: (template.graph_data?.edges ?? []) as WorkflowEdge[],
       selectedNodeId: null,
+      sourceTemplateName: template.name,
+      isTemplateModified: false,
     });
     get().resetExecution();
   },
@@ -190,25 +205,45 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // -----------------------------------------------------------------------
 
   onNodesChange: (changes) => {
+    // Structural changes (position, add, remove) mark the template as modified;
+    // selection and dimension changes are not user edits.
+    const isStructural = changes.some(
+      (c) => c.type !== "select" && c.type !== "dimensions"
+    );
     set((s) => ({
       nodes: applyNodeChanges(changes, s.nodes) as WorkflowNode[],
+      ...(isStructural && s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
     }));
   },
 
   onEdgesChange: (changes) => {
+    const isStructural = changes.some((c) => c.type !== "select");
     set((s) => ({
       edges: applyEdgeChanges(changes, s.edges),
+      ...(isStructural && s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
     }));
   },
 
   onConnect: (connection) => {
     set((s) => ({
       edges: addEdge(connection, s.edges),
+      ...(s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
     }));
   },
 
   addNode: (node) => {
-    set((s) => ({ nodes: [...s.nodes, node] }));
+    set((s) => ({
+      nodes: [...s.nodes, node],
+      ...(s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
+    }));
   },
 
   setSelectedNode: (id) => {
@@ -220,6 +255,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: s.nodes.map((n) =>
         n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n
       ),
+      ...(s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
     }));
   },
 
@@ -232,6 +270,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         (e) => e.source !== selectedNodeId && e.target !== selectedNodeId
       ),
       selectedNodeId: null,
+      ...(s.sourceTemplateName && !s.isTemplateModified
+        ? { isTemplateModified: true }
+        : {}),
     }));
   },
 
@@ -445,6 +486,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes,
       edges,
       selectedNodeId: null,
+      sourceTemplateName: null,
+      isTemplateModified: false,
     });
     get().resetExecution();
   },
