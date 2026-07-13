@@ -10,10 +10,14 @@ __pycache__
 
 # submodules / artifacts
 .artifacts/
+# tt-inference-server is cloned/fetched at runtime by run.py — never track it
+# (accidental `git add` records it as a stray gitlink with no .gitmodules).
+tt-inference-server/
 
 # Virtual Environment
 env
 .testvenv
+.tt_studio_run_venv/
 
 # persistent storage volume
 tt_studio_persistent_volume

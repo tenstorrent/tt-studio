@@ -253,8 +253,12 @@ class AgentView(View):
 class AgentStatusView(APIView):
     def get(self, request, *args, **kwargs):
         """Get agent status and discovery information"""
+        import time
+
+        tavily_raw = os.environ.get("TAVILY_API_KEY", "")
+        tavily_configured = bool(tavily_raw) and tavily_raw != "tavily-api-key-not-configured"
+
         try:
-            import time
             # Get agent status directly from the agent service
             agent_status_url = "http://tt_studio_agent:8080/status"
             response = requests.get(agent_status_url, timeout=10)
@@ -262,15 +266,14 @@ class AgentStatusView(APIView):
             if response.status_code == 200:
                 agent_status = response.json()
                 
-                # Add backend-specific information
                 backend_info = {
                     "backend_status": "running",
                     "deployed_models_count": len(get_deploy_cache()),
                     "agent_integration": "enhanced",
-                    "discovery_enabled": True
+                    "discovery_enabled": True,
+                    "tavily_configured": tavily_configured,
                 }
                 
-                # Merge agent and backend status
                 full_status = {
                     "agent": agent_status,
                     "backend": backend_info,
@@ -280,14 +283,22 @@ class AgentStatusView(APIView):
                 return Response(full_status, status=status.HTTP_200_OK)
             else:
                 return Response(
-                    {"error": "Agent service unavailable", "status_code": response.status_code},
+                    {
+                        "error": "Agent service unavailable",
+                        "status_code": response.status_code,
+                        "backend": {"tavily_configured": tavily_configured},
+                    },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
                 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get agent status: {e}")
             return Response(
-                {"error": "Failed to connect to agent service", "details": str(e)},
+                {
+                    "error": "Failed to connect to agent service",
+                    "details": str(e),
+                    "backend": {"tavily_configured": tavily_configured},
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         except Exception as e:

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Database, File, X } from "lucide-react";
+import { Database, File, Globe, X } from "lucide-react";
 import { motion } from "framer-motion";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
@@ -106,6 +106,7 @@ interface ChatHistoryProps {
   isMobileView?: boolean;
   modelName?: string | null;
   toggleableInlineStats?: boolean;
+  isAgentSelected?: boolean;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
@@ -120,6 +121,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   isMobileView = false,
   modelName,
   toggleableInlineStats = true,
+  isAgentSelected = false,
 }) => {
   // console.log("ChatHistory component rendered", ragDatasource);
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
@@ -260,6 +262,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             index < chatHistory.length - 1 // If it's not the absolute last message
                           }
                           isStopped={message.isStopped}
+                          hideThinkingPanel={isAgentSelected}
                           onThinkingBlocksChange={(hasThinking, _blocks) => {
                             const messageId = message.id || index.toString();
                             setMessageThinkingState((prev) => ({
@@ -356,6 +359,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                           },
                         }));
                       }}
+                      sources={message.sources}
                     />
                   </div>
                 )}
@@ -392,7 +396,26 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm`}
                 >
                   <div className="w-full text-left">
-                    <MessageIndicator isMobileView={isMobileView} />
+                    {isAgentSelected ? (
+                      <div className="flex items-center gap-2">
+                        <motion.div
+                          className="flex-shrink-0"
+                          animate={{ rotate: [0, 360] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        >
+                          <Globe size={isMobileView ? 14 : 16} className="text-blue-400" />
+                        </motion.div>
+                        <motion.span
+                          className={`italic text-gray-300 ${isMobileView ? "text-xs" : "text-sm"}`}
+                          animate={{ opacity: [1, 0.5, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        >
+                          Search Agent is working…
+                        </motion.span>
+                      </div>
+                    ) : (
+                      <MessageIndicator isMobileView={isMobileView} />
+                    )}
                   </div>
                 </div>
               </motion.div>
