@@ -197,6 +197,7 @@ class _Manager:
                 "device_id": normalized_device_ids[0],
                 "device_ids": normalized_device_ids,
                 "workflow_log_path": kwargs.get("workflow_log_path", None),
+                "tool_calling_enabled": kwargs.get("tool_calling_enabled", False),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -237,6 +238,7 @@ class ModelDeployment:
         self.workflow_log_path: Optional[str] = None
         self.failure_reason: Optional[str] = None
         self.failure_message: Optional[str] = None
+        self.tool_calling_enabled: bool = False
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -260,6 +262,7 @@ class ModelDeployment:
         obj.workflow_log_path = d.get("workflow_log_path")
         obj.failure_reason = d.get("failure_reason")
         obj.failure_message = d.get("failure_message")
+        obj.tool_calling_enabled = d.get("tool_calling_enabled", False)
         return obj
 
     def _to_dict(self) -> dict:
@@ -279,6 +282,7 @@ class ModelDeployment:
             "workflow_log_path": self.workflow_log_path,
             "failure_reason": self.failure_reason,
             "failure_message": self.failure_message,
+            "tool_calling_enabled": self.tool_calling_enabled,
         }
 
     def save(self) -> None:

@@ -99,6 +99,16 @@ class ModelImpl:
         self.docker_config["environment"].update(env_dict)
 
     @property
+    def tool_call_parser(self) -> str:
+        """Infer the vLLM --tool-call-parser value from model name / HF ID."""
+        name = (self.model_name or self.hf_model_id or "").lower()
+        if "qwen" in name or "qwq" in name:
+            return "hermes"
+        if "mistral" in name:
+            return "mistral"
+        return "llama3_json"
+
+    @property
     def image_version(self) -> str:
         return f"{self.image_name}:{self.image_tag}"
 

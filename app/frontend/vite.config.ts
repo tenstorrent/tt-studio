@@ -18,6 +18,7 @@ const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
   "logs-api": "logs",
   "board-api": "board",
   "settings-api": "settings",
+  "workflows-api": "workflows",
 };
 
 const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
@@ -92,6 +93,15 @@ proxyConfig["/ws-api"] = {
   ws: true,
   changeOrigin: true,
   rewrite: (path: string) => path.replace(/^\/ws-api/, "/ws"),
+};
+
+// Lightweight backend liveness probe used by the frontend to detect when the
+// backend becomes unreachable. Forwards to the backend's bare `/up/` endpoint
+// (path preserved, no rewrite).
+proxyConfig["/up"] = {
+  target: VITE_BACKEND_URL,
+  changeOrigin: true,
+  secure: true,
 };
 
 // Add specific proxy configuration for the /reset-board endpoint
