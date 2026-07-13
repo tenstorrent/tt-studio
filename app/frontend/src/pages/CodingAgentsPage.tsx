@@ -430,7 +430,7 @@ PY`;
                       Merges a <code>tt-studio</code> model provider into your{" "}
                       <code>~/.openclaw/openclaw.json</code> — leaving any other
                       providers, keys, and plugins untouched. If you haven't configured
-                      embeddings, it disables memory search to prevent errors.
+                      memory search yet, it disables it by default to prevent errors.
                     </p>
                     <CodeBlock code={openclawSnippet} language="bash" className="text-left" />
                     <p className="text-sm text-gray-600 dark:text-gray-300">
