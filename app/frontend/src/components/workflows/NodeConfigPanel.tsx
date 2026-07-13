@@ -19,6 +19,7 @@ import InputConfigPanel from "./config/InputConfigPanel";
 import LLMConfigPanel from "./config/LLMConfigPanel";
 import RAGConfigPanel from "./config/RAGConfigPanel";
 import AgentConfigPanel from "./config/AgentConfigPanel";
+import MarkdownComponent from "../chatui/MarkdownComponent";
 
 interface SourceLink {
   title: string;
@@ -77,6 +78,16 @@ export default function NodeConfigPanel() {
 
   const [activeTab, setActiveTab] = useState<Tab>("config");
 
+  useEffect(() => {
+    if (selectedNodeId) {
+      const state = useWorkflowStore.getState();
+      const initialOutput = state.nodeOutputs[selectedNodeId];
+      const initialReasoning = state.agentReasoningLog[selectedNodeId];
+      const initHasOutput = !!initialOutput || (initialReasoning && initialReasoning.length > 0);
+      setActiveTab(initHasOutput ? "output" : "config");
+    }
+  }, [selectedNodeId]);
+
   const node = nodes.find((n) => n.id === selectedNodeId);
   if (!node) return null;
 
@@ -134,15 +145,14 @@ export default function NodeConfigPanel() {
             <AlertCircle className="w-3.5 h-3.5 text-red-400" />
           )}
           <span
-            className={`text-xs font-medium ${
-              status === "running"
+            className={`text-xs font-medium ${status === "running"
                 ? "text-violet-400"
                 : status === "completed"
                   ? "text-emerald-400"
                   : status === "error"
                     ? "text-red-400"
                     : "text-zinc-500"
-            }`}
+              }`}
           >
             {status.charAt(0).toUpperCase() + status.slice(1)}
           </span>
@@ -161,9 +171,9 @@ export default function NodeConfigPanel() {
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-zinc-400">Output</span>
             <div className="overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-4">
-              <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words leading-relaxed text-left">
-                {output}
-              </p>
+              <div className="text-sm text-zinc-300 break-words leading-relaxed text-left">
+                <MarkdownComponent>{output}</MarkdownComponent>
+              </div>
             </div>
           </div>
         )}
@@ -193,29 +203,28 @@ export default function NodeConfigPanel() {
       {/* Tabs */}
       <div className="flex border-b border-zinc-800">
         <button
-          onClick={() => setActiveTab("config")}
-          className={`flex items-center gap-1.5 flex-1 px-4 py-2 text-xs font-medium transition-colors ${
-            activeTab === "config"
-              ? "text-violet-400 border-b-2 border-violet-500"
-              : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          <Settings className="w-3.5 h-3.5" />
-          Config
-        </button>
-        <button
           onClick={() => setActiveTab("output")}
-          className={`flex items-center gap-1.5 flex-1 px-4 py-2 text-xs font-medium transition-colors relative ${
-            activeTab === "output"
+          className={`flex items-center gap-1.5 flex-1 px-4 py-2 text-xs font-medium transition-colors relative ${activeTab === "output"
               ? "text-violet-400 border-b-2 border-violet-500"
               : "text-zinc-500 hover:text-zinc-300"
-          }`}
+            }`}
         >
           <Terminal className="w-3.5 h-3.5" />
           Output
           {hasOutput && activeTab !== "output" && (
             <span className="absolute top-1.5 right-3 w-1.5 h-1.5 rounded-full bg-emerald-400" />
           )}
+        </button>
+        <button
+          onClick={() => setActiveTab("config")}
+          className={`flex items-center gap-1.5 flex-1 px-4 py-2 text-xs font-medium transition-colors
+            ${activeTab === "config"
+              ? "text-violet-400 border-b-2 border-violet-500"
+              : "text-zinc-500 hover:text-zinc-300"
+            }`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Config
         </button>
       </div>
 
