@@ -28,6 +28,24 @@ The script will guide you through all configuration options and set up everythin
 - TAVILY_API_KEY for search functionality (optional)
 - Other optional configuration options
 
+### `run <model>` — one-command deploy (ollama-style)
+
+```bash
+python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
+python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
+python run.py run Qwen3-32B --in-browser    # deploy through the web UI instead
+```
+
+`run <model>` brings the whole stack up and deploys the named model in one step.
+The model name is checked against the catalog up front (a typo fails fast with
+suggestions). By default the deploy runs **headlessly** against the backend API —
+progress streams in the terminal — and the browser opens at `/models-deployed`
+so you can watch (suppress with `--no-browser`). Pass `--in-browser` to drive the
+deploy through the web UI instead.
+
+If `--device-id` is omitted, the backend allocates a slot based on the model's
+chip requirements; pass it only to pin a specific chip.
+
 ---
 
 ## Command-Line Options
@@ -49,15 +67,13 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--auto-deploy MODEL_NAME` | Auto-deploy the given model once the stack is up. |
-| `--device-id CHIP_ID` | Chip slot index (0–7) to target with `--auto-deploy` (default `0`). |
+| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Headless by default (see the [`run <model>`](#run-model--one-command-deploy-ollama-style) subcommand); pass `--in-browser` to deploy via the web UI. |
+| `--device-id CHIP_ID` | Chip slot index (0–7) to target. Omit to let the backend allocate a slot based on the model's chip requirements. |
+| `--in-browser` | With an auto-deploy, hand off to the web UI (`?auto-deploy=<model>`) instead of deploying headlessly. |
 
-> **⚠️ Not yet available**: `--auto-deploy` (and its `--device-id`) is a
-> **work in progress and not fully developed**. The launcher currently only
-> forwards the request to the frontend as a URL parameter
-> (`?auto-deploy=<model>&device-id=<id>`); end-to-end automatic deployment is not
-> functional yet. Deploy models from the UI for now. This flag and note will be
-> updated once the feature lands.
+> **Tip**: `python run.py run <model>` is the ergonomic front door for this —
+> it brings the stack up and deploys the model in one command. See
+> [`run <model>`](#run-model--one-command-deploy-ollama-style) above.
 
 ### Lifecycle
 

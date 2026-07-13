@@ -236,30 +236,53 @@ export default function StepperDemo() {
     try {
       console.log("🚀 Starting auto-deployment for model:", modelName);
 
-      // Find the model ID by name
+      // Find the model by name — exact match first, then a unique substring
+      // match, mirroring the CLI's resolve_model_id so both paths behave alike.
       const response = await axios.get("/docker-api/get_containers/");
-      const models = response.data;
-      const model = models.find(
-        (m: { id: string; name: string }) =>
-          m.name.toLowerCase().includes(modelName.toLowerCase()) ||
-          m.name === modelName
-      );
+      const models: { id: string; name: string }[] = response.data;
+      const needle = modelName.toLowerCase();
+      let model = models.find((m) => m.name.toLowerCase() === needle);
+      if (!model) {
+        const loose = models.filter((m) =>
+          m.name.toLowerCase().includes(needle)
+        );
+        if (loose.length === 1) {
+          model = loose[0];
+        } else if (loose.length > 1) {
+          customToast.error(
+            `Auto-deploy model "${modelName}" matched multiple models: ${loose
+              .map((m) => m.name)
+              .join(", ")}`
+          );
+          return;
+        }
+      }
 
       if (!model) {
-        customToast.error(`Auto-deploy model "${modelName}" not found`);
+        customToast.error(
+          `Auto-deploy model "${modelName}" not found. Available: ${models
+            .map((m) => m.name)
+            .join(", ")}`
+        );
         console.error("Model not found:", modelName);
         return;
       }
 
       console.log("Found model for auto-deploy:", model);
 
-      // Deploy with default weights
-      const deviceIdParam = parseInt(searchParams.get("device-id") ?? "0", 10);
-      const deployPayload = {
+      // Deploy with default weights. Include device_id only when the CLI passed
+      // ?device-id=; omitting it lets the backend allocate based on the model.
+      const deployPayload: Record<string, unknown> = {
         model_id: model.id,
         weights_id: "", // Empty string for default weights
-        device_id: isNaN(deviceIdParam) ? 0 : deviceIdParam,
       };
+      const deviceIdParam = searchParams.get("device-id");
+      if (deviceIdParam !== null && deviceIdParam !== "") {
+        const parsed = parseInt(deviceIdParam, 10);
+        if (!isNaN(parsed)) {
+          deployPayload.device_id = parsed;
+        }
+      }
 
       console.log("Auto-deploy payload:", deployPayload);
 
@@ -628,8 +651,6 @@ export default function StepperDemo() {
                   }}
                   onModelNameChange={setSelectedModelName}
                   setFormError={setFormError}
-                  autoDeployModel={autoDeployModel}
-                  isAutoDeploying={isAutoDeploying}
                   chipStatus={effectiveChipStatus}
                   deployingModelIds={deployingModelIds}
                 />
