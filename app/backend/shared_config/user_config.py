@@ -97,9 +97,13 @@ def _write_env_file(config: dict) -> None:
         else:
             lines.append(f"{env_key}={_sanitize_value(str(value))}")
     tmp = path.with_suffix(".env.tmp")
-    with tmp.open("w") as f:
+    # Create the temp file 0600 from the start (and fchmod to force it even if a
+    # stale tmp already exists) so the secrets are never briefly group/world-
+    # readable in the window between writing and chmod.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
         f.write("\n".join(lines) + "\n")
-    os.chmod(tmp, 0o600)
     os.replace(tmp, path)
 
 

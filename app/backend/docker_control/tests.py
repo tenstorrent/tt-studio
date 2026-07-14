@@ -134,3 +134,21 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
         )
         # Pre-check must short-circuit before any ModelDeployment query.
         filter_mock.assert_not_called()
+
+    @patch("api.hf_access._check_repo", side_effect=[404, 403])
+    @patch("shared_config.user_config.get_hf_token", return_value="fake-token")
+    def test_diffusers_repo_falls_back_to_model_index(self, _token_mock, repo_mock):
+        """A diffusers repo has no root config.json (404); the pre-check must
+        retry model_index.json so gated access is still detected as denied."""
+        with patch("docker_control.models.ModelDeployment.objects.filter"):
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        # First probe config.json (default), then fall back to model_index.json.
+        self.assertEqual(repo_mock.call_count, 2)
+        self.assertEqual(repo_mock.call_args_list[1].args[2], "model_index.json")

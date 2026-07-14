@@ -628,7 +628,7 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
                 if "/v1/images/generations" in internal_url:
                     # Synchronous OpenAI-compatible API — returns base64 JSON immediately
@@ -702,7 +702,7 @@ class VideoGenerationInferenceView(APIView):
 
         deploy = get_deploy_cache()[deploy_id]
         internal_url = "http://" + deploy["internal_url"]
-        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
         payload = {"prompt": prompt}
         if data.get("seed") is not None:
@@ -785,7 +785,7 @@ class VideoGenerationStatusView(APIView):
 
         try:
             base_url = _video_base_url(deploy_id)
-            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             poll_url = f"{base_url}/v1/videos/generations/{job_id}"
             poll_resp = requests.get(poll_url, headers=headers, timeout=30)
             poll_resp.raise_for_status()
@@ -815,7 +815,7 @@ class VideoGenerationDownloadView(APIView):
 
         try:
             base_url = _video_base_url(deploy_id)
-            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
             dl_resp = requests.get(download_url, headers=headers, timeout=60)
             dl_resp.raise_for_status()

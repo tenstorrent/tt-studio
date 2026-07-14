@@ -393,7 +393,13 @@ class DeployView(APIView):
                 token = get_hf_token()
                 if token:
                     from api.hf_access import _check_repo, _status_from_code
-                    if _status_from_code(_check_repo(token, hf_repo)) in ("denied", "auth_failed"):
+                    code = _check_repo(token, hf_repo)
+                    # diffusers repos (FLUX/Wan) have no root config.json and 404;
+                    # retry with model_index.json so a gated diffusers repo still
+                    # surfaces denied/auth_failed instead of a false "error".
+                    if code == 404:
+                        code = _check_repo(token, hf_repo, "model_index.json")
+                    if _status_from_code(code) in ("denied", "auth_failed"):
                         return Response(
                             {
                                 "error_code": "hf_access_denied",

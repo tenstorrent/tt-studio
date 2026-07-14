@@ -117,6 +117,10 @@ export default function HfAccessCheck({ token, onChecked, className }: Props) {
       onChecked?.(resp.ok, resp.results);
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || "Check failed");
+      // Surface the failed attempt to the parent so a transient network error
+      // doesn't dead-end the Welcome flow with a permanently-disabled Continue.
+      setHasChecked(true);
+      onChecked?.(false, results);
     } finally {
       setIsChecking(false);
     }

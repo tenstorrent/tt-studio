@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useForm } from "react-hook-form";
+import type { UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ExternalLink, Lock } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Eye, EyeOff, Lock } from "lucide-react";
 
 import {
   Dialog,
@@ -24,7 +26,9 @@ import HfAccessCheck from "./HfAccessCheck";
 import {
   getSettings,
   updateSettings,
+  type SettingField,
   type SettingsResponse,
+  type UpdateSettingsResponse,
 } from "../api/settingsApi";
 
 const formSchema = z.object({
@@ -51,16 +55,84 @@ function placeholderFor(
   return fallback;
 }
 
-function SavedBadge() {
+/**
+ * Distinguishes where a secret's current value comes from so an inherited
+ * `.env` fallback doesn't look identical to a value saved through the UI.
+ */
+function SourceBadge({ field }: { field?: SettingField }) {
+  if (!field?.set) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-stone-500/10 px-2 py-0.5 text-xs font-medium text-stone-500">
+        Not set
+      </span>
+    );
+  }
+  if (field.source === "env") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+        From .env (fallback)
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-      <Check className="w-3 h-3" /> Saved
+      <Check className="w-3 h-3" /> Saved via UI
     </span>
+  );
+}
+
+/** Password input with a reveal-while-typing toggle so a paste can be verified. */
+function SecretField({
+  id,
+  label,
+  field,
+  loading,
+  placeholder,
+  register,
+  children,
+}: {
+  id: string;
+  label: string;
+  field?: SettingField;
+  loading: boolean;
+  placeholder: string;
+  register: UseFormRegisterReturn;
+  children?: ReactNode;
+}) {
+  const [reveal, setReveal] = useState(false);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        <SourceBadge field={field} />
+      </div>
+      <div className="relative">
+        <Input
+          id={id}
+          type={reveal ? "text" : "password"}
+          autoComplete="new-password"
+          className="pr-10"
+          placeholder={placeholderFor(loading, field?.set, field?.masked, placeholder)}
+          {...register}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => setReveal((r) => !r)}
+          aria-label={reveal ? "Hide value" : "Show value"}
+          className="absolute inset-y-0 right-0 flex items-center px-3 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+        >
+          {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+      {children}
+    </div>
   );
 }
 
 export default function SettingsDialog({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
+  const [showHfCheck, setShowHfCheck] = useState(false);
 
   const { data, isLoading } = useQuery<SettingsResponse>({
     queryKey: ["settings"],
@@ -73,13 +145,17 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
     defaultValues: { hf_token: "", tts_api_key: "", tavily_api_key: "" },
   });
 
+  const hfTokenValue = (form.watch("hf_token") || "").trim();
+
   useEffect(() => {
-    if (open)
+    if (open) {
       form.reset({ hf_token: "", tts_api_key: "", tavily_api_key: "" });
+      setShowHfCheck(false);
+    }
   }, [open, form]);
 
   const mutation = useMutation({
-    mutationFn: (payload: FormValues) => {
+    mutationFn: (payload: FormValues): Promise<UpdateSettingsResponse> => {
       const body: Record<string, string> = {};
       for (const key of [
         "hf_token",
@@ -89,11 +165,24 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
         const val = (payload[key] || "").trim();
         if (val !== "") body[key] = val;
       }
+      // Nothing entered — resolve as a no-op instead of POSTing an empty body
+      // (which the backend now also tolerates) so a blank Save isn't an error.
+      if (Object.keys(body).length === 0) {
+        return Promise.resolve({ ok: true, requires_redeploy: false, updated: [] });
+      }
       return updateSettings(body);
     },
-    onSuccess: () => {
+    onSuccess: (resp) => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      customToast.success("Settings saved.");
+      if (!resp.updated.length) {
+        customToast.info("No changes to save.");
+      } else if (resp.requires_redeploy) {
+        customToast.success(
+          "Settings saved. Redeploy any running model to pick up the new Hugging Face token."
+        );
+      } else {
+        customToast.success("Settings saved.");
+      }
       onOpenChange(false);
     },
     onError: (err: any) => {
@@ -111,8 +200,8 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Secrets persist on the server. Changes apply immediately — no
-            redeploy needed.
+            Secrets persist on the server. Most changes apply on the next request;
+            the Hugging Face token only affects newly deployed models.
           </DialogDescription>
         </DialogHeader>
 
@@ -121,25 +210,18 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           className="space-y-4"
           autoComplete="off"
         >
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="hf_token">Hugging Face token</Label>
-              {data?.hf_token.set && <SavedBadge />}
-            </div>
-            <Input
-              id="hf_token"
-              type="password"
-              autoComplete="new-password"
-              placeholder={placeholderFor(
-                isLoading,
-                data?.hf_token.set,
-                data?.hf_token.masked,
-                "hf_..."
-              )}
-              {...form.register("hf_token")}
-            />
+          <SecretField
+            id="hf_token"
+            label="Hugging Face token"
+            field={data?.hf_token}
+            loading={isLoading}
+            placeholder="hf_..."
+            register={form.register("hf_token")}
+          >
             <p className="text-xs text-stone-500">
-              Used to download gated models.{" "}
+              Downloads gated weights for both LLM and media (image/video/voice)
+              models. Affects new deployments — redeploy a running model to apply
+              a changed token.{" "}
               <a
                 href="https://huggingface.co/settings/tokens"
                 target="_blank"
@@ -149,51 +231,59 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
                 Generate <ExternalLink className="w-3 h-3" />
               </a>
             </p>
-          </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="tts_api_key">TTS API key</Label>
-              {data?.tts_api_key.set && <SavedBadge />}
-            </div>
-            <Input
-              id="tts_api_key"
-              type="password"
-              autoComplete="new-password"
-              placeholder={placeholderFor(
-                isLoading,
-                data?.tts_api_key.set,
-                data?.tts_api_key.masked,
-                "Enter TTS API key"
+            <div className="rounded-md border border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setShowHfCheck((v) => !v)}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium"
+              >
+                Check Hugging Face access
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    showHfCheck ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {showHfCheck && (
+                <div className="border-t border-stone-200 dark:border-stone-800 p-3">
+                  <p className="mb-3 text-xs text-stone-500">
+                    Tests the token typed above (or the saved token if the field
+                    is blank).
+                  </p>
+                  <HfAccessCheck token={hfTokenValue || undefined} />
+                </div>
               )}
-              {...form.register("tts_api_key")}
-            />
-            <p className="text-xs text-stone-500">
-              Authenticates TTS inference calls. Applied immediately.
-            </p>
-          </div>
+            </div>
+          </SecretField>
 
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="tavily_api_key">Tavily API key</Label>
-              {data?.tavily_api_key.set && <SavedBadge />}
-            </div>
-            <Input
-              id="tavily_api_key"
-              type="password"
-              autoComplete="new-password"
-              placeholder={placeholderFor(
-                isLoading,
-                data?.tavily_api_key.set,
-                data?.tavily_api_key.masked,
-                "tvly-..."
-              )}
-              {...form.register("tavily_api_key")}
-            />
+          <SecretField
+            id="tts_api_key"
+            label="TTS API key"
+            field={data?.tts_api_key}
+            loading={isLoading}
+            placeholder="Enter TTS API key"
+            register={form.register("tts_api_key")}
+          >
             <p className="text-xs text-stone-500">
-              Search-agent key. Picked up by running agents on next call.
+              Authenticates TTS inference calls for media / voice models. Applied
+              immediately, per request.
             </p>
-          </div>
+          </SecretField>
+
+          <SecretField
+            id="tavily_api_key"
+            label="Tavily API key"
+            field={data?.tavily_api_key}
+            loading={isLoading}
+            placeholder="tvly-..."
+            register={form.register("tavily_api_key")}
+          >
+            <p className="text-xs text-stone-500">
+              Powers the web-search agent. Picked up by running agents on their
+              next search.
+            </p>
+          </SecretField>
 
           <div className="space-y-1">
             <Label className="flex items-center gap-1">
@@ -207,7 +297,8 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               }
             />
             <p className="text-xs text-stone-500">
-              Auto-managed by the backend. Persisted across restarts.
+              Auto-managed by the backend for LLM serving auth. Persisted across
+              restarts.
             </p>
           </div>
 
@@ -231,12 +322,13 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
             </div>
             <p className="text-xs text-stone-500">
               {data?.artifact.description ||
-                "Pins which tt-inference-server release TT Studio is built against."}
+                "Pins which tt-inference-server release TT Studio is built against."}{" "}
+              To change it, run{" "}
+              <code className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-0.5 font-mono">
+                python run.py --reconfigure-inference-server
+              </code>{" "}
+              and redeploy.
             </p>
-          </div>
-
-          <div className="pt-2">
-            <HfAccessCheck />
           </div>
 
           <DialogFooter className="gap-2 pt-2">

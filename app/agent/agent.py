@@ -92,12 +92,18 @@ class DynamicTavilySearch(TavilySearchResults):
             return "Search unavailable: TAVILY_API_KEY is not configured. Set it in TT Studio Settings."
         try:
             client = TavilyClient(api_key=api_key)
-            return client.search(
+            response = client.search(
                 query=query,
                 max_results=self.max_results,
                 include_answer=self.include_answer,
                 include_raw_content=self.include_raw_content,
             )
+            # TavilyClient.search returns the full response dict; DeduplicatedSearchTool
+            # expects the list of result dicts (the "tavily_search_results_json" contract),
+            # so hand back just that list rather than str(dict).
+            if isinstance(response, dict):
+                return response.get("results", [])
+            return response
         except Exception as e:
             return repr(e)
 

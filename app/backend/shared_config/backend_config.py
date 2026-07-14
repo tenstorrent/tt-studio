@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from shared_config.user_config import get_jwt_secret
+
 
 # NOTE: "host.docker.internal" requires the extra_hosts mapping in
 # docker-compose.yml ("host.docker.internal:host-gateway") to resolve
@@ -18,8 +20,6 @@ def normalize_tt_inference_api_url(value: Optional[str]) -> str:
     """Return a base URL without trailing slashes."""
     normalized = (value or DEFAULT_TT_INFERENCE_API_URL).strip().rstrip("/")
     return normalized or DEFAULT_TT_INFERENCE_API_URL
-
-from shared_config.user_config import get_jwt_secret
 
 
 @dataclass(frozen=True)

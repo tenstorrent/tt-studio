@@ -24,9 +24,12 @@ class UpStatusView(APIView):
 
 
 def _mask(value):
+    """Mask a secret for display. Only reveal edge characters when the value is
+    long enough that the revealed portion is a small fraction of the whole;
+    shorter secrets are fully masked so we never expose most of a short token."""
     if not value:
         return None
-    if len(value) <= 8:
+    if len(value) <= 12:
         return "*" * len(value)
     return f"{value[:4]}****{value[-4:]}"
 
@@ -51,11 +54,16 @@ class SettingsView(APIView):
     """Manage user-editable secrets stored in the persistent volume."""
 
     def get(self, request, *args, **kwargs):
-        cfg = load_user_config()
         artifact = get_artifact_info()
+        # Resolve the JWT first — get_jwt_secret() auto-generates and persists one
+        # on first call. Reload the config afterwards so the "source" label
+        # reflects the freshly persisted value instead of mislabeling an
+        # auto-generated secret as coming from the environment.
+        jwt_value = get_jwt_secret()
+        cfg = load_user_config()
         return Response({
             "setup_complete": is_setup_complete(),
-            "jwt_secret": _field(cfg, "jwt_secret", get_jwt_secret(), editable=False),
+            "jwt_secret": _field(cfg, "jwt_secret", jwt_value, editable=False),
             "tavily_api_key": _field(cfg, "tavily_api_key", get_tavily_api_key()),
             "hf_token": _field(cfg, "hf_token", get_hf_token()),
             "tts_api_key": _field(cfg, "tts_api_key", get_tts_api_key()),
@@ -88,12 +96,17 @@ class SettingsView(APIView):
             updates["setup_complete"] = True
 
         if not updates:
-            return Response({"error": "No supported fields provided"}, status=400)
+            # Nothing to change — treat as a successful no-op rather than an
+            # error so a blank Save (or a re-save with no edits) isn't confusing.
+            return Response({"ok": True, "requires_redeploy": False, "updated": []})
 
         save_user_config(updates)
+        # Only the HF token is baked into a model container at deploy time
+        # (tt_inference_client.py), so an already-running model keeps its old
+        # token until redeployed. The other secrets are resolved per request.
         return Response({
             "ok": True,
-            "requires_redeploy": False,
+            "requires_redeploy": "hf_token" in updates,
             "updated": list(updates.keys()),
         })
 

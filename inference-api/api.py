@@ -87,7 +87,11 @@ def _get_hf_token_from_user_config() -> Optional[str]:
             val = data.get("hf_token")
             return val or None
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning(f"Could not read UI-managed secrets from {volume_dir}: {e}")
+        # `logger` is configured later in this module; use the stdlib logger
+        # directly so a read failure here doesn't raise NameError and mask it.
+        logging.getLogger(__name__).warning(
+            f"Could not read UI-managed secrets from {volume_dir}: {e}"
+        )
         return None
     return None
 

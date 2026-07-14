@@ -37,6 +37,22 @@ class TestSaveLoadRoundTrip:
         mode = stat.S_IMODE(os.stat(volume / "backend_volume" / "user_config.env").st_mode)
         assert mode == 0o600
 
+    def test_overwrite_tightens_loose_permissions(self, volume):
+        """Even if a prior file (or stale temp) was world-readable, a save must
+        end up 0600 — the write creates the temp 0600 and fchmods it."""
+        path = volume / "backend_volume"
+        path.mkdir(parents=True)
+        loose = path / "user_config.env"
+        loose.write_text("HF_TOKEN=old\n")
+        os.chmod(loose, 0o644)
+        user_config.save_user_config({"hf_token": "hf_new"})
+        mode = stat.S_IMODE(os.stat(loose).st_mode)
+        assert mode == 0o600
+
+    def test_no_temp_file_left_behind(self, volume):
+        user_config.save_user_config({"hf_token": "hf_abc123"})
+        assert not (volume / "backend_volume" / "user_config.env.tmp").exists()
+
     def test_parent_dir_stays_traversable(self, volume):
         """backend_volume is shared (model weights, deploy cache); host-side
         processes like the inference server must keep traversal access even

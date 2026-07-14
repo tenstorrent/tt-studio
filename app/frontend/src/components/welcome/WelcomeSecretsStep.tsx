@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ExternalLink, Lock } from "lucide-react";
+import { Check, ExternalLink, Eye, EyeOff, Lock } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -43,6 +44,43 @@ function SavedBadge() {
   );
 }
 
+/** Controlled password input with a reveal-while-typing toggle. */
+function RevealInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [reveal, setReveal] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={reveal ? "text" : "password"}
+        autoComplete="new-password"
+        className="pr-10"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setReveal((r) => !r)}
+        aria-label={reveal ? "Hide value" : "Show value"}
+        className="absolute inset-y-0 right-0 flex items-center px-3 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+      >
+        {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+}
+
 export default function WelcomeSecretsStep({
   current,
   values,
@@ -75,12 +113,10 @@ export default function WelcomeSecretsStep({
           <Label htmlFor="hf_token">Hugging Face token</Label>
           {current?.hf_token.set && <SavedBadge />}
         </div>
-        <Input
+        <RevealInput
           id="hf_token"
-          type="password"
-          autoComplete="new-password"
           value={values.hf_token}
-          onChange={(e) => onChange({ ...values, hf_token: e.target.value })}
+          onChange={(v) => onChange({ ...values, hf_token: v })}
           placeholder={fieldPlaceholder(
             loading,
             current?.hf_token.set,
@@ -106,14 +142,10 @@ export default function WelcomeSecretsStep({
           <Label htmlFor="tts_api_key">TTS API key</Label>
           {current?.tts_api_key.set && <SavedBadge />}
         </div>
-        <Input
+        <RevealInput
           id="tts_api_key"
-          type="password"
-          autoComplete="new-password"
           value={values.tts_api_key}
-          onChange={(e) =>
-            onChange({ ...values, tts_api_key: e.target.value })
-          }
+          onChange={(v) => onChange({ ...values, tts_api_key: v })}
           placeholder={fieldPlaceholder(
             loading,
             current?.tts_api_key.set,
@@ -131,14 +163,10 @@ export default function WelcomeSecretsStep({
           <Label htmlFor="tavily_api_key">Tavily API key</Label>
           {current?.tavily_api_key.set && <SavedBadge />}
         </div>
-        <Input
+        <RevealInput
           id="tavily_api_key"
-          type="password"
-          autoComplete="new-password"
           value={values.tavily_api_key}
-          onChange={(e) =>
-            onChange({ ...values, tavily_api_key: e.target.value })
-          }
+          onChange={(v) => onChange({ ...values, tavily_api_key: v })}
           placeholder={fieldPlaceholder(
             loading,
             current?.tavily_api_key.set,
