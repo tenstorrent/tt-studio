@@ -15,7 +15,7 @@ from tt_setup.inference_server._metadata import (
     _write_artifact_info, get_inference_server_version, validate_artifact_structure,
 )
 from tt_setup.inference_server._privileges import (
-    remove_artifact_with_sudo, request_sudo_authentication,
+    remove_artifact_with_sudo,
 )
 
 
@@ -54,10 +54,6 @@ def setup_tt_inference_server(pull_branch=False):
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
 
-    # Proactively request sudo authentication early (before any container builds)
-    sudo_available = request_sudo_authentication()
-    if not sudo_available:
-        pass  # Non-fatal — will retry if needed
 
     # Track if sudo was used during cleanup (for artifact info file)
     sudo_used_for_cleanup = False
@@ -179,11 +175,6 @@ def setup_tt_inference_server(pull_branch=False):
             if version_mismatch or branch_mismatch:
                 console.print(f"[muted]   Removing existing artifact and downloading {artifact_version or artifact_branch}...[/muted]")
 
-                # Proactively request sudo authentication since we may need it for cleanup
-                console.print("[info]   Requesting sudo authentication in case elevated permissions are needed for cleanup...[/info]")
-                sudo_available = request_sudo_authentication()
-                if not sudo_available:
-                    console.print("[warning]   Note: sudo authentication failed or unavailable. Will attempt cleanup without it.[/warning]")
 
                 try:
                     # Remove the entire .artifacts directory to ensure complete cleanup

@@ -53,8 +53,30 @@ def _path_size(path):
         return 0
 
 
+def _remove_path_with_docker(path):
+    """Remove a path via an ephemeral root container, using the user's Docker
+    access instead of host sudo. Handles files left owned by container users
+    (root / uid 1000). Returns True if the path is gone afterward.
+    """
+    if not os.path.exists(path) and not os.path.islink(path):
+        return True
+    abs_path = os.path.abspath(path)
+    parent, name = os.path.dirname(abs_path), os.path.basename(abs_path)
+    try:
+        subprocess.run(
+            ["docker", "run", "--rm", "-v", f"{parent}:/target",
+             "alpine", "rm", "-rf", f"/target/{name}"],
+            check=True, capture_output=True, text=True,
+        )
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: {e}{C_RESET}")
+        return False
+    return not os.path.exists(path)
+
+
 def _remove_path(path, no_sudo=False):
-    """Remove a file or directory, falling back to sudo on PermissionError when allowed.
+    """Remove a file or directory, falling back to a cleanup container on
+    PermissionError (files left owned by a container user).
 
     Returns True if removed (or did not exist), False otherwise.
     """
@@ -67,15 +89,7 @@ def _remove_path(path, no_sudo=False):
             os.remove(path)
         return True
     except PermissionError:
-        if no_sudo:
-            print(f"{C_YELLOW}⚠️  Permission denied removing {path} (no sudo).{C_RESET}")
-            return False
-        try:
-            subprocess.run(["sudo", "rm", "-rf", path], check=True)
-            return True
-        except Exception as e:
-            print(f"{C_YELLOW}⚠️  Failed to remove {path} with sudo: {e}{C_RESET}")
-            return False
+        return _remove_path_with_docker(path)
     except Exception as e:
         print(f"{C_YELLOW}⚠️  Failed to remove {path}: {e}{C_RESET}")
         return False
