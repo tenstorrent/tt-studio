@@ -3,28 +3,23 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 """
-Thread-safe JSON file store replacing Django ORM for ModelDeployment.
+Thread-safe store replacing Django ORM for ModelDeployment.
 
 Provides a drop-in ORM-like interface (objects.create, filter, all, get, save)
-backed by a single JSON file in the persistent storage volume.
+backed by the ``deployments`` namespace of the consolidated config store
+(shared_config/config_store.py), which serializes cross-process access with
+fcntl.flock. The in-process lock below preserves ordering between the read and
+write halves of create()/save().
 """
 
-import json
-import os
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, List, Optional
 
+from shared_config import config_store
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
-
-_STORE_PATH = (
-    Path(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume"))
-    / "backend_volume"
-    / "deployments.json"
-)
 
 _lock = threading.Lock()
 
@@ -86,29 +81,22 @@ def _normalize_device_ids(device_ids: Any, fallback_device_id: Any = 0) -> List[
 
 
 def _load_raw() -> dict:
-    if not _STORE_PATH.exists():
-        return {"next_id": 1, "records": []}
     try:
-        with open(_STORE_PATH, "r") as f:
-            return json.load(f)
+        data = config_store.get_ns("deployments")
     except Exception as e:
         logger.warning(f"Could not read deployment store, starting fresh: {e}")
         return {"next_id": 1, "records": []}
+    return {
+        "next_id": data.get("next_id", 1),
+        "records": list(data.get("records", [])),
+    }
 
 
 def _save_raw(data: dict) -> None:
-    _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _STORE_PATH.with_suffix(".tmp")
     try:
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, _STORE_PATH)
+        config_store.set_ns("deployments", data)
     except Exception as e:
         logger.error(f"Failed to save deployment store: {e}")
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
 
 
 def _match(record: dict, kwargs: dict) -> bool:

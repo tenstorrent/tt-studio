@@ -9,6 +9,7 @@ import sys
 import subprocess
 import time
 from datetime import datetime
+from tt_setup import config_store
 from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.console import _fmt_duration, add_note, begin_phase, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
@@ -391,13 +392,12 @@ def _run(args):
         configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
-        # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
+        # Save quick-setup configuration snapshot to the config store if not in
+        # --configure-env mode. Secrets are omitted here — they live in .env.
         if not args.configure_env:
             setup_config = {
                 "mode": "quick",
                 "setup_timestamp": datetime.now().isoformat(),
-                "jwt_secret_default": "test-secret-456",
-                "django_secret_key_default": "django-insecure-default",
                 "hf_token_provided": True,
                 "tt_studio_mode": True,
                 "ai_playground_mode": False,
@@ -665,6 +665,15 @@ def _run(args):
             except PermissionError:
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
+
+        # Pre-create the consolidated config store (issue #807) before compose up.
+        # docker-compose.yml bind-mounts this single file into the backend; if the
+        # file doesn't exist first, Docker creates a directory at the mount target.
+        # This also runs the one-time migration from the legacy JSON files.
+        try:
+            config_store.ensure_exists()
+        except OSError as e:
+            console.print(f"[warning]⚠️  Could not create config store: {e}[/warning]")
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.

@@ -37,6 +37,8 @@ services:
       - TT_STUDIO_ROOT
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
+      # Consolidated config store (issue #807): bind-mount target inside the container
+      - TT_STUDIO_CONFIG_PATH=/tt_studio_config.json
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
       - TTS_API_KEY
@@ -68,6 +70,11 @@ services:
       - LITELLM_PORT
     volumes:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
+      # Consolidated config store (issue #807): a single repo-root file shared
+      # with the host processes. run.py pre-creates it so the mount target is a
+      # file, not a Docker-created directory. Writers do in-place rewrites (never
+      # atomic rename) so the bind-mount inode is preserved.
+      - ${TT_STUDIO_ROOT}/.tt_studio_config.json:/tt_studio_config.json
       # Mount the local api directory for live code changes
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
