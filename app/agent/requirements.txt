@@ -2,7 +2,7 @@ e2b==1.0.5
 e2b-code-interpreter==1.0.0 
 langchain==0.3.11 
 langchain-community==0.3.11 
-langchain-core==0.3.24 
+langchain-core==0.3.85 
 langchain-experimental==0.3.3 
 langchain-text-splitters==0.3.2 
 langgraph==0.2.56 
