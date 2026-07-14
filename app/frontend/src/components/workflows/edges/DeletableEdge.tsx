@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -34,8 +34,9 @@ export default function DeletableEdge({
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    useWorkflowStore.getState().setSelectedEdge(id);
-    setTimeout(() => useWorkflowStore.getState().deleteSelected(), 0);
+    const store = useWorkflowStore.getState();
+    store.setSelectedEdge(id);
+    store.deleteSelected();
   };
 
   return (
@@ -70,6 +71,7 @@ export default function DeletableEdge({
                        bg-red-500/90 hover:bg-red-500 text-white text-xs font-bold
                        border border-red-400/50 shadow-lg shadow-red-500/20
                        cursor-pointer backdrop-blur-sm"
+            aria-label="Delete connection"
             title="Delete connection"
           >
             ×

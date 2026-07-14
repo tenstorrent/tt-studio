@@ -166,6 +166,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: (wf.graph_data?.nodes ?? []) as WorkflowNode[],
         edges: (wf.graph_data?.edges ?? []) as WorkflowEdge[],
         selectedNodeId: null,
+        selectedEdgeId: null,
       });
     } else {
       set({
@@ -173,6 +174,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        selectedEdgeId: null,
       });
     }
     get().resetExecution();
@@ -184,6 +186,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: (template.graph_data?.nodes ?? []) as WorkflowNode[],
       edges: (template.graph_data?.edges ?? []) as WorkflowEdge[],
       selectedNodeId: null,
+      selectedEdgeId: null,
     });
     get().resetExecution();
   },
