@@ -203,7 +203,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   onConnect: (connection) => {
     set((s) => ({
-      edges: addEdge(connection, s.edges),
+      edges: addEdge({ ...connection, data: { isNew: true } }, s.edges),
     }));
   },
 
@@ -349,7 +349,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   resetExecution: () => {
-    set({
+    set((s) => ({
       isRunning: false,
       nodeStatuses: {},
       nodeOutputs: {},
@@ -357,7 +357,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       runProgress: 0,
       runError: null,
       abortController: null,
-    });
+      edges: s.edges.map((e) => ({ ...e, data: { ...e.data, isNew: false } })),
+    }));
   },
 
   loadExampleWorkflow: () => {
