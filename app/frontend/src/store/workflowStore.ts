@@ -202,9 +202,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   onConnect: (connection) => {
-    set((s) => ({
-      edges: addEdge({ ...connection, data: { isNew: true } }, s.edges),
-    }));
+    set((s) => {
+      const nextEdges = addEdge(connection, s.edges);
+      // React Flow appends the newly created edge at the end of the array.
+      // We must check if the length actually increased, because React Flow 
+      // will reject duplicate connections and return the original array.
+      if (nextEdges.length > s.edges.length) {
+        const lastIdx = nextEdges.length - 1;
+        nextEdges[lastIdx] = {
+          ...nextEdges[lastIdx],
+          data: { ...nextEdges[lastIdx].data, isNew: true },
+        };
+      }
+      return { edges: nextEdges };
+    });
   },
 
   addNode: (node) => {
