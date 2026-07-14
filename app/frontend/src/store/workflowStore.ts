@@ -229,12 +229,25 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   onConnect: (connection) => {
-    set((s) => ({
-      edges: addEdge(connection, s.edges),
-      ...(s.sourceTemplateName && !s.isTemplateModified
-        ? { isTemplateModified: true }
-        : {}),
-    }));
+    set((s) => {
+      const nextEdges = addEdge(connection, s.edges);
+      // React Flow appends the newly created edge at the end of the array.
+      // We must check if the length actually increased, because React Flow
+      // will reject duplicate connections and return the original array.
+      if (nextEdges.length > s.edges.length) {
+        const lastIdx = nextEdges.length - 1;
+        nextEdges[lastIdx] = {
+          ...nextEdges[lastIdx],
+          data: { ...nextEdges[lastIdx].data, isNew: true },
+        };
+      }
+      return {
+        edges: nextEdges,
+        ...(s.sourceTemplateName && !s.isTemplateModified
+          ? { isTemplateModified: true }
+          : {}),
+      };
+    });
   },
 
   addNode: (node) => {
@@ -390,7 +403,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   resetExecution: () => {
-    set({
+    set((s) => ({
       isRunning: false,
       nodeStatuses: {},
       nodeOutputs: {},
@@ -398,7 +411,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       runProgress: 0,
       runError: null,
       abortController: null,
-    });
+      edges: s.edges.map((e) => ({ ...e, data: { ...e.data, isNew: false } })),
+    }));
   },
 
   loadExampleWorkflow: () => {
