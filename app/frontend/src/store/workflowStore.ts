@@ -216,8 +216,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const isStructural = changes.some(
       (c) => c.type !== "select" && c.type !== "dimensions"
     );
+
+    // If the currently selected node is removed, clear the selection
+    const selectedNodeRemoved = changes.some(
+      (c) => c.type === "remove" && c.id === get().selectedNodeId
+    );
+
     set((s) => ({
       nodes: applyNodeChanges(changes, s.nodes) as WorkflowNode[],
+      ...(selectedNodeRemoved ? { selectedNodeId: null } : {}),
       ...(isStructural && s.sourceTemplateName && !s.isTemplateModified
         ? { isTemplateModified: true }
         : {}),
