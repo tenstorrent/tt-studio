@@ -1972,7 +1972,13 @@ class DeploymentHistoryView(APIView):
 
 
 class DiscoverContainersView(APIView):
-    """List running containers NOT already on tt_studio_network (candidates for registration)."""
+    """List running containers that are candidates for registration.
+
+    A candidate is any running container that is either unregistered, or registered
+    but no longer on tt_studio_network (a disconnected stray). Being attached to the
+    network is not itself a disqualifier — only a registered container that is still
+    on the network is excluded; everything else is offered so it can be (re)registered.
+    """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
     _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
@@ -1983,20 +1989,32 @@ class DiscoverContainersView(APIView):
             response = docker_client.list_containers(all=False)
             containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
+            # Containers already tracked as running/starting deployments are excluded (they're registered/managed)
+            registered_ids = set()
+            try:
+                from docker_control.models import ModelDeployment
+                for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+                    if dep.container_id:
+                        registered_ids.add(dep.container_id)
+                        registered_ids.add(dep.container_id[:12])
+            except Exception as e:
+                logger.warning(f"DiscoverContainersView: could not read deployments: {e}")
+
             network_name = backend_config.docker_bridge_network_name
             results = []
-
             for c in containers_list:
                 name = c.get("name", "")
                 # Skip TT Studio infrastructure containers
                 if any(name.startswith(p) or name.lower().startswith(p) for p in self._INFRA_PREFIXES):
                     continue
 
-                # Skip containers already on tt_studio_network
-                networks = c.get("NetworkSettings", {}).get("Networks", {})
-                if not networks:
-                    networks = c.get("networks", {})
-                if network_name in networks:
+                # A registered container that has fallen off tt_studio_network is a
+                # stray (shows as "unknown" on Models Deployed) — re-offer it so the
+                # user can re-register, which reconnects it.
+                cid = c.get("id", "") or ""
+                is_registered = cid in registered_ids or cid[:12] in registered_ids
+                networks = c.get("NetworkSettings", {}).get("Networks") or c.get("networks") or {}
+                if is_registered and network_name in networks:
                     continue
 
                 # Extract port bindings
@@ -2004,12 +2022,19 @@ class DiscoverContainersView(APIView):
                 if not port_bindings:
                     port_bindings = c.get("port_bindings", {})
 
+                # Auto-detected chips from bound /dev/tenstorrent nodes (ground
+                # truth). A list means specific chips the UI should enforce; null
+                # means undetermined (whole-board or none) so the user may choose.
+                bound = _detect_device_ids_from_mounts(c)
+                detected_device_ids = bound if isinstance(bound, list) else None
+
                 results.append({
-                    "id": c.get("id", ""),
+                    "id": cid,
                     "name": name,
                     "image": c.get("Config", {}).get("Image", c.get("image", "")),
                     "status": c.get("status", ""),
                     "port_bindings": port_bindings or {},
+                    "device_ids": detected_device_ids,
                 })
 
             return Response(results, status=status.HTTP_200_OK)
@@ -2022,36 +2047,160 @@ class DiscoverContainersView(APIView):
             )
 
 
+# Device-related arguments in a container's launch command, in the forms tt-inference-server / vLLM accept.
+_DEVICE_ID_ARG = re.compile(r"^--?device[-_]?ids?$", re.IGNORECASE)
+_TT_DEVICE_ARG = re.compile(r"^--?tt[-_]?device$", re.IGNORECASE)
+_MODEL_ARG = re.compile(r"^--?model$", re.IGNORECASE)
+_SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
+# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
+_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
+
+
+def _parse_device_ids_token(value) -> list:
+    """Parse a device-id argument value ("2" or "0,1") into a sorted int list."""
+    ids = []
+    for part in str(value).split(","):
+        part = part.strip()
+        if part.lstrip("-+").isdigit():
+            ids.append(int(part))
+    return sorted(set(ids))
+
+
+def _cmd_tokens(container_info: dict) -> list:
+    config = container_info.get("Config") or {}
+    return [
+        t for t in (list(config.get("Entrypoint") or []) + list(config.get("Cmd") or []))
+        if isinstance(t, str)
+    ]
+
+
+def _find_arg_value(tokens: list, arg_re) -> "str | None":
+    """Return the value of a `--flag value` or `--flag=value` arg, or None."""
+    for i, tok in enumerate(tokens):
+        if arg_re.match(tok) and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if "=" in tok:
+            key, _, rhs = tok.partition("=")
+            if arg_re.match(key):
+                return rhs
+    return None
+
+
+def _container_env(container_info: dict) -> dict:
+    """Container env as {KEY: value}, from Config.Env (and 'environment' fallback)."""
+    config = container_info.get("Config") or {}
+    env = {}
+    for item in (config.get("Env") or []):
+        if isinstance(item, str) and "=" in item:
+            k, _, v = item.partition("=")
+            env[k] = v
+    extra = container_info.get("environment")
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            env.setdefault(k, v)
+    return env
+
+
+def _detect_device_ids_from_mounts(container_info: dict):
+    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
+
+    This is the ground truth: the launcher binds exactly the chip nodes the model
+    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
+    works regardless of how or where the container was started. Returns a sorted
+    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
+    directory is bound (no per-chip granularity), or None if no TT device is bound.
+    """
+    hc = container_info.get("HostConfig") or {}
+    ids = []
+    whole = False
+    for d in (hc.get("Devices") or []):
+        if not isinstance(d, dict):
+            continue
+        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
+        m = _TT_DEVICE_NODE.match(path)
+        if m:
+            ids.append(int(m.group(1)))
+        elif path == "/dev/tenstorrent":
+            whole = True
+    if ids:
+        return sorted(set(ids))
+    return "whole" if whole else None
+
+
+def _detect_device_ids_from_command(container_info: dict):
+    """Return the explicit device-id list pinned in a container's launch command
+    (e.g. `--device-id 0,1`), or None if the command pins no specific devices.
+
+    A missing device-id is NOT whole-board: single-chip servers omit it too. The
+    caller decides the count from the detected board / catalog requirement instead.
+    """
+    val = _find_arg_value(_cmd_tokens(container_info), _DEVICE_ID_ARG)
+    if val:
+        ids = _parse_device_ids_token(val)
+        if ids:
+            return ids
+    return None
+
+
+def _detect_device_board(container_info: dict):
+    """Best-effort board/device string the container actually runs on. Different
+    servers expose it differently, so check in priority order: the vLLM
+    `--tt-device` arg, the media server's MESH_DEVICE/DEVICE env, then the board
+    encoded in TT_CACHE_PATH. Returns the raw string (e.g. "P150", "p300x2") or None.
+    """
+    v = _find_arg_value(_cmd_tokens(container_info), _TT_DEVICE_ARG)
+    if v:
+        return v
+    env = _container_env(container_info)
+    for key in ("MESH_DEVICE", "DEVICE", "TT_DEVICE"):
+        if env.get(key):
+            return env[key]
+    cache = (env.get("TT_CACHE_PATH") or "").rstrip("/")
+    if cache:
+        seg = cache.split("/")[-1]
+        if seg:
+            return seg
+    return None
+
+
+def _board_to_chip_count(board):
+    """Map a board/device string to its chip count (case-insensitive), or None if
+    unknown. Whole-board types come from MULTI_CHIP_BOARD_SLOTS; recognised
+    single-chip boards (incl. one chip of a card, e.g. P150) are 1."""
+    if not board:
+        return None
+    from docker_control.chip_allocator import MULTI_CHIP_BOARD_SLOTS
+    from shared_config.model_config import SINGLE_CHIP_BOARDS_STR
+
+    key = str(board).strip().upper()
+    for k, v in MULTI_CHIP_BOARD_SLOTS.items():
+        if k.upper() == key:
+            return v
+    if key in {b.upper() for b in SINGLE_CHIP_BOARDS_STR}:
+        return 1
+    return None
+
+
 class RegisterExternalModelView(APIView):
     """Register an external Docker container with TT Studio."""
 
-    # Default service routes by model type
-    _DEFAULT_ROUTES = {
-        "chat": "/v1/chat/completions",
-        "vlm": "/v1/chat/completions",
-        "embedding": "/v1/chat/completions",
-        "tts": "/v1/audio/speech",
-        "speech_recognition": "/v1/audio/transcriptions",
-        "image_generation": "/v1/images/generations",
-        "video_generation": "/v1/chat/completions",
-        "object_detection": "/v1/chat/completions",
-        "cnn": "/v1/chat/completions",
-    }
+    # Accepted model types (routing itself is derived from the catalog model_impl).
+    _VALID_MODEL_TYPES = frozenset({
+        "chat", "vlm", "embedding", "tts", "speech_recognition",
+        "image_generation", "video_generation", "object_detection", "cnn",
+    })
 
     def post(self, request, *args, **kwargs):
         try:
             data = request.data
             container_id = data.get("container_id")
-            model_type = data.get("model_type", "").lower()
-            model_name = data.get("model_name", "").strip()
-            hf_model_id = data.get("hf_model_id", "").strip() or None
-            service_port = data.get("service_port", 7000)
-            service_route = data.get("service_route", "").strip() or None
-            health_route = data.get("health_route", "").strip() or "/health"
+            model_type = (data.get("model_type") or "").lower()
+            model_name = (data.get("model_name") or "").strip()
+            hf_model_id = (data.get("hf_model_id") or "").strip() or None
             device_id = data.get("device_id", 0)
             chips_required = data.get("chips_required", 1)
 
-            # Normalise device_id / chips_required to int
+            # Normalise device_id / chips_required / service_port to int
             try:
                 device_id = int(device_id)
             except (TypeError, ValueError):
@@ -2060,72 +2209,17 @@ class RegisterExternalModelView(APIView):
                 chips_required = int(chips_required)
             except (TypeError, ValueError):
                 chips_required = 1
-
-            # --- Validate required fields ---
-            if not container_id or not model_type or not model_name:
-                return Response(
-                    {"status": "error", "message": "container_id, model_type, and model_name are required."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if model_type not in self._DEFAULT_ROUTES and model_type != "mock":
-                valid_types = ", ".join(sorted(self._DEFAULT_ROUTES.keys()))
-                return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # --- Validate device_id against chip slot availability ---
             try:
-                from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+                service_port = int(data.get("service_port", 7000))
+            except (TypeError, ValueError):
+                service_port = 7000
 
-                allocator = ChipSlotAllocator()
-                chip_status = allocator.get_chip_status()
-                total_slots = chip_status.get("total_slots", 1)
-
-                if chips_required >= 4:
-                    # Multi-chip: all slots (0-3) must be free
-                    occupied_slots = [
-                        s for s in chip_status.get("slots", []) if s.get("status") == "occupied"
-                    ]
-                    if occupied_slots:
-                        occupied_names = ", ".join(
-                            f"slot {s['slot_id']} ({s.get('model_name', 'unknown')})"
-                            for s in occupied_slots
-                        )
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Multi-chip model requires all chip slots to be free. Currently occupied: {occupied_names}.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    device_id = 0  # Multi-chip always registers on slot 0
-                else:
-                    # Single-chip: validate the selected slot is in range and free
-                    if device_id < 0 or device_id >= total_slots:
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Invalid device_id {device_id}. Must be 0–{total_slots - 1}.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    slot_info = next(
-                        (s for s in chip_status.get("slots", []) if s.get("slot_id") == device_id),
-                        None,
-                    )
-                    if slot_info and slot_info.get("status") == "occupied":
-                        occupying = slot_info.get("model_name", "another model")
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Chip slot {device_id} is already occupied by '{occupying}'. Choose a different slot.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-            except ImportError:
-                logger.warning("ChipSlotAllocator not available; skipping device_id validation")
+            # --- Only the container is required; model identity is derived below ---
+            if not container_id:
+                return Response(
+                    {"status": "error", "message": "container_id is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             corrections = []
 
@@ -2146,26 +2240,85 @@ class RegisterExternalModelView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # --- Port conflict check ---
+            # --- Auto-detect model identity from the container when not supplied ---
+            if not hf_model_id:
+                detected = _detect_model_info(docker_client, container_id, container_info)
+                if detected.get("hf_model_id"):
+                    hf_model_id = detected["hf_model_id"]
+                    corrections.append(f"Model auto-detected from the container: {hf_model_id}")
+                if detected.get("model_type") and not model_type:
+                    model_type = detected["model_type"]
+
+            # --- Determine the chip slots this container occupies ---
+            # Detection priority (the user should not need to pick a device):
+            #   1. Bound /dev/tenstorrent/<n> nodes — ground truth of the exact
+            #      chips the container was granted, whatever launched it.
+            #   2. An explicit --device-id in the launch command.
+            #   3. The board the container runs on (--tt-device / MESH_DEVICE / env)
+            #      or the model's catalog requirement, for the count: whole-board →
+            #      every slot; single-chip → the user-selected slot.
+            #   4. The user's manual selection, only as a last resort.
+            try:
+                from docker_control.chip_allocator import ChipSlotAllocator
+                total_slots = ChipSlotAllocator().get_chip_status().get("total_slots", 1)
+            except Exception as e:
+                logger.warning(f"Could not read chip status; assuming 1 slot: {e}")
+                total_slots = 1
+            total_slots = max(total_slots, 1)
+
+            def _in_range(ids):
+                return [d for d in ids if 0 <= d < total_slots]
+
+            bound = _detect_device_ids_from_mounts(container_info)
+            explicit_ids = _detect_device_ids_from_command(container_info)
+            detected_board = _detect_device_board(container_info)
+            required_chips = _board_to_chip_count(detected_board)
+            if required_chips is None:
+                try:
+                    from shared_config.model_config import get_model_chip_requirement
+                    required_chips = get_model_chip_requirement(model_name)
+                except Exception as e:
+                    logger.warning(f"Could not resolve chip requirement for '{model_name}': {e}")
+                    required_chips = chips_required
+
+            if isinstance(bound, list) and _in_range(bound):
+                device_ids = _in_range(bound)
+                corrections.append(f"Devices auto-detected from bound chip nodes: {device_ids}.")
+            elif explicit_ids and _in_range(explicit_ids):
+                device_ids = _in_range(explicit_ids)
+                corrections.append(f"Devices detected from the launch command: {device_ids}.")
+            elif bound == "whole" or (required_chips and required_chips > 1):
+                count = required_chips if (required_chips and required_chips > 1) else total_slots
+                device_ids = list(range(min(count, total_slots)))
+                where = detected_board or model_name
+                corrections.append(f"'{where}' uses all {len(device_ids)} devices (whole board).")
+            else:
+                device_ids = [device_id if 0 <= device_id < total_slots else 0]
+                if detected_board:
+                    corrections.append(f"Single-device model '{detected_board}' on slot {device_ids[0]}.")
+            device_id = device_ids[0]
+
+            # --- Derive the in-network service port from the container itself ---
             port_bindings = container_info.get("NetworkSettings", {}).get("Ports", {})
             if not port_bindings:
                 port_bindings = container_info.get("port_bindings", {})
             exposed_ports = []
-            if port_bindings:
-                for port_key in port_bindings.keys():
-                    try:
-                        exposed_ports.append(int(port_key.split("/")[0]))
-                    except (ValueError, IndexError):
-                        pass
+            for port_key in (port_bindings or {}):
+                try:
+                    exposed_ports.append(int(str(port_key).split("/")[0]))
+                except (ValueError, IndexError):
+                    pass
 
-            if service_port and exposed_ports and int(service_port) not in exposed_ports:
-                return Response(
-                    {
-                        "status": "error",
-                        "message": f"Container does not expose port {service_port}. Available ports: {', '.join(str(p) for p in exposed_ports)}",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            arg_port = _find_arg_value(_cmd_tokens(container_info), _SERVICE_PORT_ARG)
+            try:
+                arg_port = int(arg_port) if arg_port else None
+            except (TypeError, ValueError):
+                arg_port = None
+
+            if arg_port:
+                service_port = arg_port
+            elif exposed_ports:
+                service_port = exposed_ports[0]
 
             # --- HF Model ID catalog matching ---
             if hf_model_id:
@@ -2173,38 +2326,52 @@ class RegisterExternalModelView(APIView):
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
                         if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
-                            # Found a catalog match — use its authoritative routes
-                            catalog_route = catalog_model.get("service_route")
-                            catalog_health = catalog_model.get("health_route")
+                            # Found a catalog match — adopt its authoritative type
+                            # and name (routing is derived from the catalog
+                            # model_impl at enrichment time, not stored here).
                             catalog_type = catalog_model.get("model_type", "").lower()
 
-                            if catalog_route and service_route and service_route != catalog_route:
-                                corrections.append(
-                                    f"Service route corrected from '{service_route}' to '{catalog_route}' based on catalog entry for {catalog_model.get('model_name')}"
-                                )
-                                service_route = catalog_route
-                            elif catalog_route and not service_route:
-                                service_route = catalog_route
-
-                            if catalog_health and health_route != catalog_health:
-                                corrections.append(
-                                    f"Health route corrected from '{health_route}' to '{catalog_health}' based on catalog entry"
-                                )
-                                health_route = catalog_health
-
                             if catalog_type and catalog_type != model_type:
-                                corrections.append(
-                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
-                                )
+                                if model_type:
+                                    corrections.append(
+                                        f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                    )
                                 model_type = catalog_type
+
+                            # Adopt the catalog's model name
+                            catalog_name = catalog_model.get("model_name")
+                            if catalog_name and catalog_name != model_name:
+                                if model_name:
+                                    corrections.append(
+                                        f"Model name set to catalog name '{catalog_name}'"
+                                    )
+                                model_name = catalog_name
 
                             break
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
-            # --- Apply default route if still unset ---
-            if not service_route:
-                service_route = self._DEFAULT_ROUTES.get(model_type, "/v1/chat/completions")
+            # Derive any remaining identity fields, then validate
+            if not model_type and hf_model_id:
+                model_type = _infer_model_type(hf_model_id)
+            if not model_name:
+                model_name = (
+                    hf_model_id.split("/")[-1]
+                    if hf_model_id
+                    else (container_info.get("name") or container_id).lstrip("/")
+                )
+
+            if not model_type:
+                return Response(
+                    {"status": "error", "message": "Could not determine the model type from the container. Please specify model_type."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
+                valid_types = ", ".join(sorted(self._VALID_MODEL_TYPES))
+                return Response(
+                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # --- Rename container based on model name ---
             current_name = container_info.get("name", container_id)
@@ -2264,7 +2431,15 @@ class RegisterExternalModelView(APIView):
                     container_id=container_id, status="running"
                 )
                 if existing.exists():
-                    corrections.append("Deployment record already exists — updated")
+                    rec = list(existing)[0]
+                    rec.device = "external"
+                    rec.device_id = device_id
+                    rec.device_ids = device_ids
+                    rec.model_name = model_name
+                    rec.port = int(service_port) if service_port else 7000
+                    rec.save()
+                    corrections.append("Deployment record already existed — updated device mapping.")
+                    logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
                 else:
                     ModelDeployment.objects.create(
                         container_id=container_id,
@@ -2272,11 +2447,12 @@ class RegisterExternalModelView(APIView):
                         model_name=model_name,
                         device="external",
                         device_id=device_id,
+                        device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
                         port=int(service_port) if service_port else 7000,
                     )
-                    logger.info(f"Created deployment record for external container '{container_name}' on device_id={device_id}")
+                    logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
                 logger.error(f"Failed to create deployment record: {e}")
                 # Continue — the network connection is the critical part
@@ -2836,3 +3012,138 @@ class AvailableDevicesView(APIView):
             "devices": devices,
             "count": len(devices)
         }, status=status.HTTP_200_OK)
+
+
+def _infer_model_type(hf_id: str) -> str:
+    """Best-effort model_type from an hf_model_id. This is only a prefill hint;
+    registration still catalog-corrects the type on submit."""
+    lower = hf_id.lower()
+    # TTS before speech_recognition: names like "speecht5_tts" contain "speech".
+    if any(x in lower for x in ["xtts", "-tts-", "_tts", "tts_", "bark", "speecht5", "fastspeech"]):
+        return "tts"
+    if any(x in lower for x in ["whisper", "wav2vec", "asr", "speech-to-text", "stt"]):
+        return "speech_recognition"
+    if any(x in lower for x in ["llava", "clip", "idefics", "vision", "blip"]):
+        return "vlm"
+    if any(x in lower for x in ["stable-diffusion", "sdxl", "dall-e"]):
+        return "image_generation"
+    if any(x in lower for x in ["-e5-", "/e5-", "gte-", "bge-", "embed", "sentence-t5"]):
+        return "embedding"
+    return "chat"
+
+
+def _parse_vllm_logs(text: str) -> dict:
+    """Extract the model id and serving port from vLLM startup log lines."""
+    result = {}
+    m = re.search(r"\bmodel='([^']+)'", text)
+    if m:
+        result["hf_model_id"] = m.group(1)
+        result["model_type"] = _infer_model_type(m.group(1))
+    m = re.search(r"Uvicorn running on http://[^:]+:(\d+)", text, re.IGNORECASE)
+    if m:
+        result["port"] = int(m.group(1))
+    return result
+
+
+def _first_host_port(container_info: dict):
+    """First published host port for the container (what the backend can reach
+    via host.docker.internal), across the shapes get_container may return."""
+    sources = [
+        (container_info.get("NetworkSettings") or {}).get("Ports"),
+        container_info.get("ports"),
+        container_info.get("port_bindings"),
+    ]
+    for src in sources:
+        if isinstance(src, dict):
+            for _cport, binds in src.items():
+                if isinstance(binds, list) and binds and isinstance(binds[0], dict):
+                    hp = binds[0].get("HostPort")
+                    if hp:
+                        try:
+                            return int(hp)
+                        except (TypeError, ValueError):
+                            pass
+    return None
+
+
+def _hf_from_container(container_info: dict):
+    """The HuggingFace model id declared by the container itself — the `--model`
+    launch arg (vLLM/tt-inference-server) or a MODEL* env var. Authoritative and
+    needs no network, so it works even when /v1/models is auth-gated."""
+    v = _find_arg_value(_cmd_tokens(container_info), _MODEL_ARG)
+    if v:
+        return v
+    env = _container_env(container_info)
+    for key in ("HF_MODEL_ID", "MODEL_ID", "MODEL_NAME", "MODEL", "HF_MODEL"):
+        val = env.get(key)
+        if val and "/" in val:  # looks like an org/name HF id, not a bare label
+            return val
+    return None
+
+
+def _detect_model_info(docker_client, container_id, container_info=None) -> dict:
+    """Detect {hf_model_id, model_type, port, source} for a running container.
+
+    Sources, most authoritative first: the container's own `--model` arg / MODEL
+    env, then its live /v1/models endpoint (via the published host port), then a
+    vLLM log scrape. Returns {} when nothing could be detected. Shared by the
+    detect endpoint and the register flow so both derive identity the same way.
+    """
+    if container_info is None:
+        try:
+            container_info = docker_client.get_container(container_id)
+        except Exception:
+            container_info = {}
+
+    result = {}
+    host_port = _first_host_port(container_info)
+    if host_port:
+        result["port"] = host_port
+
+    hf = _hf_from_container(container_info)
+    if hf:
+        result["hf_model_id"] = hf
+        result["source"] = "container"
+
+    # Live /v1/models is authoritative when reachable (unauth'd); fills/overrides.
+    if host_port:
+        try:
+            api_resp = requests.get(
+                f"http://host.docker.internal:{host_port}/v1/models", timeout=2
+            )
+            model_id = api_resp.json().get("data", [{}])[0].get("id")
+            if model_id:
+                result["hf_model_id"] = model_id
+                result["source"] = "api"
+        except Exception:
+            pass
+
+    # Last resort: scrape startup logs.
+    if not result.get("hf_model_id"):
+        try:
+            log_lines = docker_client.tail_logs(container_id, tail=300, timeout=6.0)
+        except Exception:
+            log_lines = []
+        parsed = _parse_vllm_logs("\n".join(log_lines))
+        if parsed.get("hf_model_id"):
+            result["hf_model_id"] = parsed["hf_model_id"]
+            result.setdefault("source", "logs")
+        if parsed.get("port") and not result.get("port"):
+            result["port"] = parsed["port"]
+
+    if result.get("hf_model_id"):
+        result["model_type"] = _infer_model_type(result["hf_model_id"])
+    return result
+
+
+class DetectModelFromLogsView(APIView):
+    """Return model info (hf_model_id, model_type, port) auto-detected from a
+    running container's logs / live /v1/models endpoint, to prefill the register
+    form. Registration derives the same fields server-side, so this is UX sugar.
+    """
+
+    def get(self, request, container_id, *args, **kwargs):
+        return Response(
+            _detect_model_info(get_docker_client(), container_id),
+            status=status.HTTP_200_OK,
+        )
