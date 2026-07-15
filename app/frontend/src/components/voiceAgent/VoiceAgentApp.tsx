@@ -7,7 +7,7 @@ import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
 import { MetricsPanel } from "@/src/components/voiceAgent/MetricsPanel";
 import { AudioRecorderWithVisualizer, type AudioRecorderHandle } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
 import { useWakeWord } from "@/src/components/voiceAgent/hooks/useWakeWord";
-import { Activity, BarChart3, UserCheck, X } from "lucide-react";
+import { Activity, BarChart3, Settings2, UserCheck, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
@@ -46,6 +46,13 @@ import type {
   DeployedModelState,
   PipelineMetrics,
 } from "./types";
+import { VoiceAgentSettings } from "./VoiceAgentSettings";
+import {
+  loadVoiceSystemPrompt,
+  saveVoiceSystemPrompt,
+  renderVoiceSystemPrompt,
+  VOICE_PROMPT_SAFETY_SUFFIX,
+} from "./lib/prompts";
 
 export type { Conversation, ConversationMessage };
 
@@ -138,6 +145,18 @@ export default function VoiceAgentApp() {
     },
     [addMemoryNote]
   );
+
+  // Editable LLM system prompt, persisted per-browser. A ref mirrors it so the
+  // inference callback reads the latest value without re-subscribing.
+  const [systemPrompt, setSystemPrompt] = useState<string>(() => loadVoiceSystemPrompt());
+  const systemPromptRef = useRef<string>(systemPrompt);
+  useEffect(() => {
+    systemPromptRef.current = systemPrompt;
+  }, [systemPrompt]);
+  const handleSaveSystemPrompt = useCallback((prompt: string) => {
+    setSystemPrompt(prompt);
+    saveVoiceSystemPrompt(prompt);
+  }, []);
 
   useEffect(() => {
     chatHistoryRef.current = chatHistory;
@@ -332,13 +351,10 @@ export default function VoiceAgentApp() {
           false,
           0,
           undefined,
-          `${userContext}${memoryBlock}Role: You are a helpful, friendly voice assistant having a real spoken conversation with the user. \
-          Style: Talk like a person — warm, natural, and conversational. Use contractions, light filler ("sure", "got it", "hmm"), and vary your phrasing so you don't sound scripted. \
-          Engagement: Actually answer the user's question or request. When it makes sense, ask a brief follow-up to keep the conversation going, but don't force it on every turn. \
-          Length: Keep replies short and spoken-friendly — usually 1-3 sentences. Go a little longer only when the user asks for detail or explanation. \
-          Format: Plain spoken text only. No bullet points, no markdown, no headings, no emoji — everything you say will be read aloud by a TTS engine. \
-          Goal: Feel like a real assistant the user is talking to, not a demo script.
-          Warning: ONLY reply to what the user is saying. Do not make up information or talk to yourself.`
+          `${userContext}${memoryBlock}${renderVoiceSystemPrompt(systemPromptRef.current, {
+            userName: recognizedUserRef.current,
+            modelName: models.llm.modelName,
+          })}\n${VOICE_PROMPT_SAFETY_SUFFIX}`
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
@@ -572,6 +588,26 @@ export default function VoiceAgentApp() {
                 <SheetTitle className="font-['Bricolage_Grotesque']">Pipeline Metrics</SheetTitle>
               </SheetHeader>
               <MetricsPanel metrics={metrics} />
+            </SheetContent>
+          </Sheet>
+
+          {/* Assistant prompt settings sheet */}
+          <Sheet>
+            <SheetTrigger asChild>
+              <button
+                aria-label="Assistant prompt settings"
+                className={cn(
+                  "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
+                  theme === "dark"
+                    ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+                    : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+                )}
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="right" className="flex flex-col">
+              <VoiceAgentSettings value={systemPrompt} onSave={handleSaveSystemPrompt} />
             </SheetContent>
           </Sheet>
         </div>
