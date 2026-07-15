@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RotateCcw, Check } from "lucide-react";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -24,15 +24,23 @@ export function VoiceAgentSettings({ value, onSave }: VoiceAgentSettingsProps) {
   const [draft, setDraft] = useState(value);
   const [justSaved, setJustSaved] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const justSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const dirty = draft !== value;
   const activePresetId = VOICE_PROMPT_PRESETS.find((p) => p.prompt === draft)?.id;
   const approxTokens = Math.ceil(draft.trim().length / 4);
 
+  useEffect(() => {
+    return () => {
+      if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
+    };
+  }, []);
+
   const handleSave = () => {
     onSave(draft);
     setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2000);
+    if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
+    justSavedTimeoutRef.current = setTimeout(() => setJustSaved(false), 2000);
   };
 
   // Insert a variable placeholder at the cursor (or append if unfocused).
