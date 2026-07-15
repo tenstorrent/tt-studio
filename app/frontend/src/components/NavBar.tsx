@@ -20,6 +20,8 @@ import {
   Video,
   type LucideIcon,
   History,
+  Workflow,
+  PanelLeft,
   Terminal,
   Plus,
 } from "lucide-react";
@@ -60,7 +62,6 @@ import type { HealthStatus } from "../types/models";
 interface AnimatedIconProps {
   icon: LucideIcon;
   className?: string;
-  [key: string]: any;
 }
 
 interface NavItemProps {
@@ -89,7 +90,7 @@ interface ButtonNavItemProps {
 
 // Type for components used in action buttons
 interface ActionButtonProps {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   onClick: (() => void) | null;
   tooltipText: string;
 }
@@ -253,7 +254,7 @@ interface ButtonNavItemType {
 type NavItemData = NavItemType | ButtonNavItemType;
 
 interface ActionButtonType {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   tooltipText: string;
   onClick: (() => void) | null;
 }
@@ -340,11 +341,28 @@ export default function NavBar() {
   // Surface the Register Model entry only when there's a stray container to adopt.
   const { hasStray } = useStrayContainers();
 
-  // Check if we're in Chat UI, Image Generation, or Video Generation mode
+  // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
+  // usable once a chat-capable model is healthy. Gate the navbar entries the
+  // same way we gate Voice Agent / Coding Agents.
+  const isLlmReady = useMemo(
+    () =>
+      healthyModels.some((m) => {
+        const t = m.model_type
+          ? getModelTypeFromBackendType(m.model_type)
+          : getModelTypeFromName(m.name, m.image);
+        return t === ModelType.ChatModel || t === ModelType.VLM;
+      }),
+    [healthyModels],
+  );
+
+  // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
   const isVideoGeneration = location.pathname === "/video-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration || isVideoGeneration;
+  const isWorkflows = location.pathname === "/workflows";
+  const isCanvas = location.pathname === "/canvas";
+  const shouldUseVerticalNav =
+    isChatUI || isImageGeneration || isVideoGeneration || isWorkflows || isCanvas;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -402,7 +420,7 @@ export default function NavBar() {
 
   const isMobile = windowWidth < 640;
 
-  if (isMobile && isChatUI) {
+  if (isMobile && (isChatUI || isCanvas)) {
     return null;
   }
 
@@ -553,6 +571,26 @@ export default function NavBar() {
         },
       ]
       : []),
+    // Workflows and Canvas both need a healthy chat-capable model to be useful,
+    // so only surface them once one is up.
+    ...(isLlmReady
+      ? [
+        {
+          type: "link" as const,
+          to: "/workflows",
+          icon: Workflow,
+          label: "Workflows",
+          tooltip: "Build and run multi-step AI pipelines",
+        },
+        {
+          type: "link" as const,
+          to: "/canvas",
+          icon: PanelLeft,
+          label: "Canvas",
+          tooltip: "AI code canvas with live preview",
+        },
+      ]
+      : []),
     // Coding Agents is only shown when a coding-agent-eligible model is deployed
     ...(isCodingAgentReady
       ? [
@@ -583,13 +621,6 @@ export default function NavBar() {
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    console.log(
-      "createModelNavItems called - isDeployedEnabled:",
-      isDeployedEnabled
-    );
-    console.log("models array:", models);
-    console.log("models length:", models.length);
-
     if (isDeployedEnabled) {
       // In AI Playground mode, show navigation for models that are healthy and
       // ready to use. Models still deploying/warming up are intentionally hidden.
@@ -600,7 +631,6 @@ export default function NavBar() {
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
           const route = getDestinationFromModelType(modelType);
-          console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
@@ -666,7 +696,6 @@ export default function NavBar() {
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
         const route = getDestinationFromModelType(modelType);
-        console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
@@ -683,11 +712,7 @@ export default function NavBar() {
     }
   };
 
-  // Select the appropriate navigation items based on the environment variable
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
-
-  console.log("Final navItems:", navItems);
-  console.log("navItems length:", navItems.length);
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
