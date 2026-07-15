@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect, type DragEventHandler } from "react";
+import { useCallback, useEffect, useMemo, type DragEventHandler } from "react";
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,52 @@ import { useWorkflowStore } from "../../store/workflowStore";
 import { nodeTypes } from "./nodes/nodeTypes";
 import DeletableEdge from "./edges/DeletableEdge";
 import type { WorkflowNodeType, WorkflowNode } from "../../types/workflow";
+import type { NodeStatus } from "../../types/workflow";
+
+/* ── Edge colours by execution state ───────────────────────────────── */
+
+const EDGE_COLOR_DEFAULT = "#7c3aed";
+const EDGE_COLOR_COMPLETED = "#10b981";
+const EDGE_COLOR_ACTIVE = "#8b5cf6";
+const EDGE_COLOR_ERROR = "#ef4444";
+const EDGE_COLOR_IDLE = "#52525b";
+
+function getEdgeStyle(
+  sourceStatus: NodeStatus,
+  targetStatus: NodeStatus,
+  isNew: boolean
+): { stroke: string; animated: boolean } {
+  // If this edge was added after the execution, it hasn't carried data yet,
+  // so it should always appear as Pending (idle).
+  if (isNew) {
+    return { stroke: EDGE_COLOR_IDLE, animated: false };
+  }
+
+  // Edge colour follows the SOURCE node — the edge represents data
+  // that flowed out of the source. If the source succeeded the edge
+  // is green, even when the target later fails. Only edges *leaving*
+  // the failed node turn red.
+
+  if (sourceStatus === "error")
+    return { stroke: EDGE_COLOR_ERROR, animated: false };
+
+  if (sourceStatus === "completed") {
+    // If the target is actively running, animate the edge to show flow
+    if (targetStatus === "running") {
+      return { stroke: EDGE_COLOR_ACTIVE, animated: true };
+    }
+    // Otherwise it's fully complete
+    return { stroke: EDGE_COLOR_COMPLETED, animated: false };
+  }
+
+  if (sourceStatus === "running")
+    return { stroke: EDGE_COLOR_ACTIVE, animated: true };
+
+  // Idle (pending) state
+  // If the run hasn't started yet, or this edge is downstream of a failure,
+  // it remains dimmed and solid.
+  return { stroke: EDGE_COLOR_IDLE, animated: false };
+}
 
 const edgeTypes = { default: DeletableEdge };
 
@@ -52,7 +98,26 @@ export default function WorkflowCanvas() {
     deleteSelected,
     selectedNodeId,
     selectedEdgeId,
+    nodeStatuses,
+    isRunning,
   } = useWorkflowStore();
+
+  /* Derive per-edge style from execution state */
+  const styledEdges = useMemo(
+    () =>
+      edges.map((edge) => {
+        const srcStatus: NodeStatus = nodeStatuses[edge.source] || "idle";
+        const tgtStatus: NodeStatus = nodeStatuses[edge.target] || "idle";
+        const isNew = Boolean(edge.data?.isNew);
+        const { stroke, animated } = getEdgeStyle(srcStatus, tgtStatus, isNew);
+        return {
+          ...edge,
+          animated,
+          style: { ...edge.style, stroke },
+        };
+      }),
+    [edges, nodeStatuses, isRunning]
+  );
 
   const onNodeClick: NodeMouseHandler<WorkflowNode> = useCallback(
     (_event, node) => {
@@ -127,7 +192,7 @@ export default function WorkflowCanvas() {
   return (
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={styledEdges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
@@ -142,7 +207,7 @@ export default function WorkflowCanvas() {
       fitView
       defaultEdgeOptions={{
         animated: true,
-        style: { stroke: "#7c3aed" },
+        style: { stroke: EDGE_COLOR_DEFAULT },
       }}
       proOptions={{ hideAttribution: true }}
     >
