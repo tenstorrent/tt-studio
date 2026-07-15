@@ -5,38 +5,11 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   fetchDeployments,
   fetchModels,
-  type CanonicalDeployment,
+  canonicalToModel,
+  isVisibleDeployment,
 } from "../api/modelsDeployedApis";
 import { ModelsContext, type Model } from "../contexts/ModelsContext";
 import { useDeviceState } from "../hooks/useDeviceState";
-
-/** Format Docker port_bindings into the "host:port->container/proto" string the UI expects. */
-function formatPortBindings(bindings: CanonicalDeployment["port_bindings"]): string {
-  if (!bindings || Object.keys(bindings).length === 0) return "No ports";
-  return Object.keys(bindings)
-    .map((containerPort) => {
-      const bindList = bindings[containerPort];
-      if (!bindList || bindList.length === 0) return `${containerPort} (unbound)`;
-      const b = bindList[0];
-      return `${b.HostIp}:${b.HostPort}->${containerPort}`;
-    })
-    .join(", ");
-}
-
-function canonicalToModel(d: CanonicalDeployment): Model {
-  return {
-    id: d.id,
-    name: d.deployment_model_name ?? d.model_impl?.model_name ?? d.name ?? "Unnamed",
-    image: d.image_name ?? "Unknown image",
-    status: d.status ?? "unknown",
-    health: d.health ?? "unknown",
-    ports: formatPortBindings(d.port_bindings),
-    device_id: d.device_id ?? null,
-    device_ids: d.device_ids ?? undefined,
-    model_type: d.model_type ?? undefined,
-    coding_agent_eligible: d.coding_agent_eligible ?? false,
-  };
-}
 
 export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -64,14 +37,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   const refreshModels = useCallback(async () => {
     try {
       const deployments = await fetchDeployments();
-
-      // Only fully-resolved managed deployments with a model_impl are visible. Pending starts and discovered-only Docker containers are hidden.
-      const visible = deployments.filter(
-        (d) =>
-          d.source === "managed" &&
-          !d.is_pending &&
-          d.model_impl !== null,
-      );
+      const visible = deployments.filter(isVisibleDeployment);
 
       if (visible.length > 0) {
         setUserStoppedModel(false);
