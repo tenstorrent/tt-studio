@@ -130,7 +130,7 @@ export default function VoiceAgentApp() {
     (text: string) => {
       const patterns: RegExp[] = [
         /\bmy name is ([A-Za-z][\w'’\- ]{1,40})/i,
-        /\b(?:i am|i'm) (?:called |known as )?([A-Z][\w'’\-]{1,30})\b/,
+        /\b(?:i am|i'm) (?:called |known as )?([A-Z][\w'’-]{1,30})\b/,
         /\bcall me ([A-Za-z][\w'’\- ]{1,30})/i,
         /\bi(?:'m| am) a ([\w'’\- ]{2,40}?)(?:\.|,|$)/i,
         /\bi work (?:as|at|in|on) ([\w'’\- ]{2,40}?)(?:\.|,|$)/i,
@@ -421,7 +421,7 @@ export default function VoiceAgentApp() {
         setStage("done");
       }
     },
-    [models, conversations, addMessageToConversation, updateMessageInConversation]
+    [models, conversations, addMessageToConversation, updateMessageInConversation, extractMemoryFromUserTurn]
   );
 
   const handleRecordingComplete = async (audioBlob: Blob) => {
