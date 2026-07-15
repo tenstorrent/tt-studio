@@ -9,6 +9,7 @@ import re
 from tt_setup.constants import *
 from tt_setup.console import ask, confirm, console
 from tt_setup.env_config import get_env_var, write_env_var
+from tt_setup.inference_server._git import check_branch_exists, check_release_exists
 from tt_setup.inference_server._privileges import remove_artifact_with_sudo
 
 
@@ -72,6 +73,17 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
         while True:
             val = ask(prompt_text, default=default_version).strip()
             if val == "latest" or re.match(semver_pattern, val):
+                # 'latest' resolves to the main branch, which always exists; only
+                # a pinned tag needs verifying against upstream releases.
+                if val != "latest":
+                    console.print(f"[muted]   Verifying release '{val}' exists upstream…[/muted]")
+                    status = check_release_exists(val)
+                    if status == "missing":
+                        console.print(f"[error]⛔ Release '{val}' not found in tenstorrent/tt-inference-server.[/error]")
+                        console.print("[muted]   Available releases: https://github.com/tenstorrent/tt-inference-server/releases[/muted]")
+                        continue
+                    if status == "unknown":
+                        console.print(f"[warning]⚠️  Couldn't verify '{val}' upstream (offline or rate-limited) — continuing anyway.[/warning]")
                 break
 
             # Common typo: "v.10.0" or "v.0.10.0" should be "v0.10.0"
@@ -114,7 +126,20 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
             default_branch = current_branch
 
         prompt_text = "🌿 Enter branch name (e.g., 'main', 'dev', 'feature/xyz')"
-        val = ask(prompt_text, default=default_branch).strip()
+        while True:
+            val = ask(prompt_text, default=default_branch).strip()
+            if not val:
+                console.print("[error]⛔ Branch name cannot be empty.[/error]")
+                continue
+            console.print(f"[muted]   Verifying '{val}' exists upstream…[/muted]")
+            status = check_branch_exists(val)
+            if status == "missing":
+                console.print(f"[error]⛔ Branch/commit '{val}' not found in tenstorrent/tt-inference-server.[/error]")
+                console.print("[muted]   Available branches: https://github.com/tenstorrent/tt-inference-server/branches[/muted]")
+                continue
+            if status == "unknown":
+                console.print(f"[warning]⚠️  Couldn't verify '{val}' upstream (offline or rate-limited) — continuing anyway.[/warning]")
+            break
         write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", val, quote_value=False)
         console.print(f"[success]✅ TT_INFERENCE_ARTIFACT_BRANCH set to '{val}'[/success]")
 

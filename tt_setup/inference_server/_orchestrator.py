@@ -19,6 +19,52 @@ from tt_setup.inference_server._privileges import (
 )
 
 
+def _is_valid_targz(path):
+    """Return True if `path` is a readable, non-empty gzip tarball.
+
+    A previous download that was interrupted (Ctrl-C, dropped connection) leaves
+    a truncated .tar.gz on disk. Reusing it later fails deep inside extraction
+    with an opaque EOFError traceback, so we cheaply verify integrity up front by
+    walking the archive members before trusting a cached file.
+    """
+    import tarfile
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return False
+        with tarfile.open(path, "r:gz") as tar:
+            for _ in tar:  # streams through headers; raises on truncation/corruption
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def _report_extract_failure(exc, artifact_file):
+    """Print an actionable message for an extraction failure (no raw traceback).
+
+    A truncated/corrupt tarball is the common cause; delete it so the next run
+    re-downloads cleanly instead of tripping over the same bad cache.
+    """
+    from tt_setup.console import is_verbose
+    msg = str(exc)
+    truncated = isinstance(exc, EOFError) or "end-of-stream" in msg or "not a gzip" in msg
+    if truncated:
+        console.print("[error]⛔ The downloaded artifact is corrupt or incomplete (likely an interrupted download).[/error]")
+        if artifact_file and os.path.exists(artifact_file):
+            try:
+                os.remove(artifact_file)
+                console.print("[muted]   Removed the bad tarball. Re-run the same command to download it again.[/muted]")
+            except Exception:
+                console.print(f"[muted]   Please delete '{artifact_file}' and re-run.[/muted]")
+        else:
+            console.print("[muted]   Re-run the same command to download it again.[/muted]")
+    else:
+        console.print(f"[error]⛔ Failed to extract artifact: {exc}[/error]")
+    if is_verbose():
+        import traceback
+        traceback.print_exc()
+
+
 def setup_tt_inference_server(pull_branch=False):
     """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     # Artifact setup — quiet unless downloading or encountering issues
@@ -321,10 +367,12 @@ def setup_tt_inference_server(pull_branch=False):
 
         artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{sanitized_branch}.tar.gz")
 
-        # Use cached tarball only if artifact dir also exists (same snapshot).
-        # If user deleted the extracted dir, re-download so we get current branch HEAD (overwrites old tarball).
+        # Use cached tarball only if artifact dir also exists (same snapshot) and
+        # the tarball is actually a valid archive (a prior interrupted download
+        # may have left a truncated file — don't trust it).
         use_cached_tarball = (
             os.path.exists(artifact_file) and os.path.exists(INFERENCE_ARTIFACT_DIR)
+            and _is_valid_targz(artifact_file)
         )
         if use_cached_tarball:
             console.print(f"[muted]📦 Using existing artifact tarball: {artifact_file}[/muted]")
@@ -457,9 +505,7 @@ def setup_tt_inference_server(pull_branch=False):
                     s.fail()
                     return False
             except Exception as e:
-                console.print(f"[error]⛔ Failed to extract artifact: {e}[/error]")
-                import traceback
-                traceback.print_exc()
+                _report_extract_failure(e, artifact_file)
                 return False
     elif artifact_version:
         # Handle "latest" by using the main branch, or download a specific version
@@ -540,9 +586,7 @@ def setup_tt_inference_server(pull_branch=False):
                         s.fail()
                         return False
                 except Exception as e:
-                    console.print(f"[error]⛔ Failed to extract artifact: {e}[/error]")
-                    import traceback
-                    traceback.print_exc()
+                    _report_extract_failure(e, artifact_file)
                     return False
         else:
             # Download from GitHub release (existing logic)
@@ -555,9 +599,17 @@ def setup_tt_inference_server(pull_branch=False):
             artifact_file = None
             for candidate in possible_tarballs:
                 if os.path.exists(candidate):
-                    artifact_file = candidate
-                    console.print(f"[muted]📦 Using existing artifact tarball: {artifact_file}[/muted]")
-                    break
+                    # Only reuse a cached tarball if it's a valid archive; a prior
+                    # interrupted download may have left a truncated file.
+                    if _is_valid_targz(candidate):
+                        artifact_file = candidate
+                        console.print(f"[muted]📦 Using existing artifact tarball: {artifact_file}[/muted]")
+                        break
+                    console.print(f"[warning]⚠️  Cached tarball is corrupt or incomplete — re-downloading: {candidate}[/warning]")
+                    try:
+                        os.remove(candidate)
+                    except Exception:
+                        pass
 
             if not artifact_file:
                 # Download from GitHub release
@@ -565,10 +617,9 @@ def setup_tt_inference_server(pull_branch=False):
                 github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/{artifact_version}.tar.gz"
                 artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
                 try:
-                    import urllib.request
+                    from tt_setup.console import download_with_progress
                     console.print(f"[muted]   Downloading from: {github_url}[/muted]")
-                    console.print("[muted]   This may take a few minutes...[/muted]")
-                    urllib.request.urlretrieve(github_url, artifact_file)
+                    download_with_progress(github_url, artifact_file, f"Downloading TT Inference Server {artifact_version}")
 
                     # Verify download completed successfully
                     if not os.path.exists(artifact_file):
@@ -666,9 +717,7 @@ def setup_tt_inference_server(pull_branch=False):
                         s.fail()
                         return False
                 except Exception as e:
-                    console.print(f"[error]⛔ Failed to extract artifact: {e}[/error]")
-                    import traceback
-                    traceback.print_exc()
+                    _report_extract_failure(e, artifact_file)
                     return False
 
     # Fallback: check if artifact directory exists
