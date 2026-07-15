@@ -135,7 +135,7 @@ def _read_deps(pyproject_path):
     if tomllib is None:
         v = ".".join(map(str, sys.version_info[:3]))
         raise RuntimeError(
-            f"tt-studio setup requires Python 3.11+ (you have {v}); "
+            f"tt-studio setup requires Python 3.12+ (you have {v}); "
             f"tomllib is unavailable."
         )
     with open(pyproject_path, "rb") as f:
@@ -212,17 +212,17 @@ def ensure_environment():
     if _in_target_venv(_VENV_DIR):
         return
 
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 12):
         v = ".".join(map(str, sys.version_info[:3]))
-        cmd = f"python3.11 run.py {' '.join(sys.argv[1:])}".rstrip()
+        cmd = f"python3.12 run.py {' '.join(sys.argv[1:])}".rstrip()
         _die(
             "",
-            f"  {_C_RED}⚠️  Python 3.11+ required by tt-studio setup{_C_RESET}",
+            f"  {_C_RED}⚠️  Python 3.12+ required by tt-studio setup{_C_RESET}",
             "",
             f"      {_C_DIM}You have:{_C_RESET}  {v}",
-            f"      {_C_DIM}Need:{_C_RESET}      3.11 or newer",
+            f"      {_C_DIM}Need:{_C_RESET}      3.12 or newer",
             "",
-            f"      {_C_BOLD}Fix{_C_RESET} — install Python 3.11+ and rerun, e.g.",
+            f"      {_C_BOLD}Fix{_C_RESET} — install Python 3.12+ and rerun, e.g.",
             f"          {_C_CYAN}{cmd}{_C_RESET}",
             "",
         )
