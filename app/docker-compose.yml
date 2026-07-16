@@ -113,6 +113,7 @@ services:
 
   tt_studio_agent:
     hostname: tt-studio-agent
+    user: "1000:1000"  # run non-root; no host mounts, so no ownership impact
     # Container name and image are defined in mode-specific override files
     build: ./agent
     depends_on:
@@ -148,6 +149,7 @@ services:
     # Pinned by digest for reproducibility; bump intentionally (current: main-stable)
     image: ghcr.io/berriai/litellm:main-stable@sha256:89ccaccfda9083f7693777597ca27f8ffca12045e4fa9277155fb7c5f06e68b2
     container_name: tt_studio_litellm
+    user: "1000:1000"  # run non-root; only reads a read-only config mount
     networks:
       - tt_studio_network
     ports:
