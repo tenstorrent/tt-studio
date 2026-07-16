@@ -62,12 +62,24 @@ def _remove_path_with_docker(path):
         return True
     abs_path = os.path.abspath(path)
     parent, name = os.path.dirname(abs_path), os.path.basename(abs_path)
+    # Guard against root-ish paths: an empty basename would turn
+    # `rm -rf /target/{name}` into wiping the entire mounted parent.
+    if abs_path in ("", os.path.sep) or not parent or name in ("", ".", ".."):
+        print(f"{C_YELLOW}⚠️  Refusing to remove root/suspicious path via cleanup container: {abs_path}{C_RESET}")
+        return False
     try:
         subprocess.run(
             ["docker", "run", "--rm", "-v", f"{parent}:/target",
              "alpine", "rm", "-rf", f"/target/{name}"],
             check=True, capture_output=True, text=True,
         )
+    except subprocess.CalledProcessError as e:
+        detail = (e.stderr or e.stdout or str(e)).strip()
+        print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: {detail}{C_RESET}")
+        return False
+    except FileNotFoundError:
+        print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: docker not found on PATH{C_RESET}")
+        return False
     except Exception as e:
         print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: {e}{C_RESET}")
         return False
@@ -89,6 +101,9 @@ def _remove_path(path, no_sudo=False):
             os.remove(path)
         return True
     except PermissionError:
+        if no_sudo:
+            print(f"{C_YELLOW}⚠️  Permission denied removing {path} (no sudo).{C_RESET}")
+            return False
         return _remove_path_with_docker(path)
     except Exception as e:
         print(f"{C_YELLOW}⚠️  Failed to remove {path}: {e}{C_RESET}")
