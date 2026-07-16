@@ -61,3 +61,35 @@ class SettingsViewPostTests(SimpleTestCase):
             "/settings/", {"jwt_secret": "hax"}, format="json"
         )
         self.assertEqual(response.status_code, 400)
+
+
+@patch("api.views.is_setup_complete", return_value=True)
+@patch("api.views.get_artifact_info", return_value={"branch": None, "version": "v0.0.0"})
+@patch("api.views.get_tts_api_key", return_value=None)
+@patch("api.views.get_tavily_api_key", return_value=None)
+@patch("api.views.get_hf_token", return_value="hf_" + "a" * 30)
+@patch("api.views.load_user_config", return_value={})
+@patch("api.views.get_jwt_secret", return_value="jwt-secret-value-123")
+class SettingsViewGetTests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_editable_secret_includes_plaintext_value(self, *_mocks):
+        response = self.client.get("/settings/")
+        self.assertEqual(response.status_code, 200)
+        field = response.data["hf_token"]
+        self.assertTrue(field["set"])
+        self.assertEqual(field["value"], "hf_" + "a" * 30)
+        self.assertIn("****", field["masked"])
+
+    def test_unset_secret_has_null_value(self, *_mocks):
+        response = self.client.get("/settings/")
+        self.assertIsNone(response.data["tavily_api_key"]["value"])
+        self.assertFalse(response.data["tavily_api_key"]["set"])
+
+    def test_jwt_secret_is_never_returned_in_plaintext(self, *_mocks):
+        response = self.client.get("/settings/")
+        jwt = response.data["jwt_secret"]
+        self.assertTrue(jwt["set"])
+        self.assertIsNone(jwt["value"])
+        self.assertNotEqual(jwt["masked"], "jwt-secret-value-123")

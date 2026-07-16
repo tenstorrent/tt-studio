@@ -9,6 +9,9 @@ const HF_CHECK_URL = "/settings-api/hf-check/";
 export interface SettingField {
   set: boolean;
   masked: string | null;
+  /** Plaintext value for editable secrets so the UI can pre-fill and reveal
+   * them; always null for the auto-managed JWT secret. */
+  value: string | null;
   source: "user_config" | "env" | null;
   editable: boolean;
 }

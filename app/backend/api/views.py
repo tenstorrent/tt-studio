@@ -38,6 +38,9 @@ def _field(cfg, key, value, editable=True):
     return {
         "set": bool(value),
         "masked": _mask(value),
+        # Editable secrets are returned in plaintext so the UI can pre-fill
+        # them and reveal on the eye toggle. The JWT secret stays masked-only.
+        "value": (value or None) if editable else None,
         "source": "user_config" if cfg.get(key) else ("env" if value else None),
         "editable": editable,
     }

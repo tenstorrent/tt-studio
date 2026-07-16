@@ -44,7 +44,8 @@ function SavedBadge() {
   );
 }
 
-/** Controlled password input with a reveal-while-typing toggle. */
+/** Controlled password input with a reveal toggle. Values are pre-filled from
+ * the server, so the eye shows the actual stored secret. */
 function RevealInput({
   id,
   value,

@@ -81,7 +81,8 @@ function SourceBadge({ field }: { field?: SettingField }) {
   );
 }
 
-/** Password input with a reveal-while-typing toggle so a paste can be verified. */
+/** Password input with a reveal toggle. Values are pre-filled from the
+ * server, so the eye shows the actual stored secret. */
 function SecretField({
   id,
   label,
@@ -147,15 +148,24 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
 
   const hfTokenValue = (form.watch("hf_token") || "").trim();
 
+  // Pre-fill the form with the stored plaintext values so they are visible
+  // behind the reveal toggle and editable in place.
   useEffect(() => {
     if (open) {
-      form.reset({ hf_token: "", tts_api_key: "", tavily_api_key: "" });
+      form.reset({
+        hf_token: data?.hf_token.value ?? "",
+        tts_api_key: data?.tts_api_key.value ?? "",
+        tavily_api_key: data?.tavily_api_key.value ?? "",
+      });
       setShowHfCheck(false);
     }
-  }, [open, form]);
+  }, [open, data, form]);
 
   const mutation = useMutation({
     mutationFn: (payload: FormValues): Promise<UpdateSettingsResponse> => {
+      // Only send fields the user actually changed; an untouched pre-filled
+      // value is not an update (re-sending the HF token would spuriously
+      // flag a redeploy). Blank still means "keep the existing value".
       const body: Record<string, string> = {};
       for (const key of [
         "hf_token",
@@ -163,7 +173,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
         "tavily_api_key",
       ] as const) {
         const val = (payload[key] || "").trim();
-        if (val !== "") body[key] = val;
+        if (val !== "" && val !== (data?.[key].value ?? "")) body[key] = val;
       }
       // Nothing entered — resolve as a no-op instead of POSTing an empty body
       // (which the backend now also tolerates) so a blank Save isn't an error.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -41,14 +41,34 @@ export default function WelcomePage() {
     queryFn: getSettings,
   });
 
+  // Pre-fill the secrets form once with the values already stored on the
+  // server (user_config.env or the .env fallback) so they are visible and
+  // editable in place rather than hidden behind a masked placeholder.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!current || prefilled.current) return;
+    prefilled.current = true;
+    setSecrets({
+      hf_token: current.hf_token.value ?? "",
+      tts_api_key: current.tts_api_key.value ?? "",
+      tavily_api_key: current.tavily_api_key.value ?? "",
+    });
+  }, [current]);
+
   const saveSecrets = useMutation({
     mutationFn: () => {
+      // Only send fields the user actually changed; an untouched pre-filled
+      // value is not an update (re-sending the HF token would spuriously
+      // flag a redeploy). Blank still means "keep the existing value".
       const body: Record<string, string> = {};
-      if (secrets.hf_token.trim()) body.hf_token = secrets.hf_token.trim();
-      if (secrets.tts_api_key.trim())
-        body.tts_api_key = secrets.tts_api_key.trim();
-      if (secrets.tavily_api_key.trim())
-        body.tavily_api_key = secrets.tavily_api_key.trim();
+      for (const key of [
+        "hf_token",
+        "tts_api_key",
+        "tavily_api_key",
+      ] as const) {
+        const val = secrets[key].trim();
+        if (val !== "" && val !== (current?.[key].value ?? "")) body[key] = val;
+      }
       if (Object.keys(body).length === 0) {
         return Promise.resolve({ ok: true, requires_redeploy: false, updated: [] });
       }
