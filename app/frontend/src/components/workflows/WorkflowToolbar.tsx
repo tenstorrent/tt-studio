@@ -16,6 +16,8 @@ export default function WorkflowToolbar() {
     deleteWorkflow,
     setCurrentWorkflow,
     loadFromTemplate,
+    sourceTemplateName,
+    isTemplateModified,
   } = useWorkflowStore();
 
   const [showList, setShowList] = useState(false);
@@ -65,9 +67,20 @@ export default function WorkflowToolbar() {
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800">
       {/* Workflow name */}
-      <span className="text-sm font-medium text-zinc-300 mr-2 truncate max-w-48">
-        {currentWorkflow?.name || "New Workflow"}
-      </span>
+      <div className="flex items-center gap-1.5 mr-2 min-w-0 max-w-56 max-w-48">
+        {sourceTemplateName && !currentWorkflow && isTemplateModified && (
+          <span
+            className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
+            title="Template modified"
+          />
+        )}
+        <span className="text-sm font-medium text-zinc-300 truncate">
+          {currentWorkflow?.name ||
+            (sourceTemplateName
+              ? `Template: ${sourceTemplateName}`
+              : "New Workflow")}
+        </span>
+      </div>
 
       <div className="h-4 w-px bg-zinc-700" />
 

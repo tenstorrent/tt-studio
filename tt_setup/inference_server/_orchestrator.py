@@ -15,7 +15,7 @@ from tt_setup.inference_server._metadata import (
     _write_artifact_info, get_inference_server_version, validate_artifact_structure,
 )
 from tt_setup.inference_server._privileges import (
-    remove_artifact_with_sudo, request_sudo_authentication,
+    remove_artifact_with_sudo,
 )
 
 
@@ -54,13 +54,9 @@ def setup_tt_inference_server(pull_branch=False):
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
 
-    # Proactively request sudo authentication early (before any container builds)
-    sudo_available = request_sudo_authentication()
-    if not sudo_available:
-        pass  # Non-fatal — will retry if needed
 
-    # Track if sudo was used during cleanup (for artifact info file)
-    sudo_used_for_cleanup = False
+    # Track whether the cleanup container was needed (for artifact info file)
+    container_cleanup_used = False
 
     # Check if artifact already exists and is fully downloaded
     # A complete download has: artifact-info.txt (written last on success), workflows/utils.py, and VERSION
@@ -179,11 +175,6 @@ def setup_tt_inference_server(pull_branch=False):
             if version_mismatch or branch_mismatch:
                 console.print(f"[muted]   Removing existing artifact and downloading {artifact_version or artifact_branch}...[/muted]")
 
-                # Proactively request sudo authentication since we may need it for cleanup
-                console.print("[info]   Requesting sudo authentication in case elevated permissions are needed for cleanup...[/info]")
-                sudo_available = request_sudo_authentication()
-                if not sudo_available:
-                    console.print("[warning]   Note: sudo authentication failed or unavailable. Will attempt cleanup without it.[/warning]")
 
                 try:
                     # Remove the entire .artifacts directory to ensure complete cleanup
@@ -210,7 +201,7 @@ def setup_tt_inference_server(pull_branch=False):
                             shutil.rmtree(artifacts_dir, onerror=handle_remove_readonly)
                             console.print("[muted]✅ Removed entire .artifacts directory[/muted]")
                         except PermissionError as pe:
-                            # If there are still permission issues, try using sudo or just remove what we can
+                            # If there are still permission issues, escalate to the cleanup container or remove what we can
                             console.print(f"[warning]⚠️  Some files could not be deleted due to permissions: {pe}[/warning]")
                             console.print("[muted]   Attempting to remove with elevated permissions...[/muted]")
                             try:
@@ -238,15 +229,15 @@ def setup_tt_inference_server(pull_branch=False):
                                         console.print("[muted]✅ Removed tt-inference-server directory[/muted]")
                                     except Exception as e3:
                                         console.print(f"[warning]⚠️  Could not remove directory even after fixing permissions: {e3}[/warning]")
-                                        console.print("[info]   Attempting removal with sudo as final fallback...[/info]")
+                                        console.print("[info]   Attempting removal via cleanup container as final fallback...[/info]")
 
-                                        # Final fallback: try sudo removal
+                                        # Final fallback: remove via ephemeral cleanup container
                                         if remove_artifact_with_sudo(INFERENCE_ARTIFACT_DIR, "tt-inference-server artifact"):
-                                            console.print("[success]✅ Successfully removed artifact directory using sudo[/success]")
-                                            sudo_used_for_cleanup = True
+                                            console.print("[success]✅ Successfully removed artifact directory via cleanup container[/success]")
+                                            container_cleanup_used = True
                                             # Continue with setup - don't return False
                                         else:
-                                            console.print("[error]⛔ Could not remove directory with sudo[/error]")
+                                            console.print("[error]⛔ Could not remove directory via cleanup container[/error]")
                                             console.print(f"[muted]   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again[/muted]")
                                             return False
                     else:
@@ -262,19 +253,19 @@ def setup_tt_inference_server(pull_branch=False):
                     # Continue to download logic below - don't return here
                 except Exception as e:
                     console.print(f"[warning]⚠️  Failed to remove artifact directory: {e}[/warning]")
-                    console.print("[info]   Attempting removal with sudo as final fallback...[/info]")
+                    console.print("[info]   Attempting removal via cleanup container as final fallback...[/info]")
 
-                    # Final fallback: try sudo removal
+                    # Final fallback: remove via ephemeral cleanup container
                     if remove_artifact_with_sudo(artifacts_dir, "artifacts directory"):
-                        console.print("[success]✅ Successfully removed artifacts directory using sudo[/success]")
-                        sudo_used_for_cleanup = True
+                        console.print("[success]✅ Successfully removed artifacts directory via cleanup container[/success]")
+                        container_cleanup_used = True
                         # Recreate the directory and continue
                         os.makedirs(artifacts_dir, exist_ok=True)
                         console.print("[muted]✅ Recreated .artifacts directory[/muted]")
                         console.print(f"[info]📥 Proceeding to download {artifact_version or artifact_branch}...[/info]")
                         # Continue to download logic - don't return here
                     else:
-                        console.print("[error]⛔ Could not remove directory with sudo[/error]")
+                        console.print("[error]⛔ Could not remove directory via cleanup container[/error]")
                         console.print(f"[muted]   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again[/muted]")
                         return False
             else:
@@ -288,9 +279,9 @@ def setup_tt_inference_server(pull_branch=False):
                 if not os.path.exists(info_file):
                     if artifact_branch:
                         _sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, container_cleanup_used=container_cleanup_used, commit_sha=_sha)
                     elif artifact_version:
-                        _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
+                        _write_artifact_info(artifacts_dir, "version", artifact_version, container_cleanup_used=container_cleanup_used)
                 return True
             # If version mismatch, fall through to download the correct version below
         else:
@@ -301,13 +292,13 @@ def setup_tt_inference_server(pull_branch=False):
                 console.print("[muted]✅ Removed invalid artifact directory[/muted]")
             except Exception as e:
                 console.print(f"[warning]⚠️  Could not remove invalid directory: {e}[/warning]")
-                # Try using sudo to remove the directory
-                console.print("[info]   Attempting to remove with sudo...[/info]")
+                # Remove the directory via the cleanup container
+                console.print("[info]   Attempting to remove via cleanup container...[/info]")
                 if remove_artifact_with_sudo(INFERENCE_ARTIFACT_DIR, "invalid artifact directory"):
-                    console.print("[success]✅ Successfully removed invalid artifact directory with sudo[/success]")
-                    sudo_used_for_cleanup = True
+                    console.print("[success]✅ Successfully removed invalid artifact directory via cleanup container[/success]")
+                    container_cleanup_used = True
                 else:
-                    console.print("[error]⛔ Failed to remove invalid artifact directory even with sudo[/error]")
+                    console.print("[error]⛔ Failed to remove invalid artifact directory via cleanup container[/error]")
                     console.print(f"[muted]   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again[/muted]")
                     return False
 
@@ -443,7 +434,7 @@ def setup_tt_inference_server(pull_branch=False):
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                     commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
-                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
+                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, container_cleanup_used=container_cleanup_used, commit_sha=commit_sha)
                     return True
                 else:
                     console.print(f"[error]⛔ Extracted directory not found in {artifacts_dir}[/error]")
@@ -533,7 +524,7 @@ def setup_tt_inference_server(pull_branch=False):
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                         # "latest" used main branch, so record branch not version
                         commit_sha = artifact_branch if _is_commit_sha(artifact_branch) else fetch_branch_commit_sha(artifact_branch)
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, container_cleanup_used=container_cleanup_used, commit_sha=commit_sha)
                         return True
                     else:
                         console.print("[error]⛔ Extracted directory not found[/error]")
@@ -659,7 +650,7 @@ def setup_tt_inference_server(pull_branch=False):
                             return False
 
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                        _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
+                        _write_artifact_info(artifacts_dir, "version", artifact_version, container_cleanup_used=container_cleanup_used)
                         return True
                     else:
                         console.print("[error]⛔ Extracted directory not found[/error]")
