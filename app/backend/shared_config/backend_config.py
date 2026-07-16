@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from shared_config.user_config import get_jwt_secret
+
 
 # NOTE: "host.docker.internal" requires the extra_hosts mapping in
 # docker-compose.yml ("host.docker.internal:host-gateway") to resolve
@@ -50,7 +52,7 @@ backend_config = BackendConfig(
     docker_bridge_network_name="tt_studio_network",
     weights_dir="model_weights",
     model_container_cache_root="/home/container_app_user/cache_root",
-    jwt_secret=os.environ["JWT_SECRET"],
+    jwt_secret=get_jwt_secret(),
     tt_inference_api_url=normalize_tt_inference_api_url(
         os.getenv("TT_INFERENCE_API_URL")
     ),
