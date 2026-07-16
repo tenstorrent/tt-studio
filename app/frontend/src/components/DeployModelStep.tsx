@@ -10,7 +10,6 @@ import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
-import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";

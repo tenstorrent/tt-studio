@@ -23,9 +23,11 @@ import {
   Workflow,
   PanelLeft,
   Terminal,
+  Plus,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
+import { useStrayContainers } from "../hooks/useStrayContainers";
 
 import {
   NavigationMenu,
@@ -336,6 +338,9 @@ export default function NavBar() {
     [healthyModels],
   );
 
+  // Surface the Register Model entry only when there's a stray container to adopt.
+  const { hasStray } = useStrayContainers();
+
   // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
   // usable once a chat-capable model is healthy. Gate the navbar entries the
   // same way we gate Voice Agent / Coding Agents.
@@ -555,6 +560,17 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    ...(hasStray
+      ? [
+        {
+          type: "link" as const,
+          to: "/register-model",
+          icon: Plus,
+          label: "Register Model",
+          tooltip: "Adopt a running container as a deployed model",
+        },
+      ]
+      : []),
     // Workflows and Canvas both need a healthy chat-capable model to be useful,
     // so only surface them once one is up.
     ...(isLlmReady
