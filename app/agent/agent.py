@@ -21,15 +21,94 @@ except ImportError:
 
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
+from tavily import TavilyClient
 import os 
 import jwt
 import json
 import asyncio
 import requests
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
+
+
+def _read_user_config_env_value(path: Path, env_key: str) -> Optional[str]:
+    """Parse a KEY=VALUE dotenv file and return the value for env_key, or None."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != env_key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def _resolve_tavily_api_key() -> Optional[str]:
+    """Read TAVILY_API_KEY fresh from the shared user_config.env (with env fallback)
+    so UI changes apply without restarting the agent container. Fully guarded:
+    Path.exists() itself raises PermissionError when the parent directory is
+    not traversable by this container's user."""
+    base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
+    if base:
+        try:
+            env_path = Path(base) / "backend_volume" / "user_config.env"
+            if env_path.exists():
+                val = _read_user_config_env_value(env_path, "TAVILY_API_KEY")
+                if val:
+                    return val
+            else:
+                # Legacy user_config.json from before the .env migration; the
+                # backend converts and deletes it on its next load.
+                legacy = Path(base) / "backend_volume" / "user_config.json"
+                if legacy.exists():
+                    with legacy.open("r") as f:
+                        data = json.load(f)
+                    val = data.get("tavily_api_key") if isinstance(data, dict) else None
+                    if val:
+                        return val
+        except (OSError, json.JSONDecodeError):
+            pass
+    return os.environ.get("TAVILY_API_KEY") or None
+
+
+class DynamicTavilySearch(TavilySearchResults):
+    """TavilySearchResults variant that reads TAVILY_API_KEY on every call,
+    so changes saved via the TT Studio Settings UI take effect immediately."""
+
+    def _run(self, query: str, run_manager=None, **kwargs):
+        api_key = _resolve_tavily_api_key()
+        if not api_key:
+            return "Search unavailable: TAVILY_API_KEY is not configured. Set it in TT Studio Settings."
+        try:
+            client = TavilyClient(api_key=api_key)
+            response = client.search(
+                query=query,
+                max_results=self.max_results,
+                include_answer=self.include_answer,
+                include_raw_content=self.include_raw_content,
+            )
+            # TavilyClient.search returns the full response dict; DeduplicatedSearchTool
+            # expects the list of result dicts (the "tavily_search_results_json" contract),
+            # so hand back just that list rather than str(dict).
+            if isinstance(response, dict):
+                return response.get("results", [])
+            return response
+        except Exception as e:
+            return repr(e)
+
+    async def _arun(self, query: str, run_manager=None, **kwargs):
+        return self._run(query, run_manager=run_manager, **kwargs)
 
 app = FastAPI()
 
@@ -275,7 +354,7 @@ def on_llm_change(new_llm: CustomLLM):
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+    raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
     tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
     agent_executer = setup_executer(new_llm, memory, tools)
     print(f"Agent executor updated with new LLM (tool_calling={tool_calling_supported})")
@@ -358,27 +437,22 @@ def initialize_agent_components():
 
         # Setup agent executor
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        
+
         # Initialize tools
         tools = []
-        
-        # Only enable Tavily search when a real API key is configured
-        tavily_key = os.getenv("TAVILY_API_KEY", "")
-        tavily_placeholder = "tavily-api-key-not-configured"
-        if tavily_key and tavily_key != tavily_placeholder:
-            os.environ["TAVILY_API_KEY"] = tavily_key
-            raw_search = TavilySearchResults(
-                max_results=3,
-                include_answer=True,
-                include_raw_content=False,
-            )
-            search = DeduplicatedSearchTool(inner_tool=raw_search)
-            tools.append(search)
-            print("✓ Tavily web search enabled")
-        else:
-            print("⚠ TAVILY_API_KEY is not configured — Search Agent (web search) is disabled.")
-            print("  To enable the Search Agent, set a valid TAVILY_API_KEY in your .env file.")
-            print("  Get your API key from: https://app.tavily.com")
+
+        # Add search tool — DynamicTavilySearch reads the API key from the shared
+        # user_config.env on every call, so a key saved via the TT Studio Settings
+        # UI takes effect without restarting the agent container (and it returns a
+        # graceful "not configured" message when no key is set). It's wrapped in
+        # DeduplicatedSearchTool for per-request dedup + result trimming.
+        raw_search = DynamicTavilySearch(
+            max_results=3,
+            include_answer=True,
+            include_raw_content=False,
+        )
+        search = DeduplicatedSearchTool(inner_tool=raw_search)
+        tools.append(search)
         
         # Add code interpreter tool if E2B_API_KEY is available
         try:
@@ -672,7 +746,7 @@ def refresh_llm():
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
         tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
@@ -755,7 +829,7 @@ def select_model(deploy_id: str):
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
         tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
