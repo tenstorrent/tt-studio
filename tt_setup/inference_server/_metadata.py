@@ -9,7 +9,7 @@ from tt_setup.console import console
 from tt_setup.env_config import get_env_var
 
 
-def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
+def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, container_cleanup_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
 
@@ -18,7 +18,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
         artifact_type: "branch" or "version"
         artifact_value: Branch name or version number
         validation_passed: Whether artifact validation succeeded
-        sudo_used: Whether sudo was needed during download/cleanup
+        container_cleanup_used: Whether the cleanup container was needed during download/cleanup
         commit_sha: Git commit SHA at download time (branches only)
     """
     info_file = os.path.join(artifacts_dir, "artifact-info.txt")
@@ -59,7 +59,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             f.write(f"     Download Time     : {timestamp}\n")
             f.write(f"     Validation Status : {'✓ PASSED' if validation_passed else '✗ FAILED'}\n")
             f.write(f"     Validation Checks : workflows_dir, workflows/utils.py, VERSION\n")
-            f.write(f"     Sudo Used         : {'Yes' if sudo_used else 'No'}\n")
+            f.write(f"     Container Cleanup : {'Yes' if container_cleanup_used else 'No'}\n")
             # Machine-readable marker lines used by cache invalidation detection
             f.write(f"     artifact_type={artifact_type}\n")
             f.write(f"     artifact_value={artifact_value}\n")
