@@ -50,6 +50,52 @@ if artifact_path is None:
         "or ensure tt-inference-server/ exists at repo root with workflows/utils.py."
     )
 
+def _get_hf_token_from_user_config() -> Optional[str]:
+    """Read HF_TOKEN from TT Studio's persistent user_config.env (set via the
+    Settings UI). Returns None if absent or unreadable (e.g. the file is
+    root-owned because the backend container wrote it) so callers can fall
+    back to the request payload or .env. NOTE: Path.exists() itself raises
+    PermissionError when the parent directory is not traversable, so the
+    whole lookup is guarded."""
+    root = os.getenv("TT_STUDIO_ROOT")
+    if not root:
+        return None
+    volume_dir = Path(root) / "tt_studio_persistent_volume" / "backend_volume"
+    try:
+        env_path = volume_dir / "user_config.env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() != "HF_TOKEN":
+                    continue
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+            return None
+        # Legacy user_config.json from before the .env migration; the backend
+        # converts and deletes it on its next load.
+        legacy_path = volume_dir / "user_config.json"
+        if not legacy_path.exists():
+            return None
+        with legacy_path.open("r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            val = data.get("hf_token")
+            return val or None
+    except (OSError, json.JSONDecodeError) as e:
+        # `logger` is configured later in this module; use the stdlib logger
+        # directly so a read failure here doesn't raise NameError and mask it.
+        logging.getLogger(__name__).warning(
+            f"Could not read UI-managed secrets from {volume_dir}: {e}"
+        )
+        return None
+    return None
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -1706,6 +1752,14 @@ def sync_tokens_from_tt_studio():
                             tt_studio_hf = value
     else:
         logger.warning(f"TT Studio .env file not found at {tt_studio_env}")
+
+    # Prefer the UI-managed hf_token from user_config.env over the root .env so
+    # changes saved via the Settings dialog apply on every /run.
+    ui_hf = _get_hf_token_from_user_config()
+    if ui_hf:
+        tt_studio_hf = ui_hf
+
+    if not tt_studio_jwt and not tt_studio_hf:
         return
     
     # Read inference server .env values
@@ -1837,7 +1891,13 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("JWT_SECRET"):
             logger.warning("JWT_SECRET not set - this may cause issues")
             
-        if request.hf_token and not os.getenv("HF_TOKEN"):
+        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+        # so changes apply without restarting inference-api or redeploying anything.
+        ui_hf = _get_hf_token_from_user_config()
+        if ui_hf:
+            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
+            env_vars_to_set["HF_TOKEN"] = ui_hf
+        elif request.hf_token and not os.getenv("HF_TOKEN"):
             logger.info("Setting HF_TOKEN from request")
             env_vars_to_set["HF_TOKEN"] = request.hf_token
         elif not os.getenv("HF_TOKEN"):

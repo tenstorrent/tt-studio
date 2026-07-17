@@ -23,9 +23,9 @@ function RAGQueryNodeComponent({ id, data }: NodeProps) {
     axios
       .get("/collections-api/")
       .then((res) => {
-        const list = Array.isArray(res.data)
+        const list: unknown[] = Array.isArray(res.data)
           ? res.data
-          : (res.data as Record<string, unknown>).results ?? [];
+          : ((res.data as Record<string, unknown>).results as unknown[]) ?? [];
 
         if (list.length > 0) {
           const first = (list as { name: string }[])[0].name;
