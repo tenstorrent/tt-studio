@@ -9,7 +9,6 @@ import sys
 import subprocess
 import time
 from datetime import datetime
-from tt_setup import config_store
 from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.console import _fmt_duration, add_note, begin_phase, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
@@ -665,15 +664,6 @@ def _run(args):
             except PermissionError:
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
-
-        # Pre-create the consolidated config store (issue #807) before compose up.
-        # docker-compose.yml bind-mounts this single file into the backend; if the
-        # file doesn't exist first, Docker creates a directory at the mount target.
-        # This also runs the one-time migration from the legacy JSON files.
-        try:
-            config_store.ensure_exists()
-        except OSError as e:
-            console.print(f"[warning]⚠️  Could not create config store: {e}[/warning]")
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.

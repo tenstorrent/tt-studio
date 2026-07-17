@@ -369,12 +369,6 @@ _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist 
 _HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
-# Consolidated config store (issue #807), bind-mounted into the backend and
-# living at the repo root for host processes like this one.
-_TT_STUDIO_CONFIG_PATH = Path(
-    os.environ.get("TT_STUDIO_CONFIG_PATH")
-    or (Path(__file__).resolve().parent.parent / ".tt_studio_config.json")
-)
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
 _DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES = {
     "qwen3-32b": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
@@ -396,24 +390,9 @@ _DEFAULT_HF_CACHE_MODEL_ALLOWLIST = {
 }
 
 
-def _read_host_models_raw() -> dict:
-    """Return the host-volume models config, preferring the consolidated store's
-    ``host_models`` namespace and falling back to the legacy
-    ``host_volume_models.json`` (which may raise FileNotFoundError /
-    JSONDecodeError, handled by the caller)."""
-    try:
-        store = json.loads(_TT_STUDIO_CONFIG_PATH.read_text())
-        host_models = store.get("host_models")
-        if isinstance(host_models, dict) and host_models:
-            return host_models
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return json.loads(_HOST_VOLUME_MODELS_CONFIG_PATH.read_text())
-
-
 def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
     try:
-        raw_config = _read_host_models_raw()
+        raw_config = json.loads(_HOST_VOLUME_MODELS_CONFIG_PATH.read_text())
     except FileNotFoundError:
         logging.getLogger(__name__).warning(
             "Host-volume models config not found at %s; using default allowlist %s",

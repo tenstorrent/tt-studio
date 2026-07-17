@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-"""Tests for the consolidated config store (issue #807)."""
+"""Tests for the consolidated launcher config store (issue #807)."""
 import json
 import os
 import tempfile
-import threading
 import unittest
 from unittest.mock import patch
 
@@ -52,35 +51,6 @@ class ConfigStoreTests(unittest.TestCase):
         cs.set_ns("ui", {"only": "this"})
         self.assertEqual(cs.get_ns("ui"), {"only": "this"})
 
-    def test_mutate_ns_replaces_when_returning_dict(self):
-        def bump(dep):
-            dep["next_id"] = dep.get("next_id", 1) + 1
-            dep.setdefault("records", []).append({"id": dep["next_id"]})
-            return dep
-        cs.mutate_ns("deployments", bump)
-        cs.mutate_ns("deployments", bump)
-        self.assertEqual(cs.get("deployments", "next_id"), 3)
-        self.assertEqual(len(cs.get_ns("deployments")["records"]), 2)
-
-    def test_write_is_in_place_preserving_inode(self):
-        # The single-file bind-mount relies on writes never replacing the inode.
-        cs.set("state", "a", 1)
-        inode_before = os.stat(self.cfg).st_ino
-        for i in range(5):
-            cs.set("state", "a", i)
-        self.assertEqual(os.stat(self.cfg).st_ino, inode_before)
-
-    def test_concurrent_writes_do_not_lose_updates(self):
-        def worker():
-            for _ in range(50):
-                cs.mutate_ns("deployments", lambda d: d.__setitem__("n", d.get("n", 0) + 1))
-        threads = [threading.Thread(target=worker) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        self.assertEqual(cs.get("deployments", "n"), 4 * 50)
-
     def test_corrupt_file_falls_back_to_empty(self):
         with open(self.cfg, "w") as f:
             f.write("{not json")
@@ -90,7 +60,7 @@ class ConfigStoreTests(unittest.TestCase):
 
 
 class ConfigStoreMigrationTests(unittest.TestCase):
-    """Exercises the real one-time migration from the legacy files."""
+    """Exercises the real one-time migration from the two legacy dotfiles."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -98,18 +68,12 @@ class ConfigStoreMigrationTests(unittest.TestCase):
         self.cfg = os.path.join(self.root, "config.json")
         self.prefs = os.path.join(self.root, ".tt_studio_preferences.json")
         self.setup = os.path.join(self.root, ".tt_studio_setup_config.json")
-        self.deployments = os.path.join(self.root, "deployments.json")
-        self.inference_dir = os.path.join(self.root, "inference-api")
-        os.makedirs(self.inference_dir, exist_ok=True)
-        self.host_models = os.path.join(self.inference_dir, "host_volume_models.json")
 
         self._patchers = [
             patch.dict(os.environ, {"TT_STUDIO_CONFIG_PATH": self.cfg}),
             patch.object(cs, "PREFS_FILE_PATH", self.prefs),
             patch.object(cs, "SETUP_CONFIG_FILE_PATH", self.setup),
             patch.object(cs, "LEGACY_SETUP_CONFIG_FILE_PATH", os.path.join(self.root, ".nope.json")),
-            patch.object(cs, "INFERENCE_API_DIR", self.inference_dir),
-            patch.object(cs, "_legacy_deployments_path", lambda: self.deployments),
         ]
         for p in self._patchers:
             p.start()
@@ -119,7 +83,7 @@ class ConfigStoreMigrationTests(unittest.TestCase):
             p.stop()
         self.dir.cleanup()
 
-    def test_migration_merges_all_legacy_files_into_namespaces(self):
+    def test_migration_merges_legacy_dotfiles_into_namespaces(self):
         with open(self.prefs, "w") as f:
             json.dump({"terms_accepted": True}, f)
         with open(self.setup, "w") as f:
@@ -130,10 +94,6 @@ class ConfigStoreMigrationTests(unittest.TestCase):
                 "vite_app_title": "TT Studio",
                 "vite_enable_deployed": "false",
             }, f)
-        with open(self.deployments, "w") as f:
-            json.dump({"next_id": 5, "records": [{"id": 4}]}, f)
-        with open(self.host_models, "w") as f:
-            json.dump({"models": ["Qwen3-32B"], "directory_overrides": {"Qwen3-32B": "vol"}}, f)
 
         data = cs.load()  # first access triggers migration
 
@@ -142,8 +102,6 @@ class ConfigStoreMigrationTests(unittest.TestCase):
         self.assertEqual(data["setup"], {"mode": "quick"})
         self.assertEqual(data["features"], {"tt_studio_mode": True, "ai_playground_mode": False})
         self.assertEqual(data["ui"], {"vite_app_title": "TT Studio", "vite_enable_deployed": "false"})
-        self.assertEqual(data["deployments"], {"next_id": 5, "records": [{"id": 4}]})
-        self.assertEqual(data["host_models"]["models"], ["Qwen3-32B"])
 
     def test_migration_with_no_legacy_files_yields_empty_namespaces(self):
         data = cs.load()
