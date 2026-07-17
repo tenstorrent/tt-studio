@@ -1,0 +1,26 @@
+/*
+  For use in /core only (see /core/conf.py)
+  Hides sphinx generated homepage header and sidebar.
+  The shared tt-top-nav is used for the navbar.
+*/
+
+#tenstorrent > h1 {
+  display: none !important;
+}
+
+/* Sidebar is absent on the home page (home.html has no sidebar).
+   Use :has(.hero) to scope these overrides only to pages
+   that contain the landing-page hero — i.e. the home page. */
+body:has(.hero) .wy-nav-side {
+  display: none !important;
+}
+
+body:has(.hero) .wy-nav-content-wrap {
+  margin-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+body:has(.hero) .wy-nav-content {
+  max-width: 100% !important;
+  padding: 0 !important;
+}

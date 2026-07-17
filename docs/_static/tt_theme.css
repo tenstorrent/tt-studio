@@ -1,0 +1,2228 @@
+@font-face {
+  font-family: "Degular";
+  src: url("./fonts/DegularText-Medium.woff") format("woff"),
+    url("./fonts/DegularText-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Degular";
+  src: url("./fonts/DegularText-Bold.woff") format("woff"),
+    url("./fonts/DegularText-Bold.woff2") format("woff2");
+  font-weight: bold;
+}
+
+@font-face {
+  font-family: "Degular";
+  src: url("./fonts/DegularText-MediumItalic.woff") format("woff"),
+    url("./fonts/DegularText-MediumItalic.woff2") format("woff2");
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "DegularDisplay";
+  src: url("./fonts/DegularDisplay-Light.woff") format("woff"),
+    url("./fonts/DegularDisplay-Light.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "RMMono";
+  src: url("./fonts/RMMono-Regular.woff") format("woff"),
+    url("./fonts/RMMono-Regular.woff2") format("woff2");
+}
+
+:root {
+  --color-background: #F1F8F8;
+  --color-background-alt: #C7D9D8;
+  --color-background-alt2: #DCF0EE;
+  --color-foreground: #092221;
+  --color-accent: #1B8EB1;
+
+  /* Figma design tokens */
+  --background-inverse: #092221;
+  --stone-900: #092221;
+  --border: #C7D9D8;
+  --button-primary-background: #1B8EB1;
+  --text-inverse: #D9E8E5;
+  --text-default: #092221;
+  --text-secondary: #3A5452;
+  --text-accent: #1E86A9;
+  --bckground-card: #FFF;
+  --background-1: #F1F8F8;
+  --border-subtle: #C7D9D8;
+  --Half: 2px;
+  --space-2: 8px;
+  --text-base: 16px;
+  --text-sm: 14px;
+  --text-xs: 12px;
+  --wide: 0.25px;
+  --widest: 0.75px;
+  --space-4: 16px;
+
+  /* navbar */
+  --tt-navbar-height: 72px;
+  --tt-navbar-bg: #092221;
+  --tt-right-toc-width: 280px;
+
+  --color-purple: var(--color-accent);
+  --color-dark-purple: #5BBAD5;
+  --color-teal-plus-plus: #c7f1ff;
+  --color-teal-plus: #9bdbf0;
+  --color-teal: #74c5df;
+  --color-red-plus-plus: #f4d8d2;
+  --color-red-plus: #eab1a5;
+  --color-red: #ff9e8a;
+  --color-red-accent: #fa512e;
+  --color-orange: var(--color-red-accent);
+  --color-green-plus-plus: #c7efe8;
+  --color-green-plus: #92c9bf;
+  --color-green: #6faba0;
+  --color-dark-green: #3a3433;
+  --color-yellow-plus-plus: #f5e2ba;
+  --color-yellow-plus: #f9d68e;
+  --color-yellow: #f6bc42;
+
+  --color-main: var(--color-foreground);
+
+  --color-background-20: #C7D9D833;
+  --color-background-40: #C7D9D866;
+  --color-background-60: #C7D9D899;
+  --color-background-80: #C7D9D8cc;
+  --color-background-100: #C7D9D8ff;
+
+  --base-text-size: 16px;
+
+  --font-main: "Neue Haas Unica Pro", "Degular", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Degular Display", "DegularDisplay", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Berkeley Mono", "RMMono", "SF Mono", "Cascadia Code", "Consolas", "Liberation Mono", Menlo, monospace;
+
+  --transition-duration: 150ms;
+  --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --transition-color: color var(--transition-duration) var(--transition-timing);
+  --transition-background: background var(--transition-duration) var(--transition-timing);
+  --transition-all: all var(--transition-duration) var(--transition-timing);
+}
+
+body {
+  font-family: var(--font-main);
+  font-size: var(--base-text-size);
+  /* 1rem */
+  font-weight: 400;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.rst-content .toctree-wrapper>p.caption,
+h4,
+h5,
+h6,
+legend {
+  margin-top: 0;
+  font-family: var(--font-main);
+}
+
+.caption-text {
+  font-family: var(--font-main);
+  font-weight: bold;
+}
+
+h1 {
+  font-size: 2.5rem;
+}
+
+h2 {
+  font-size: 2rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+h4 {
+  font-size: 1.25rem;
+}
+
+h5 {
+  font-size: 1rem;
+}
+
+h6 {
+  font-size: 0.875rem;
+}
+
+a {
+  color: var(--color-accent);
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+a:hover {
+  color: var(--color-accent);
+}
+
+a:visited {
+  color: var(--color-accent);
+}
+
+i {
+  font-style: italic;
+}
+
+/* ── Top Navbar ─────────────────────────────────────────────── */
+
+.tt-top-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  display: flex;
+  height: var(--tt-navbar-height);
+  padding: 0 24px;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--tt-navbar-bg);
+  border-bottom: 1px solid rgba(199, 217, 216, 0.3);
+  box-sizing: border-box;
+}
+
+.tt-top-nav-left {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+}
+
+.tt-nav-logo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-decoration: none !important;
+  flex-shrink: 0;
+  border-bottom: none !important;
+}
+
+.tt-nav-logo img {
+  height: 24px;
+  width: auto;
+}
+
+.tt-nav-logo span {
+  color: #D9E8E5;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.tt-nav-links {
+  display: flex;
+  gap: 4px;
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.tt-nav-links li {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: relative;
+}
+
+.tt-nav-links li::before {
+  display: none !important;
+}
+
+.tt-nav-links > li > a {
+  display: flex;
+  height: 32px;
+  padding: 0 8px;
+  align-items: center;
+  color: #D9E8E5 !important;
+  text-decoration: none !important;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: var(--wide);
+  border-radius: 4px;
+  white-space: nowrap;
+  border-bottom: none !important;
+  transition: background 150ms ease;
+}
+
+.tt-nav-links > li > a:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff !important;
+}
+
+/* Dropdown */
+.tt-nav-links li.has-dropdown {
+  position: relative;
+}
+
+.tt-nav-dropdown {
+  position: absolute;
+  top: calc(100% + 0px);
+  left: 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  z-index: 400;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.tt-nav-links li.has-dropdown:hover .tt-nav-dropdown {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.tt-nav-dropdown a {
+  display: flex;
+  height: 32px;
+  padding: 0 12px;
+  align-items: center;
+  border-radius: 4px;
+  color: #092221 !important;
+  text-decoration: none !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  letter-spacing: var(--wide);
+  white-space: nowrap;
+  border-bottom: none !important;
+  transition: background 120ms ease;
+}
+
+.tt-nav-dropdown a:hover {
+  background: #E5F2F1;
+  color: #092221 !important;
+}
+
+.tt-nav-dropdown-label {
+  padding: 6px 12px 2px;
+  font-family: "RMMono", "Berkeley Mono", "Courier New", monospace !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.75px;
+  text-transform: uppercase;
+  color: #1e86a9;
+}
+
+.tt-nav-dropdown-label:not(:first-child) {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.tt-top-nav-right {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.tt-nav-search-form {
+  display: flex;
+  width: 220px;
+  height: 32px;
+  padding: 0 10px;
+  gap: 8px;
+  align-items: center;
+  border-radius: 4px;
+  border: 1px solid rgba(199, 217, 216, 0.5);
+  background: rgba(241, 248, 248, 0.1);
+  cursor: text;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.tt-nav-search-form:hover {
+  border-color: rgba(199, 217, 216, 0.8);
+  background: rgba(241, 248, 248, 0.16);
+}
+
+.tt-nav-search-form .tt-search-glyph {
+  width: 15px;
+  height: 15px;
+  color: #678583;
+  flex-shrink: 0;
+}
+
+.tt-nav-search-placeholder {
+  flex: 1;
+  text-align: left;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: #678583;
+  letter-spacing: var(--wide);
+}
+
+.tt-nav-search-kbd {
+  font-family: var(--font-main);
+  font-size: 11px;
+  line-height: 1;
+  color: #678583;
+  border: 1px solid rgba(199, 217, 216, 0.4);
+  border-radius: 3px;
+  padding: 3px 5px;
+  background: transparent;
+}
+
+/* ── Search / Ask AI modal ──────────────────────────────────── */
+
+body.tt-search-locked { overflow: hidden; }
+
+.tt-search-modal[hidden] { display: none; }
+
+.tt-search-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 96px 16px 16px;
+}
+
+.tt-search-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 34, 33, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.tt-search-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 864px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(9, 34, 33, 0.28);
+  overflow: hidden;
+  animation: tt-search-in 120ms ease-out;
+}
+
+@keyframes tt-search-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tt-search-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+}
+
+/* Divider inset to match the 20px left/right content margins, rather than
+   spanning the full dialog width. */
+.tt-search-head::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Icon + input wrapped together — mirrors hero-search style */
+.tt-search-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.tt-search-box:focus-within {
+  border-color: var(--text-accent);
+  box-shadow: 0 0 0 2px rgba(27, 142, 177, 0.12);
+}
+
+.tt-search-box .tt-search-glyph {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* RTD sets input[type=text]{display:inline-block} (0,0,1,1) which overrides the
+   browser's [hidden]{display:none} (0,0,1,0). Force it back with !important. */
+.tt-search-box .tt-search-input[hidden] { display: none !important; }
+
+/* Use .tt-search-box .tt-search-input (specificity 0,0,2,0) to beat the RTD
+   input[type=text] rule (0,0,1,1) that forces padding/font-size/font-family. */
+.tt-search-box .tt-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  -webkit-appearance: none;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-default);
+  letter-spacing: 0.25px;
+  transition: none;
+}
+
+.tt-search-box .tt-search-input::placeholder { color: #678583; }
+
+.tt-search-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.tt-search-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tt-search-tab svg { width: 14px; height: 14px; }
+
+.tt-search-tab:hover { color: var(--text-default); }
+
+.tt-search-tab.is-active {
+  background: #fff;
+  color: var(--text-default);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(9, 34, 33, 0.12);
+}
+
+.tt-search-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 18px 20px;
+  /* Disable the browser's scroll anchoring: while the Ask AI answer streams in,
+     anchoring keeps re-adjusting scrollTop to "hold" the visible content, which
+     fights our programmatic scroll-to-bottom and makes it glitch/stall. Also
+     pin scroll-behavior to instant so JS scrollTop writes aren't animated. */
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
+
+/* While the inline Ask AI chat is streaming, lock the body to a stable height.
+   Otherwise it grows token-by-token (≈333px → 518px) and the dialog re-flows on
+   every chunk — that resizing plus auto-scroll is what made streaming lag. With
+   a fixed height the dialog stays put and only the inner content scrolls. */
+.tt-search-dialog.tt-ai-chat-active .tt-search-body {
+  height: 60vh;
+  max-height: 60vh;
+}
+
+/* ── Ask AI panel ───────────────────────────────────────────── */
+
+/* Author display:flex (0,0,1,0) beats the UA [hidden] rule, so JS-set hidden
+   wouldn't hide these without !important — same gotcha as the search inputs. */
+.tt-ai-intro[hidden],
+.tt-ai-examples[hidden] { display: none !important; }
+
+.tt-ai-intro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px 10px;
+}
+
+.tt-ai-intro-star {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--text-accent);
+}
+
+.tt-ai-intro-hint {
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.tt-ai-intro-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 2px 5px;
+  background: var(--background-1);
+  line-height: 1;
+}
+
+.tt-ai-examples {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tt-ai-examples li { margin: 0; padding: 0; }
+.tt-ai-examples li::before { display: none !important; }
+
+.tt-ai-example {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-default);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.tt-ai-example::before {
+  content: "→";
+  color: var(--text-accent);
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform 120ms ease;
+}
+
+.tt-ai-example:hover {
+  background: #fff;
+  border-color: var(--text-accent);
+}
+
+.tt-ai-example:hover::before {
+  transform: translateX(2px);
+}
+
+/* Kapa modal: above our search modal (z-index 1000) and below nothing else */
+#kapa-widget-container { z-index: 1100 !important; }
+.mantine-Modal-root    { z-index: 1100 !important; }
+/* Push Kapa's dialog below our fixed nav bar so it doesn't overlap it */
+.mantine-Modal-inner   { padding-top: var(--tt-navbar-height, 72px) !important; }
+
+/* ── Inline Kapa chat embed (React SDK) ───────────────────────────── */
+#tt-kapa-embed {
+  padding: 4px 0 0;
+}
+
+/* Reserve height upfront so the dialog doesn't grow/shake as Kapa's React
+   SDK renders its chat UI incrementally.
+   No overflow:hidden — Kapa SDK must own its internal scroll container;
+   blocking it forces scroll to bubble to .tt-search-body, which causes
+   layout-recalculation oscillation in Safari. */
+#tt-kapa-mount {
+  min-height: 380px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+#tt-kapa-mount {
+  padding: 4px 0 8px;
+}
+
+.tt-chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 8px 4px 14px;
+  font-family: var(--font-main);
+}
+
+.tt-chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* User question — right-aligned pill bubble */
+.tt-chat-q {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-default);
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px 16px 4px 16px;
+  line-height: 1.45;
+}
+
+/* AI answer — flowing text, left-aligned */
+.tt-chat-a {
+  font-size: 14px;
+  color: var(--text-default);
+  line-height: 1.68;
+  white-space: pre-wrap;
+}
+
+.tt-chat-a--loading {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+}
+
+/* Animated three-dot loading indicator */
+.tt-chat-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+}
+.tt-chat-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-accent);
+  animation: tt-dots-bounce 1.2s ease-in-out infinite;
+}
+.tt-chat-dots span:nth-child(2) { animation-delay: 0.2s; }
+.tt-chat-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes tt-dots-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40%            { transform: translateY(-5px); opacity: 1; }
+}
+
+/* Markdown-rendered answer body (overrides the pre-wrap plain-text default) */
+.tt-chat-md {
+  white-space: normal;
+}
+.tt-chat-md > *:first-child { margin-top: 0; }
+.tt-chat-md > *:last-child  { margin-bottom: 0; }
+.tt-chat-md p { margin: 0 0 13px; }
+.tt-chat-md ul,
+.tt-chat-md ol { margin: 0 0 13px; padding-left: 0; list-style-position: inside; }
+.tt-chat-md li { margin: 5px 0; padding-left: 2px; }
+.tt-chat-md li::marker { color: var(--text-secondary); }
+.tt-chat-md a {
+  color: var(--text-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.tt-chat-md a:hover { border-bottom-color: var(--text-accent); }
+
+/* Inline code */
+.tt-chat-md :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-default);
+}
+
+/* ── Code block card (ChatGPT-style: header + body) ── */
+.tt-chat-code {
+  margin: 0 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--background-1);
+}
+.tt-chat-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px 7px 13px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(199, 217, 216, 0.22);
+}
+.tt-chat-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+.tt-chat-code-lang svg { flex-shrink: 0; opacity: 0.8; }
+
+.tt-chat-md .tt-chat-code pre {
+  margin: 0;
+  padding: 13px 14px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+}
+.tt-chat-md .tt-chat-code pre code {
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-default);
+}
+
+.tt-chat-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tt-chat-copy-btn:hover {
+  color: var(--text-accent);
+  border-color: var(--border-subtle);
+  background: #fff;
+}
+
+/* Headings — clear hierarchy, generous top spacing */
+.tt-chat-md h1,
+.tt-chat-md h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-default);
+  margin: 22px 0 10px;
+  line-height: 1.35;
+}
+.tt-chat-md h3,
+.tt-chat-md h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-default);
+  margin: 18px 0 7px;
+  line-height: 1.4;
+}
+.tt-chat-md hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 18px 0;
+}
+.tt-chat-md blockquote {
+  margin: 0 0 13px;
+  padding: 2px 0 2px 13px;
+  border-left: 3px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.tt-chat-md table {
+  border-collapse: collapse;
+  margin: 0 0 13px;
+  font-size: 12.5px;
+  width: 100%;
+}
+.tt-chat-md th,
+.tt-chat-md td {
+  border: 1px solid var(--border-subtle);
+  padding: 6px 10px;
+  text-align: left;
+}
+.tt-chat-md th { background: var(--background-1); font-weight: 600; }
+
+/* Citation source chips under an answer */
+.tt-chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.tt-chat-source {
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 11px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tt-chat-source:hover {
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+
+.tt-chat-error {
+  font-size: 12.5px;
+  color: var(--color-red-accent, #c0392b);
+  background: var(--color-red-plus-plus, #f4d8d2);
+  border: 1px solid var(--color-red-plus, #eab1a5);
+  border-radius: 8px;
+  padding: 9px 12px;
+  line-height: 1.5;
+}
+
+.tt-search-empty {
+  padding: 20px 12px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.tt-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tt-search-results li { margin: 0; }
+
+.tt-search-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 16px;
+  color: var(--text-default) !important;
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+
+.tt-search-result svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.tt-search-result-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tt-search-result-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tt-search-result-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tt-search-result:hover { background: var(--background-1); }
+
+.tt-search-ask {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.tt-search-ask:hover {
+  background: var(--background-1);
+  border-color: var(--text-accent);
+}
+
+.tt-search-ask-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tt-search-ask-left svg { width: 22px; height: 22px; color: var(--text-default); flex-shrink: 0; }
+
+.tt-search-ask-label {
+  font-family: var(--font-main);
+  font-size: 20px;
+  color: var(--text-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tt-search-ask-label em { font-style: normal; color: var(--text-accent); }
+
+.tt-search-ask-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-main);
+  font-size: 15px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.tt-search-ask-right svg { width: 16px; height: 16px; }
+
+@media screen and (max-width: 768px) {
+  .tt-search-modal { padding: 64px 12px 12px; }
+  .tt-search-input { font-size: 17px; }
+  .tt-search-tabs { display: none; }
+}
+
+.tt-nav-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tt-nav-btn-cta {
+  display: flex;
+  height: 32px;
+  padding: 0 12px;
+  align-items: center;
+  background: var(--button-primary-background);
+  color: var(--background-1) !important;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: var(--wide);
+  text-decoration: none !important;
+  border-bottom: none !important;
+  white-space: nowrap;
+  transition: background 150ms ease;
+}
+
+.tt-nav-btn-cta:hover {
+  background: #1a7fa0;
+  color: var(--background-1) !important;
+}
+
+.tt-nav-btn-github {
+  display: flex;
+  height: 32px;
+  padding: 0 8px;
+  align-items: center;
+  gap: 6px;
+  color: #D9E8E5 !important;
+  text-decoration: none !important;
+  border-bottom: none !important;
+  font-size: 14px;
+  letter-spacing: var(--wide);
+  border-radius: 4px;
+  transition: color 150ms ease;
+}
+
+.tt-nav-btn-github:hover {
+  color: #fff !important;
+}
+
+.tt-nav-btn-github svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.tt-nav-hamburger {
+  display: none;
+  color: #D9E8E5;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* Between the mobile breakpoint and ~1100px the fixed-width search box and the
+   nav links run out of room and overlap (the right group shrinks but the 220px
+   search box doesn't). Drop the navbar search here — ⌘K still opens it, and the
+   homepage keeps its own hero search. */
+@media screen and (max-width: 1100px) {
+  .tt-nav-search-form { display: none; }
+}
+
+/* Below ~900px the desktop top-nav links crowd the Explore CTA, so collapse them
+   into the hamburger here — earlier than the ≤768px content/sidebar breakpoint.
+   Explore stays visible; the secondary Github link drops to make room. */
+@media screen and (max-width: 900px) {
+  .tt-nav-links { display: none; }
+  .tt-nav-btn-github { display: none; }
+  .tt-nav-hamburger { display: block; }
+  .tt-top-nav { padding: 0 16px; }
+  .tt-top-nav-right { gap: 12px; }
+}
+/* NOTE: mobile layout overrides (content offset, sidebar slide-in) live in
+   the consolidated block at the END of this file so they win by source order
+   over the desktop .wy-nav-side / .wy-nav-content-wrap rules below. */
+
+/* ── Nav layout offsets ─────────────────────────────────────── */
+
+/* Sidebar pushed below navbar */
+.wy-nav-side {
+  top: var(--tt-navbar-height) !important;
+  height: calc(100vh - var(--tt-navbar-height)) !important;
+  background-color: #E5F2F1 !important;
+  width: 308px !important;
+}
+
+/* Content area pushed below navbar, offset for 308px sidebar */
+.wy-nav-content-wrap {
+  padding-top: var(--tt-navbar-height);
+  margin-left: 308px !important;
+}
+
+.wy-nav-content {
+  max-width: 1200px !important;
+  min-height: 100vh;
+  background: #fff;
+}
+
+/* On wide screens, make room for right TOC */
+@media screen and (min-width: 1400px) {
+  .wy-nav-content-wrap {
+    padding-right: var(--tt-right-toc-width);
+  }
+}
+
+@media screen and (min-width: 1100px) {
+  .wy-nav-content-wrap {
+    background: none;
+  }
+}
+
+.wy-side-nav-search {
+  background-color: transparent !important;
+  text-align: unset;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  padding: 0 24px;
+  border-bottom: none !important;
+}
+
+/* Hide logo image — navbar already has it */
+.wy-side-nav-search img {
+  display: none !important;
+}
+
+/* Project title */
+.wy-side-nav-search a {
+  color: var(--color-foreground);
+  font-family: var(--font-main);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: var(--wide);
+  border-bottom: none !important;
+  padding: 9px 10px;
+  padding-left: 0;
+}
+
+.wy-side-nav-search a:hover {
+  background-color: transparent;
+}
+
+.wy-side-nav-search .wy-dropdown>a,
+.wy-side-nav-search>a {
+  margin-bottom: 0;
+}
+
+/* Sidebar search bar — opens the same Search / Ask AI modal */
+.tt-side-search {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  margin: 8px 0 4px;
+  padding: 0 10px;
+  gap: 8px;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: #fff;
+  cursor: text;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.tt-side-search:hover {
+  border-color: var(--text-accent);
+  box-shadow: 0 1px 3px rgba(9, 34, 33, 0.1);
+}
+
+.tt-side-search .tt-search-glyph {
+  width: 15px;
+  height: 15px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.tt-side-search-placeholder {
+  flex: 1;
+  text-align: left;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--text-secondary);
+  letter-spacing: var(--wide);
+}
+
+.tt-side-search-kbd {
+  font-family: var(--font-main);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 3px 5px;
+  background: var(--background-1);
+}
+
+.wy-menu-vertical {
+  padding: 0 24px 6rem;
+}
+
+/* 4px gap between items (Figma: gap-[4px]) */
+.wy-menu-vertical ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 5px;
+}
+
+.wy-menu-vertical li.current ul {
+  padding-left: 15px;
+}
+
+/* collapse_navigation is False, so every subtree is in the DOM — that's what
+   lets the chevron (li:has(> ul)) show on every item with children. Fold every
+   subtree by default; expansion is driven by a .tt-open class that tt-search.js
+   toggles on caret click and seeds from the active path on load. Per-item and
+   independent: opening one branch never closes another.
+   The :not(.tt-open) + !important is needed to beat RTD's own
+   `li.current > ul { display: block }`, which would otherwise keep the active
+   branch open and stop the caret from collapsing it. */
+.wy-menu-vertical li:not(.tt-open) > ul {
+  display: none !important;
+}
+.wy-menu-vertical li.tt-open > ul {
+  display: flex;
+}
+
+/* Section group headers (captions) — Figma: Berkeley Mono 12px, #3A5452, py-12px */
+.wy-menu-vertical header,
+.wy-menu-vertical p.caption {
+  color: #3A5452;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: var(--widest);
+  text-transform: uppercase;
+  padding: 12px 0 4px;
+  margin: 0;
+  border-top: none;
+  pointer-events: none;
+  cursor: default;
+  line-height: 1;
+}
+
+.wy-menu-vertical header:hover,
+.wy-menu-vertical p.caption:hover,
+.wy-menu-vertical header span,
+.wy-menu-vertical p.caption span {
+  background: transparent !important;
+  color: #3A5452 !important;
+}
+
+/* Nav items — Figma: Neue Haas Unica Pro 14px, padding 8px 8px 8px 12px, border-radius 4px */
+.wy-menu-vertical a {
+  color: var(--color-foreground);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: var(--wide);
+  padding: 8px 8px 8px 8px !important;
+  margin: 0;
+  border-radius: 4px;
+  display: flex !important;
+  align-items: center;
+}
+
+/* Hide RTD's default expand toggle */
+.wy-menu-vertical li span.toctree-expand,
+.wy-menu-vertical li button.toctree-expand {
+  display: none !important;
+}
+
+/* Chevron › pushed to the right via margin-left: auto. Rendered in a tight
+   square box with the glyph centered so it rotates around its own center
+   (not a corner) when the item expands. */
+.wy-menu-vertical li:has(> ul) > a::after {
+  content: "›";
+  font-size: 18px;
+  line-height: 1;
+  color: #3A5452;
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  transition: transform 0.15s ease;
+}
+
+/* Expanded items point the caret down; collapsed point right. Driven by the
+   same .tt-open class as the subtree visibility above. */
+.wy-menu-vertical li.tt-open:has(> ul) > a::after {
+  transform: rotate(90deg);
+}
+
+/* While the active path is being seeded on page load, snap carets to their
+   angle without animating (JS removes .tt-seeding after a reflow). Prevents
+   the caret from visibly rotating on every navigation. */
+.wy-menu-vertical.tt-seeding li:has(> ul) > a::after {
+  transition: none;
+}
+
+/* External links (open in a new tab) get an "open in new tab" icon,
+   pushed to the right like the chevron. Leaf nodes only, so this never
+   collides with the chevron ::after above (which targets parents). */
+.wy-menu-vertical a.reference.external::after {
+  content: "";
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 12px;
+  height: 12px;
+  background-color: #3A5452;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cline x1='10' y1='14' x2='21' y2='3'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cline x1='10' y1='14' x2='21' y2='3'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+
+/* Sub-items */
+.wy-menu-vertical .toctree-l2 a {
+  font-size: 13px;
+}
+
+.wy-menu-vertical .toctree-l3 a {
+  font-size: 13px;
+}
+
+.wy-menu-vertical .toctree-l4 a,
+.wy-menu-vertical .toctree-l5 a {
+  font-size: 12px;
+}
+
+/* Search form hidden — search is in the top navbar */
+#rtd-search-form {
+  display: none !important;
+}
+
+/* Nav: active/hover items */
+
+.wy-menu-vertical li.current>a,
+.wy-menu-vertical li.on a {
+  font-weight: 600;
+}
+
+.wy-menu-vertical a:hover {
+  background: rgba(103, 133, 131, 0.1) !important;
+  color: var(--color-foreground) !important;
+  transition: var(--transition-all);
+}
+
+/* No underline for custom toctree-style link lists */
+.rst-content .toctree-no-underline a,
+.wy-menu-vertical .toctree-no-underline a {
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+
+/* Active item — Figma: rgba(103,133,131,0.1) bg, border-radius 4px, no border */
+.wy-menu-vertical li.current>a,
+li.toctree-l1.current>a,
+.wy-menu-vertical li.on a,
+.wy-menu-vertical li.toctree-l2.current>a,
+.wy-menu-vertical li.toctree-l2.current li.toctree-l3>a,
+.wy-menu-vertical li.toctree-l3.current>a,
+.wy-menu-vertical li.toctree-l3.current li.toctree-l4>a,
+.wy-menu-vertical li.toctree-l4.current>a {
+  background-color: rgba(103, 133, 131, 0.1) !important;
+  border: none !important;
+  border-right: none !important;
+  color: var(--color-foreground) !important;
+  font-weight: 500;
+  padding-left: 10px !important;
+}
+
+/* Also remove border-right from any current link */
+.wy-menu-vertical li.current a {
+  border-right: none !important;
+}
+
+.wy-menu-vertical li.current,
+.wy-menu-vertical li.toctree-l2.current,
+.wy-menu-vertical li.toctree-l3.current,
+.wy-menu-vertical li.toctree-l4.current {
+  background: transparent;
+}
+
+.wy-menu-vertical li.current a:hover,
+.wy-menu-vertical li.on a:hover {
+  background: rgba(103, 133, 131, 0.15) !important;
+  transition: var(--transition-background);
+}
+
+/* Nav: footer (version) */
+.rst-versions,
+.rst-versions * {
+  background-color: var(--color-background);
+  font-family: var(--font-mono);
+  color: var(--color-main) !important;
+}
+
+.rst-versions .rst-current-version {
+  background-color: var(--color-background-40);
+  color: var(--color-main);
+}
+
+/* Nav: mobile — hide native RTD top bar, our tt-top-nav handles mobile */
+.wy-nav-top {
+  display: none !important;
+  height: 0 !important;
+}
+
+.wy-nav-content>.rst-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+
+.rst-content>.document {
+  /* grow document to push footer to bottom of page */
+  flex-grow: 1;
+}
+
+.rst-footer-buttons {
+  margin-top: 2rem;
+  clear: both;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* Document styling */
+
+/* After float-left figures, restore full-width flow for the next heading/section */
+.tt-float-clear {
+  clear: both;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Bold inside italic in body copy (MyST nested * ** * can under-render) */
+.rst-content .document em strong,
+.rst-content .document em b {
+  font-weight: 700;
+}
+
+/* Tight list spacing inside table cells (inline spec tables with <ul>) */
+.rst-content td ul.tt-spec-cell-list,
+.rst-content th ul.tt-spec-cell-list {
+  margin: 0;
+  padding-left: 1.15em;
+  line-height: 1.4;
+}
+.rst-content td ul.tt-spec-cell-list > li,
+.rst-content th ul.tt-spec-cell-list > li {
+  margin: 0;
+  padding: 0;
+}
+.rst-content td ul.tt-spec-cell-list li > p,
+.rst-content th ul.tt-spec-cell-list li > p {
+  margin: 0;
+  line-height: inherit;
+}
+
+.document * h1,
+.document * h2,
+.document * h3,
+.document * h4 {
+  /* vertically center document header links */
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 100%;
+  overflow-x: scroll;
+}
+
+/* Code and codeblock styling */
+
+/* inline codeblocks */
+.rst-content code.literal,
+.rst-content tt.literal {
+  color: var(--color-red-accent);
+  vertical-align: middle;
+}
+
+pre {
+  overflow-x: scroll;
+  font-family: var(--font-mono);
+}
+
+dt {
+  padding: 0.5rem !important;
+}
+
+dt,
+dt * {
+  font-family: var(--font-mono);
+}
+
+dl.cpp.function {
+  /* allow function tables to scroll overflowed content */
+  width: fit-content;
+  max-width: 100%;
+}
+
+html.writer-html4 .rst-content dl:not(.docutils)>dt,
+html.writer-html5 .rst-content dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.citation):not(.glossary):not(.simple)>dt {
+  background: var(--color-background-alt);
+  color: var(--color-accent);
+  border-top: 3px solid var(--color-accent);
+  display: block;
+  max-width: 100%;
+  overflow-x: scroll;
+}
+
+/* inline links */
+.rst-content p a {
+  border-bottom: 2px solid var(--color-accent);
+}
+
+/* buttons at the bottom of pages */
+.btn,
+.btn-neutral {
+  background-color: var(--color-foreground) !important;
+  background: var(--color-foreground) !important;
+  color: var(--color-background) !important;
+  border: none;
+  border-radius: 4rem;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-main);
+  font-size: 1rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  transition: var(--transition-all);
+  box-shadow: none;
+}
+
+.btn>.fa {
+  /* hide arrows */
+  display: none;
+}
+
+.btn-neutral:visited {
+  color: var(--color-background) !important;
+}
+
+.btn:active {
+  box-shadow: none;
+  padding: 0.5rem 1rem;
+}
+
+.btn-neutral:hover {
+  background-color: var(--color-background-alt2) !important;
+  background: var(--color-background-alt2) !important;
+  color: var(--color-foreground) !important;
+}
+
+
+/* Style all admonition block */
+.admonition {
+  color: var(--color-foreground);
+}
+
+/* Style all admonition block titles */
+.admonition>.admonition-title {
+  color: var(--color-foreground);
+  font-weight: bold;
+}
+
+
+/* Style the warning admonition block */
+.admonition.warning {
+  background-color: var(--color-yellow-plus-plus);
+}
+
+/* Style the title of the warning block */
+.admonition.warning>.admonition-title {
+  background: var(--color-yellow);
+}
+
+/* Style the danger admonition block */
+.admonition.danger {
+  background-color: var(--color-red-plus-plus);
+}
+
+/* Style the title of the danger block */
+.admonition.danger>.admonition-title {
+  background: var(--color-red);
+}
+
+/* Style the note admonition block */
+.admonition.note {
+  background-color: var(--color-teal-plus-plus);
+}
+
+/* Style the title of the note block */
+.admonition.note>.admonition-title {
+  background: var(--color-teal);
+}
+
+/* Style the important admonition block */
+.admonition.important {
+  background-color: var(--color-green-plus-plus);
+}
+
+/* Style the title of the important block */
+.admonition.important>.admonition-title {
+  background: var(--color-green);
+}
+
+/* ── Index cards (list-table with class tt-index-cards) ─────── */
+
+.rst-content table.tt-index-cards,
+.rst-content table.tt-index-cards.docutils {
+  border: none !important;
+  border-collapse: separate !important;
+  border-spacing: 20px 20px !important;
+  width: 100% !important;
+  margin: 16px 0 !important;
+  table-layout: fixed !important;
+  box-shadow: none !important;
+}
+
+.rst-content table.tt-index-cards thead,
+.rst-content table.tt-index-cards colgroup {
+  display: none !important;
+}
+
+.rst-content table.tt-index-cards td {
+  background: #ffffff !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 20px 24px !important;
+  vertical-align: top !important;
+  /* max-width: 0 forces table-layout:fixed to honour col widths */
+  max-width: 0;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow: hidden !important;
+  white-space: normal !important;
+}
+
+/* Empty second cell in a row (placeholder) */
+.rst-content table.tt-index-cards td:empty {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* Link in first paragraph = card title */
+.rst-content table.tt-index-cards td > p:first-child > a,
+.rst-content table.tt-index-cards td > p:first-child > a:visited {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--color-foreground) !important;
+  text-decoration: none !important;
+  border-bottom: none !important;
+  letter-spacing: 0;
+}
+
+.rst-content table.tt-index-cards td > p:first-child > a:hover {
+  color: var(--color-accent) !important;
+}
+
+/* Description paragraph */
+.rst-content table.tt-index-cards td > p:not(:first-child) {
+  font-size: 13px !important;
+  color: var(--text-secondary) !important;
+  margin: 8px 0 0 !important;
+  line-height: 1.5 !important;
+  letter-spacing: var(--wide);
+}
+
+/* Card hover */
+.rst-content table.tt-index-cards td:not(:empty) {
+  transition: box-shadow 150ms ease;
+}
+
+.rst-content table.tt-index-cards td:not(:empty):hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Doc card grid with thumbnail (Figma: Systems / Cards pages) ─ */
+
+.rst-content .tt-doc-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin: 16px 0 32px;
+}
+
+.rst-content .tt-doc-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--bckground-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-decoration: none !important;
+  transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.rst-content .tt-doc-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: var(--text-accent);
+}
+
+.tt-doc-card-img {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--background-2, #E5F2F1);
+  overflow: hidden;
+}
+
+.tt-doc-card-img img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.tt-doc-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rst-content .tt-doc-card .tt-doc-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-default) !important;
+  margin: 0;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.rst-content .tt-doc-card:hover .tt-doc-card-title {
+  color: var(--text-accent) !important;
+}
+
+.rst-content .tt-doc-card .tt-doc-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary) !important;
+  margin: 4px 0 0;
+  line-height: 1.5;
+  letter-spacing: var(--wide);
+}
+
+@media screen and (max-width: 768px) {
+  .rst-content .tt-doc-card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* Hide loudbox-bh from sidebar and page content unless viewing that section */
+.wy-menu-vertical li:has(> a[href*="loudbox-bh"]):not(.current) {
+  display: none;
+}
+.rst-content .toctree-wrapper li:has(> a[href*="loudbox-bh"]) {
+  display: none;
+}
+
+/* ── Right-side page TOC ────────────────────────────────────── */
+
+.tt-page-toc {
+  display: none;
+  position: fixed;
+  top: var(--tt-navbar-height);
+  right: 0;
+  width: var(--tt-right-toc-width);
+  height: calc(100vh - var(--tt-navbar-height));
+  overflow-y: auto;
+  padding: 28px 20px 32px 16px;
+  background: var(--color-background);
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+  z-index: 100;
+}
+
+.tt-page-toc ul {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tt-page-toc li {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.tt-page-toc li::before {
+  display: none !important;
+}
+
+.tt-page-toc a {
+  display: block;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary) !important;
+  text-decoration: none !important;
+  border-bottom: none !important;
+  border-left: 2px solid transparent;
+  border-radius: 0 2px 2px 0;
+  letter-spacing: var(--wide);
+  line-height: 1.4;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.tt-page-toc a:hover {
+  color: var(--color-foreground) !important;
+  border-left-color: var(--border);
+}
+
+.tt-page-toc a.active {
+  color: var(--color-accent) !important;
+  font-weight: 600;
+  border-left-color: var(--color-accent);
+}
+
+/* h3 items indented */
+.tt-page-toc li.toc-h3 a {
+  padding-left: 20px;
+  font-size: 12px;
+}
+
+@media screen and (min-width: 1400px) {
+  .tt-page-toc {
+    display: block;
+  }
+}
+
+/* ── Content area background ────────────────────────────────── */
+
+.wy-nav-content-wrap {
+  background: var(--color-background);
+}
+
+.wy-nav-content {
+  background: #ffffff;
+}
+
+/* Breadcrumbs */
+.wy-breadcrumbs {
+  background: #ffffff;
+  padding: 8px 0px 25px;
+  font-size: 13px;
+  margin-bottom: 0 !important;
+}
+
+.wy-breadcrumbs li {
+  color: var(--text-secondary);
+}
+
+.wy-breadcrumbs a {
+  color: var(--color-accent) !important;
+  border-bottom: none !important;
+}
+
+/* Remove "View page source" link */
+.wy-breadcrumbs-aside {
+  display: none !important;
+}
+
+/* Remove the hr below breadcrumbs */
+div[role="navigation"] hr,
+.wy-breadcrumbs ~ hr {
+  display: none !important;
+}
+
+/* Inline links — use a single lighter underline (the border-bottom), not
+   the theme's default text-decoration underline stacked on top of it. */
+.rst-content p a {
+  border-bottom: 1px solid var(--color-accent) !important;
+  text-decoration: none !important;
+}
+
+/* Buttons */
+.btn,
+.btn-neutral {
+  background-color: var(--color-foreground) !important;
+  background: var(--color-foreground) !important;
+  color: var(--color-background) !important;
+}
+
+.btn-neutral:hover {
+  background-color: var(--color-background-alt2) !important;
+  background: var(--color-background-alt2) !important;
+  color: var(--color-foreground) !important;
+}
+
+/* ── Mobile layout (consolidated, must stay last to win source order) ── */
+
+@media screen and (max-width: 768px) {
+  /* Prevent any stray horizontal scroll on small screens. The RTD grid is
+     position:absolute, so it needs its own overflow clamp — body alone won't
+     clip an overflowing descendant inside it. */
+  html, body { overflow-x: hidden; max-width: 100%; }
+  .wy-grid-for-nav { overflow-x: hidden; }
+
+  /* Drop the desktop sidebar offset so the page is full-width */
+  .wy-nav-content-wrap {
+    margin-left: 0 !important;
+    padding-right: 0 !important;
+    max-width: 100% !important;
+    overflow-x: hidden;
+  }
+  .wy-nav-content {
+    max-width: 100% !important;
+    padding: 1.6rem 1.2rem !important;
+    box-sizing: border-box;
+  }
+  .wy-nav-content-wrap, .wy-nav-content, .rst-content, .rst-content .document {
+    box-sizing: border-box;
+  }
+
+  /* Doc sidebar slides in from the left, below the fixed navbar */
+  .wy-nav-side {
+    left: -308px !important;
+    width: 308px !important;
+    top: var(--tt-navbar-height) !important;
+    height: calc(100% - var(--tt-navbar-height)) !important;
+    transition: left 200ms var(--transition-timing);
+    z-index: 250;
+  }
+  .wy-nav-side.shift {
+    left: 0 !important;
+  }
+
+  /* Right-side page TOC never shows on mobile */
+  .tt-page-toc {
+    display: none !important;
+  }
+
+  /* Hero/home page: hamburger opens the top-nav links as a drawer
+     (home has no doc sidebar). Toggled by .tt-mobile-open via docs-toc.js. */
+  .tt-top-nav.tt-mobile-open .tt-nav-links {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    position: fixed;
+    top: var(--tt-navbar-height);
+    left: 0;
+    right: 0;
+    max-height: calc(100vh - var(--tt-navbar-height));
+    overflow-y: auto;
+    background: var(--tt-navbar-bg);
+    padding: 8px 16px 20px;
+    border-bottom: 1px solid rgba(199, 217, 216, 0.3);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    z-index: 290;
+  }
+  .tt-top-nav.tt-mobile-open .tt-nav-links > li { width: 100%; }
+  .tt-top-nav.tt-mobile-open .tt-nav-links > li > a {
+    height: auto;
+    padding: 10px 8px;
+    font-size: 15px;
+  }
+  /* Expand dropdowns inline inside the drawer */
+  .tt-top-nav.tt-mobile-open .tt-nav-dropdown {
+    position: static;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    min-width: 0;
+    padding: 0 0 6px 12px;
+  }
+  .tt-top-nav.tt-mobile-open .tt-nav-dropdown a {
+    height: auto;
+    padding: 8px;
+    color: #9bdbf0 !important;
+  }
+  .tt-top-nav.tt-mobile-open .tt-nav-dropdown a:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff !important;
+  }
+  .tt-top-nav.tt-mobile-open .tt-nav-dropdown-label {
+    color: rgba(255, 255, 255, 0.55);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+/* ── Version switcher ──────────────────────────────────────────── */
+.tt-version-switcher {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 0;
+}
+
+.tt-version-label {
+  display: block;
+  font-size: 10px;
+  font-family: var(--font-mono, "Berkeley Mono", monospace);
+  color: var(--text-secondary, #3A5452);
+  text-transform: uppercase;
+  letter-spacing: var(--widest, 0.75px);
+  margin-bottom: 5px;
+}
+
+/* Matches Figma form Input: --background-1 bg, --border, --Half (2px) radius, text-sm */
+.tt-version-select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--background-1, #f1f8f8);
+  border: 1px solid var(--border, #c7d9d8);
+  border-radius: var(--Half, 2px);
+  color: var(--text-default, #092221);
+  padding: 7px 8px;
+  font-size: var(--text-sm, 14px);
+  cursor: pointer;
+  font-family: var(--font-main, inherit);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  appearance: auto;
+}
+
+.tt-version-select option {
+  background: var(--background-1, #f1f8f8);
+  color: var(--text-default, #092221);
+}
+
+.tt-version-select:hover {
+  background: var(--background-2, #E5F2F1);
+  border-color: var(--button-primary-background, #1B8EB1);
+}
+
+.tt-version-select:focus {
+  outline: 1px solid var(--button-primary-background, #1B8EB1);
+  outline-offset: 1px;
+}
+
+/* Hide RTD's built-in version flyout — we use our own switcher */
+.rst-versions {
+  display: none !important;
+}
+
+/* ── Version dock (Stripe-style, bottom of sidebar) ─────────────── */
+/* Docked at the bottom-left of the 308px sidebar; popover opens upward. */
+.tt-version-dock {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 308px;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  background: var(--background-2, #E5F2F1);
+  border-top: 1px solid var(--border, #C7D9D8);
+  z-index: 200;
+}
+
+.tt-version-dock > summary.tt-version-dock-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--background-1, #F1F8F8);
+  border: 1px solid var(--border, #C7D9D8);
+  border-radius: var(--Half, 2px);
+  color: var(--text-default, #092221);
+  font-family: var(--font-main, inherit);
+  font-size: var(--text-sm, 14px);
+  line-height: 1.2;
+  cursor: pointer;
+  list-style: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tt-version-dock > summary.tt-version-dock-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.tt-version-dock > summary.tt-version-dock-trigger:hover {
+  background: #fff;
+  border-color: var(--button-primary-background, #1B8EB1);
+}
+
+.tt-version-dock-glyph {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--text-secondary, #3A5452);
+}
+
+.tt-version-dock-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tt-version-dock-caret {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-secondary, #3A5452);
+  transition: transform 0.18s ease;
+}
+
+.tt-version-dock[open] .tt-version-dock-caret {
+  transform: rotate(180deg);
+}
+
+.tt-version-dock-pop {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% + 4px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--border, #C7D9D8);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(9, 34, 33, 0.16);
+  z-index: 210;
+}
+
+.tt-version-dock-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--text-default, #092221) !important;
+  font-size: var(--text-sm, 14px);
+  text-decoration: none !important;
+  border-bottom: none !important;
+  transition: background 0.12s ease;
+}
+
+.tt-version-dock-opt:hover {
+  background: var(--background-2, #E5F2F1);
+}
+
+.tt-version-dock-opt.is-active {
+  color: var(--text-accent, #1E86A9) !important;
+  font-weight: 500;
+}
+
+.tt-version-dock-tick {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-accent, #1E86A9);
+}
+
+/* Hide the docked switcher when the sidebar is off-canvas on small screens */
+@media screen and (max-width: 768px) {
+  .tt-version-dock {
+    display: none;
+  }
+}
+
+/* RTD applies box-shadow to all input types on focus — remove it globally. */
+input[type="color"]:focus,
+input[type="date"]:focus,
+input[type="datetime-local"]:focus,
+input[type="datetime"]:focus,
+input[type="email"]:focus,
+input[type="month"]:focus,
+input[type="number"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="tel"]:focus,
+input[type="text"]:focus,
+input[type="time"]:focus,
+input[type="url"]:focus,
+input[type="week"]:focus {
+  box-shadow: none;
+}
+
+/* Trademark superscripts (®, ™) in prose */
+sup.reg,
+sup.tm {
+  font-size: 62%;
+  line-height: 0;
+  position: relative;
+  top: -0.5em;
+  vertical-align: baseline;
+  margin-left: -0.35em;
+}

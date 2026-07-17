@@ -1,0 +1,10 @@
+# Documentation build toolchain for the TT-Studio docs site.
+# Mirrors the Tenstorrent house docs stack (docs.tenstorrent.com) plus the
+# mermaid extension used to render the architecture diagrams.
+sphinx==8.1.3
+myst-parser
+sphinx-rtd-theme
+sphinxcontrib-mermaid
+sphinx-copybutton
+sphinx-togglebutton
+linkify-it-py

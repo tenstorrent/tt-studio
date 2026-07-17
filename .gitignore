@@ -31,6 +31,7 @@ tt_studio_persistent_volume
 *netlist.yaml
 *.dump
 docs/build
+docs/_build/
 .hlkc_cache
 tt_build
 generated_modules
