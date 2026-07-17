@@ -15,6 +15,8 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tavily_api_key
+from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
 from docker_control.docker_control_client import get_docker_client
@@ -27,7 +29,7 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
-FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -117,6 +119,18 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "P300": "p300",
     "unknown": "cpu",
 }
+
+# Wormhole mesh boards: a single-chip-capable model deploys across the whole board by
+# default (--tt-device t3k, no --device-id), and the inference server selects the
+# physical chips itself. The user can still pin one constituent chip (e.g. n300) via the
+# advanced "1 Device" mode. Per-chip-default boards (e.g. P300x2/QB2) are intentionally
+# absent so their existing per-card behavior is preserved.
+WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GALAXY_T3K"}
+
+# Inference-server device names that denote a single chip/card (as opposed to a
+# whole-board mesh like p300x2/p150x4/t3k). Only these get pinned to a device_id;
+# mesh deployments let the inference server claim the full board itself.
+_SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
 
 
 def map_board_type_to_device_name(board_type):
@@ -296,6 +310,14 @@ def infer_inference_server_device(impl, board_type=None):
     chips_required = infer_chips_required(impl.device_configurations)
     if chips_required == 1:
         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+        # A constituent single-chip device (e.g. p150 on a P300x2 board) is only valid
+        # if the model actually declares support for it. Media models like FLUX have no
+        # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
+        # supported device for this model but the whole board is, deploy on the board mesh.
+        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+        board_device = map_board_type_to_device_name(board_type)
+        if device not in supported and board_device in supported:
+            device = board_device
     else:
         device = map_board_type_to_device_name(board_type)
     # Speech models need a single n150-class chip even on n300-based boards.
@@ -303,6 +325,18 @@ def infer_inference_server_device(impl, board_type=None):
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
             device = "n150"
     return device
+
+
+def deploys_whole_board(impl, board_type=None):
+    """True when the inference server claims the entire board for this model, so
+    every chip slot must be reserved and recorded.
+
+    A model occupies the whole board whenever it resolves to a mesh device rather
+    than a single chip — this covers genuinely multi-chip models and media models
+    like FLUX that have no single-chip spec on a multi-chip board (e.g. p300x2),
+    even though `infer_chips_required` reports 1. Mirrors the device_id gate in
+    run_container, which omits device_id for exactly these mesh deployments."""
+    return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
@@ -349,9 +383,19 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
         service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
-        # comma-separated string that the inference server passes as --device-id 0,1.
-        payload["device_id"] = str(device_id)
+        # Pin to a specific chip slot only for single-chip models. For multi-chip
+        # single-card mode (chips_required == 1 with an explicit slot list) this is a
+        # comma-separated string the inference server passes as --device-id 0,1.
+        #
+        # Whole-board mesh deployments resolve `device` to the board device name
+        # (e.g. p300x2/p150x4/p150x8/t3k/galaxy); the inference server claims the full
+        # mesh itself. Passing a single device_id would wrongly pin the mesh to one chip
+        # and crash on mesh init. We gate on the resolved device name (not chips_required)
+        # because a model with no single-chip spec — e.g. FLUX, which only supports the
+        # p300x2 mesh — resolves to a mesh device even when chips_required == 1. Mirror the
+        # CHAT path, which omits device_id for whole-board p300x2 deployments.
+        if device in _SINGLE_CHIP_DEVICE_NAMES:
+            payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
@@ -369,15 +413,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # These models use v0.14.0 image (P300X2 compatible)
-        if impl.model_name in {
-            "Llama-3.1-8B",
-            "Llama-3.1-8B-Instruct",
-            "Llama-3.1-70B",
-            "Llama-3.1-70B-Instruct",
-            "Llama-3.3-70B-Instruct",
-        }:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+        # Wan T2V pinned to the 0.17.0 media image: carries the MODEL_WEIGHTS_DIR fix
+        # (#4107) so it uses the mounted host HF cache instead of re-downloading ~118GB.
+        # Pinned explicitly because per-device resolution would otherwise pick older
+        # images on some boards (e.g. 0.10.0-555f240 for Wan on p150x4) that lack the fix.
+        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+
 
         logger.info(f"API payload: {payload}")
 
@@ -489,10 +531,17 @@ def run_agent_container(container_name, port_bindings, impl):
         network='tt_studio_network',
         ports={'8080/tcp': host_agent_port},
         environment={
-            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+            'TAVILY_API_KEY': get_tavily_api_key() or '',
             'LLM_CONTAINER_NAME': container_name,
             'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
+            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
+        },
+        volumes={
+            backend_config.host_peristent_storage_volume: {
+                "bind": backend_config.persistent_storage_volume,
+                "mode": "ro",
+            },
         },
         detach=True
     )
@@ -899,7 +948,12 @@ def _enrich_container_with_model_impl(con, con_id):
 
 # Mirrors ChipSlotAllocator._STARTING_GRACE_SECONDS. Records younger than this are trusted during the placeholder
 # window between Django creating the row and deployment_sync swapping in the real container_id.
-_CANONICAL_STARTING_GRACE_SECONDS = 60
+_CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
+_CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
+
+# Grace window before a running deployment that briefly vanishes from the Docker listing is reconciled to stopped.
+_CANONICAL_RUNNING_GRACE_SECONDS = 30
+_running_missing_since: dict = {}
 
 
 def get_canonical_deployments():
@@ -948,6 +1002,7 @@ def get_canonical_deployments():
 
         if match_data is not None:
             matched_live_ids.add(match_id)
+            _running_missing_since.pop(dep.id, None)
             entry = dict(match_data)  # shallow copy so we don't mutate the original
             enriched = _enrich_container_with_model_impl(entry, match_id)
             entry["source"] = "managed"
@@ -956,6 +1011,7 @@ def get_canonical_deployments():
             entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
+            entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
@@ -965,7 +1021,16 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            if age < _CANONICAL_STARTING_GRACE_SECONDS:
+            _impl = next(
+                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
+                None,
+            )
+            _grace = (
+                _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
+                if _impl and getattr(_impl, "inference_engine", None) == "media"
+                else _CANONICAL_STARTING_GRACE_SECONDS
+            )
+            if age < _grace:
                 # Legitimate placeholder window — surface but flag as pending.
                 result[full_id or f"pending-{dep.id}"] = {
                     "name": dep.container_name,
@@ -990,8 +1055,24 @@ def get_canonical_deployments():
                     "stopped_by_user": False,
                     "deployment_id": dep.id,
                     "deployment_model_name": dep.model_name,
+                    "tool_calling_enabled": getattr(dep, "tool_calling_enabled", False),
                 }
                 continue
+
+        # Running but absent from this listing — likely a transient/partial
+        # listing. Re-surface the last-known-good cached entry within the grace
+        # window instead of demoting it; only reconcile once the miss persists.
+        if dep.status == "running":
+            first_missed = _running_missing_since.setdefault(dep.id, now_utc)
+            if (now_utc - first_missed).total_seconds() < _CANONICAL_RUNNING_GRACE_SECONDS:
+                cache = caches[backend_config.django_deploy_cache_name]
+                for key in (full_id, short_id):
+                    cached = cache.get(key) if key else None
+                    if cached is not None:
+                        result[key] = cached
+                        break
+                continue
+            _running_missing_since.pop(dep.id, None)
 
         # Stale: reconcile to stopped so the slot frees up.
         try:
@@ -1032,6 +1113,8 @@ def serialize_canonical_entry_for_http(entry):
     out = {k: v for k, v in entry.items() if k != "env_vars"}
 
     model_impl = entry.get("model_impl")
+    # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)
+    out["coding_agent_eligible"] = is_coding_agent_eligible(model_impl)
     if model_impl is None:
         out["model_impl"] = None
         out.setdefault("model_type", None)

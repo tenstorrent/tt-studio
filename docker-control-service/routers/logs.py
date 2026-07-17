@@ -38,7 +38,7 @@ async def get_startup_log(tail: int = 200):
 
 @router.get("/logs/fastapi")
 async def get_fastapi_log(tail: int = 500):
-    if not settings.FASTAPI_LOG_FILE:
-        raise HTTPException(status_code=503, detail="FastAPI log path not configured")
-    logger.debug(f"Serving fastapi log: {settings.FASTAPI_LOG_FILE}")
-    return {"content": _read_tail(settings.FASTAPI_LOG_FILE, tail), "file": settings.FASTAPI_LOG_FILE}
+    if not settings.MODEL_RUN_LOG_FILE:
+        raise HTTPException(status_code=503, detail="Model run log path not configured")
+    logger.debug(f"Serving model run log: {settings.MODEL_RUN_LOG_FILE}")
+    return {"content": _read_tail(settings.MODEL_RUN_LOG_FILE, tail), "file": settings.MODEL_RUN_LOG_FILE}

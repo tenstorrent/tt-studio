@@ -22,12 +22,14 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
+import { fetchModels, streamResetAction, startResetAll, getResetAllStatus } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
+import { useRefresh } from "../hooks/useRefresh";
 import type { Model } from "../contexts/ModelsContext";
 import BoardBadge from "./BoardBadge";
 import StreamingLogPanel from "./StreamingLogPanel";
+import ResetStepRow from "./ResetStepRow";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,63 +110,6 @@ function formatSlots(slots: number[]): string {
   return contiguous ? `${slots[0]}–${slots[slots.length - 1]}` : slots.join(", ");
 }
 
-// ── Shared step-row ───────────────────────────────────────────────────────────
-function StepRow({
-  number,
-  icon,
-  label,
-  sublabel,
-  state,
-}: {
-  number: number;
-  icon: React.ReactNode;
-  label: string;
-  sublabel?: string;
-  state: "pending" | "active" | "done" | "skipped";
-}) {
-  return (
-    <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
-          ? "bg-blue-900/30 border-blue-500/40"
-          : state === "done"
-            ? "bg-green-900/20 border-green-600/30"
-            : state === "skipped"
-              ? "bg-stone-800/30 border-stone-700/30"
-              : "bg-stone-800/50 border-stone-700/40"
-        }`}
-    >
-      <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-        {state === "active" ? (
-          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-        ) : state === "done" ? (
-          <CheckCircle className="w-5 h-5 text-green-400" />
-        ) : state === "skipped" ? (
-          <CheckCircle className="w-5 h-5 text-stone-500" />
-        ) : (
-          <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
-            {number}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped" ? "text-stone-400" : "text-white"
-            }`}
-        >
-          {icon}
-          {label}
-        </div>
-        {sublabel && state === "active" && (
-          <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
-        )}
-        {state === "done" && (
-          <div className="text-xs text-green-400 mt-0.5">Completed</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Reset unit card ─────────────────────────────────────────────────────────────
 function UnitCard({
   unit,
@@ -243,12 +188,12 @@ function UnitCard({
         <div className="flex items-center gap-2">
           <div
             className={`w-8 h-8 rounded-full flex items-center justify-center ${isActive
-                ? "bg-blue-900/50"
-                : isDone
-                  ? "bg-green-900/50"
-                  : isFailed
-                    ? "bg-red-900/50"
-                    : "bg-stone-700/50"
+              ? "bg-blue-900/50"
+              : isDone
+                ? "bg-green-900/50"
+                : isFailed
+                  ? "bg-red-900/50"
+                  : "bg-stone-700/50"
               }`}
           >
             {isActive ? (
@@ -291,7 +236,7 @@ function UnitCard({
             <span className="font-medium break-words min-w-0">
               {unit.model.name}
               {slots.length > 1 && (
-                <span className="text-stone-400 font-normal"> · all {slots.length} chips</span>
+                <span className="text-stone-400 font-normal"> · all {slots.length} devices</span>
               )}
             </span>
           </div>
@@ -308,7 +253,7 @@ function UnitCard({
       {(isActive || isDone || isFailed) && (
         <div className="space-y-2.5 mt-3">
           {isModel && (
-            <StepRow
+            <ResetStepRow
               number={1}
               icon={<Trash2 className="w-3 h-3" />}
               label={`Stop ${unit.model.name}`}
@@ -316,11 +261,11 @@ function UnitCard({
               state={stopState}
             />
           )}
-          <StepRow
+          <ResetStepRow
             number={isModel ? 2 : 1}
             icon={<RotateCcw className="w-3 h-3" />}
-            label={`Reset chip${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
-            sublabel="Running chip reset, may take 10–30s…"
+            label={`Reset device${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
+            sublabel="Running device reset, may take 10–30s…"
             state={resetState}
           />
           {isActive && cmdOutput && <StreamingLogPanel output={cmdOutput} />}
@@ -369,6 +314,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
 }) => {
   const { refreshModels } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
+  const { triggerResetAll } = useRefresh();
 
   const boardType = deviceState?.board_type ?? "unknown";
   const deviceStateName = deviceState?.state ?? "UNKNOWN";
@@ -490,29 +436,40 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     setShowBoardOutput(false);
 
     try {
-      // Stop every model (no per-model reset), then reset the whole board once.
-      const currentModels = await fetchModels();
-      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
+      // Drive the whole-board reset as a backend job and poll its status. No
+      // EventSource is involved, so "Connection to stream lost." cannot occur;
+      // the backend stops every model (verified gone) before resetting the board.
+      await startResetAll();
+      // Flip the global RESETTING lock immediately for this session instead of
+      // waiting for the next device-state poll (other sessions catch up on their poll).
+      refreshDeviceState();
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await getResetAllStatus();
+        if (status.step === "deleting" || status.step === "resetting") {
+          setBoardStep(status.step);
+        }
+        if (status.logs.length) setBoardOutput(status.logs.join("\n"));
+        if (status.done) {
+          if (!status.ok) {
+            throw new Error(status.error || "Board reset failed. See output for details.");
+          }
+          break;
+        }
+      }
       await refreshModels();
-
-      setBoardStep("resetting");
-      let output = "";
-      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
-        output += `${line}\n`;
-        setBoardOutput(output);
-      });
-
-      if (status !== "success") throw new Error("Board reset failed. See command output for details.");
       setBoardStep("done");
 
       refreshDeviceState();
+      // The whole board was reset — let views drop stale "Died Unexpectedly" rows.
+      triggerResetAll();
       if (onReset) onReset();
     } catch (err) {
       setBoardError(err instanceof Error ? err.message : "An unknown error occurred.");
       setBoardStep("failed");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshModels, refreshDeviceState, onReset]);
+  }, [refreshModels, refreshDeviceState, onReset, triggerResetAll]);
 
   // ── Derived values ───────────────────────────────────────────────────────────
   const totalSlots = chipFetch.status === "success" ? chipFetch.data.total_slots : 4;
@@ -531,12 +488,12 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             <div className="flex items-center gap-3">
               <div
                 className={`w-9 h-9 rounded-full flex items-center justify-center ${isBoardResetting || isAnyUnitResetting
-                    ? "bg-blue-900/50"
-                    : boardStep === "done" || allUnitsDone
-                      ? "bg-green-900/50"
-                      : boardStep === "failed"
-                        ? "bg-red-900/50"
-                        : "bg-yellow-900/50"
+                  ? "bg-blue-900/50"
+                  : boardStep === "done" || allUnitsDone
+                    ? "bg-green-900/50"
+                    : boardStep === "failed"
+                      ? "bg-red-900/50"
+                      : "bg-yellow-900/50"
                   }`}
               >
                 {isBoardResetting || isAnyUnitResetting ? (
@@ -554,7 +511,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                   {isBoardResetting
                     ? boardStep === "deleting"
                       ? "Removing all deployed models…"
-                      : "Resetting all chips…"
+                      : "Resetting all devices…"
                     : boardStep === "done"
                       ? "Full board reset complete"
                       : boardStep === "failed"
@@ -562,7 +519,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                         : "Reset Card"}
                 </DialogTitle>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
                 </p>
               </div>
             </div>
@@ -608,11 +565,18 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             </button>
           </div>
 
-          {/* ── Already resetting banner ── */}
-          {isResettingContext && (
-            <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
-              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
-              <span>Board is already resetting…</span>
+          {/* ── Already resetting banner -─ Only when the board is being reset *elsewhere* (another tab/user).*/}
+          {isResettingContext && !isAnyResetting && boardStep === null && (
+            <div className="flex items-start gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
+              <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-blue-100">Board reset in progress</p>
+                <p className="text-blue-200/90">
+                  Stopping all models and re-initializing the board — about a minute or
+                  two. Actions are paused; you can close this dialog and the reset will
+                  finish in the background.
+                </p>
+              </div>
             </div>
           )}
 
@@ -635,7 +599,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           {/* ── Full-board reset progress ── */}
           {boardStep !== null && (
             <div className="space-y-2">
-              <StepRow
+              <ResetStepRow
                 number={1}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
                 label="Stop all deployed models"
@@ -648,10 +612,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                       : "pending"
                 }
               />
-              <StepRow
+              <ResetStepRow
                 number={2}
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Reset all chips (tt-smi -r)"
+                label="Reset all devices (tt-smi -r)"
                 sublabel="Running full board reset, may take 10–30 seconds…"
                 state={
                   boardStep === "resetting"
@@ -708,7 +672,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                 <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
                 <span>
                   <strong className="text-red-300">Warning:</strong> Resetting interrupts any
-                  ongoing processes on the affected chips. Multi-chip models are stopped and reset
+                  ongoing processes on the affected devices. Multi-device models are stopped and reset
                   as a whole.
                 </span>
               </div>
@@ -716,10 +680,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
               <div className="flex items-start gap-2 p-3 bg-orange-950/40 border border-orange-500/25 rounded-lg text-orange-200 text-sm">
                 <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
                 <span>
-                  <strong className="text-orange-300">Reset All Chips</strong> will stop{" "}
+                  <strong className="text-orange-300">Reset All Devices</strong> will stop{" "}
                   <strong className="text-orange-300">every deployed model</strong> and interrupt{" "}
                   <strong className="text-orange-300">all processes</strong> across all{" "}
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} simultaneously.
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} simultaneously.
                 </span>
               </div>
             </div>
@@ -737,7 +701,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                 className="border-red-700/50 text-red-300 hover:bg-red-900/30 hover:text-red-200 disabled:opacity-40"
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Reset All Chips
+                Reset All Devices
               </Button>
             )}
           </div>

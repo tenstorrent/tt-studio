@@ -30,9 +30,9 @@ tt-studio-logs-ttbr-<hex>/
 ├── current_models.json             # Live docker containers + deploy_cache snapshot
 ├── deployments.json                # Persisted deploy records (id, device, device_ids, status)
 ├── docker-control-service.log      # docker daemon control
-├── fastapi.log                     # FastAPI inference-control server
-├── fastapi_logs/                   # Per-deploy FastAPI logs:
-│   └── fastapi_<ts>_<model>_<device>_server.log
+├── model_run.log                   # FastAPI inference-control server
+├── model_run_logs/                 # Per-deploy model run logs:
+│   └── model_run_<ts>_<model>_<device>_server.log
 ├── inference_artifacts/
 │   ├── docker_server/              # Container stdout per deploy. Two flavors:
 │   │   ├── vllm_<ts>_<model>_<device>_server.log    # LLMs (Llama, Qwen, …)
@@ -61,7 +61,7 @@ Triage Progress:
 ### 1. Inventory
 
 ```bash
-ls -la <bundle>/ <bundle>/fastapi_logs <bundle>/inference_artifacts/docker_server <bundle>/inference_artifacts/run_logs
+ls -la <bundle>/ <bundle>/model_run_logs <bundle>/inference_artifacts/docker_server <bundle>/inference_artifacts/run_logs
 ```
 
 Note: which models have logs, which deploys are most recent, whether `current_models.json` shows live containers or an empty `deploy_cache_entries`.
@@ -90,7 +90,7 @@ Read those lines. They reveal:
 
 ### 4. Failing-deploy logs
 
-For each FAILED deploy in `deployments.json`, read the matching `fastapi_logs/fastapi_<ts>_<model>_<device>_server.log` to capture the **exact `run.py` command line** (model, workflow, device, device-id flags). This is the request the backend produced.
+For each FAILED deploy in `deployments.json`, read the matching `model_run_logs/model_run_<ts>_<model>_<device>_server.log` to capture the **exact `run.py` command line** (model, workflow, device, device-id flags). This is the request the backend produced.
 
 If a container log exists under `inference_artifacts/docker_server/`, grep it for `Traceback`, `Error`, `OOM`, `Failed`, `tt::` and read context around the first hit. **Pick the right file** by `model_type` from `current_models.json:deploy_cache_entries[].model_impl.model_type`:
 
@@ -149,7 +149,7 @@ Don't propose patches unless the user asks. Stop after the report.
 | `compatible=False, boards=[...]` for the requested model | Model's `device_configurations` doesn't include the detected board | `models_from_inference_server.json` |
 | `Raw board_type: '<x>'` with unexpected enum chosen | Detection logic miscounts cards vs ASICs | `board_control/services.py` `get_board_type()` |
 | Frontend sends device_ids the backend can't honor | Per-board branching missing in the solution UI | `app/frontend/src/components/...SolutionStep.tsx`, `utils/*Placement.ts` |
-| `Job <id>` exits without inference log | run.py crashed before docker compose; check fastapi_logs `<ts>_<model>_<device>_server.log` for the run.py command and any traceback before it would have emitted | `inference-api/api.py` |
+| `Job <id>` exits without inference log | run.py crashed before docker compose; check model_run_logs `<ts>_<model>_<device>_server.log` for the run.py command and any traceback before it would have emitted | `inference-api/api.py` |
 | `ValueError: Unrecognized model in /home/container_app_user/cache_root/model_file_symlinks_map/<model>. Should have a 'model_type' key in its config.json` + `RuntimeError: Engine core initialization failed` | **Persistent docker volume for that model is corrupt / setup never finished** — the HF symlink view is missing `config.json` (or it lacks `model_type`). Tell-tale signs in `deployments.json`: multiple prior deploys of the same model with `status: stopped, stopped_by_user: false, workflow_log_path: null` — the volume has been broken across sessions. Not a code bug — go to the remediation playbook below. | (none — ops fix) |
 | Crash inside `model_config.py:_set_hf_params` / `AutoConfig.from_pretrained` / missing tokenizer file | Same as above — incomplete model setup in the volume | (none — ops fix) |
 

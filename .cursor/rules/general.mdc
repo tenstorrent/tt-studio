@@ -24,13 +24,13 @@ TT Studio is designed to:
 **Python files:**
 ```python
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
 
 **JavaScript/TypeScript files:**
 ```javascript
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
 
 ## Architecture Overview

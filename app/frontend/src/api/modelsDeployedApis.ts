@@ -5,6 +5,7 @@ import axios from "axios";
 import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
 import { type Model } from "../contexts/ModelsContext";
+import { type HealthStatus } from "../types/models";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
@@ -36,7 +37,7 @@ interface ContainerData {
   model_type?: string;
 }
 
-interface DeployedModelInfo {
+export interface DeployedModelInfo {
   id: string;
   modelName: string;
   status: string;
@@ -44,6 +45,7 @@ interface DeployedModelInfo {
   internal_url?: string;
   health_url?: string;
   max_model_len?: number | null;
+  tool_calling_enabled?: boolean;
   model_impl?: {
     model_name?: string;
     hf_model_id?: string;
@@ -118,6 +120,7 @@ export interface CanonicalDeployment {
   device_id: number | null;
   device_ids: number[] | null;
   model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  coding_agent_eligible?: boolean;  // Backend SSOT: usable via the coding-agent gateway.
   model_impl: {
     model_name?: string;
     hf_model_id?: string;
@@ -146,6 +149,62 @@ export const fetchDeployments = async (): Promise<CanonicalDeployment[]> => {
   );
   const data = response.data || {};
   return Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
+};
+
+/** Format Docker port_bindings into the "host:port->container/proto" string the UI expects. */
+function formatPortBindings(bindings: CanonicalDeployment["port_bindings"]): string {
+  if (!bindings || Object.keys(bindings).length === 0) return "No ports";
+  return Object.keys(bindings)
+    .map((containerPort) => {
+      const bindList = bindings[containerPort];
+      if (!bindList || bindList.length === 0) return `${containerPort} (unbound)`;
+      const b = bindList[0];
+      return `${b.HostIp}:${b.HostPort}->${containerPort}`;
+    })
+    .join(", ");
+}
+
+
+// A deployment is "deployed" (visible in the models list) when it is a managed, non-pending deployment.
+export function isVisibleDeployment(d: CanonicalDeployment): boolean {
+  return d.source === "managed" && !d.is_pending;
+}
+
+export function canonicalToModel(d: CanonicalDeployment): Model {
+  // A managed deployment whose container has fallen off tt_studio_network is a
+  // stray — it can't be reached, so flag it for the UI to surface a reconnect path.
+  const onTtNetwork = Object.keys(d.networks ?? {}).some((n) => n.includes("tt_studio"));
+  return {
+    id: d.id,
+    name: d.deployment_model_name ?? d.model_impl?.model_name ?? d.name ?? "Unnamed",
+    image: d.image_name ?? "Unknown image",
+    status: d.status ?? "unknown",
+    health: (typeof d.health === "string" ? d.health : "") || "unknown",
+    ports: formatPortBindings(d.port_bindings),
+    device_id: d.device_id ?? null,
+    device_ids: d.device_ids ?? undefined,
+    model_type: d.model_type ?? undefined,
+    coding_agent_eligible: d.coding_agent_eligible ?? false,
+    disconnected: d.source === "managed" && !onTtNetwork,
+  };
+}
+
+// Probe a single deployment's real readiness via the same endpoint HealthBadge
+// uses. 200 = ready to serve, 202 = still warming up, 503 = unavailable. This is
+// the authoritative "usable" signal; the deployments `health` field only carries
+// Docker's raw container health, which is not a readiness signal.
+export const fetchModelHealth = async (
+  deployId: string,
+): Promise<HealthStatus> => {
+  try {
+    const response = await fetch(`${modelAPIURL}health/?deploy_id=${deployId}`);
+    if (response.status === 200) return "healthy";
+    if (response.status === 202) return "starting";
+    if (response.status === 503) return "unavailable";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -196,7 +255,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         id: key,
         image: container.image_name || "Unknown image",
         status: container.status || "unknown",
-        health: container.health || "unknown",
+        health: (typeof container.health === "string" ? container.health : "") || "unknown",
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,
@@ -239,8 +298,10 @@ export interface SSEResult {
 /**
  * Consume a backend SSE stream until its `complete` event.
  * Calls onLog per `log` line and onStep per `step` change; resolves with the
- * final status and full output. Rejects on connection loss or a 3-minute timeout.
+ * final status and full output. Rejects on connection loss or if the whole stream exceeds STREAM_TIMEOUT_MS.
  */
+const STREAM_TIMEOUT_MS = 300_000; // 5 min — comfortably above the worst-case reset
+
 export const consumeSSE = (
   url: string,
   onLog?: (line: string) => void,
@@ -252,7 +313,7 @@ export const consumeSSE = (
     const timer = window.setTimeout(() => {
       es.close();
       reject(new Error("Stream timed out — the backend may still be processing."));
-    }, 180_000);
+    }, STREAM_TIMEOUT_MS);
     const done = (fn: () => void) => {
       window.clearTimeout(timer);
       es.close();
@@ -299,6 +360,33 @@ export const deleteModel = async (
   }
 };
 
+/** Progress snapshot for a whole-board "Reset All" background job. */
+export interface ResetAllStatus {
+  step: string; // "idle" | "deleting" | "resetting" | "done"
+  logs: string[];
+  done: boolean;
+  ok: boolean;
+  error: string | null;
+  deleted: string[];
+  remaining: string[];
+}
+
+/**
+ * Start a whole-board reset (stop all models, then reset the board) as a backend
+ * background job. Returns immediately; poll getResetAllStatus() for progress.
+ * Plain request/response — no EventSource, so it cannot fail with
+ * "Connection to stream lost."
+ */
+export const startResetAll = async (): Promise<void> => {
+  await axios.post(`${dockerAPIURL}reset_all/`);
+};
+
+/** Read the current whole-board reset progress. */
+export const getResetAllStatus = async (): Promise<ResetAllStatus> => {
+  const { data } = await axios.get<ResetAllStatus>(`${dockerAPIURL}reset_all/status/`);
+  return data;
+};
+
 export const handleRedeploy = (modelName: string): void => {
   customToast.success(`Model ${modelName} has been redeployed.`);
 };
@@ -331,7 +419,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
-      return "/chat"; // placeholder until video UI exists
+      return "/video-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
@@ -539,6 +627,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
         internal_url: modelData.internal_url,
         health_url: modelData.health_url,
         max_model_len: modelData.max_model_len ?? null,
+        tool_calling_enabled: modelData.tool_calling_enabled ?? false,
         model_impl: modelData.model_impl,
       })
     );
@@ -583,24 +672,27 @@ export interface DiscoveredContainer {
   image: string;
   status: string;
   port_bindings: Record<string, { HostIp: string; HostPort: string }[] | null>;
+  /** Chips auto-detected from bound /dev/tenstorrent nodes. Non-null → enforced. */
+  device_ids?: number[] | null;
 }
 
 export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
+  // no-cache so polling reflects connect/disconnect live
   const response = await axios.get<DiscoveredContainer[]>(
-    "/docker-api/discover-containers/"
+    "/docker-api/discover-containers/",
+    { headers: { "Cache-Control": "no-cache" } }
   );
   return response.data;
 };
 
 export interface RegisterExternalModelRequest {
   container_id: string;
-  model_type: string;
-  model_name: string;
+  // Identity/routes/port are derived server-side from the container; these are
+  // only sent when the user provides them as a last-resort override.
+  model_type?: string;
+  model_name?: string;
   hf_model_id?: string;
-  service_port?: number;
-  service_route?: string;
-  health_route?: string;
-  device_id: number;
+  device_id?: number;
   chips_required?: number;
 }
 
@@ -639,6 +731,29 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
     return Object.values(models) as CatalogModel[];
   }
   return [];
+};
+
+// Coding-agent gateway (LiteLLM)
+export interface CodingAgentModel {
+  name: string;
+  type: string;
+}
+
+export interface CodingAgentsInfo {
+  litellm_enabled: boolean;
+  health: "healthy" | "unreachable" | "disabled";
+  gateway_port: number;
+  openai_base_path: string;
+  master_key: string;
+  models: CodingAgentModel[];
+}
+
+export const fetchCodingAgentsInfo = async (): Promise<CodingAgentsInfo> => {
+  const response = await axios.get<CodingAgentsInfo>(`${modelAPIURL}coding-agents/`, {
+    timeout: 10000,
+    headers: { "Cache-Control": "no-cache" },
+  });
+  return response.data;
 };
 
 // Utility to extract short model name from container name

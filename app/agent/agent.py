@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 try:
     # Try relative imports first (when used as a package)
     from .custom_llm import CustomLLM
-    from .utils import poll_requests, setup_executer
+    from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
@@ -13,7 +13,7 @@ try:
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from custom_llm import CustomLLM
-    from utils import poll_requests, setup_executer
+    from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
@@ -21,15 +21,94 @@ except ImportError:
 
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
+from tavily import TavilyClient
 import os 
 import jwt
 import json
 import asyncio
 import requests
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
+
+
+def _read_user_config_env_value(path: Path, env_key: str) -> Optional[str]:
+    """Parse a KEY=VALUE dotenv file and return the value for env_key, or None."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != env_key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def _resolve_tavily_api_key() -> Optional[str]:
+    """Read TAVILY_API_KEY fresh from the shared user_config.env (with env fallback)
+    so UI changes apply without restarting the agent container. Fully guarded:
+    Path.exists() itself raises PermissionError when the parent directory is
+    not traversable by this container's user."""
+    base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
+    if base:
+        try:
+            env_path = Path(base) / "backend_volume" / "user_config.env"
+            if env_path.exists():
+                val = _read_user_config_env_value(env_path, "TAVILY_API_KEY")
+                if val:
+                    return val
+            else:
+                # Legacy user_config.json from before the .env migration; the
+                # backend converts and deletes it on its next load.
+                legacy = Path(base) / "backend_volume" / "user_config.json"
+                if legacy.exists():
+                    with legacy.open("r") as f:
+                        data = json.load(f)
+                    val = data.get("tavily_api_key") if isinstance(data, dict) else None
+                    if val:
+                        return val
+        except (OSError, json.JSONDecodeError):
+            pass
+    return os.environ.get("TAVILY_API_KEY") or None
+
+
+class DynamicTavilySearch(TavilySearchResults):
+    """TavilySearchResults variant that reads TAVILY_API_KEY on every call,
+    so changes saved via the TT Studio Settings UI take effect immediately."""
+
+    def _run(self, query: str, run_manager=None, **kwargs):
+        api_key = _resolve_tavily_api_key()
+        if not api_key:
+            return "Search unavailable: TAVILY_API_KEY is not configured. Set it in TT Studio Settings."
+        try:
+            client = TavilyClient(api_key=api_key)
+            response = client.search(
+                query=query,
+                max_results=self.max_results,
+                include_answer=self.include_answer,
+                include_raw_content=self.include_raw_content,
+            )
+            # TavilyClient.search returns the full response dict; DeduplicatedSearchTool
+            # expects the list of result dicts (the "tavily_search_results_json" contract),
+            # so hand back just that list rather than str(dict).
+            if isinstance(response, dict):
+                return response.get("results", [])
+            return response
+        except Exception as e:
+            return repr(e)
+
+    async def _arun(self, query: str, run_manager=None, **kwargs):
+        return self._run(query, run_manager=run_manager, **kwargs)
 
 app = FastAPI()
 
@@ -114,22 +193,12 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
     print(f"  - Internal URL: {llm_info.internal_url}")
     print(f"  - Health URL: {llm_info.health_url}")
     print(f"  - Status: {llm_info.status}")
+    print(f"  - Tool Calling: {llm_info.tool_calling_enabled}")
     
-    # Determine the correct endpoint based on model type
+    # Use the internal_url from the deploy cache as-is.  It already contains
+    # the correct service_route assigned by the backend (e.g. /v1/completions
+    # for base models, /v1/chat/completions for instruct models).
     server_url = f"http://{llm_info.internal_url}"
-    
-    # For different model types, we might need different endpoints
-    # Most vLLM models use /v1/chat/completions, but some might use different endpoints
-    if llm_info.model_type == 'chat':
-        # Standard chat completion endpoint
-        if not llm_info.internal_url.endswith('/v1/chat/completions'):
-            server_url = f"http://{llm_info.internal_url}/v1/chat/completions"
-    elif llm_info.model_type == 'completion':
-        # For completion models, use /v1/completions
-        server_url = f"http://{llm_info.internal_url.replace('/v1/chat/completions', '/v1/completions')}"
-    else:
-        # Default to chat completions for unknown types
-        print(f"[WARNING] Unknown model type '{llm_info.model_type}', using chat completions endpoint")
     
     print(f"[DYNAMIC_LLM_SETUP] Final server URL: {server_url}")
     
@@ -141,7 +210,8 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
         'model_name': llm_info.model_name,
         'model_type': llm_info.model_type,
         'status': llm_info.status.value,
-        'hf_model_id': llm_info.hf_model_id if hasattr(llm_info, 'hf_model_id') else None
+        'hf_model_id': llm_info.hf_model_id,
+        'tool_calling_enabled': llm_info.tool_calling_enabled,
     }
     print(f"[DEBUG] Setting up LLM with llm_info: {llm_info_dict}")
     
@@ -219,7 +289,7 @@ def test_llm_connection(llm: CustomLLM, model_name: str, model_type: str) -> boo
         headers = {"Authorization": f"Bearer {llm.encoded_jwt}"}
         print(f"[DEBUG] Testing chat endpoint with simple request")
         
-        response = requests.post(llm.server_url, json=test_payload, headers=headers, timeout=10)
+        response = requests.post(llm.server_url, json=test_payload, headers=headers, timeout=(5, 60))
         print(f"[DEBUG] Test request status: {response.status_code}")
         
         if response.status_code in [200, 400, 422]:  # 400/422 are expected for invalid model names
@@ -272,15 +342,22 @@ def initialize_llm() -> CustomLLM:
 
 def on_llm_change(new_llm: CustomLLM):
     """Callback when LLM changes during health monitoring"""
-    global current_llm, agent_executer
+    global current_llm, agent_executer, tool_calling_supported
     print("LLM changed, updating agent executor...")
     current_llm = new_llm
+    if (new_llm.is_discovered and new_llm.llm_info
+            and new_llm.llm_info.get('tool_calling_enabled')):
+        tool_calling_supported = True
+        print("✓ Tool calling enabled via deployment configuration")
+    else:
+        tool_calling_supported = _probe_tool_calling(new_llm)
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+    raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
+    tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
     agent_executer = setup_executer(new_llm, memory, tools)
-    print("Agent executor updated with new LLM")
+    print(f"Agent executor updated with new LLM (tool_calling={tool_calling_supported})")
 
 def start_health_monitoring():
     """Start health monitoring for the current LLM"""
@@ -305,27 +382,76 @@ agent_executer = None
 memory = None
 tools = []
 llm_initialization_complete = False
+tool_calling_supported = False
+
+def _probe_tool_calling(llm) -> bool:
+    """Send a minimal request with tools to check if the model supports tool calling."""
+    import json as _json
+    try:
+        probe_tools = [{
+            "type": "function",
+            "function": {
+                "name": "test_probe",
+                "description": "Test tool",
+                "parameters": {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+            },
+        }]
+        payload = {
+            "model": llm.cloud_model_name if llm.is_cloud else (
+                llm.llm_info.get("hf_model_id") or llm.llm_info.get("model_name") if llm.llm_info else "default"
+            ),
+            "messages": [{"role": "user", "content": "ping"}],
+            "tools": probe_tools,
+            "max_tokens": 1,
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {llm.encoded_jwt}"} if llm.encoded_jwt else {}
+        resp = requests.post(llm.server_url, json=payload, headers=headers, timeout=(5, 15))
+        if resp.status_code == 200:
+            print("[PROBE] Model accepts tool-calling requests ✓")
+            return True
+        body = resp.text[:300]
+        print(f"[PROBE] Model rejected tool-calling request ({resp.status_code}): {body}")
+        return False
+    except Exception as e:
+        print(f"[PROBE] Tool-calling probe failed: {e}")
+        return False
 
 def initialize_agent_components():
     """Initialize agent components once LLM is available"""
-    global current_llm, agent_executer, memory, tools, llm_initialization_complete
+    global current_llm, agent_executer, memory, tools, llm_initialization_complete, tool_calling_supported
     
     if current_llm is None:
         return False
     
     try:
+        # Check deployment config for tool-calling support first, fall back to probe
+        if (current_llm.is_discovered and current_llm.llm_info
+                and current_llm.llm_info.get('tool_calling_enabled')):
+            tool_calling_supported = True
+            print("✓ Tool calling enabled via deployment configuration (vllm --enable-auto-tool-choice)")
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        if not tool_calling_supported:
+            print("⚠ Model does not support tool calling — agent will be limited")
+
         # Setup agent executor
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
-        
+
         # Initialize tools
         tools = []
-        
-        # Add search tool
-        search = TavilySearchResults(
-            max_results=2,
+
+        # Add search tool — DynamicTavilySearch reads the API key from the shared
+        # user_config.env on every call, so a key saved via the TT Studio Settings
+        # UI takes effect without restarting the agent container (and it returns a
+        # graceful "not configured" message when no key is set). It's wrapped in
+        # DeduplicatedSearchTool for per-request dedup + result trimming.
+        raw_search = DynamicTavilySearch(
+            max_results=3,
             include_answer=True,
-            include_raw_content=True)
+            include_raw_content=False,
+        )
+        search = DeduplicatedSearchTool(inner_tool=raw_search)
         tools.append(search)
         
         # Add code interpreter tool if E2B_API_KEY is available
@@ -346,6 +472,7 @@ def initialize_agent_components():
         llm_initialization_complete = True
         print("=== Agent Initialization Complete ===")
         print(f"Available tools: {[tool.name for tool in tools]}")
+        print(f"Tool calling supported: {tool_calling_supported}")
         return True
         
     except Exception as e:
@@ -536,11 +663,21 @@ def get_status():
         # Get discovery service status
         discovery_status = discovery_service.get_llm_status_summary()
         
+        configured_tools = [t.name for t in tools] if tools else []
+        has_search = any("tavily" in t.lower() or "search" in t.lower() for t in configured_tools)
+        _tavily_raw = os.getenv("TAVILY_API_KEY", "")
+        tavily_key_set = bool(_tavily_raw) and _tavily_raw != "tavily-api-key-not-configured"
+
         return {
             "status": "ready",
             "current_llm": current_llm_info,
             "available_models": available_models,
             "discovery_summary": discovery_status,
+            "tools": configured_tools,
+            "capabilities": {
+                "web_search": has_search and tavily_key_set and tool_calling_supported,
+                "tool_calling": tool_calling_supported,
+            },
             "configuration": {
                 "auto_discovery_enabled": AgentConfig.AUTO_DISCOVERY_ENABLED,
                 "health_check_enabled": AgentConfig.HEALTH_CHECK_ENABLED,
@@ -561,7 +698,7 @@ def get_status():
 @app.post("/refresh")
 def refresh_llm():
     """Dynamically refresh LLM selection and configuration"""
-    global current_llm, agent_executer, discovery_service
+    global current_llm, agent_executer, discovery_service, tool_calling_supported
     
     print("[DYNAMIC_REFRESH] Starting LLM refresh process...")
     
@@ -600,15 +737,23 @@ def refresh_llm():
         current_llm = new_llm
         new_llm_name = current_llm.llm_info.get('model_name', 'Unknown') if hasattr(current_llm, 'llm_info') else 'Unknown'
         
+        # Check deployment config for tool-calling, fall back to probe
+        if (current_llm.is_discovered and current_llm.llm_info
+                and current_llm.llm_info.get('tool_calling_enabled')):
+            tool_calling_supported = True
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
+        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring
         start_health_monitoring()
         
-        print(f"[DYNAMIC_REFRESH] Successfully switched from {old_llm_name} to {new_llm_name}")
+        print(f"[DYNAMIC_REFRESH] Successfully switched from {old_llm_name} to {new_llm_name} (tool_calling={tool_calling_supported})")
         
         return {
             "status": "success",
@@ -633,7 +778,7 @@ def refresh_llm():
 @app.post("/select_model")
 def select_model(deploy_id: str):
     """Dynamically select a specific model by deploy_id"""
-    global current_llm, agent_executer, discovery_service
+    global current_llm, agent_executer, discovery_service, tool_calling_supported
     
     print(f"[DYNAMIC_SELECTION] Attempting to select model with deploy_id: {deploy_id}")
     
@@ -676,15 +821,22 @@ def select_model(deploy_id: str):
         old_llm_name = current_llm.llm_info.get('model_name', 'Unknown') if current_llm and hasattr(current_llm, 'llm_info') else 'Unknown'
         current_llm = new_llm
         
+        # Check deployment config for tool-calling, fall back to probe
+        if target_llm.tool_calling_enabled:
+            tool_calling_supported = True
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
+        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring
         start_health_monitoring()
         
-        print(f"[DYNAMIC_SELECTION] Successfully switched to {target_llm.model_name}")
+        print(f"[DYNAMIC_SELECTION] Successfully switched to {target_llm.model_name} (tool_calling={tool_calling_supported})")
         
         return {
             "status": "success",

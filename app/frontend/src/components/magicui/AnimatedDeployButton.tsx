@@ -2,19 +2,17 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Rocket, CheckCircle, XCircle } from "lucide-react";
-import { useDeploymentProgress } from "../../hooks/useDeploymentProgress";
-import { DeploymentProgress } from "../ui/DeploymentProgress";
-import { safeGetItem, safeRemoveItem, safeSetItem } from "../../lib/storage";
+import { Rocket, XCircle } from "lucide-react";
 
 interface AnimatedDeployButtonProps {
   initialText: React.ReactElement | string;
   changeText: React.ReactElement | string;
   onDeploy: () => Promise<{ success: boolean; job_id?: string }>;
   disabled?: boolean;
-  onDeploymentComplete: () => void;
+  // Called once the backend accepts the deploy and returns a job id
+  onDeployStarted: (jobId: string) => void;
 }
 
 export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
@@ -22,150 +20,59 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   changeText,
   onDeploy,
   disabled = false,
-  onDeploymentComplete,
+  onDeployStarted,
 }) => {
-  const ACTIVE_DEPLOYMENT_KEY = "tt_studio_active_deployment_job";
-
-  const [isDeployed, setIsDeployed] = useState<boolean>(false);
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
   const [deploymentFailed, setDeploymentFailed] = useState<boolean>(false);
-  // Drives the elapsed-time readout on the in-flight progress panel.
-  const [deployStartTime, setDeployStartTime] = useState<number | undefined>(undefined);
-  // Sticky once the deploy reports a 'pulling_image' stage. Keeps the unified progress
-  // panel visible through the post-pull container-start phase instead of collapsing to
-  // a blind spinner. Cached deploys never set it, so they show no panel.
-  const [hadImagePull, setHadImagePull] = useState<boolean>(false);
-  const [displayText, setDisplayText] = useState<React.ReactElement | string>(
-    initialText
-  );
+  const [displayText, setDisplayText] = useState<React.ReactElement | string>(initialText);
 
-  // Polling drives the isDeployed/failed state transitions; the bar itself is
-  // intentionally not rendered — the spinner-on-button + checkmark + redirect
-  // to /models-deployed (where the warm-up banner takes over) is the full UX.
-  const { progress, startPolling, stopPolling } = useDeploymentProgress();
+  const reset = () => {
+    setIsDeploying(false);
+    setIsRocketFlying(false);
+    setDisplayText(initialText);
+  };
 
-  // Handle progress updates
-  useEffect(() => {
-    if (progress) {
-      if (progress.stage === 'pulling_image') {
-        setHadImagePull(true);
-      }
-      if (progress.status === 'completed') {
-        setIsDeployed(true);
-        setIsDeploying(false);
-        setIsRocketFlying(false);
-        setDisplayText(<span>Deployment Started</span>);
-        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
-        stopPolling();
-      } else if (progress.status === 'error' || progress.status === 'failed' || progress.status === 'timeout') {
-        setDeploymentFailed(true);
-        setIsDeploying(false);
-        setIsRocketFlying(false);
-        setDisplayText(<span>Deployment Failed</span>);
-        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
-        stopPolling();
-      } else if (progress.status === 'not_found') {
-        // Job no longer tracked — server may have restarted and wiped in-memory state.
-        // Reset to initial state rather than showing "failed", since the model may actually
-        // be running. The user can check the Deployed Models page to confirm.
-        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
-        setIsDeploying(false);
-        setIsRocketFlying(false);
-        setDisplayText(initialText);
-        stopPolling();
-      }
-    }
-  }, [progress, initialText, stopPolling]);
-
-  // Resume any in-flight deployment after navigation/reload.
-  useEffect(() => {
-    if (disabled || isDeployed || isDeploying || deploymentFailed) return;
-    const stored = safeGetItem<{ jobId?: string; startedAt?: number } | null>(
-      ACTIVE_DEPLOYMENT_KEY,
-      null
-    );
-    if (!stored?.jobId) return;
-
-    const MAX_RESUME_AGE_MS = 5 * 60 * 1000; // 5 minutes — short enough to avoid resuming after a server restart
-    const age = Date.now() - (stored.startedAt ?? 0);
-    if (age > MAX_RESUME_AGE_MS) {
-      safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
-      return;
-    }
-
-    setIsDeploying(true);
-    setDeploymentFailed(false);
-    setIsRocketFlying(true);
-    setDisplayText(changeText);
-    setDeployStartTime(stored.startedAt ?? Date.now());
-    startPolling(stored.jobId);
-  }, [ACTIVE_DEPLOYMENT_KEY, changeText, deploymentFailed, disabled, isDeployed, isDeploying, startPolling]);
-
-  useEffect(() => {
-    if (isDeployed) {
-      const timer = setTimeout(() => {
-        onDeploymentComplete();
-      }, 550);
-      return () => clearTimeout(timer);
-    }
-  }, [isDeployed, onDeploymentComplete]);
+  const fail = () => {
+    setDeploymentFailed(true);
+    setDisplayText(<span>Deployment Failed</span>);
+    setIsDeploying(false);
+    setIsRocketFlying(false);
+  };
 
   const handleDeploy = async () => {
-    if (disabled || isDeploying || isDeployed) return;
+    if (disabled || isDeploying) return;
 
     setIsDeploying(true);
     setDisplayText(changeText);
     setIsRocketFlying(true);
     setDeploymentFailed(false);
-    setDeployStartTime(Date.now());
-    setHadImagePull(false);
 
     try {
       const result = await onDeploy();
-      console.log('[Deploy] Deploy result:', result);
+      console.log("[Deploy] Deploy result:", result);
 
-      if (result.success) {
-        if (result.job_id) {
-          console.log('[Deploy] Starting progress polling for job:', result.job_id);
-          // Start polling for progress updates
-          safeSetItem(ACTIVE_DEPLOYMENT_KEY, { jobId: result.job_id, startedAt: Date.now() });
-          startPolling(result.job_id);
-        } else {
-          console.warn('[Deploy] No job_id received despite success response - treating as failure');
-          setDeploymentFailed(true);
-          setDisplayText(<span>Deployment Failed</span>);
-          setIsDeploying(false);
-          setIsRocketFlying(false);
-          safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
-        }
-        // Keep the rocket animation going while we wait
+      if (result.success && result.job_id) {
+        // Hand the job off to the tracker; the tray takes over from here.
+        onDeployStarted(result.job_id);
+        reset();
       } else {
-        console.log('[Deploy] Deployment failed:', result);
-        // Handle immediate failure
-        setDeploymentFailed(true);
-        setDisplayText(<span>Deployment Failed</span>);
-        setIsDeploying(false);
-        setIsRocketFlying(false);
-        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
+        if (result.success) {
+          console.warn("[Deploy] Success without job_id — treating as failure");
+        }
+        fail();
       }
     } catch (error) {
       console.error("Deployment failed:", error);
-      setDeploymentFailed(true);
-      setDisplayText(<span>Deployment Failed</span>);
-      setIsDeploying(false);
-      setIsRocketFlying(false);
-      safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
+      fail();
     }
   };
 
   const buttonClass = `relative flex w-[200px] items-center justify-center overflow-hidden rounded-md p-[10px] outline outline-1 ${disabled
-      ? "bg-gray-400 cursor-not-allowed"
-      : isDeployed
-        ? "bg-green-600 hover:bg-green-700"
-        : deploymentFailed
-          ? "bg-red-600 hover:bg-red-700"
-          : "bg-gray-600 hover:bg-gray-700"
+    ? "bg-gray-400 cursor-not-allowed"
+    : deploymentFailed
+      ? "bg-red-600 hover:bg-red-700"
+      : "bg-gray-600 hover:bg-gray-700"
     } text-white dark:text-gray-200`;
 
   const particles = Array.from({ length: 5 }, (_, i) => (
@@ -214,7 +121,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
               displayText
             )}
             <AnimatePresence mode="wait">
-              {!isDeploying && !isDeployed && !deploymentFailed && (
+              {!isDeploying && !deploymentFailed && (
                 <motion.div
                   key="rocket"
                   className="ml-2 relative"
@@ -224,17 +131,6 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
                 >
                   <Rocket className="h-5 w-5" />
                   {particles}
-                </motion.div>
-              )}
-              {isDeployed && (
-                <motion.div
-                  key="success"
-                  className="ml-2"
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
-                >
-                  <CheckCircle className="h-5 w-5 text-white" />
                 </motion.div>
               )}
               {deploymentFailed && (
@@ -252,19 +148,6 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
           </motion.span>
         </motion.button>
       </AnimatePresence>
-
-      {/* Live progress panel for uncached deploys (those that pull an image). One
-          unified bar: real byte-level pull (0–50%) then container-start milestones
-          (50–100%), then it disappears on completion → redirect. Cached deploys never
-          report 'pulling_image', so the panel never appears for them — just the spinner. */}
-      {isDeploying && progress && (progress.stage === 'pulling_image' || hadImagePull) && (
-        <DeploymentProgress
-          progress={progress}
-          startTime={deployStartTime}
-          imagePulled={hadImagePull}
-          className="w-full max-w-md"
-        />
-      )}
     </div>
   );
 };

@@ -50,6 +50,8 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "unhealthy":
       case "failed":
         return "bg-red-500 text-white";
+      case "disconnected":
+        return "bg-orange-500 text-white";
       default:
         return "bg-yellow-500 text-white";
     }
@@ -62,16 +64,26 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "unhealthy":
       case "failed":
         return "bg-red-300";
+      case "disconnected":
+        return "bg-orange-300";
       default:
         return "bg-yellow-300";
     }
   };
 
   const isFailed = status === "failed";
-  const label = isFailed ? "Died Unexpectedly" : status;
+  const isDisconnected = status === "disconnected";
+  const showIcon = isFailed || isDisconnected;
+  const label = isFailed
+    ? "Died Unexpectedly"
+    : isDisconnected
+      ? "Disconnected"
+      : status;
   const tooltip = isFailed
     ? "The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Open logs for details, or remove this entry."
-    : `Model Health: ${status}`;
+    : isDisconnected
+      ? "This model was disconnected from tt_studio_network and can't be reached. Open Register Model in the sidebar to reconnect it."
+      : `Model Health: ${status}`;
 
   return (
     <TooltipProvider>
@@ -81,7 +93,7 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
             className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getBgColor()} transition-colors duration-200`}
             style={{ minHeight: 28 }}
           >
-            {isFailed ? (
+            {showIcon ? (
               <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
             ) : (
               <div
@@ -214,7 +226,7 @@ export default function ModelsTable({
                 className="inline-block mr-2 text-TT-purple-accent"
                 size={16}
               />
-              Chip
+              Device
             </TableHead>
           )}
           {image && (

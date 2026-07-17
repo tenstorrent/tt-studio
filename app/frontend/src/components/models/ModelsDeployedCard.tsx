@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Plus } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
@@ -20,14 +20,17 @@ import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
+import { useIsResetting } from "../../hooks/useIsResetting";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
 import {
   handleRedeploy,
   handleModelNavigationClick,
-  fetchModels,
-  fetchDeployedModelsInfo,
+  fetchDeployments,
+  canonicalToModel,
+  isVisibleDeployment,
   getModelTypeFromBackendType,
   ModelType,
   getModelTypeFromName,
@@ -42,7 +45,6 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
-import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import WorkflowLogDialog from "../deployment/WorkflowLogDialog";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
@@ -50,10 +52,22 @@ import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
+const deviceIdsForRow = (
+  row?: { device_ids?: number[]; device_id?: number | null },
+): number[] | undefined => {
+  if (!row) return undefined;
+  if (Array.isArray(row.device_ids) && row.device_ids.length > 0) return row.device_ids;
+  if (row.device_id != null) return [row.device_id];
+  return undefined;
+};
+
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
+  const { refreshTrigger, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
+  // True while any board/device reset is in progress (global, backend-sourced).
+  const isResetting = useIsResetting();
+  const { refresh: refreshDeviceState } = useDeviceState();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -92,19 +106,14 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const navigate = useNavigate();
   const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
-  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
-      const fetched = await fetchModels();
-      const deployedInfo = await fetchDeployedModelsInfo();
-      const typeById = Object.fromEntries(deployedInfo.map(d => [d.id, d.model_type]));
-      const enriched = fetched.map(m => ({ ...m, model_type: m.model_type ?? typeById[m.id] }));
-      setModels(enriched);
-      if (fetched.length === 0) {
-        triggerRefresh();
-      }
+      // Same canonical source and visibility filter the provider uses, so the
+      // two writers of the shared models list can never disagree.
+      const deployments = await fetchDeployments();
+      setModels(deployments.filter(isVisibleDeployment).map(canonicalToModel));
     } catch (error) {
       let errorMessage = "Failed to fetch models. Check network connection.";
       if (error instanceof Error) {
@@ -115,7 +124,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [setModels, triggerRefresh]);
+  }, [setModels]);
 
   // Density/refresh prefs
   const { prefs, setDensity, setAutoRefreshSec, setHealthRefreshSec } =
@@ -172,6 +181,9 @@ export default function ModelsDeployedCard(): JSX.Element {
   // Delete state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  // Snapshot at confirm time so the in-flight dialog keeps its device list even
+  // after the row leaves the table mid-reset.
+  const [deleteDeviceIds, setDeleteDeviceIds] = useState<number[] | undefined>(undefined);
   const deleteStream = useDeleteStream();
   const isDeleteInFlight = deleteStream.status === "running";
 
@@ -182,6 +194,13 @@ export default function ModelsDeployedCard(): JSX.Element {
       setIsDeleteInFlight(false);
     };
   }, [isDeleteInFlight, setIsDeleteInFlight]);
+
+  // Repoll immediately when a backgrounded delete reaches its reset phase
+  useEffect(() => {
+    if (!showDeleteModal && deleteStream.step === "resetting") {
+      refreshDeviceState();
+    }
+  }, [showDeleteModal, deleteStream.step, refreshDeviceState]);
 
   useEffect(() => {
     loadModels();
@@ -231,7 +250,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
-  // Set of container IDs currently returned by /docker-api/status/ via fetchModels.
+  // Set of container IDs currently in the deployed models list.
   const liveContainerIds = useMemo(
     () => new Set(models.map((m: { id: string }) => m.id)),
     [models],
@@ -247,6 +266,16 @@ export default function ModelsDeployedCard(): JSX.Element {
       seenLiveIdsRef.current.add(id);
     }
   }, [liveContainerIds]);
+
+  // After a full board reset (Reset All), forget the dead containers seen this
+  // session so their "Died Unexpectedly" rows clear — the board no longer has
+  // them. A single model reset/delete does NOT bump resetAllNonce, so those
+  // rows stay until the user clicks that row's own Remove & Reset.
+  const lastResetAllNonce = useRef(resetAllNonce);
+  if (resetAllNonce !== lastResetAllNonce.current) {
+    lastResetAllNonce.current = resetAllNonce;
+    seenLiveIdsRef.current.clear();
+  }
 
   const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
     const next: Record<string, FailedDeploymentInfo> = {};
@@ -311,15 +340,19 @@ export default function ModelsDeployedCard(): JSX.Element {
       });
     }
     return out;
-  }, [history, failedMap, liveContainerIds]);
+  }, [history, failedMap, liveContainerIds, resetAllNonce]);
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
+    // A disconnected (off-network) managed model is a stray — show that
+    for (const m of models) {
+      if (m.disconnected) merged[m.id] = "disconnected";
+    }
     for (const id of Object.keys(failedMap)) {
       merged[id] = "failed";
     }
     return merged;
-  }, [healthMap, failedMap]);
+  }, [healthMap, failedMap, models]);
 
   // Workflow log dialog state (used when opening logs on a failed row)
   const [workflowDialogDeploymentId, setWorkflowDialogDeploymentId] = useState<number | null>(null);
@@ -418,6 +451,7 @@ export default function ModelsDeployedCard(): JSX.Element {
 
     setShowDeleteModal(false);
     setDeleteTargetId(null);
+    setDeleteDeviceIds(undefined);
     deleteStream.reset();
   }, [deleteStream, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
 
@@ -433,6 +467,7 @@ export default function ModelsDeployedCard(): JSX.Element {
         window.setTimeout(() => refreshAllHealth(), 1000);
         setShowDeleteModal(false);
         setDeleteTargetId(null);
+        setDeleteDeviceIds(undefined);
         deleteStream.reset();
       }, 1500);
     }
@@ -512,6 +547,29 @@ export default function ModelsDeployedCard(): JSX.Element {
     [register]
   );
 
+  // Rendered above the early returns so an in-flight delete survives the table
+  // collapsing to the empty state when its last model is removed.
+  const deleteDialog = (
+    <DeleteModelDialog
+      open={showDeleteModal}
+      modelId={deleteTargetId || ""}
+      deviceIds={deleteDeviceIds}
+      totalDevices={chipStatus?.total_slots}
+      boardType={chipStatus?.board_type}
+      isLoading={deleteStream.status === "running"}
+      deleteStep={deleteStream.step}
+      streamStatus={deleteStream.status}
+      stepLogs={deleteStream.stepLogs}
+      errorMessage={deleteStream.errorMessage}
+      onConfirm={handleConfirmDelete}
+      onMinimize={() => {
+        setShowDeleteModal(false);
+        refreshDeviceState();
+      }}
+      onCancel={handleCloseDeleteModal}
+    />
+  );
+
   if (loading) {
     return <ModelsDeployedSkeleton />;
   }
@@ -537,24 +595,22 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsRunning userStopped={userStoppedModel} />;
+    return (
+      <>
+        {deleteDialog}
+        <NoModelsRunning userStopped={userStoppedModel} />
+      </>
+    );
   }
 
   return (
     <>
+      {deleteDialog}
       <ElevatedCard accent="neutral" depth="lg" hover>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between gap-3">
             {/* Left */}
             <CardTitle className="text-xl">Models Deployed</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowRegisterDialog(true)}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Register Model
-            </Button>
             {/* Center intentionally empty per redesign */}
             <div className="flex-1" />
             {/* Right */}
@@ -631,6 +687,16 @@ export default function ModelsDeployedCard(): JSX.Element {
           </TooltipProvider>
         )}
 
+        {/* Board reset in progress — make it obvious; destructive actions are paused. */}
+        {isResetting && (
+          <div className="mx-6 mb-4 flex items-center gap-3 rounded-lg border border-blue-500/40 bg-blue-900/30 px-5 py-3 text-blue-200">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+            <span className="text-sm font-medium">
+              Board reset in progress — model actions are paused until it completes.
+            </span>
+          </div>
+        )}
+
         {/* Model preparing banner */}
         {!preparingBannerDismissed && preparingModels.length > 0 && (
           <ModelPreparingBanner
@@ -677,6 +743,7 @@ export default function ModelsDeployedCard(): JSX.Element {
                   }}
                   onDelete={(id: string) => {
                     setDeleteTargetId(id);
+                    setDeleteDeviceIds(deviceIdsForRow(rows.find((r) => r.id === id)));
                     setShowDeleteModal(true);
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
@@ -721,37 +788,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           onClose={() => {
             setWorkflowDialogDeploymentId(null);
             setWorkflowDialogModelName(undefined);
-          }}
-        />
-
-        <DeleteModelDialog
-          open={showDeleteModal}
-          modelId={deleteTargetId || ""}
-          deviceIds={(() => {
-            const row = rows.find((r) => r.id === deleteTargetId);
-            if (!row) return undefined;
-            if (Array.isArray(row.device_ids) && row.device_ids.length > 0) return row.device_ids;
-            if (row.device_id != null) return [row.device_id];
-            return undefined;
-          })()}
-          totalDevices={chipStatus?.total_slots}
-          boardType={chipStatus?.board_type}
-          isLoading={deleteStream.status === "running"}
-          deleteStep={deleteStream.step}
-          streamStatus={deleteStream.status}
-          stepLogs={deleteStream.stepLogs}
-          errorMessage={deleteStream.errorMessage}
-          onConfirm={handleConfirmDelete}
-          onMinimize={() => setShowDeleteModal(false)}
-          onCancel={handleCloseDeleteModal}
-        />
-
-        <RegisterModelDialog
-          open={showRegisterDialog}
-          onClose={() => setShowRegisterDialog(false)}
-          onSuccess={() => {
-            setShowRegisterDialog(false);
-            loadModels();
           }}
         />
       </ElevatedCard>

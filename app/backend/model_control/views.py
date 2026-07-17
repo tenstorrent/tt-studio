@@ -118,11 +118,13 @@ def _drop_phase_latch(deploy_id: str) -> None:
         _phase_latch.pop(deploy_id, None)
 from model_control.model_utils import (
     encoded_jwt,
+    _vllm_client,
     get_deploy_cache,
     get_model_name_from_container,
     get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
+    stream_openai_passthrough,
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
@@ -130,6 +132,7 @@ from model_control.model_utils import (
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
+from shared_config.user_config import get_tts_api_key
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -137,7 +140,7 @@ logger.info(f"importing {__name__}")
 
 
 
-TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+# TTS_API_KEY is resolved at request time via get_tts_api_key() so UI changes apply without restart.
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
@@ -251,8 +254,12 @@ class AgentView(View):
 class AgentStatusView(APIView):
     def get(self, request, *args, **kwargs):
         """Get agent status and discovery information"""
+        import time
+
+        tavily_raw = os.environ.get("TAVILY_API_KEY", "")
+        tavily_configured = bool(tavily_raw) and tavily_raw != "tavily-api-key-not-configured"
+
         try:
-            import time
             # Get agent status directly from the agent service
             agent_status_url = "http://tt_studio_agent:8080/status"
             response = requests.get(agent_status_url, timeout=10)
@@ -260,15 +267,14 @@ class AgentStatusView(APIView):
             if response.status_code == 200:
                 agent_status = response.json()
                 
-                # Add backend-specific information
                 backend_info = {
                     "backend_status": "running",
                     "deployed_models_count": len(get_deploy_cache()),
                     "agent_integration": "enhanced",
-                    "discovery_enabled": True
+                    "discovery_enabled": True,
+                    "tavily_configured": tavily_configured,
                 }
                 
-                # Merge agent and backend status
                 full_status = {
                     "agent": agent_status,
                     "backend": backend_info,
@@ -278,14 +284,22 @@ class AgentStatusView(APIView):
                 return Response(full_status, status=status.HTTP_200_OK)
             else:
                 return Response(
-                    {"error": "Agent service unavailable", "status_code": response.status_code},
+                    {
+                        "error": "Agent service unavailable",
+                        "status_code": response.status_code,
+                        "backend": {"tavily_configured": tavily_configured},
+                    },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
                 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get agent status: {e}")
             return Response(
-                {"error": "Failed to connect to agent service", "details": str(e)},
+                {
+                    "error": "Failed to connect to agent service",
+                    "details": str(e),
+                    "backend": {"tavily_configured": tavily_configured},
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         except Exception as e:
@@ -614,7 +628,7 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
                 if "/v1/images/generations" in internal_url:
                     # Synchronous OpenAI-compatible API — returns base64 JSON immediately
@@ -672,6 +686,157 @@ class ImageGenerationInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class VideoGenerationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for tt-media-server T2V API."""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        prompt = data.get("prompt")
+        if not prompt:
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+
+        payload = {"prompt": prompt}
+        if data.get("seed") is not None:
+            try:
+                payload["seed"] = int(data["seed"])
+            except (TypeError, ValueError):
+                pass
+        if data.get("num_inference_steps") is not None:
+            try:
+                payload["num_inference_steps"] = int(data["num_inference_steps"])
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp.raise_for_status()
+
+            # Sync mode: server returned video bytes directly (use_async_video=False)
+            if init_resp.status_code == status.HTTP_200_OK:
+                content_type = init_resp.headers.get("Content-Type", "video/mp4")
+                django_response = HttpResponse(init_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                return django_response
+
+            # Async mode: server returned 202 with job_id — return it immediately so the
+            # frontend can poll status (see VideoGenerationStatusView) and then download
+            # (VideoGenerationDownloadView). The blocking poll loop used to live here.
+            job_data = init_resp.json()
+            job_id = job_data.get("job_id") or job_data.get("id")
+            if not job_id:
+                logger.error(f"No job_id in async response: {job_data}")
+                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationInferenceView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = 0
+            if err_status == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif err_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _video_base_url(deploy_id):
+    """Resolve the tt-media-server base URL for a deployed video model."""
+    deploy = get_deploy_cache()[deploy_id]
+    internal_url = "http://" + deploy["internal_url"]
+    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+
+
+def _normalize_video_phase(raw_status):
+    """Map the tt-media-server status string to a coarse phase for the frontend."""
+    s = (raw_status or "").lower()
+    if s in ("completed", "complete", "done", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "canceled", "cancelling", "canceling"):
+        return "cancelled"
+    if s in ("in_progress", "running", "processing"):
+        return "in_progress"
+    return "queued"
+
+
+class VideoGenerationStatusView(APIView):
+    """Proxy the tt-media-server video job status so the frontend can poll progress."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+            poll_resp.raise_for_status()
+
+            phase = _normalize_video_phase(poll_resp.json().get("status"))
+            return Response({"phase": phase}, status=status.HTTP_200_OK)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationStatusView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VideoGenerationDownloadView(APIView):
+    """Proxy the finished video file from the tt-media-server."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationDownloadView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class SpeechRecognitionInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special automatic speec recognition inference view"""
@@ -686,7 +851,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -733,7 +898,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -1005,7 +1170,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -1052,7 +1217,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -1091,7 +1256,7 @@ class TtsInferenceView(APIView):
                 inference_engine = getattr(model_impl, "inference_engine", None)
                 
                 if inference_engine == "media":
-                    headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                    headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                     payload = {"model": model_name, "text": text, "voice": "default"}
                 else:
                     headers = {"Authorization": f"Bearer {encoded_jwt}"}
@@ -1150,7 +1315,7 @@ class OpenAIAudioSpeechView(APIView):
             inference_engine = getattr(model_impl, "inference_engine", None)
             
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                 payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
@@ -1419,7 +1584,14 @@ class ModelAPIInfoView(APIView):
                 # Create curl examples for both chat completions and completions APIs
                 chat_curl_example = self._get_chat_curl_example(chat_completions_url, encoded_jwt, deploy_info)
                 completions_curl_example = self._get_completions_curl_example(completions_url, encoded_jwt, deploy_info)
-                
+
+                # For non-LLM models the container does not serve /v1/chat/completions,
+                # so expose the matching TT-Studio backend proxy route instead. The route
+                # is relative (the frontend prepends its own origin) because behind the
+                # proxy the backend cannot resolve a host-reachable absolute URL.
+                proxy_path = self._get_endpoint_path(model_type)
+                inference_route = f"/models-api{proxy_path}" if proxy_path else None
+
                 api_info[deploy_id] = {
                     "model_name": model_name,
                     "model_type": model_type,
@@ -1437,6 +1609,7 @@ class ModelAPIInfoView(APIView):
                         "health": health_endpoint_url,
                         "tt_studio_backend": f"{base_url}/models-api/inference/"
                     },
+                    "inference_route": inference_route,
                     "deploy_info": {
                         "model_impl": {
                             "model_name": getattr(model_impl, "model_name", None) if model_impl else None,
@@ -1458,15 +1631,19 @@ class ModelAPIInfoView(APIView):
             )
     
     def _get_endpoint_path(self, model_type):
-        """Get the appropriate endpoint path based on model type"""
+        """Get the backend proxy route for a non-LLM model type.
+
+        Keys are ModelTypes enum values. Returns None for chat-like models
+        (chat/vlm/mock), which keep the direct-container chat/completions flow.
+        """
         endpoint_map = {
-            "ChatModel": "/inference/",
-            "ImageGeneration": "/image-generation/",
-            "ObjectDetectionModel": "/object-detection/",
-            "SpeechRecognitionModel": "/speech-recognition/"
+            "image_generation": "/image-generation/",
+            "object_detection": "/object-detection/",
+            "speech_recognition": "/speech-recognition/",
+            "tts": "/tts/",
         }
-        return endpoint_map.get(model_type, "/inference/")
-    
+        return endpoint_map.get(model_type)
+
     def _get_example_payload(self, model_type, deploy_info):
         """Get example payload based on model type"""
         # Get the actual deploy_id for this specific model
@@ -1596,3 +1773,229 @@ class ModelAPIInfoView(APIView):
   -H "Content-Type: application/json" \\
   -d '{json_payload}'
 """
+
+
+# Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
+# is the SSOT in shared_config.coding_agent_config.
+from shared_config.coding_agent_config import (  # noqa: E402
+    is_coding_agent_eligible,
+    get_gateway_model_names,
+    resolve_thinking_variant,
+)
+
+LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
+LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
+LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
+LITELLM_INTERNAL_URL = os.environ.get("LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000")
+
+# Round-robin cursor per model_name for multi-chip / duplicate deployments
+_rr_lock = threading.Lock()
+_rr_counters: dict[str, int] = {}
+
+
+def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
+    """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
+
+    Eligibility is decided by is_coding_agent_eligible (shared_config SSOT).
+    Resilient to deploy-cache failures (e.g. docker-control-service down): logs
+    and returns an empty list so callers degrade gracefully instead of 500ing.
+    """
+    out = []
+    try:
+        cache = get_deploy_cache()
+    except Exception as e:
+        logger.warning(f"coding-agents: deploy cache unavailable: {e}")
+        return out
+    for deploy_id, entry in cache.items():
+        impl = entry.get("model_impl")
+        if not entry.get("internal_url") or not is_coding_agent_eligible(impl):
+            continue
+        out.append((deploy_id, entry))
+    return out
+
+
+def _resolve_deploy_by_model_name(model_name: str):
+    """Find a running CHAT/VLM deployment whose friendly model_name matches.
+
+    Matches the catalog `model_impl.model_name` (what the UI shows and the user
+    types), falling back to `cached_model_name`/`hf_model_id`. Round-robins
+    across duplicates (e.g. the same model deployed on multiple chips).
+    """
+    matches = [
+        entry
+        for _, entry in _running_coding_agent_deploys()
+        if model_name
+        in (
+            getattr(entry.get("model_impl"), "model_name", None),
+            entry.get("cached_model_name"),
+            getattr(entry.get("model_impl"), "hf_model_id", None),
+        )
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    with _rr_lock:
+        idx = _rr_counters.get(model_name, 0)
+        _rr_counters[model_name] = (idx + 1) % len(matches)
+    return matches[idx % len(matches)]
+
+
+def _check_upstream_auth(request) -> bool:
+    """Validate the LiteLLM -> backend shared secret. True if authorized."""
+    if not LITELLM_UPSTREAM_KEY:
+        return True
+    auth = request.headers.get("Authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    return token == LITELLM_UPSTREAM_KEY
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OpenAIChatCompletionsView(View):
+    """OpenAI-compatible /v1/chat/completions upstream for the LiteLLM gateway.
+
+    Resolves the OpenAI `model` field (a friendly catalog name) to a running
+    deployment and proxies to its vLLM container, reusing the same streaming
+    machinery as the in-app chat (`stream_response_from_external_api`).
+    """
+
+    async def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return JsonResponse({"error": {"message": "Unauthorized"}}, status=401)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
+
+        # Reasoning models are exposed as both "<name>" and "<name>-thinking";
+        # both resolve to the same deployment but flip vLLM's enable_thinking flag.
+        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
+        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
+        if deploy is None:
+            return JsonResponse(
+                {"error": {"message": f"No running model named '{base_model}'.",
+                           "type": "model_not_found"}},
+                status=404,
+            )
+        if enable_thinking is not None:
+            ctk_raw = data.get("chat_template_kwargs")
+            ctk = ctk_raw if isinstance(ctk_raw, dict) else {}
+            ctk["enable_thinking"] = enable_thinking
+            data["chat_template_kwargs"] = ctk
+
+        internal_url = "http://" + deploy["internal_url"]
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+        )
+
+        # Clamp max_tokens to 75% of the context window (same policy as InferenceView).
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
+            deploy["model_impl"].param_count
+        )
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # Base/completion models: convert messages -> prompt and route accordingly.
+        service_route = deploy["model_impl"].service_route
+        if service_route == "/v1/completions":
+            messages = data.pop("messages", [])
+            data["prompt"] = messages_to_prompt(messages)
+            data.pop("stream_options", None)
+
+        stream = bool(data.get("stream", False))
+
+        if stream:
+            async def generate():
+                try:
+                    # Clean OpenAI SSE passthrough (no injected stream_options /
+                    # stats trailer) so the gateway emits spec-compliant chunks.
+                    async for chunk in stream_openai_passthrough(internal_url, data):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"OpenAIChatCompletionsView stream error: {e}")
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+            response["Cache-Control"] = "no-cache"
+            response["X-Accel-Buffering"] = "no"
+            return response
+
+        # Non-streaming: proxy the JSON response from vLLM verbatim via the shared
+        # pooled client (avoids a fresh connection pool per request).
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        try:
+            upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
+            return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
+        except Exception as e:
+            logger.error(f"OpenAIChatCompletionsView non-stream error: {e}")
+            return JsonResponse({"error": {"message": str(e)}}, status=502)
+
+
+class OpenAIModelsView(APIView):
+    """OpenAI-compatible /v1/models listing of deployed chat models.
+
+    Powers LiteLLM `check_provider_endpoint` discovery (and therefore Claude
+    Code's `/model` picker via CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY).
+    """
+
+    def get(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        seen = set()
+        data = []
+        for _, entry in _running_coding_agent_deploys():
+            name = getattr(entry.get("model_impl"), "model_name", None)
+            if not name:
+                continue
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                data.append({"id": exposed, "object": "model", "owned_by": "tt-studio"})
+        return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
+
+
+class CodingAgentsView(APIView):
+    """Info for the frontend 'Coding Agents' page: gateway health, key, models.
+
+    Returns host-relative info only; the frontend builds absolute URLs from
+    window.location.hostname so remote / port-forwarded access works.
+    """
+
+    def get(self, request, *args, **kwargs):
+        health = "disabled"
+        if LITELLM_MASTER_KEY:
+            try:
+                resp = requests.get(f"{LITELLM_INTERNAL_URL}/health/liveliness", timeout=2)
+                health = "healthy" if resp.status_code == 200 else "unreachable"
+            except requests.RequestException:
+                health = "unreachable"
+
+        models = []
+        seen = set()
+        for _, entry in _running_coding_agent_deploys():
+            impl = entry.get("model_impl")
+            name = getattr(impl, "model_name", None)
+            if not name:
+                continue
+            mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
+            for exposed in get_gateway_model_names(name):
+                if exposed in seen:
+                    continue
+                seen.add(exposed)
+                models.append({"name": exposed, "type": mtype})
+
+        return Response(
+            {
+                "litellm_enabled": bool(LITELLM_MASTER_KEY),
+                "health": health,
+                "gateway_port": LITELLM_PORT,
+                "openai_base_path": "/v1",
+                "master_key": LITELLM_MASTER_KEY,
+                "models": models,
+            },
+            status=status.HTTP_200_OK,
+        )

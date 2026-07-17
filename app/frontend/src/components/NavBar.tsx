@@ -18,11 +18,18 @@ import {
   ChevronRight,
   ChevronLeft,
   BrainCog,
+  Video,
   type LucideIcon,
   History,
+  Settings as SettingsIcon,
+  Workflow,
+  PanelLeft,
+  Terminal,
+  Plus,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
+import { useStrayContainers } from "../hooks/useStrayContainers";
 
 import {
   NavigationMenu,
@@ -39,6 +46,8 @@ import {
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import { BugReportButton } from "./bug-report/BugReportButton";
+import SettingsDialog from "./SettingsDialog";
+import { Button } from "./ui/button";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -49,13 +58,14 @@ import {
   ModelType,
   getModelTypeFromName,
   getModelTypeFromBackendType,
+  fetchModelHealth,
 } from "../api/modelsDeployedApis";
+import type { HealthStatus } from "../types/models";
 
 // Interfaces for our components
 interface AnimatedIconProps {
   icon: LucideIcon;
   className?: string;
-  [key: string]: any;
 }
 
 interface NavItemProps {
@@ -84,7 +94,7 @@ interface ButtonNavItemProps {
 
 // Type for components used in action buttons
 interface ActionButtonProps {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   onClick: (() => void) | null;
   tooltipText: string;
 }
@@ -172,9 +182,8 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
-          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${
-            isDisabled ? "opacity-50 cursor-not-allowed" : ""
-          } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
+          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""
+            } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
         >
           <Icon
             className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
@@ -204,7 +213,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       return onClick ? (
         <ResetIcon onReset={onClick} />
       ) : (
-        <ResetIcon onReset={() => {}} />
+        <ResetIcon onReset={() => { }} />
       );
       // HelpIcon handling removed
     } else {
@@ -249,7 +258,7 @@ interface ButtonNavItemType {
 type NavItemData = NavItemType | ButtonNavItemType;
 
 interface ActionButtonType {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   tooltipText: string;
   onClick: (() => void) | null;
 }
@@ -257,39 +266,108 @@ interface ActionButtonType {
 export default function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
   const { models, refreshModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isHorizontalExpanded, setIsHorizontalExpanded] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Sidebar reference removed
   const { logoUrl } = useLogo();
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
+  // A model shows up in `models` (from the deployments endpoint) as soon as its
+  // container exists, but it isn't usable until it finishes warming up. Probe the
+  // authoritative readiness endpoint (the same one HealthBadge uses) so navbar
+  // entries only appear once a model is healthy. Poll on a light interval, keyed
+  // on the set of deployed model ids so the interval isn't torn down on every
+  // 5s provider refresh.
+  const [healthById, setHealthById] = useState<Record<string, HealthStatus>>({});
+  const modelIdsKey = useMemo(
+    () => models.map((m) => m.id).sort().join(","),
+    [models]
+  );
+
+  useEffect(() => {
+    const ids = modelIdsKey ? modelIdsKey.split(",") : [];
+    if (ids.length === 0) {
+      setHealthById({});
+      return;
+    }
+    let cancelled = false;
+    const probe = async () => {
+      const entries = await Promise.all(
+        ids.map(async (id) => [id, await fetchModelHealth(id)] as const)
+      );
+      if (!cancelled) setHealthById(Object.fromEntries(entries));
+    };
+    probe();
+    const intervalId = setInterval(probe, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [modelIdsKey]);
+
+  // Only models that are actually healthy/usable should surface in the navbar.
+  const healthyModels = useMemo(
+    () => models.filter((m) => healthById[m.id] === "healthy"),
+    [models, healthById]
+  );
+
   // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
   const isVoiceAgentReady = useMemo(() => {
-    const getType = (m: (typeof models)[number]) =>
+    const getType = (m: (typeof healthyModels)[number]) =>
       m.model_type
         ? getModelTypeFromBackendType(m.model_type)
         : getModelTypeFromName(m.name, m.image);
-    const hasLlm = models.some((m) => {
+    const hasLlm = healthyModels.some((m) => {
       const t = getType(m);
       return t === ModelType.ChatModel || t === ModelType.VLM;
     });
-    const hasStt = models.some(
+    const hasStt = healthyModels.some(
       (m) => getType(m) === ModelType.SpeechRecognitionModel
     );
-    const hasTts = models.some((m) => getType(m) === ModelType.TTS);
+    const hasTts = healthyModels.some((m) => getType(m) === ModelType.TTS);
     return hasLlm && hasStt && hasTts;
-  }, [models]);
+  }, [healthyModels]);
 
-  // Check if we're in Chat UI or Image Generation mode
+  // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
+  // supports native tool calling. Eligibility is decided by the backend (SSOT:
+  // shared_config.coding_agent_config) and surfaced per-deployment as a flag.
+  const isCodingAgentReady = useMemo(
+    () => healthyModels.some((m) => m.coding_agent_eligible),
+    [healthyModels],
+  );
+
+  // Surface the Register Model entry only when there's a stray container to adopt.
+  const { hasStray } = useStrayContainers();
+
+  // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
+  // usable once a chat-capable model is healthy. Gate the navbar entries the
+  // same way we gate Voice Agent / Coding Agents.
+  const isLlmReady = useMemo(
+    () =>
+      healthyModels.some((m) => {
+        const t = m.model_type
+          ? getModelTypeFromBackendType(m.model_type)
+          : getModelTypeFromName(m.name, m.image);
+        return t === ModelType.ChatModel || t === ModelType.VLM;
+      }),
+    [healthyModels],
+  );
+
+  // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+  const isVideoGeneration = location.pathname === "/video-generation";
+  const isWorkflows = location.pathname === "/workflows";
+  const isCanvas = location.pathname === "/canvas";
+  const shouldUseVerticalNav =
+    isChatUI || isImageGeneration || isVideoGeneration || isWorkflows || isCanvas;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -338,9 +416,16 @@ export default function NavBar() {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
+  // Dark/light mode toggle is disabled; force dark mode.
+  useEffect(() => {
+    if (theme !== "dark") {
+      setTheme("dark");
+    }
+  }, [theme, setTheme]);
+
   const isMobile = windowWidth < 640;
 
-  if (isMobile && isChatUI) {
+  if (isMobile && (isChatUI || isCanvas)) {
     return null;
   }
 
@@ -361,9 +446,8 @@ export default function NavBar() {
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
 
   const getNavLinkClass = (isActive: boolean): string => {
-    return `${navLinkClass} ${
-      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
-    } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
+    return `${navLinkClass} ${isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
+      } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
   };
 
   const handleReset = (): void => {
@@ -410,7 +494,7 @@ export default function NavBar() {
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
-        return BotMessageSquare;
+        return Video;
       case ModelType.ObjectDetectionModel:
       case ModelType.CNN:
         return Eye;
@@ -485,40 +569,77 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    ...(hasStray
+      ? [
+        {
+          type: "link" as const,
+          to: "/register-model",
+          icon: Plus,
+          label: "Register Model",
+          tooltip: "Adopt a running container as a deployed model",
+        },
+      ]
+      : []),
+    // Workflows and Canvas both need a healthy chat-capable model to be useful,
+    // so only surface them once one is up.
+    ...(isLlmReady
+      ? [
+        {
+          type: "link" as const,
+          to: "/workflows",
+          icon: Workflow,
+          label: "Workflows",
+          tooltip: "Build and run multi-step AI pipelines",
+        },
+        {
+          type: "link" as const,
+          to: "/canvas",
+          icon: PanelLeft,
+          label: "Canvas",
+          tooltip: "AI code canvas with live preview",
+        },
+      ]
+      : []),
+    // Coding Agents is only shown when a coding-agent-eligible model is deployed
+    ...(isCodingAgentReady
+      ? [
+        {
+          type: "link" as const,
+          to: "/coding-agents",
+          icon: Terminal,
+          label: "Coding Agents",
+          tooltip:
+            "Connect Claude Code or any OpenAI client to your models",
+        },
+      ]
+      : []),
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
-          {
-            type: "link" as const,
-            to: "/voice-agent",
-            icon: Mic,
-            label: "Voice Agent",
-            tooltip: "Full conversational AI interface with voice chat",
-          },
-        ]
+        {
+          type: "link" as const,
+          to: "/voice-agent",
+          icon: Mic,
+          label: "Voice Agent",
+          tooltip: "Full conversational AI interface with voice chat",
+        },
+      ]
       : []),
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    console.log(
-      "createModelNavItems called - isDeployedEnabled:",
-      isDeployedEnabled
-    );
-    console.log("models array:", models);
-    console.log("models length:", models.length);
-
     if (isDeployedEnabled) {
-      // In AI Playground mode, show navigation based on deployed models
-      if (models.length > 0) {
-        // Show navigation items for each deployed model
-        return models.map((model) => {
+      // In AI Playground mode, show navigation for models that are healthy and
+      // ready to use. Models still deploying/warming up are intentionally hidden.
+      if (healthyModels.length > 0) {
+        // Show navigation items for each healthy model
+        return healthyModels.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
           const route = getDestinationFromModelType(modelType);
-          console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
@@ -577,14 +698,13 @@ export default function NavBar() {
         ];
       }
     } else {
-      // In TT-Studio mode, show only deployed models
-      console.log("TT-Studio mode - creating navigation for deployed models");
-      return models.map((model) => {
+      // In TT-Studio mode, show only models that are healthy and ready to use.
+      console.log("TT-Studio mode - creating navigation for healthy models");
+      return healthyModels.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
         const route = getDestinationFromModelType(modelType);
-        console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
@@ -593,45 +713,60 @@ export default function NavBar() {
             navigate(route, {
               state: { containerID: model.id, modelName: model.name },
             }),
-          isDisabled: models.length === 0,
-          tooltipText:
-            models.length > 0
-              ? `Open ${getModelPageNameFromModelType(modelType)}`
-              : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
+          isDisabled: false,
+          tooltipText: `Open ${getModelPageNameFromModelType(modelType)}`,
           route,
         };
       });
     }
   };
 
-  // Select the appropriate navigation items based on the environment variable
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
-
-  console.log("Final navItems:", navItems);
-  console.log("navItems length:", navItems.length);
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
+    // Dark/light mode toggle disabled — app stays in dark mode.
+    // {
+    //   icon: ModeToggle,
+    //   tooltipText: "Toggle Dark/Light Mode",
+    //   onClick: null, // ModeToggle handles its own click
+    // },
     {
-      icon: ModeToggle,
-      tooltipText: "Toggle Dark/Light Mode",
-      onClick: null, // ModeToggle handles its own click
+      icon: ResetIcon,
+      tooltipText: "Reset Board",
+      onClick: handleReset,
     },
-    ...(isDeployedEnabled
-      ? []
-      : [
-          {
-            icon: ResetIcon,
-            tooltipText: "Reset Board",
-            onClick: handleReset,
-          },
-        ]),
   ];
+
+  const SettingsNavButton = (_props: { vertical?: boolean } = {}) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="navbar"
+            size="icon"
+            onClick={() => setIsSettingsOpen(true)}
+            className="relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out"
+            aria-label="Settings"
+          >
+            <SettingsIcon className="w-5 h-5" />
+          </Button>
+        </motion.div>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Settings</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 
   // Render vertical navbar for chat UI mode or image generation (regardless of device)
   if (shouldUseVerticalNav) {
     return (
       <TooltipProvider>
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+        />
         <div className="h-screen w-16 fixed left-0 top-0 dark:border-r-4 dark:border-TT-dark border-r-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
           <div className="font-tt_a_mono flex flex-col items-center justify-between h-full py-4">
             {/* Logo */}
@@ -705,6 +840,7 @@ export default function NavBar() {
                   tooltipText={button.tooltipText}
                 />
               ))}
+              <SettingsNavButton vertical />
             </div>
           </div>
         </div>
@@ -715,6 +851,10 @@ export default function NavBar() {
   if (shouldShowMobileMenu) {
     return (
       <TooltipProvider>
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+        />
         <div className="fixed top-0 w-full dark:border-b-4 dark:border-TT-dark border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
           <div className="font-tt_a_mono flex items-center justify-between w-full px-2 py-2">
             {/* Logo */}
@@ -860,6 +1000,7 @@ export default function NavBar() {
                     tooltipText={button.tooltipText}
                   />
                 ))}
+                <SettingsNavButton />
                 <BugReportButton variant="icon" />
               </div>
             </motion.div>
@@ -871,6 +1012,7 @@ export default function NavBar() {
 
   return (
     <TooltipProvider>
+      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
       <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
         <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3">
           {/* Logo */}
@@ -959,6 +1101,7 @@ export default function NavBar() {
                 tooltipText={button.tooltipText}
               />
             ))}
+            <SettingsNavButton />
             <BugReportButton variant="icon" />
           </div>
         </div>

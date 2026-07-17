@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
 import sys
 import os
+import inspect
 import logging
 import time
 import docker
@@ -49,6 +50,52 @@ if artifact_path is None:
         "or ensure tt-inference-server/ exists at repo root with workflows/utils.py."
     )
 
+def _get_hf_token_from_user_config() -> Optional[str]:
+    """Read HF_TOKEN from TT Studio's persistent user_config.env (set via the
+    Settings UI). Returns None if absent or unreadable (e.g. the file is
+    root-owned because the backend container wrote it) so callers can fall
+    back to the request payload or .env. NOTE: Path.exists() itself raises
+    PermissionError when the parent directory is not traversable, so the
+    whole lookup is guarded."""
+    root = os.getenv("TT_STUDIO_ROOT")
+    if not root:
+        return None
+    volume_dir = Path(root) / "tt_studio_persistent_volume" / "backend_volume"
+    try:
+        env_path = volume_dir / "user_config.env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() != "HF_TOKEN":
+                    continue
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                return value or None
+            return None
+        # Legacy user_config.json from before the .env migration; the backend
+        # converts and deletes it on its next load.
+        legacy_path = volume_dir / "user_config.json"
+        if not legacy_path.exists():
+            return None
+        with legacy_path.open("r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            val = data.get("hf_token")
+            return val or None
+    except (OSError, json.JSONDecodeError) as e:
+        # `logger` is configured later in this module; use the stdlib logger
+        # directly so a read failure here doesn't raise NameError and mask it.
+        logging.getLogger(__name__).warning(
+            f"Could not read UI-managed secrets from {volume_dir}: {e}"
+        )
+        return None
+    return None
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -68,6 +115,40 @@ workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 # so explicitly override it to point to the artifact directory instead of the repo root.
 if artifact_path:
     workflows_utils.default_dotenv_path = Path(artifact_path) / ".env"
+
+    # workflows.utils.load_dotenv / write_dotenv freeze `default_dotenv_path` as a default
+    # argument value at import time (Python evaluates defaults once, at definition time),
+    # which resolved to the tt-studio repo root. Reassigning the module attribute above does
+    # NOT rebind those already-frozen defaults, so the artifact's no-arg load_dotenv()/
+    # write_dotenv() calls would still read/write a stray .env at the tt-studio repo root
+    # (GitHub issue #820). Rebind the frozen `dotenv_path` default in place so every caller —
+    # including the artifact's own run.py, which imports the same function objects — targets
+    # the artifact's .env instead.
+    _artifact_dotenv = Path(artifact_path) / ".env"
+    for _fn_name in ("load_dotenv", "write_dotenv"):
+        try:
+            _fn = getattr(workflows_utils, _fn_name, None)
+            if _fn is None or not getattr(_fn, "__defaults__", None):
+                continue
+            _params = list(inspect.signature(_fn).parameters.values())
+            # Defaults align to the trailing parameters that have defaults.
+            _defaulted = [p for p in _params if p.default is not inspect.Parameter.empty]
+            _new_defaults = list(_fn.__defaults__)
+            _rebound = False
+            for _idx, _param in enumerate(_defaulted):
+                if _param.name == "dotenv_path":
+                    _new_defaults[_idx] = _artifact_dotenv
+                    _rebound = True
+            if _rebound:
+                _fn.__defaults__ = tuple(_new_defaults)
+            else:
+                logging.warning(
+                    "workflows.utils.%s has no 'dotenv_path' parameter to rebind; "
+                    "a stray .env may still be written to the repo root.",
+                    _fn_name,
+                )
+        except Exception as exc:  # pragma: no cover - defensive: never block import
+            logging.warning("Could not rebind default dotenv path for %s: %s", _fn_name, exc)
 
 # Patch setup_run_logger so run_log file handler is always present even when
 # other handlers were attached to run_log before run_main() executes.
@@ -134,6 +215,51 @@ except ImportError as e:
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
 
+# Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
+# HF cache snapshots. The original method globs for any *.safetensors and returns True
+# if found, but a prior interrupted download can leave some shards complete (as symlinks
+# in the snapshot dir) while earlier shards are still in-progress .incomplete blobs two
+# levels up in blobs/. Without this patch, setup skips the download and launches the
+# container with missing shards → FileNotFoundError crash.
+#
+# Only overrides True → False (never the reverse). Fails open on any exception so a
+# permission error or unexpected path layout never blocks a valid deploy.
+import workflows.setup_host as _setup_host_module  # noqa: E402
+_orig_check_model_weights_dir = _setup_host_module.HostSetupManager.check_model_weights_dir
+
+
+def _patched_check_model_weights_dir(self, host_weights_dir):
+    result = _orig_check_model_weights_dir(self, host_weights_dir)
+    if not result or host_weights_dir is None:
+        return result
+    # Navigate to the HF cache blobs/ dir (two levels above the snapshot dir).
+    # Layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
+    try:
+        blobs_dir = host_weights_dir.parent.parent / "blobs"
+    except Exception:
+        return result
+    if not blobs_dir.is_dir():
+        return result  # not an HF cache layout (host-volume, local dir, etc.)
+    try:
+        incomplete = list(blobs_dir.glob("*.incomplete"))
+    except Exception as exc:
+        _patched_check_model_weights_dir_logger = logging.getLogger(__name__)
+        _patched_check_model_weights_dir_logger.warning(
+            "check_model_weights_dir: cannot scan blobs dir %s: %s", blobs_dir, exc
+        )
+        return result
+    if incomplete:
+        logging.getLogger(__name__).warning(
+            "check_model_weights_dir: %d incomplete blob(s) in %s — "
+            "re-download required. Files: %s",
+            len(incomplete), blobs_dir, [f.name for f in incomplete],
+        )
+        return False
+    return True
+
+
+_setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
+
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
 # Instead, configure logging manually
@@ -142,15 +268,15 @@ logger.setLevel(logging.DEBUG)  # Set level on the logger itself
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
-def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to fastapi.log at TT Studio root"""
+def setup_model_run_file_logging():
+    """Set up file logging for FastAPI - writes to logs/model_run.log under TT Studio root"""
     try:
-        # Put the log file at TT Studio root:
-        # <tt_studio_root>/fastapi.log
+        # Put the log file under the consolidated logs/ directory:
+        # <tt_studio_root>/logs/model_run.log
         tt_studio_root = Path(__file__).parent.parent.resolve()
-        root_log_dir = tt_studio_root
+        root_log_dir = tt_studio_root / "logs"
         root_log_dir.mkdir(parents=True, exist_ok=True)
-        root_log_file = root_log_dir / "fastapi.log"
+        root_log_file = root_log_dir / "model_run.log"
 
         # Keep append mode here. run.py also streams uvicorn output to this file,
         # so truncate mode can create confusing interleaving/overwrite artifacts.
@@ -197,7 +323,7 @@ def setup_fastapi_file_logging():
 
         # Try to write error to a local fallback log
         try:
-            fallback_log = Path(__file__).parent / "fastapi_setup_error.log"
+            fallback_log = Path(__file__).parent / "model_run_setup_error.log"
             with open(fallback_log, "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
                 f.write(traceback.format_exc())
@@ -205,7 +331,7 @@ def setup_fastapi_file_logging():
             pass  # If even fallback fails, just continue
 
 # Initialize file logging
-setup_fastapi_file_logging()
+setup_model_run_file_logging()
 
 # Global progress store with thread-safe access
 progress_store: Dict[str, Dict[str, Any]] = {}
@@ -246,6 +372,21 @@ _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.j
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
 _DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES = {
     "qwen3-32b": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
+}
+_HF_CACHE_MODELS_CONFIG_PATH = Path(__file__).with_name("hf_cache_models.json")
+_DEFAULT_HF_CACHE_MODEL_ALLOWLIST = {
+    "mochi-1-preview",
+    "wan2.2-t2v-a14b-diffusers",
+    "wan2.2-i2v-a14b-diffusers",
+    "flux.1-dev",
+    "flux.1-schnell",
+    "motif-image-6b-preview",
+    "stable-diffusion-3.5-large",
+    "stable-diffusion-xl-1.0-inpainting-0.1",
+    "stable-diffusion-xl-base-1.0",
+    "stable-diffusion-xl-base-1.0-img-2-img",
+    "qwen-image",
+    "qwen-image-2512",
 }
 
 
@@ -327,6 +468,58 @@ def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
 _HOST_VOLUME_MODEL_ALLOWLIST, _HOST_VOLUME_DIRECTORY_OVERRIDES = (
     _load_host_volume_model_config()
 )
+
+
+def _load_hf_cache_model_config() -> set[str]:
+    try:
+        raw_config = json.loads(_HF_CACHE_MODELS_CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config not found at %s; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+    except json.JSONDecodeError as exc:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is invalid JSON (%s); using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            exc,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    configured_models = raw_config.get("models")
+    if not isinstance(configured_models, list):
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s is missing a 'models' list; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    normalized_models = {
+        str(model_name).strip().lower()
+        for model_name in configured_models
+        if str(model_name).strip()
+    }
+    if not normalized_models:
+        logging.getLogger(__name__).warning(
+            "HF-cache models config at %s did not contain any usable model names; using default allowlist %s",
+            _HF_CACHE_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST),
+        )
+        return set(_DEFAULT_HF_CACHE_MODEL_ALLOWLIST)
+
+    logging.getLogger(__name__).info(
+        "Loaded HF-cache model allowlist from %s: %s",
+        _HF_CACHE_MODELS_CONFIG_PATH,
+        sorted(normalized_models),
+    )
+    return normalized_models
+
+
+_HF_CACHE_MODEL_ALLOWLIST = _load_hf_cache_model_config()
 
 
 def _resolve_preferred_host_volume(
@@ -479,6 +672,10 @@ def _resolve_preferred_host_volume(
 
 def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
+
+
+def _model_uses_host_hf_cache(model_name: str) -> bool:
+    return (model_name or "").strip().lower() in _HF_CACHE_MODEL_ALLOWLIST
 
 
 # ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
@@ -1120,7 +1317,7 @@ class ProgressHandler(logging.Handler):
             progress = 0
             status = "running"
         
-            # Based on the fastapi.log patterns, parse deployment stages
+            # Based on the model_run.log patterns, parse deployment stages
             if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
                 stage = "initialization"
                 progress = 5
@@ -1323,21 +1520,21 @@ def normalize_device_alias(device: str) -> str:
     }
     return alias_map.get(device.strip().lower(), device)
 
-def get_fastapi_logs_dir():
-    """Get the FastAPI logs directory at TT Studio root"""
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
     tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "fastapi_logs"
-    fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
-    return fastapi_logs_dir
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    fastapi_logs_dir = get_fastapi_logs_dir()
-    
-    # Create log file with pattern: fastapi_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
-    log_filename = f"fastapi_{timestamp}_{model}_{device}_server.log"
-    log_file_path = fastapi_logs_dir / log_filename
+    model_run_logs_dir = get_model_run_logs_dir()
+
+    # Create log file with pattern: model_run_YYYY-MM-DD_HH-MM-SS_ModelName_device_server.log
+    log_filename = f"model_run_{timestamp}_{model}_{device}_server.log"
+    log_file_path = model_run_logs_dir / log_filename
     
     # Create file handler
     file_handler = logging.FileHandler(log_file_path, mode='w')
@@ -1411,7 +1608,7 @@ async def test_logging():
     logger.warning("Warning level test message")
     return {
         "message": "Logging test completed", 
-        "check": "fastapi.log file for log messages",
+        "check": "model_run.log file for log messages",
         "timestamp": time.time()
     }
 
@@ -1528,8 +1725,8 @@ def sync_tokens_from_tt_studio():
     if not tt_studio_root:
         logger.warning("TT_STUDIO_ROOT environment variable not set, cannot sync tokens")
         return
-    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
-    
+    tt_studio_env = Path(tt_studio_root) / ".env"
+
     # Use artifact directory for inference server .env if available, otherwise use TT Studio root
     if artifact_path:
         inference_server_env = Path(artifact_path) / ".env"
@@ -1555,6 +1752,14 @@ def sync_tokens_from_tt_studio():
                             tt_studio_hf = value
     else:
         logger.warning(f"TT Studio .env file not found at {tt_studio_env}")
+
+    # Prefer the UI-managed hf_token from user_config.env over the root .env so
+    # changes saved via the Settings dialog apply on every /run.
+    ui_hf = _get_hf_token_from_user_config()
+    if ui_hf:
+        tt_studio_hf = ui_hf
+
+    if not tt_studio_jwt and not tt_studio_hf:
         return
     
     # Read inference server .env values
@@ -1675,7 +1880,8 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -1685,7 +1891,13 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("JWT_SECRET"):
             logger.warning("JWT_SECRET not set - this may cause issues")
             
-        if request.hf_token and not os.getenv("HF_TOKEN"):
+        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+        # so changes apply without restarting inference-api or redeploying anything.
+        ui_hf = _get_hf_token_from_user_config()
+        if ui_hf:
+            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
+            env_vars_to_set["HF_TOKEN"] = ui_hf
+        elif request.hf_token and not os.getenv("HF_TOKEN"):
             logger.info("Setting HF_TOKEN from request")
             env_vars_to_set["HF_TOKEN"] = request.hf_token
         elif not os.getenv("HF_TOKEN"):
@@ -1776,6 +1988,43 @@ async def run_inference(request: RunRequest):
                 job_id,
                 host_volume_resolution_reason,
             )
+        # Media (DiT) models reuse the host's already-downloaded HF weights via
+        # --host-hf-cache. This is mutually exclusive with the Qwen --host-volume
+        # path: Qwen uses host-volume, media uses hf-cache; they shouldn't combine.
+        if _model_uses_host_hf_cache(request.model) and "--host-volume" not in initial_argv:
+            host_hf_cache_path = str(_default_hf_home())
+            # Ensure the HF cache dir exists. tt-inference-server's
+            # validate_bind_mount_permissions() ValueErrors on a non-existent
+            # --host-hf-cache path, which forces a baseline (in-container XET)
+            # fallback that stalls on large media weights. setup_host() will
+            # populate this dir via `hf download` once the mount validates.
+            try:
+                Path(host_hf_cache_path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "Job %s: could not create HF cache dir %s (%s); "
+                    "deploy may fall back to baseline startup",
+                    job_id,
+                    host_hf_cache_path,
+                    exc,
+                )
+            initial_argv.extend(["--host-hf-cache", host_hf_cache_path])
+            logger.info(
+                "Job %s: media model %s accepted for HF-cache reuse; using --host-hf-cache %s",
+                job_id,
+                request.model,
+                host_hf_cache_path,
+            )
+        else:
+            if not _model_uses_host_hf_cache(request.model):
+                host_hf_cache_skip_reason = "model not in HF-cache allowlist"
+            else:
+                host_hf_cache_skip_reason = "--host-volume already selected"
+            logger.info(
+                "Job %s: using baseline startup without host-hf-cache (%s)",
+                job_id,
+                host_hf_cache_skip_reason,
+            )
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
@@ -1843,6 +2092,9 @@ async def run_inference(request: RunRequest):
                             if "--host-volume" in retry_argv:
                                 retry_argv = _strip_cli_option(retry_argv, "--host-volume")
                                 retry_reason_parts.append("baseline startup without --host-volume")
+                            if "--host-hf-cache" in retry_argv:
+                                retry_argv = _strip_cli_option(retry_argv, "--host-hf-cache")
+                                retry_reason_parts.append("baseline startup without --host-hf-cache")
                             if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                                 retry_argv.append("--skip-system-sw-validation")
                                 retry_reason_parts.append("--skip-system-sw-validation")

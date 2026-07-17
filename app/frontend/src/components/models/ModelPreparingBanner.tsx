@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import type { JSX } from "react";
-import { X, Zap, ScrollText, Download, Check } from "lucide-react";
+import { useEffect, useState, type JSX } from "react";
+import { X, Zap, ScrollText, Download, Check, Clock } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ModelRow } from "../../types/models";
 import type { StartupPhase } from "../HealthBadge";
@@ -55,6 +55,21 @@ function formatBytes(n?: number | null): string {
   }
   const decimals = v >= 100 || u === 0 ? 0 : v >= 10 ? 1 : 2;
   return `${v.toFixed(decimals)} ${units[u]}`;
+}
+
+// Wall-clock seconds since the row mounted (i.e. since warmup became visible).
+function useElapsedSeconds(): number {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return seconds;
+}
+
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function formatEta(eta?: number | null): string | null {
@@ -179,12 +194,18 @@ function PhaseTrack({
   const visiblePhases = hideDownload
     ? allPhases.filter((p) => p.key !== "downloading_weights")
     : allPhases;
-  const currentIdx = visiblePhases.findIndex((p) => p.key === phaseKey);
+
+  // A cached download is effectively  finished, so advance the highlight to the next real phase
+  let activeFullIdx = allPhases.findIndex((p) => p.key === phaseKey);
+  if (hideDownload && phaseKey === "downloading_weights" && activeFullIdx >= 0) {
+    activeFullIdx += 1;
+  }
   return (
     <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-1 -mx-0.5 px-0.5">
-      {visiblePhases.map((p, i) => {
-        const done = currentIdx >= 0 && i < currentIdx;
-        const active = i === currentIdx;
+      {visiblePhases.map((p) => {
+        const pFullIdx = allPhases.findIndex((x) => x.key === p.key);
+        const done = activeFullIdx >= 0 && pFullIdx < activeFullIdx;
+        const active = pFullIdx === activeFullIdx;
         return (
           <div
             key={p.key}
@@ -261,6 +282,7 @@ function PreparingRow({
   const haveSize =
     phase?.downloaded_bytes != null || phase?.total_bytes != null;
   const indeterminate = isDownloading && !haveSize;
+  const elapsed = useElapsedSeconds();
 
   return (
     <div className="w-full">
@@ -276,6 +298,13 @@ function PreparingRow({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="flex items-center gap-1 font-mono text-xs text-white tabular-nums"
+            title="Time elapsed since warmup started"
+          >
+            <Clock className="w-3 h-3" />
+            {formatElapsed(elapsed)}
+          </span>
           <span className="font-mono text-base text-amber-300 tabular-nums font-semibold">
             {progress}%
           </span>

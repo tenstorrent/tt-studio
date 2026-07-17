@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import os
 import asyncio
+import threading
 import concurrent.futures
 import requests
 import json
@@ -34,11 +35,14 @@ from .docker_utils import (
     detect_board_type,
     map_board_type_to_device_name,
     infer_inference_server_device,
+    deploys_whole_board,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
+    WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, resolve_deploy_image
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
@@ -52,6 +56,11 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def _build_fastapi_url(path: str) -> str:
+    """Build a full URL for the TT Inference Server API."""
+    return f"{backend_config.tt_inference_api_url}/{path.lstrip('/')}"
 
 
 def _split_image_version(image_version: str):
@@ -84,6 +93,22 @@ try:
     _compatibility_override_names: set[str] = set(_override_data.get("model_names", []))
 except Exception:
     _compatibility_override_names = set()
+
+# Pin these Llama variants to the v0.14.0 release image for P300x2 compatibility (PR #815).
+# Sent as override_docker_image so the inference server uses the published -release- tag
+# even when dev_mode is on (e.g. tool calling), avoiding the -dev- variant which is not
+# published for this build.
+_LLAMA_V014_IMAGE = (
+    "ghcr.io/tenstorrent/tt-inference-server/"
+    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+)
+_LLAMA_V014_MODELS = {
+    "Llama-3.1-8B",
+    "Llama-3.1-8B-Instruct",
+    "Llama-3.1-70B",
+    "Llama-3.1-70B-Instruct",
+    "Llama-3.3-70B-Instruct",
+}
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
@@ -304,6 +329,13 @@ class ChipStatusView(APIView):
 
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
+        # Block new deployments while a board/device reset is in progress — deploying
+        # mid-reset conflicts with the hardware re-init and model teardown.
+        if SystemResourceService.is_reset_in_progress():
+            return Response(
+                {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
@@ -330,7 +362,17 @@ class DeployView(APIView):
 
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
-            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            board_type = detect_board_type()
+            # Media models (e.g. FLUX) can be inferred as single-chip yet deploy across
+            # a whole multi-chip board because they have no single-chip spec for the
+            # board's constituent chip. The inference server then claims the full mesh,
+            # so we must reserve and record every slot — not just slot 0.
+            mesh_whole_board = (
+                impl.model_type != ModelTypes.CHAT
+                and chips_required == 1
+                and not requested_device_ids
+                and deploys_whole_board(impl, board_type)
+            )
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
@@ -344,36 +386,53 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # Stop and clean up any existing starting/running deployments of this
-            # model before deploying a new instance. Prevents stale records with
-            # wrong device_id from persisting in the UI after a re-deploy.
-            try:
-                from docker_control.models import ModelDeployment
-                from docker_control.docker_utils import stop_container
-                stale = list(ModelDeployment.objects.filter(
-                    model_name=impl.model_name,
-                    status__in=["starting", "running"],
-                ))
-                for old_dep in stale:
-                    try:
-                        stop_container(old_dep.container_id)
-                    except Exception:
-                        pass
-                    old_dep.status = "stopped"
-                    old_dep.save()
-                    logger.info(
-                        f"Cleaned up stale deployment record {old_dep.id} "
-                        f"for {impl.model_name} (container_id={old_dep.container_id})"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
+            # Pre-check Hugging Face access before consuming a chip slot.
+            hf_repo = getattr(impl, "hf_model_id", None)
+            if hf_repo:
+                from shared_config.user_config import get_hf_token
+                token = get_hf_token()
+                if token:
+                    from api.hf_access import _check_repo, _status_from_code
+                    code = _check_repo(token, hf_repo)
+                    # diffusers repos (FLUX/Wan) have no root config.json and 404;
+                    # retry with model_index.json so a gated diffusers repo still
+                    # surfaces denied/auth_failed instead of a false "error".
+                    if code == 404:
+                        code = _check_repo(token, hf_repo, "model_index.json")
+                    if _status_from_code(code) in ("denied", "auth_failed"):
+                        return Response(
+                            {
+                                "error_code": "hf_access_denied",
+                                "message": f"Your Hugging Face token does not have access to {hf_repo}.",
+                                "hf_url": f"https://huggingface.co/{hf_repo}",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+            # On Wormhole mesh boards a single-chip-capable model deploys across the whole
+            # board by default; only an explicit slot selection ("1 Device") pins it to a
+            # single constituent chip. Per-chip-default boards (e.g. P300x2) are excluded.
+            use_whole_board_deploy = (
+                impl.model_type == ModelTypes.CHAT
+                and not should_force_full_board_llama
+                and chips_required == 1
+                and not requested_device_ids
+                and board_type in WHOLE_BOARD_DEFAULT_BOARDS
+            )
+
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available. Slot allocation below enforces capacity and the
+            # canonical reconciliation frees genuinely stale records, so we must not
+            # stop existing same-model deployments here.
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama:
-                    # Simplified QB2 Llama full-board path must reserve all slots.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
+                    # Wormhole mesh board, or a media model like FLUX with no single-chip
+                    # spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -430,13 +489,13 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama:
-                    # Forced full-board Llama takes over every slot on the board.
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
-                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
                     occupied_device_ids = list(
-                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                        range(device_id, device_id + chips_required)
                     )
                 else:
                     # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
@@ -464,7 +523,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama:
+            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -477,31 +536,62 @@ class DeployView(APIView):
                     device = "p300x2"
                     inference_device_id = None
                 else:
-                    if chips_required == 1:
-                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    else:
+                    if chips_required > 1 or use_whole_board_deploy:
+                        # Genuinely multi-chip model, or a single-chip model deploying
+                        # across a whole Wormhole mesh board — use the board-level device.
                         device = map_board_type_to_device_name(board_type)
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
+                    else:
+                        # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
+                        # use the single constituent chip device.
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
+                    # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
                         board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
+                        and sorted(device_ids) in ([0, 1], [2, 3])
                     ):
                         device = "p300"
-                    # For P300x2 with the whole-board p300x2 device, the inference
-                    # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
-                    # lands on its allocated slot(s).
-                    if board_type == "P300x2" and device == "p300x2":
+                    # When using a multi-chip whole-board device (e.g. t3k, p300x2,
+                    # p150x4), the inference server selects the physical chips itself —
+                    # omit device_id. Single-board devices (n300/n150/p150) and slot-pinned
+                    # constituent chips keep device_id so each model lands on its slot(s).
+                    whole_board_device = map_board_type_to_device_name(board_type)
+                    single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    is_multi_chip_board = whole_board_device != single_chip_device
+                    if device == whole_board_device and is_multi_chip_board:
                         inference_device_id = None
                     else:
-                        inference_device_id = device_ids_str
+                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+                # Enable vLLM tool calling for chat-completions models so coding
+                # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
+                # Only for /v1/chat/completions models with a known parser — base
+                # (/v1/completions) models and unknown families are left untouched.
+                vllm_override_args = None
+                if impl.service_route == "/v1/chat/completions":
+                    overrides = {}
+                    tool_parser = tool_call_parser_for(
+                        impl.model_name, getattr(impl, "hf_model_id", "")
+                    )
+                    if tool_parser:
+                        overrides["enable-auto-tool-choice"] = True
+                        overrides["tool-call-parser"] = tool_parser
+                    # Reasoning models: split thinking into reasoning_content.
+                    reasoning_parser = get_reasoning_parser(impl.model_name)
+                    if reasoning_parser:
+                        overrides["reasoning-parser"] = reasoning_parser
+                    if overrides:
+                        vllm_override_args = json.dumps(overrides)
+                # Some Llama models need a newer image than the inference server's model_spec default
+                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
+                override_docker_image = (
+                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
+                )
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -509,13 +599,15 @@ class DeployView(APIView):
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
+                    vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
+                    override_docker_image=override_docker_image,
                     dev_mode=False,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
                 # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
-                deploy_image = resolve_deploy_image(impl.model_name, device) or impl.image_version
+                deploy_image = override_docker_image or resolve_deploy_image(impl.model_name, device) or impl.image_version
                 if deploy_image != impl.image_version:
                     logger.info(
                         f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
@@ -541,7 +633,7 @@ class DeployView(APIView):
                             model_name=impl.model_name,
                             device=device,
                             device_id=device_id,
-                            device_ids=device_ids,
+                            device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
                         )
@@ -600,7 +692,7 @@ class DeployView(APIView):
                         {
                             "status": "success",
                             "job_id": pull_id,
-                            "message": "Pulling model image…",
+                            "message": "Pulling Docker Image…",
                             "allocated_device_id": device_id,
                         },
                         status=status.HTTP_201_CREATED,
@@ -640,6 +732,7 @@ class DeployView(APIView):
                         device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
+                        tool_calling_enabled=bool(vllm_override_args),
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
@@ -699,7 +792,7 @@ class DeployView(APIView):
                         deploy_fn=deploy_fn,
                     )
                     return Response(
-                        {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
+                        {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
                         status=status.HTTP_201_CREATED,
                     )
 
@@ -867,6 +960,7 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                dep.stopped_at = None
                 docker_log_path = progress_data.get("docker_log_file_path")
                 if docker_log_path:
                     dep.workflow_log_path = docker_log_path
@@ -931,7 +1025,7 @@ class DeploymentProgressView(APIView):
                     else:
                         layers_total = pull_job.get("layers_total") or 0
                         layers_done = pull_job.get("layers_done") or 0
-                        msg = "Pulling model image..."
+                        msg = "Pulling Docker Image..."
                         if layers_total:
                             msg += f" ({layers_done}/{layers_total} layers)"
                     return Response(
@@ -957,7 +1051,7 @@ class DeploymentProgressView(APIView):
 
             # First, try to get progress from FastAPI inference server
             try:
-                fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
+                fastapi_url = _build_fastapi_url(f"run/progress/{job_id}")
                 response = requests.get(fastapi_url, timeout=5)
 
                 if response.status_code == 200:
@@ -1058,19 +1152,19 @@ class DeploymentProgressView(APIView):
                         status=status.HTTP_200_OK
                     )
 
-                # Based on FastAPI logs - realistic timing for each stage
+                # Based on model run logs - realistic timing for each stage
                 if elapsed_time < 3:
                     progress = 5
                     stage = "initialization"
-                    message = "Loading environment files..."  # fastapi.log (13-14)
+                    message = "Loading environment files..."  # model_run.log (13-14)
                 elif elapsed_time < 8:
                     progress = 15
                     stage = "setup"
-                    message = "Running workflow configuration..."  # fastapi.log (19-27)
+                    message = "Running workflow configuration..."  # model_run.log (19-27)
                 elif elapsed_time < 15:
                     progress = 25
                     stage = "model_preparation"
-                    message = "Checking model setup and weights..."  # fastapi.log (83-91)
+                    message = "Checking model setup and weights..."  # model_run.log (83-91)
                 elif elapsed_time < 25:
                     progress = 40
                     stage = "model_preparation"
@@ -1078,7 +1172,7 @@ class DeploymentProgressView(APIView):
                 elif elapsed_time < 35:
                     progress = 55
                     stage = "container_setup"
-                    message = "Preparing Docker configuration..."  # fastapi.log (100-113)
+                    message = "Preparing Docker configuration..."  # model_run.log (100-113)
                 elif elapsed_time < 45:
                     progress = 70
                     stage = "container_setup"
@@ -1265,7 +1359,7 @@ class DeploymentLogsView(APIView):
             
             # Try to get logs from FastAPI inference server
             try:
-                fastapi_url = f"http://172.18.0.1:8001/run/logs/{job_id}"
+                fastapi_url = _build_fastapi_url(f"run/logs/{job_id}")
                 response = requests.get(fastapi_url, timeout=5)
                 
                 if response.status_code == 200:
@@ -1304,7 +1398,7 @@ class DeploymentProgressStreamView(APIView):
             """Generator that forwards SSE events from FastAPI to frontend"""
             try:
                 # Connect to FastAPI inference server SSE endpoint
-                fastapi_url = f"http://172.18.0.1:8001/run/stream/{job_id}"
+                fastapi_url = _build_fastapi_url(f"run/stream/{job_id}")
                 logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
                 
                 # Stream the response
@@ -1692,39 +1786,42 @@ class DockerServiceLogsView(APIView):
             
             # Also try to get system logs if available
             try:
-                # Check if fastapi.log exists in multiple possible locations using relative paths
-                possible_fastapi_logs = [
-                    "fastapi.log",  # Current directory
-                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-                    "/app/fastapi.log",  # Container path as fallback
+                # Check if model_run.log exists in multiple possible locations using relative paths
+                possible_model_run_logs = [
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "model_run.log"),  # Consolidated logs/ dir (current location)
+                    "logs/model_run.log",  # Relative to current directory
+                    os.path.join(os.getcwd(), "model_run.log"),  # Current working directory
+                    "/app/model_run.log",  # Container path as fallback
+                    # Legacy fastapi.log locations (pre-rename) kept for backward compatibility
+                    os.path.join(os.getenv("TT_STUDIO_ROOT", ""), "logs", "fastapi.log"),
+                    "logs/fastapi.log",
+                    "fastapi.log",
+                    "/app/fastapi.log",
                 ]
-                
-                fastapi_log_found = False
-                for fastapi_log_path in possible_fastapi_logs:
-                    if os.path.exists(fastapi_log_path):
+
+                model_run_log_found = False
+                for model_run_log_path in possible_model_run_logs:
+                    if os.path.exists(model_run_log_path):
                         try:
-                            with open(fastapi_log_path, 'r') as f:
+                            with open(model_run_log_path, 'r') as f:
                                 lines = f.readlines()
                                 # Get last 8 lines and limit size
                                 log_content = ''.join(lines[-8:])
                                 if len(log_content) > 800:
                                     log_content = log_content[-800:] + "\n\n... (truncated)"
-                                logs_data["fastapi"] = log_content
-                            fastapi_log_found = True
+                                logs_data["model_run"] = log_content
+                            model_run_log_found = True
                             break
                         except Exception as read_error:
-                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                            logger.error(f"Error reading {model_run_log_path}: {str(read_error)}")
                             continue
-                
-                if not fastapi_log_found:
-                    logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
-                    
+
+                if not model_run_log_found:
+                    logs_data["model_run"] = "model_run.log not accessible from container (logs available from Docker containers above)"
+
             except Exception as e:
-                logger.error(f"Error reading fastapi.log: {str(e)}")
-                logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"
+                logger.error(f"Error reading model_run.log: {str(e)}")
+                logs_data["model_run"] = f"Error reading model_run.log: {str(e)[:500]}"
             
             # Try to get backend log file if available
             try:
@@ -1848,7 +1945,13 @@ class DeploymentHistoryView(APIView):
             
             # Get all deployments, ordered by most recent first
             deployments = ModelDeployment.objects.all().order_by('-deployed_at')
-            
+
+            name_to_repo = {
+                impl.model_name: impl.hf_model_id
+                for impl in model_implmentations.values()
+                if impl.hf_model_id
+            }
+
             # Serialize the data, lazily backfilling workflow_log_path when missing
             deployment_data = []
             for deployment in deployments:
@@ -1868,6 +1971,7 @@ class DeploymentHistoryView(APIView):
                         except Exception as save_err:
                             logger.warning(f"Could not save workflow_log_path for deployment {deployment.id}: {save_err}")
 
+                hf_repo = name_to_repo.get(deployment.model_name)
                 deployment_data.append({
                     'id': deployment.id,
                     'container_id': deployment.container_id,
@@ -1881,6 +1985,9 @@ class DeploymentHistoryView(APIView):
                     'stopped_by_user': deployment.stopped_by_user,
                     'port': deployment.port,
                     'workflow_log_path': deployment.workflow_log_path,
+                    'failure_reason': deployment.failure_reason,
+                    'failure_message': deployment.failure_message,
+                    'hf_url': f"https://huggingface.co/{hf_repo}" if hf_repo else None,
                 })
             
             return Response({
@@ -1898,7 +2005,13 @@ class DeploymentHistoryView(APIView):
 
 
 class DiscoverContainersView(APIView):
-    """List running containers NOT already on tt_studio_network (candidates for registration)."""
+    """List running containers that are candidates for registration.
+
+    A candidate is any running container that is either unregistered, or registered
+    but no longer on tt_studio_network (a disconnected stray). Being attached to the
+    network is not itself a disqualifier — only a registered container that is still
+    on the network is excluded; everything else is offered so it can be (re)registered.
+    """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
     _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
@@ -1909,20 +2022,32 @@ class DiscoverContainersView(APIView):
             response = docker_client.list_containers(all=False)
             containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
+            # Containers already tracked as running/starting deployments are excluded (they're registered/managed)
+            registered_ids = set()
+            try:
+                from docker_control.models import ModelDeployment
+                for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+                    if dep.container_id:
+                        registered_ids.add(dep.container_id)
+                        registered_ids.add(dep.container_id[:12])
+            except Exception as e:
+                logger.warning(f"DiscoverContainersView: could not read deployments: {e}")
+
             network_name = backend_config.docker_bridge_network_name
             results = []
-
             for c in containers_list:
                 name = c.get("name", "")
                 # Skip TT Studio infrastructure containers
                 if any(name.startswith(p) or name.lower().startswith(p) for p in self._INFRA_PREFIXES):
                     continue
 
-                # Skip containers already on tt_studio_network
-                networks = c.get("NetworkSettings", {}).get("Networks", {})
-                if not networks:
-                    networks = c.get("networks", {})
-                if network_name in networks:
+                # A registered container that has fallen off tt_studio_network is a
+                # stray (shows as "unknown" on Models Deployed) — re-offer it so the
+                # user can re-register, which reconnects it.
+                cid = c.get("id", "") or ""
+                is_registered = cid in registered_ids or cid[:12] in registered_ids
+                networks = c.get("NetworkSettings", {}).get("Networks") or c.get("networks") or {}
+                if is_registered and network_name in networks:
                     continue
 
                 # Extract port bindings
@@ -1930,12 +2055,19 @@ class DiscoverContainersView(APIView):
                 if not port_bindings:
                     port_bindings = c.get("port_bindings", {})
 
+                # Auto-detected chips from bound /dev/tenstorrent nodes (ground
+                # truth). A list means specific chips the UI should enforce; null
+                # means undetermined (whole-board or none) so the user may choose.
+                bound = _detect_device_ids_from_mounts(c)
+                detected_device_ids = bound if isinstance(bound, list) else None
+
                 results.append({
-                    "id": c.get("id", ""),
+                    "id": cid,
                     "name": name,
                     "image": c.get("Config", {}).get("Image", c.get("image", "")),
                     "status": c.get("status", ""),
                     "port_bindings": port_bindings or {},
+                    "device_ids": detected_device_ids,
                 })
 
             return Response(results, status=status.HTTP_200_OK)
@@ -1948,36 +2080,160 @@ class DiscoverContainersView(APIView):
             )
 
 
+# Device-related arguments in a container's launch command, in the forms tt-inference-server / vLLM accept.
+_DEVICE_ID_ARG = re.compile(r"^--?device[-_]?ids?$", re.IGNORECASE)
+_TT_DEVICE_ARG = re.compile(r"^--?tt[-_]?device$", re.IGNORECASE)
+_MODEL_ARG = re.compile(r"^--?model$", re.IGNORECASE)
+_SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
+# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
+_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
+
+
+def _parse_device_ids_token(value) -> list:
+    """Parse a device-id argument value ("2" or "0,1") into a sorted int list."""
+    ids = []
+    for part in str(value).split(","):
+        part = part.strip()
+        if part.lstrip("-+").isdigit():
+            ids.append(int(part))
+    return sorted(set(ids))
+
+
+def _cmd_tokens(container_info: dict) -> list:
+    config = container_info.get("Config") or {}
+    return [
+        t for t in (list(config.get("Entrypoint") or []) + list(config.get("Cmd") or []))
+        if isinstance(t, str)
+    ]
+
+
+def _find_arg_value(tokens: list, arg_re) -> "str | None":
+    """Return the value of a `--flag value` or `--flag=value` arg, or None."""
+    for i, tok in enumerate(tokens):
+        if arg_re.match(tok) and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if "=" in tok:
+            key, _, rhs = tok.partition("=")
+            if arg_re.match(key):
+                return rhs
+    return None
+
+
+def _container_env(container_info: dict) -> dict:
+    """Container env as {KEY: value}, from Config.Env (and 'environment' fallback)."""
+    config = container_info.get("Config") or {}
+    env = {}
+    for item in (config.get("Env") or []):
+        if isinstance(item, str) and "=" in item:
+            k, _, v = item.partition("=")
+            env[k] = v
+    extra = container_info.get("environment")
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            env.setdefault(k, v)
+    return env
+
+
+def _detect_device_ids_from_mounts(container_info: dict):
+    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
+
+    This is the ground truth: the launcher binds exactly the chip nodes the model
+    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
+    works regardless of how or where the container was started. Returns a sorted
+    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
+    directory is bound (no per-chip granularity), or None if no TT device is bound.
+    """
+    hc = container_info.get("HostConfig") or {}
+    ids = []
+    whole = False
+    for d in (hc.get("Devices") or []):
+        if not isinstance(d, dict):
+            continue
+        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
+        m = _TT_DEVICE_NODE.match(path)
+        if m:
+            ids.append(int(m.group(1)))
+        elif path == "/dev/tenstorrent":
+            whole = True
+    if ids:
+        return sorted(set(ids))
+    return "whole" if whole else None
+
+
+def _detect_device_ids_from_command(container_info: dict):
+    """Return the explicit device-id list pinned in a container's launch command
+    (e.g. `--device-id 0,1`), or None if the command pins no specific devices.
+
+    A missing device-id is NOT whole-board: single-chip servers omit it too. The
+    caller decides the count from the detected board / catalog requirement instead.
+    """
+    val = _find_arg_value(_cmd_tokens(container_info), _DEVICE_ID_ARG)
+    if val:
+        ids = _parse_device_ids_token(val)
+        if ids:
+            return ids
+    return None
+
+
+def _detect_device_board(container_info: dict):
+    """Best-effort board/device string the container actually runs on. Different
+    servers expose it differently, so check in priority order: the vLLM
+    `--tt-device` arg, the media server's MESH_DEVICE/DEVICE env, then the board
+    encoded in TT_CACHE_PATH. Returns the raw string (e.g. "P150", "p300x2") or None.
+    """
+    v = _find_arg_value(_cmd_tokens(container_info), _TT_DEVICE_ARG)
+    if v:
+        return v
+    env = _container_env(container_info)
+    for key in ("MESH_DEVICE", "DEVICE", "TT_DEVICE"):
+        if env.get(key):
+            return env[key]
+    cache = (env.get("TT_CACHE_PATH") or "").rstrip("/")
+    if cache:
+        seg = cache.split("/")[-1]
+        if seg:
+            return seg
+    return None
+
+
+def _board_to_chip_count(board):
+    """Map a board/device string to its chip count (case-insensitive), or None if
+    unknown. Whole-board types come from MULTI_CHIP_BOARD_SLOTS; recognised
+    single-chip boards (incl. one chip of a card, e.g. P150) are 1."""
+    if not board:
+        return None
+    from docker_control.chip_allocator import MULTI_CHIP_BOARD_SLOTS
+    from shared_config.model_config import SINGLE_CHIP_BOARDS_STR
+
+    key = str(board).strip().upper()
+    for k, v in MULTI_CHIP_BOARD_SLOTS.items():
+        if k.upper() == key:
+            return v
+    if key in {b.upper() for b in SINGLE_CHIP_BOARDS_STR}:
+        return 1
+    return None
+
+
 class RegisterExternalModelView(APIView):
     """Register an external Docker container with TT Studio."""
 
-    # Default service routes by model type
-    _DEFAULT_ROUTES = {
-        "chat": "/v1/chat/completions",
-        "vlm": "/v1/chat/completions",
-        "embedding": "/v1/chat/completions",
-        "tts": "/v1/audio/speech",
-        "speech_recognition": "/v1/audio/transcriptions",
-        "image_generation": "/v1/images/generations",
-        "video_generation": "/v1/chat/completions",
-        "object_detection": "/v1/chat/completions",
-        "cnn": "/v1/chat/completions",
-    }
+    # Accepted model types (routing itself is derived from the catalog model_impl).
+    _VALID_MODEL_TYPES = frozenset({
+        "chat", "vlm", "embedding", "tts", "speech_recognition",
+        "image_generation", "video_generation", "object_detection", "cnn",
+    })
 
     def post(self, request, *args, **kwargs):
         try:
             data = request.data
             container_id = data.get("container_id")
-            model_type = data.get("model_type", "").lower()
-            model_name = data.get("model_name", "").strip()
-            hf_model_id = data.get("hf_model_id", "").strip() or None
-            service_port = data.get("service_port", 7000)
-            service_route = data.get("service_route", "").strip() or None
-            health_route = data.get("health_route", "").strip() or "/health"
+            model_type = (data.get("model_type") or "").lower()
+            model_name = (data.get("model_name") or "").strip()
+            hf_model_id = (data.get("hf_model_id") or "").strip() or None
             device_id = data.get("device_id", 0)
             chips_required = data.get("chips_required", 1)
 
-            # Normalise device_id / chips_required to int
+            # Normalise device_id / chips_required / service_port to int
             try:
                 device_id = int(device_id)
             except (TypeError, ValueError):
@@ -1986,72 +2242,17 @@ class RegisterExternalModelView(APIView):
                 chips_required = int(chips_required)
             except (TypeError, ValueError):
                 chips_required = 1
-
-            # --- Validate required fields ---
-            if not container_id or not model_type or not model_name:
-                return Response(
-                    {"status": "error", "message": "container_id, model_type, and model_name are required."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if model_type not in self._DEFAULT_ROUTES and model_type != "mock":
-                valid_types = ", ".join(sorted(self._DEFAULT_ROUTES.keys()))
-                return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # --- Validate device_id against chip slot availability ---
             try:
-                from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+                service_port = int(data.get("service_port", 7000))
+            except (TypeError, ValueError):
+                service_port = 7000
 
-                allocator = ChipSlotAllocator()
-                chip_status = allocator.get_chip_status()
-                total_slots = chip_status.get("total_slots", 1)
-
-                if chips_required >= 4:
-                    # Multi-chip: all slots (0-3) must be free
-                    occupied_slots = [
-                        s for s in chip_status.get("slots", []) if s.get("status") == "occupied"
-                    ]
-                    if occupied_slots:
-                        occupied_names = ", ".join(
-                            f"slot {s['slot_id']} ({s.get('model_name', 'unknown')})"
-                            for s in occupied_slots
-                        )
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Multi-chip model requires all chip slots to be free. Currently occupied: {occupied_names}.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    device_id = 0  # Multi-chip always registers on slot 0
-                else:
-                    # Single-chip: validate the selected slot is in range and free
-                    if device_id < 0 or device_id >= total_slots:
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Invalid device_id {device_id}. Must be 0–{total_slots - 1}.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    slot_info = next(
-                        (s for s in chip_status.get("slots", []) if s.get("slot_id") == device_id),
-                        None,
-                    )
-                    if slot_info and slot_info.get("status") == "occupied":
-                        occupying = slot_info.get("model_name", "another model")
-                        return Response(
-                            {
-                                "status": "error",
-                                "message": f"Chip slot {device_id} is already occupied by '{occupying}'. Choose a different slot.",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-            except ImportError:
-                logger.warning("ChipSlotAllocator not available; skipping device_id validation")
+            # --- Only the container is required; model identity is derived below ---
+            if not container_id:
+                return Response(
+                    {"status": "error", "message": "container_id is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             corrections = []
 
@@ -2072,26 +2273,85 @@ class RegisterExternalModelView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # --- Port conflict check ---
+            # --- Auto-detect model identity from the container when not supplied ---
+            if not hf_model_id:
+                detected = _detect_model_info(docker_client, container_id, container_info)
+                if detected.get("hf_model_id"):
+                    hf_model_id = detected["hf_model_id"]
+                    corrections.append(f"Model auto-detected from the container: {hf_model_id}")
+                if detected.get("model_type") and not model_type:
+                    model_type = detected["model_type"]
+
+            # --- Determine the chip slots this container occupies ---
+            # Detection priority (the user should not need to pick a device):
+            #   1. Bound /dev/tenstorrent/<n> nodes — ground truth of the exact
+            #      chips the container was granted, whatever launched it.
+            #   2. An explicit --device-id in the launch command.
+            #   3. The board the container runs on (--tt-device / MESH_DEVICE / env)
+            #      or the model's catalog requirement, for the count: whole-board →
+            #      every slot; single-chip → the user-selected slot.
+            #   4. The user's manual selection, only as a last resort.
+            try:
+                from docker_control.chip_allocator import ChipSlotAllocator
+                total_slots = ChipSlotAllocator().get_chip_status().get("total_slots", 1)
+            except Exception as e:
+                logger.warning(f"Could not read chip status; assuming 1 slot: {e}")
+                total_slots = 1
+            total_slots = max(total_slots, 1)
+
+            def _in_range(ids):
+                return [d for d in ids if 0 <= d < total_slots]
+
+            bound = _detect_device_ids_from_mounts(container_info)
+            explicit_ids = _detect_device_ids_from_command(container_info)
+            detected_board = _detect_device_board(container_info)
+            required_chips = _board_to_chip_count(detected_board)
+            if required_chips is None:
+                try:
+                    from shared_config.model_config import get_model_chip_requirement
+                    required_chips = get_model_chip_requirement(model_name)
+                except Exception as e:
+                    logger.warning(f"Could not resolve chip requirement for '{model_name}': {e}")
+                    required_chips = chips_required
+
+            if isinstance(bound, list) and _in_range(bound):
+                device_ids = _in_range(bound)
+                corrections.append(f"Devices auto-detected from bound chip nodes: {device_ids}.")
+            elif explicit_ids and _in_range(explicit_ids):
+                device_ids = _in_range(explicit_ids)
+                corrections.append(f"Devices detected from the launch command: {device_ids}.")
+            elif bound == "whole" or (required_chips and required_chips > 1):
+                count = required_chips if (required_chips and required_chips > 1) else total_slots
+                device_ids = list(range(min(count, total_slots)))
+                where = detected_board or model_name
+                corrections.append(f"'{where}' uses all {len(device_ids)} devices (whole board).")
+            else:
+                device_ids = [device_id if 0 <= device_id < total_slots else 0]
+                if detected_board:
+                    corrections.append(f"Single-device model '{detected_board}' on slot {device_ids[0]}.")
+            device_id = device_ids[0]
+
+            # --- Derive the in-network service port from the container itself ---
             port_bindings = container_info.get("NetworkSettings", {}).get("Ports", {})
             if not port_bindings:
                 port_bindings = container_info.get("port_bindings", {})
             exposed_ports = []
-            if port_bindings:
-                for port_key in port_bindings.keys():
-                    try:
-                        exposed_ports.append(int(port_key.split("/")[0]))
-                    except (ValueError, IndexError):
-                        pass
+            for port_key in (port_bindings or {}):
+                try:
+                    exposed_ports.append(int(str(port_key).split("/")[0]))
+                except (ValueError, IndexError):
+                    pass
 
-            if service_port and exposed_ports and int(service_port) not in exposed_ports:
-                return Response(
-                    {
-                        "status": "error",
-                        "message": f"Container does not expose port {service_port}. Available ports: {', '.join(str(p) for p in exposed_ports)}",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            arg_port = _find_arg_value(_cmd_tokens(container_info), _SERVICE_PORT_ARG)
+            try:
+                arg_port = int(arg_port) if arg_port else None
+            except (TypeError, ValueError):
+                arg_port = None
+
+            if arg_port:
+                service_port = arg_port
+            elif exposed_ports:
+                service_port = exposed_ports[0]
 
             # --- HF Model ID catalog matching ---
             if hf_model_id:
@@ -2099,38 +2359,52 @@ class RegisterExternalModelView(APIView):
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
                         if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
-                            # Found a catalog match — use its authoritative routes
-                            catalog_route = catalog_model.get("service_route")
-                            catalog_health = catalog_model.get("health_route")
+                            # Found a catalog match — adopt its authoritative type
+                            # and name (routing is derived from the catalog
+                            # model_impl at enrichment time, not stored here).
                             catalog_type = catalog_model.get("model_type", "").lower()
 
-                            if catalog_route and service_route and service_route != catalog_route:
-                                corrections.append(
-                                    f"Service route corrected from '{service_route}' to '{catalog_route}' based on catalog entry for {catalog_model.get('model_name')}"
-                                )
-                                service_route = catalog_route
-                            elif catalog_route and not service_route:
-                                service_route = catalog_route
-
-                            if catalog_health and health_route != catalog_health:
-                                corrections.append(
-                                    f"Health route corrected from '{health_route}' to '{catalog_health}' based on catalog entry"
-                                )
-                                health_route = catalog_health
-
                             if catalog_type and catalog_type != model_type:
-                                corrections.append(
-                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
-                                )
+                                if model_type:
+                                    corrections.append(
+                                        f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                    )
                                 model_type = catalog_type
+
+                            # Adopt the catalog's model name
+                            catalog_name = catalog_model.get("model_name")
+                            if catalog_name and catalog_name != model_name:
+                                if model_name:
+                                    corrections.append(
+                                        f"Model name set to catalog name '{catalog_name}'"
+                                    )
+                                model_name = catalog_name
 
                             break
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
-            # --- Apply default route if still unset ---
-            if not service_route:
-                service_route = self._DEFAULT_ROUTES.get(model_type, "/v1/chat/completions")
+            # Derive any remaining identity fields, then validate
+            if not model_type and hf_model_id:
+                model_type = _infer_model_type(hf_model_id)
+            if not model_name:
+                model_name = (
+                    hf_model_id.split("/")[-1]
+                    if hf_model_id
+                    else (container_info.get("name") or container_id).lstrip("/")
+                )
+
+            if not model_type:
+                return Response(
+                    {"status": "error", "message": "Could not determine the model type from the container. Please specify model_type."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
+                valid_types = ", ".join(sorted(self._VALID_MODEL_TYPES))
+                return Response(
+                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # --- Rename container based on model name ---
             current_name = container_info.get("name", container_id)
@@ -2190,7 +2464,15 @@ class RegisterExternalModelView(APIView):
                     container_id=container_id, status="running"
                 )
                 if existing.exists():
-                    corrections.append("Deployment record already exists — updated")
+                    rec = list(existing)[0]
+                    rec.device = "external"
+                    rec.device_id = device_id
+                    rec.device_ids = device_ids
+                    rec.model_name = model_name
+                    rec.port = int(service_port) if service_port else 7000
+                    rec.save()
+                    corrections.append("Deployment record already existed — updated device mapping.")
+                    logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
                 else:
                     ModelDeployment.objects.create(
                         container_id=container_id,
@@ -2198,11 +2480,12 @@ class RegisterExternalModelView(APIView):
                         model_name=model_name,
                         device="external",
                         device_id=device_id,
+                        device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
                         port=int(service_port) if service_port else 7000,
                     )
-                    logger.info(f"Created deployment record for external container '{container_name}' on device_id={device_id}")
+                    logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
                 logger.error(f"Failed to create deployment record: {e}")
                 # Continue — the network connection is the critical part
@@ -2349,9 +2632,25 @@ async def _astream_stop_remove_container(container_id, truncated):
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
+        # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
+        # The only reliable signal is whether the container is actually alive right now.
+        alive = False
+        try:
+            info = get_docker_client().get_container(container_id)
+            alive = (info or {}).get("status") in ("running", "restarting")
+        except Exception:
+            alive = False  # container gone / 404 → it died unexpectedly
+
+        # Acknowledge so the Models Deployed page hides the row
         deployment.stopped_by_user = True
-        deployment.status = "stopped"
-        deployment.stopped_at = timezone.now()
+        if alive:
+            # The user stopped a still-running model.
+            deployment.status = "stopped"
+        elif deployment.status not in ("exited", "dead", "failed"):
+            # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".
+            deployment.status = "dead"
+        if not deployment.stopped_at:
+            deployment.stopped_at = timezone.now()
         deployment.save()
         return f"Marked deployment {truncated} as stopped in database"
 
@@ -2494,41 +2793,46 @@ class StopStreamView(View):
         async def generate():
             yield "retry: 1000\n\n"
             truncated = container_id[:12]
-
-            # Step 1: stop and remove the container.
-            yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
             try:
-                async for msg in _astream_stop_remove_container(container_id, truncated):
-                    yield _sse_event({"type": "log", "step": "deleting", "message": msg})
-            except _StopFailed as e:
-                yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
-                return
+                # Step 1: stop and remove the container.
+                yield _sse_event({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+                try:
+                    async for msg in _astream_stop_remove_container(container_id, truncated):
+                        yield _sse_event({"type": "log", "step": "deleting", "message": msg})
+                except _StopFailed as e:
+                    yield _sse_event({"type": "complete", "status": "error", "message": str(e)})
+                    return
 
-            # Stop-only: leave the chips for a later whole-board reset.
-            if skip_device_reset:
-                await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
-                yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
-                return
+                # Stop-only: leave the chips for a later whole-board reset.
+                if skip_device_reset:
+                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                    yield _sse_event({"type": "complete", "status": "success", "message": f"Model {truncated} stopped"})
+                    return
 
-            # Step 2: reset the chips this model occupied.
-            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
-            if not device_ids:
-                yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
-                yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
-                return
+                # Step 2: reset the chips this model occupied.
+                device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+                if not device_ids:
+                    yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                    yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                    return
 
-            label = ", ".join(str(d) for d in device_ids)
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=True,
-                success_msg=f"Model deleted and device(s) {label} reset successfully",
-                partial_msg=(
-                    f"Model deleted, but reset of device(s) {label} did not complete "
-                    "successfully. Manual intervention may be required."
-                ),
-            ):
-                yield event
+                label = ", ".join(str(d) for d in device_ids)
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=True,
+                    success_msg=f"Model deleted and device(s) {label} reset successfully",
+                    partial_msg=(
+                        f"Model deleted, but reset of device(s) {label} did not complete "
+                        "successfully. Manual intervention may be required."
+                    ),
+                ):
+                    yield event
+            except Exception as e:
+                # Never let the stream die without a terminal event; the client
+                # treats an abrupt close as "Connection to stream lost".
+                logger.error(f"Stop stream for {truncated} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Stop failed: {e}"})
 
         return _sse_response(generate())
 
@@ -2545,16 +2849,174 @@ class ResetStreamView(View):
 
         async def generate():
             yield "retry: 1000\n\n"
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=False,
-                success_msg=f"Reset of {label} completed successfully",
-                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-            ):
-                yield event
+            try:
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=False,
+                    success_msg=f"Reset of {label} completed successfully",
+                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                ):
+                    yield event
+            except Exception as e:
+                # Always emit a terminal event so the client never sees an abrupt
+                # close ("Connection to stream lost") on an unexpected failure.
+                logger.error(f"Reset stream for {label} failed: {e}", exc_info=True)
+                yield _sse_event({"type": "complete", "status": "error", "message": f"Reset failed: {e}"})
 
         return _sse_response(generate())
+
+
+# --- Whole-board "Reset All" as a background job (no SSE) ----------------------
+#
+# A multi-model board reset used to run as N concurrent `stop/stream` EventSources
+# followed by a `reset_board/stream`; any one stream closing surfaced as
+# "Connection to stream lost." and aborted the reset before `tt-smi -r` ran.
+# Instead, the reset now runs as a detached task: the frontend starts it with one
+# POST and polls /reset_all/status/. No EventSource → that failure mode is gone.
+# Progress is persisted to a small JSON file on the shared backend volume so a
+# status poll served by any uvicorn worker observes the same state.
+
+_RESET_ALL_STATE_PATH = Path(backend_config.backend_cache_root) / "reset_all_status.json"
+_reset_all_write_lock = threading.Lock()
+_reset_all_task = None  # holds a reference so the detached task isn't garbage-collected
+
+
+def _reset_all_read_state():
+    try:
+        with open(_RESET_ALL_STATE_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _reset_all_write_state(state):
+    from django.utils import timezone
+    state["updated_at"] = timezone.now().isoformat()
+    tmp = _RESET_ALL_STATE_PATH.with_name(_RESET_ALL_STATE_PATH.name + ".tmp")
+    with _reset_all_write_lock:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _RESET_ALL_STATE_PATH)
+
+
+async def _run_reset_all_job():
+    """Stop every deployed model (verified), then reset the whole board.
+
+    Reuses the same building blocks the per-model SSE delete path uses, writing
+    progress to the shared state file after each step.
+    """
+    from django.utils import timezone
+    state = {
+        "step": "deleting",
+        "logs": [],
+        "done": False,
+        "ok": False,
+        "error": None,
+        "deleted": [],
+        "remaining": [],
+        "started_at": timezone.now().isoformat(),
+    }
+
+    def _log(message):
+        state["logs"].append(message)
+        _reset_all_write_state(state)
+
+    _reset_all_write_state(state)
+    try:
+        # Phase 1: stop & remove every deployed model, then verify and retry any
+        # survivors so a model is never left running.
+        targets = await asyncio.to_thread(get_container_status)
+        names = {cid: info.get("name", cid[:12]) for cid, info in targets.items()}
+        _log(f"Stopping {len(targets)} deployed model(s)…")
+        for cid in list(targets):
+            try:
+                async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                    _log(msg)
+            except _StopFailed as e:
+                _log(f"{names.get(cid, cid[:12])}: {e}")
+
+        MAX_ROUNDS = 3
+        remaining = await asyncio.to_thread(get_container_status)
+        for round_no in range(1, MAX_ROUNDS + 1):
+            if not remaining:
+                break
+            _log(f"{len(remaining)} model(s) still present; retry {round_no}/{MAX_ROUNDS}…")
+            for cid in list(remaining):
+                names.setdefault(cid, remaining[cid].get("name", cid[:12]))
+                try:
+                    async for msg in _astream_stop_remove_container(cid, cid[:12]):
+                        _log(msg)
+                except _StopFailed as e:
+                    _log(f"{names.get(cid, cid[:12])}: {e}")
+            remaining = await asyncio.to_thread(get_container_status)
+
+        state["remaining"] = [info.get("name", cid[:12]) for cid, info in remaining.items()]
+        state["deleted"] = [n for cid, n in names.items() if cid not in remaining]
+        if remaining:
+            state["step"] = "done"
+            state["done"] = True
+            state["ok"] = False
+            state["error"] = "Could not delete: " + ", ".join(state["remaining"])
+            _reset_all_write_state(state)
+            return
+
+        # Phase 2: reset the whole board (only once every model is gone).
+        state["step"] = "resetting"
+        _log("All models stopped — resetting board…")
+        reset_ok = False
+        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+            if kind == "log":
+                _log(payload)
+            else:
+                reset_ok = bool(payload)
+
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = reset_ok
+        if not reset_ok:
+            state["error"] = "Board reset did not complete successfully. Manual intervention may be required."
+        _reset_all_write_state(state)
+    except Exception as e:
+        logger.exception("reset_all job failed")
+        state["step"] = "done"
+        state["done"] = True
+        state["ok"] = False
+        state["error"] = f"Reset failed: {e}"
+        _reset_all_write_state(state)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StartResetAllView(View):
+    """Start a whole-board reset (stop all models, then `tt-smi -r`) as a detached
+    background job. Returns immediately; progress is read via ResetAllStatusView."""
+
+    async def post(self, request, *args, **kwargs):
+        global _reset_all_task
+        # Idempotent: if a reset is already in flight (fresh, not-done state),
+        # don't launch a second `tt-smi -r`.
+        existing = await asyncio.to_thread(_reset_all_read_state)
+        if existing is not None and not existing.get("done"):
+            from django.utils import timezone
+            from django.utils.dateparse import parse_datetime
+            updated = parse_datetime(existing.get("updated_at") or "")
+            if updated is not None and (timezone.now() - updated).total_seconds() < 120:
+                return JsonResponse({"status": "already_running"}, status=202)
+        _reset_all_task = asyncio.create_task(_run_reset_all_job())
+        return JsonResponse({"status": "started"}, status=202)
+
+
+class ResetAllStatusView(View):
+    """Return the current whole-board reset progress snapshot."""
+
+    def get(self, request, *args, **kwargs):
+        state = _reset_all_read_state()
+        if state is None:
+            return JsonResponse({
+                "step": "idle", "logs": [], "done": True, "ok": True,
+                "error": None, "deleted": [], "remaining": [],
+            })
+        return JsonResponse(state)
 
 
 class AvailableDevicesView(APIView):
@@ -2583,3 +3045,138 @@ class AvailableDevicesView(APIView):
             "devices": devices,
             "count": len(devices)
         }, status=status.HTTP_200_OK)
+
+
+def _infer_model_type(hf_id: str) -> str:
+    """Best-effort model_type from an hf_model_id. This is only a prefill hint;
+    registration still catalog-corrects the type on submit."""
+    lower = hf_id.lower()
+    # TTS before speech_recognition: names like "speecht5_tts" contain "speech".
+    if any(x in lower for x in ["xtts", "-tts-", "_tts", "tts_", "bark", "speecht5", "fastspeech"]):
+        return "tts"
+    if any(x in lower for x in ["whisper", "wav2vec", "asr", "speech-to-text", "stt"]):
+        return "speech_recognition"
+    if any(x in lower for x in ["llava", "clip", "idefics", "vision", "blip"]):
+        return "vlm"
+    if any(x in lower for x in ["stable-diffusion", "sdxl", "dall-e"]):
+        return "image_generation"
+    if any(x in lower for x in ["-e5-", "/e5-", "gte-", "bge-", "embed", "sentence-t5"]):
+        return "embedding"
+    return "chat"
+
+
+def _parse_vllm_logs(text: str) -> dict:
+    """Extract the model id and serving port from vLLM startup log lines."""
+    result = {}
+    m = re.search(r"\bmodel='([^']+)'", text)
+    if m:
+        result["hf_model_id"] = m.group(1)
+        result["model_type"] = _infer_model_type(m.group(1))
+    m = re.search(r"Uvicorn running on http://[^:]+:(\d+)", text, re.IGNORECASE)
+    if m:
+        result["port"] = int(m.group(1))
+    return result
+
+
+def _first_host_port(container_info: dict):
+    """First published host port for the container (what the backend can reach
+    via host.docker.internal), across the shapes get_container may return."""
+    sources = [
+        (container_info.get("NetworkSettings") or {}).get("Ports"),
+        container_info.get("ports"),
+        container_info.get("port_bindings"),
+    ]
+    for src in sources:
+        if isinstance(src, dict):
+            for _cport, binds in src.items():
+                if isinstance(binds, list) and binds and isinstance(binds[0], dict):
+                    hp = binds[0].get("HostPort")
+                    if hp:
+                        try:
+                            return int(hp)
+                        except (TypeError, ValueError):
+                            pass
+    return None
+
+
+def _hf_from_container(container_info: dict):
+    """The HuggingFace model id declared by the container itself — the `--model`
+    launch arg (vLLM/tt-inference-server) or a MODEL* env var. Authoritative and
+    needs no network, so it works even when /v1/models is auth-gated."""
+    v = _find_arg_value(_cmd_tokens(container_info), _MODEL_ARG)
+    if v:
+        return v
+    env = _container_env(container_info)
+    for key in ("HF_MODEL_ID", "MODEL_ID", "MODEL_NAME", "MODEL", "HF_MODEL"):
+        val = env.get(key)
+        if val and "/" in val:  # looks like an org/name HF id, not a bare label
+            return val
+    return None
+
+
+def _detect_model_info(docker_client, container_id, container_info=None) -> dict:
+    """Detect {hf_model_id, model_type, port, source} for a running container.
+
+    Sources, most authoritative first: the container's own `--model` arg / MODEL
+    env, then its live /v1/models endpoint (via the published host port), then a
+    vLLM log scrape. Returns {} when nothing could be detected. Shared by the
+    detect endpoint and the register flow so both derive identity the same way.
+    """
+    if container_info is None:
+        try:
+            container_info = docker_client.get_container(container_id)
+        except Exception:
+            container_info = {}
+
+    result = {}
+    host_port = _first_host_port(container_info)
+    if host_port:
+        result["port"] = host_port
+
+    hf = _hf_from_container(container_info)
+    if hf:
+        result["hf_model_id"] = hf
+        result["source"] = "container"
+
+    # Live /v1/models is authoritative when reachable (unauth'd); fills/overrides.
+    if host_port:
+        try:
+            api_resp = requests.get(
+                f"http://host.docker.internal:{host_port}/v1/models", timeout=2
+            )
+            model_id = api_resp.json().get("data", [{}])[0].get("id")
+            if model_id:
+                result["hf_model_id"] = model_id
+                result["source"] = "api"
+        except Exception:
+            pass
+
+    # Last resort: scrape startup logs.
+    if not result.get("hf_model_id"):
+        try:
+            log_lines = docker_client.tail_logs(container_id, tail=300, timeout=6.0)
+        except Exception:
+            log_lines = []
+        parsed = _parse_vllm_logs("\n".join(log_lines))
+        if parsed.get("hf_model_id"):
+            result["hf_model_id"] = parsed["hf_model_id"]
+            result.setdefault("source", "logs")
+        if parsed.get("port") and not result.get("port"):
+            result["port"] = parsed["port"]
+
+    if result.get("hf_model_id"):
+        result["model_type"] = _infer_model_type(result["hf_model_id"])
+    return result
+
+
+class DetectModelFromLogsView(APIView):
+    """Return model info (hf_model_id, model_type, port) auto-detected from a
+    running container's logs / live /v1/models endpoint, to prefill the register
+    form. Registration derives the same fields server-side, so this is UX sugar.
+    """
+
+    def get(self, request, container_id, *args, **kwargs):
+        return Response(
+            _detect_model_info(get_docker_client(), container_id),
+            status=status.HTTP_200_OK,
+        )

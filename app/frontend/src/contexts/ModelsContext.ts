@@ -12,8 +12,11 @@ export interface Model {
   health: string;
   ports: string;
   model_type?: string;
+  coding_agent_eligible?: boolean;
   device_id?: number | null;
   device_ids?: number[];
+  /** Managed deployment no longer attached to tt_studio_network (a stray). */
+  disconnected?: boolean;
 }
 
 export interface ModelsContextType {

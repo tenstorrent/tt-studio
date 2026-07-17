@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   Zap,
   FlaskConical,
+  AlertTriangle,
+  Copy,
 } from "lucide-react";
 
 import {
@@ -34,8 +36,9 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-import { DeployedModelsWarning } from "./DeployedModelsWarning";
+// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
+import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 
 // Status configuration with icons and labels
 const STATUS_CONFIG = {
@@ -75,6 +78,16 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TRAINING: { label: "Training", order: 9 },
 };
 
+// Models whose weights are large and frequently fail/stall when Hugging Face
+// downloads them during automatic deployment. When one is selected we warn the
+// user and hand them a copy-paste command to pre-fetch the weights themselves,
+// which sidesteps the flaky in-deploy download. Keyed by model name with its HF repo id.
+const EXPERIMENTAL_DEPLOY_MODELS: Record<string, string> = {
+  "FLUX.1-dev": "black-forest-labs/FLUX.1-dev",
+  "FLUX.1-schnell": "black-forest-labs/FLUX.1-schnell",
+  "Wan2.2-T2V-A14B-Diffusers": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+};
+
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
@@ -87,6 +100,8 @@ export function FirstStepForm({
   isAutoDeploying,
   chipMode,
   onModelNameChange,
+  chipStatus,
+  deployingModelIds,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
@@ -94,6 +109,14 @@ export function FirstStepForm({
   isAutoDeploying?: boolean;
   chipMode?: "single" | "multi";
   onModelNameChange?: (name: string) => void;
+  chipStatus?: {
+    board_type: string;
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string }[];
+  } | null;
+  // Model ids with a deploy already in flight — kept selectable so the user can
+  // reconnect to their progress rather than being blocked by their own reservation.
+  deployingModelIds?: Set<string>;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -104,7 +127,8 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isWarningDismissed, setIsWarningDismissed] = useState(false);
+  // Used only by the deployed-models warning, hidden for now (see render below).
+  // const [isWarningDismissed, setIsWarningDismissed] = useState(false);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -303,16 +327,57 @@ export function FirstStepForm({
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
+  // Render a model row, greying it out (and explaining why) when it can't be
+  // deployed against the currently free devices.
+  const renderModelItem = (model: Model, dotClass: string) => {
+    const chips = model.chips_required ?? 1;
+    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+    // A model already deploying stays selectable so the user can reopen its progress.
+    const isDeploying = deployingModelIds?.has(model.id) ?? false;
+    const fits =
+      isDeploying ||
+      !chipStatus ||
+      autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
+    const reason = !isDeploying && chipStatus
+      ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
+      : null;
+    return (
+      <SelectItem
+        key={model.id}
+        value={model.name}
+        disabled={!fits}
+        className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+      >
+        <div className="flex items-center w-full">
+          <span className={`${dotClass} mr-2 text-xs`}>●</span>
+          <span className="flex-1">{model.name}</span>
+          {isDeploying ? (
+            <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
+              Deploying…
+            </span>
+          ) : (
+            !fits && reason && (
+              <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                {reason}
+              </span>
+            )
+          )}
+        </div>
+      </SelectItem>
+    );
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        {/* Always show deployed models warning prominently */}
-        {!isWarningDismissed && (
+        {/* Deployed-models warning hidden for now — capacity-aware greying of the
+            model list already communicates when devices are in use. */}
+        {/* {!isWarningDismissed && (
           <DeployedModelsWarning
             className="mb-8 mt-8"
             onClose={() => setIsWarningDismissed(true)}
           />
-        )}
+        )} */}
 
         {/* Auto-deploy indicator */}
         {isAutoDeploying && autoDeployModel && (
@@ -420,33 +485,15 @@ export function FirstStepForm({
                                   </div>
 
                                   {/* Compatible Models */}
-                                  {modelsByCompatibility.compatible.map((model: Model) => (
-                                    <SelectItem
-                                      key={model.id}
-                                      value={model.name}
-                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                                    >
-                                      <div className="flex items-center w-full">
-                                        <span className="text-green-500 mr-2 text-xs">●</span>
-                                        <span className="flex-1">{model.name}</span>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
+                                  {modelsByCompatibility.compatible.map((model: Model) =>
+                                    renderModelItem(model, "text-green-500")
+                                  )}
 
 
                                   {/* Unknown Compatibility Models */}
-                                  {modelsByCompatibility.unknown.map((model: Model) => (
-                                    <SelectItem
-                                      key={model.id}
-                                      value={model.name}
-                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                                    >
-                                      <div className="flex items-center w-full">
-                                        <span className="text-yellow-500 mr-2 text-xs">●</span>
-                                        <span className="flex-1">{model.name}</span>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
+                                  {modelsByCompatibility.unknown.map((model: Model) =>
+                                    renderModelItem(model, "text-yellow-500")
+                                  )}
                                 </div>
                               );
                             })}
@@ -457,7 +504,7 @@ export function FirstStepForm({
                   {/* If no models loaded yet */}
                   {filteredModels.length === 0 && !isLoading && (
                     <div className="px-2 py-4 text-center text-gray-500">
-                      {models.length === 0 ? "No models available" : "No models available for selected chip mode"}
+                      {models.length === 0 ? "No models available" : "No models available for selected device mode"}
                     </div>
                   )}
                 </SelectContent>
@@ -469,7 +516,7 @@ export function FirstStepForm({
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
                       {chipMode === "single" && displayBoard !== currentBoard
-                        ? "Target device (single chip):"
+                        ? "Target device:"
                         : "Detected Tenstorrent board:"}
                     </span>
                     <div className="px-2 py-2">
@@ -505,6 +552,48 @@ export function FirstStepForm({
                         </span>
                       )}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Download-reliability warning: HF often stalls fetching these large weights */}
+              {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
+                <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <div className="space-y-2">
+                    <p className="font-semibold">
+                      Download the weights first to avoid a failed deploy
+                    </p>
+                    <p>
+                      Hugging Face often stalls downloading {field.value}'s large
+                      weights mid-deploy, which fails the deployment. Pre-fetch them
+                      first — run this, let it finish, then deploy:
+                    </p>
+                    <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
+                      <code className="flex-1 break-all">
+                        hf download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                          );
+                          customToast.success("Command copied to clipboard");
+                        }}
+                        className="flex-shrink-0 rounded p-1 hover:bg-amber-200 dark:hover:bg-amber-800"
+                        aria-label="Copy download command"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-xs">
+                      Caches to ~/.cache/huggingface/hub. Gated models need{" "}
+                      <code className="rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900/40">
+                        hf auth login
+                      </code>{" "}
+                      (or a valid HF_TOKEN) first.
+                    </p>
                   </div>
                 </div>
               )}

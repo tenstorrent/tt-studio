@@ -17,6 +17,8 @@ from .views import (
     DeploymentProgressStreamView,
     RedeployView,
     ResetStreamView,
+    StartResetAllView,
+    ResetAllStatusView,
     ImageStatusView,
     ModelCatalogView,
     BoardInfoView,
@@ -27,6 +29,7 @@ from .views import (
     DiscoverContainersView,
     RegisterExternalModelView,
     AvailableDevicesView,
+    DetectModelFromLogsView,
 )
 
 urlpatterns = [
@@ -42,6 +45,8 @@ urlpatterns = [
     path("redeploy/", views.RedeployView.as_view()),
     path("reset_board/stream/", views.ResetStreamView.as_view(), name="reset-board-stream"),
     path("reset_device/stream/<int:device_id>/", views.ResetStreamView.as_view(), name="reset-device-stream"),
+    path("reset_all/", views.StartResetAllView.as_view(), name="reset-all-start"),
+    path("reset_all/status/", views.ResetAllStatusView.as_view(), name="reset-all-status"),
     path("docker/image_status/<str:model_id>/", views.ImageStatusView.as_view(), name="docker-image-status"),
     path("catalog/", views.ModelCatalogView.as_view(), name="model_catalog"),
     path("board-info/", views.BoardInfoView.as_view(), name="board-info"),
@@ -52,4 +57,5 @@ urlpatterns = [
     path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
     path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
     path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
+    path("detect-model/<str:container_id>/", views.DetectModelFromLogsView.as_view(), name="detect-model"),
 ]
