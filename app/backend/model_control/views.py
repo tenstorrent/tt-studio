@@ -132,6 +132,7 @@ from model_control.model_utils import (
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
+from shared_config.user_config import get_tts_api_key
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -139,7 +140,7 @@ logger.info(f"importing {__name__}")
 
 
 
-TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+# TTS_API_KEY is resolved at request time via get_tts_api_key() so UI changes apply without restart.
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
@@ -627,7 +628,7 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
                 if "/v1/images/generations" in internal_url:
                     # Synchronous OpenAI-compatible API — returns base64 JSON immediately
@@ -701,7 +702,7 @@ class VideoGenerationInferenceView(APIView):
 
         deploy = get_deploy_cache()[deploy_id]
         internal_url = "http://" + deploy["internal_url"]
-        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
         payload = {"prompt": prompt}
         if data.get("seed") is not None:
@@ -784,7 +785,7 @@ class VideoGenerationStatusView(APIView):
 
         try:
             base_url = _video_base_url(deploy_id)
-            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             poll_url = f"{base_url}/v1/videos/generations/{job_id}"
             poll_resp = requests.get(poll_url, headers=headers, timeout=30)
             poll_resp.raise_for_status()
@@ -814,7 +815,7 @@ class VideoGenerationDownloadView(APIView):
 
         try:
             base_url = _video_base_url(deploy_id)
-            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
             dl_resp = requests.get(download_url, headers=headers, timeout=60)
             dl_resp.raise_for_status()
@@ -850,7 +851,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -897,7 +898,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -1169,7 +1170,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -1216,7 +1217,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -1255,7 +1256,7 @@ class TtsInferenceView(APIView):
                 inference_engine = getattr(model_impl, "inference_engine", None)
                 
                 if inference_engine == "media":
-                    headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                    headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                     payload = {"model": model_name, "text": text, "voice": "default"}
                 else:
                     headers = {"Authorization": f"Bearer {encoded_jwt}"}
@@ -1314,7 +1315,7 @@ class OpenAIAudioSpeechView(APIView):
             inference_engine = getattr(model_impl, "inference_engine", None)
             
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                 payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
