@@ -41,8 +41,11 @@ services:
       - TT_STUDIO_CONFIG_PATH=/tt_studio_config.json
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
+      - HF_TOKEN
       - TTS_API_KEY
       - TAVILY_API_KEY
+      - TT_INFERENCE_ARTIFACT_BRANCH
+      - TT_INFERENCE_ARTIFACT_VERSION
       - CLOUD_CHAT_UI_URL
       - CLOUD_CHAT_UI_AUTH_TOKEN
       - CLOUD_YOLOV4_API_URL
