@@ -16,7 +16,6 @@ operations route through docker-control-service via DockerControlClient.
 """
 
 import json
-import os
 import threading
 import time
 import urllib.error
@@ -24,6 +23,7 @@ import urllib.request
 from typing import Dict, Optional
 
 from shared_config.logger_config import get_logger
+from shared_config.user_config import get_hf_token
 
 logger = get_logger(__name__)
 
@@ -88,7 +88,7 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
 
     url = f"https://huggingface.co/api/models/{repo}/tree/main?recursive=true"
     headers = {"User-Agent": "tt-studio/download-progress"}
-    token = os.getenv("HF_TOKEN", "")
+    token = get_hf_token() or ""
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers, method="GET")

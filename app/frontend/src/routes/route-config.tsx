@@ -42,6 +42,7 @@ import React from "react";
 import { Navigate } from "react-router-dom";
 import HomePage from "../pages/HomePage";
 import ModelsDeployed from "../pages/ModelsDeployed";
+import RegisterModelPage from "../pages/RegisterModelPage";
 import ChatUI from "../pages/ChatUIPage";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
@@ -56,6 +57,7 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import WelcomePage from "../pages/WelcomePage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
@@ -66,6 +68,8 @@ export interface RouteConfig {
   path: string;
   element: React.ReactNode;
   condition?: boolean;
+  /** When true, the route renders without the MainLayout (no navbar / footer). */
+  bare?: boolean;
 }
 
 // Function to generate routes based on environment variables
@@ -74,6 +78,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/",
       element: isDeployedEnabled ? <DeployedHomePage /> : <HomePage />,
+      condition: true,
+    },
+    {
+      path: "/register-model",
+      element: <RegisterModelPage />,
       condition: true,
     },
     {
@@ -171,6 +180,12 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/voice-pipeline",
       element: <Navigate to="/voice-agent" replace />,
       condition: true,
+    },
+    {
+      path: "/welcome",
+      element: <WelcomePage />,
+      condition: true,
+      bare: true,
     },
     {
       // catch all for all other routes

@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import types
+import re
 import unittest
 from unittest.mock import patch
 
@@ -33,9 +34,12 @@ class TestCli(unittest.TestCase):
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
+        output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
                      "--logs", "--info", "--auto-deploy", "--in-browser"):
             self.assertIn(flag, result.output)
+                     "--logs", "--info"):
+            self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
         with patch.object(_cli_run, "show_ready_panel") as ready:
