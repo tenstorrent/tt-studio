@@ -26,7 +26,7 @@ This page details the standards, processes, and automated workflows required for
 All contributions must follow a structured process to ensure stability and traceability.
 
 *   **Issue Tracking**: Before starting work, a feature request or bug report must be filed in the GitHub Issues section [CONTRIBUTING.md:11-13](https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md?plain=1#L11-L13).
-*   **Pull Requests (PRs)**: All code changes must be submitted via PR and require approval from a maintaining team member and relevant codeowners [CONTRIBUTING.md:16-17, 27-29](https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md:16-17, 27-29).
+*   **Pull Requests (PRs)**: All code changes must be submitted via PR and require approval from a maintaining team member and relevant codeowners [CONTRIBUTING.md:16-17, 27-29](https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md?plain=1#L16-L17).
 *   **Acceptance Criteria**: PRs must pass all criteria mandated in the original issue and satisfy automated GitHub Actions [CONTRIBUTING.md:31-32](https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md?plain=1#L31-L32).
 *   **Codeowners**: Specific modules have designated owners who must approve changes. For example, `/app/backend/` is owned by `@anirudTT`, `@rnabeelTT`, and `@stisiTT` [.github/CODEOWNERS:29](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/CODEOWNERS#L29).
 
@@ -101,15 +101,15 @@ The repository uses GitHub Actions to enforce code quality, linting, and licensi
 
 ### SPDX License Headers
 Every source file must contain SPDX license identifiers to ensure compliance with Apache-2.0.
-*   **Backend Requirement**: Python, Shell, and Dockerfiles must include the header [`.github/workflows/backend-license-checker.yml:52-60`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`.github/workflows/backend-license-checker.yml:52-60`).
-*   **Frontend Requirement**: JS/TS files must include the header [`.github/workflows/frontend-lint-license-checker.yml:93-94`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`.github/workflows/frontend-lint-license-checker.yml:93-94`).
+*   **Backend Requirement**: Python, Shell, and Dockerfiles must include the header [`.github/workflows/backend-license-checker.yml:52-60`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/backend-license-checker.yml#L52-L60).
+*   **Frontend Requirement**: JS/TS files must include the header [`.github/workflows/frontend-lint-license-checker.yml:93-94`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/frontend-lint-license-checker.yml#L93-L94).
 
 **Standard Header Format:**
 ```python
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
-[`app/frontend/src/providers/ThemeProvider.tsx:1-2`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`app/frontend/src/providers/ThemeProvider.tsx:1-2`), [`.github/workflows/backend-license-checker.yml:140-142`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`.github/workflows/backend-license-checker.yml:140-142`)
+[`app/frontend/src/providers/ThemeProvider.tsx:1-2`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ThemeProvider.tsx#L1-L2), [`.github/workflows/backend-license-checker.yml:140-142`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/backend-license-checker.yml#L140-L142)
 
 ### Frontend Linting & License Pipeline
 The `TT-Studio Frontend Linter SPDX Licenses Checker` workflow performs the following sequence:
@@ -137,7 +137,7 @@ sequenceDiagram
 *   **Header Check Script**: `npm run header:check:changed` [line 59](https://github.com/tenstorrent/tt-studio/blob/c837b829/line 59)
 *   **Linter**: `npx eslint` [line 130](https://github.com/tenstorrent/tt-studio/blob/c837b829/line 130)
 
-**Sources:** [`.github/workflows/frontend-lint-license-checker.yml:1-180`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`.github/workflows/frontend-lint-license-checker.yml:1-180`), [`.github/workflows/backend-license-checker.yml:1-162`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`.github/workflows/backend-license-checker.yml:1-162`), [`app/frontend/src/providers/ThemeProvider.tsx:1-2`](https://github.com/tenstorrent/tt-studio/blob/c837b829/`app/frontend/src/providers/ThemeProvider.tsx:1-2`)
+**Sources:** [`.github/workflows/frontend-lint-license-checker.yml:1-180`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/frontend-lint-license-checker.yml#L1-L180), [`.github/workflows/backend-license-checker.yml:1-162`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/backend-license-checker.yml#L1-L162), [`app/frontend/src/providers/ThemeProvider.tsx:1-2`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ThemeProvider.tsx#L1-L2)
 
 ---
 
@@ -156,7 +156,7 @@ The `add_spdx_header.py` script automatically adds Apache-2.0 license headers to
 The `check_license_attribution.py` script serves as a deterministic gate in CI to catch mechanical drift in third-party attributions [.claude/skills/license-attribution-compliance/SKILL.md:22-24](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L22-L24).
 
 *   **Frontend Freshness**: Checks if `app/frontend/third-party-licenses.txt` is up to date with `package.json` [.claude/skills/license-attribution-compliance/SKILL.md:48](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L48).
-*   **New Dependency Check**: Flags any newly added dependencies in `requirements.txt` or `package.json` that lack an entry in the root `LICENSE` or an allowlist [.claude/skills/license-attribution-compliance/SKILL.md:45, 79-82](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md:45, 79-82).
+*   **New Dependency Check**: Flags any newly added dependencies in `requirements.txt` or `package.json` that lack an entry in the root `LICENSE` or an allowlist [.claude/skills/license-attribution-compliance/SKILL.md:45, 79-82](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L45).
 
 **Sources:** [dev-tools/README.md:17-146](https://github.com/tenstorrent/tt-studio/blob/c837b829/dev-tools/README.md?plain=1#L17-L146), [.claude/skills/license-attribution-compliance/SKILL.md:1-135](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L1-L135)
 
@@ -169,7 +169,7 @@ For developers using Claude or Cursor, specific "skills" are defined to enforce 
 ### Feature Branch & PR Skill
 Configured in `.claude/skills/feature-branch-pr/SKILL.md`, this skill guides AI assistants through the standard TT-Studio development cycle.
 
-*   **Branching Logic**: Enforces branching off `dev` using the `<username>/<feature>` naming convention [.claude/skills/feature-branch-pr/SKILL.md:21, 59](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md:21, 59).
+*   **Branching Logic**: Enforces branching off `dev` using the `<username>/<feature>` naming convention [.claude/skills/feature-branch-pr/SKILL.md:21, 59](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md?plain=1#L21).
 *   **Verification**: Mandates running `python run.py --dev` and checking health endpoints (e.g., `localhost:8000/up/`) before committing [.claude/skills/feature-branch-pr/SKILL.md:94-103](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md?plain=1#L94-L103).
 *   **Human-Only Attribution**: Strictly forbids AI-tool attribution (e.g., "Co-authored-by: Claude") in commit messages or PR descriptions [.claude/skills/feature-branch-pr/SKILL.md:28-31](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md?plain=1#L28-L31).
 

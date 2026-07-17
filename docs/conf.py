@@ -36,6 +36,11 @@ myst_heading_anchors = 3
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "assets"]
 
+# Some reproduced code samples are tagged with a language that Pygments can't
+# lex cleanly (e.g. a JS-style header in a ``python`` block). The content still
+# renders; silence the highlight-failure noise so the build stays clean.
+suppress_warnings = ["misc.highlighting_failure"]
+
 # -- Options for HTML output -------------------------------------------------
 html_theme = "sphinx_rtd_theme"
 html_theme_options = {
@@ -60,10 +65,22 @@ html_context = {
 }
 
 # -- Mermaid -----------------------------------------------------------------
-# Draw diagrams as inline SVG in the browser via mermaid.js.
+# Draw diagrams as inline SVG in the browser via mermaid.js. Pin the grayscale
+# "neutral" theme for BOTH light and dark viewers (the extension otherwise
+# switches to the coloured "default"/"dark" themes based on the reader's OS
+# preference) so every diagram reads as light and clean, matching the docs.
 mermaid_version = "10.9.1"
+mermaid_light_theme = "neutral"
+mermaid_dark_theme = "neutral"
+mermaid_init_config = {
+    "startOnLoad": False,
+    "fontFamily": "Arial, Helvetica, sans-serif",
+    "flowchart": {"useMaxWidth": True, "htmlLabels": True, "curve": "basis"},
+    "sequence": {"useMaxWidth": True},
+}
 
 
 def setup(app):
     app.add_css_file("tt_theme.css")
     app.add_css_file("home.css")
+    app.add_css_file("mermaid-tweaks.css")

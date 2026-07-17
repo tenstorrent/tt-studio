@@ -18,9 +18,9 @@ The TT-Studio frontend is a modern, responsive single-page application (SPA) bui
 | Category | Technology |
 | :--- | :--- |
 | **Framework** | React 18 (Functional Components, Hooks) [app/frontend/package.json:65](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L65) |
-| **Build Tool** | Vite 6 + SWC (Fast Refresh, Optimized Bundling) [app/frontend/package.json:90,102](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json:90,102) |
-| **Styling** | Tailwind CSS 4 + Framer Motion (Animations) [app/frontend/package.json:61,80](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json:61,80) |
-| **UI Components** | Radix UI Primitives + Lucide Icons [app/frontend/package.json:32-50,62](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json:32-50,62) |
+| **Build Tool** | Vite 6 + SWC (Fast Refresh, Optimized Bundling) [app/frontend/package.json:90,102](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L90) |
+| **Styling** | Tailwind CSS 4 + Framer Motion (Animations) [app/frontend/package.json:61,80](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L61) |
+| **UI Components** | Radix UI Primitives + Lucide Icons [app/frontend/package.json:32-50,62](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L32-L50) |
 | **State/Data** | TanStack Query (React Query) + React Context API [app/frontend/package.json:54](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L54) |
 | **Routing** | React Router DOM v6 [app/frontend/package.json:73](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L73) |
 
@@ -29,7 +29,7 @@ The TT-Studio frontend is a modern, responsive single-page application (SPA) bui
 The application is structured around a centralized layout shell that manages navigation and global state providers. The frontend communicates with the Django backend through a series of proxied API routes defined in the Vite configuration.
 
 ### System Entry and Routing
-The application initializes in `App.tsx`, wrapping the component tree in essential providers for theming, data fetching, and layout visibility [app/frontend/src/App.tsx:25-34](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L25-L34). Routing is managed by `AppRouter`, which dynamically generates routes based on a configuration file [app/frontend/src/App.tsx:6,29](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx:6,29). The application also uses `QueryClient` from `@tanstack/react-query` to manage server state and caching [app/frontend/src/App.tsx:17-19](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L17-L19).
+The application initializes in `App.tsx`, wrapping the component tree in essential providers for theming, data fetching, and layout visibility [app/frontend/src/App.tsx:25-34](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L25-L34). Routing is managed by `AppRouter`, which dynamically generates routes based on a configuration file [app/frontend/src/App.tsx:6,29](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L6). The application also uses `QueryClient` from `@tanstack/react-query` to manage server state and caching [app/frontend/src/App.tsx:17-19](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L17-L19).
 
 ### Component Hierarchy Diagram
 The following diagram illustrates the relationship between the main application shell and the functional UI modules.
@@ -38,24 +38,24 @@ The following diagram illustrates the relationship between the main application 
 ```mermaid
 graph TD
     subgraph "App_Shell_(MainLayout)"
-        "App.tsx"["App.tsx"] --> "AppRouter"["AppRouter"]
-        "AppRouter" --> "MainLayout"["MainLayout.tsx"]
+        "App.tsx"App_tsx["App.tsx"] --> "AppRouter"AppRouter["AppRouter"]
+        "AppRouter" --> "MainLayout"MainLayout_tsx["MainLayout.tsx"]
     end
 
     subgraph "State_Providers"
-        "ModelsProvider"["ModelsContext.tsx"]
-        "DeviceProvider"["DeviceStateContext.tsx"]
-        "RefreshProvider"["RefreshContext.tsx"]
-        "ThemeProvider"["ThemeProvider.tsx"]
-        "HeroSectionProvider"["HeroSectionContext.tsx"]
-        "FooterVisibilityProvider"["FooterVisibilityContext.tsx"]
+        "ModelsProvider"ModelsContext_tsx["ModelsContext.tsx"]
+        "DeviceProvider"DeviceStateContext_tsx["DeviceStateContext.tsx"]
+        "RefreshProvider"RefreshContext_tsx["RefreshContext.tsx"]
+        "ThemeProvider"ThemeProvider_tsx["ThemeProvider.tsx"]
+        "HeroSectionProvider"HeroSectionContext_tsx["HeroSectionContext.tsx"]
+        "FooterVisibilityProvider"FooterVisibilityContext_tsx["FooterVisibilityContext.tsx"]
     end
 
     subgraph "Functional_Modules"
-        "MainLayout" --> "DeploymentWizard"["SelectionSteps.tsx"]
-        "MainLayout" --> "ChatUI"["ChatComponent.tsx"]
-        "MainLayout" --> "RAG"["RagManagement.tsx"]
-        "MainLayout" --> "Specialized"["ObjectDetection/STT/TTS"]
+        "MainLayout" --> "DeploymentWizard"SelectionSteps_tsx["SelectionSteps.tsx"]
+        "MainLayout" --> "ChatUI"ChatComponent_tsx["ChatComponent.tsx"]
+        "MainLayout" --> "RAG"RagManagement_tsx["RagManagement.tsx"]
+        "MainLayout" --> "Specialized"ObjectDetection_STT_TTS["ObjectDetection/STT/TTS"]
     end
 
     "App.tsx" -.-> "ThemeProvider"
@@ -99,18 +99,18 @@ The application uses Vite to manage the development server and production build.
 ```mermaid
 graph LR
     subgraph "Frontend_Port_3000"
-        "UI"["React UI"]
+        "UI"React_UI["React UI"]
     end
 
     subgraph "Vite_Proxy"
-        "D-API"["/docker-api"]
-        "M-API"["/models-api"]
-        "C-API"["/collections-api"]
-        "W-API"["/ws-api"]
+        "D-API"docker_api["/docker-api"]
+        "M-API"models_api["/models-api"]
+        "C-API"collections_api["/collections-api"]
+        "W-API"ws_api["/ws-api"]
     end
 
     subgraph "Backend_Port_8000"
-        "Django"["tt-studio-backend-api"]
+        "Django"tt_studio_backend_api["tt-studio-backend-api"]
     end
 
     "UI" --> "D-API"
@@ -128,7 +128,7 @@ Sources: [app/frontend/package.json:7-16](https://github.com/tenstorrent/tt-stud
 ### Build Pipeline
 *   **Development:** `npm run dev` starts the Vite server on port 3000 with Hot Module Replacement (HMR) [app/frontend/package.json:7](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L7).
 *   **Production:** `npm run build` executes TypeScript type-checking (`tsc`) followed by `vite build` for optimized assets [app/frontend/package.json:8](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L8).
-*   **Asset Management:** The build process includes copying static assets for specialized features like ONNX Runtime (`onnxruntime-web`) for web-based inference [app/frontend/package.json:64,83](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json:64,83).
+*   **Asset Management:** The build process includes copying static assets for specialized features like ONNX Runtime (`onnxruntime-web`) for web-based inference [app/frontend/package.json:64,83](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L64).
 *   **Tooling:** Includes ESLint for code quality and custom scripts for enforcing SPDX license headers (`header:check`, `header:fix`) [app/frontend/package.json:19-28](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L19-L28).
 *   **Details:** See [Frontend Build, Tooling & UI Component Library](build-tooling.md).
 

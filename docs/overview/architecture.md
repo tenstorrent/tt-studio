@@ -89,14 +89,13 @@ sequenceDiagram
     participant BE as "tt_studio_backend (Django)"
     participant MC as "Model Container (vLLM/Whisper)"
 
-    Client->>LiteLLM: "POST /v1/chat/completions (OpenAI Format)"
+    Client->>LiteLLM: POST /v1/chat/completions (OpenAI Format)
     Note over LiteLLM: Maps to model_name: "*"
-    LiteLLM->>BE: "POST /models/openai/v1/chat/completions"
-    BE->>MC: "Forward to Inference Port (e.g. 7000)"
-    MC-->>BE: "Token Stream"
-    BE-->>LiteLLM: "OpenAI-compatible Stream"
-    LiteLLM-->>Client: "Final Response"
-```
+    LiteLLM->>BE: POST /models/openai/v1/chat/completions
+    BE->>MC: Forward to Inference Port (e.g. 7000)
+    MC-->>BE: Token Stream
+    BE-->>LiteLLM: OpenAI-compatible Stream
+    LiteLLM-->>Client: Final Response```
 **Sources:** [app/litellm/config.yaml:12-25](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/litellm/config.yaml#L12-L25), [app/docker-compose.yml:138-162](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L138-L162)
 
 ---

@@ -1,0 +1,15 @@
+/* Present mermaid diagrams on a light, self-contained card so they read
+   cleanly against the docs theme (matching the reference wiki styling). */
+.mermaid {
+  background: #f7f7f8;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  padding: 18px;
+  margin: 1.4em 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

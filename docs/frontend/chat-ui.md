@@ -39,28 +39,27 @@ The following diagram illustrates the data flow from user input to the backend i
 **Chat Inference Sequence**
 ```mermaid
 sequenceDiagram
-    participant UI as ["InputArea.tsx"]
-    participant CC as ["ChatComponent.tsx"]
-    participant RI as ["runInference.ts"]
-    participant RAG as ["getRagContext.ts"]
-    participant API as ["Backend API (/models-api/inference/)"]
+    participant UI as "InputArea.tsx"
+    participant CC as "ChatComponent.tsx"
+    participant RI as "runInference.ts"
+    participant RAG as "getRagContext.ts"
+    participant API as "Backend API (/models-api/inference/)"
 
-    UI->>CC: "handleInference(text, files)"
-    CC->>CC: "Update chatThreads (User Message)"
-    CC->>RI: "runInference(request, ragSource, history)"
+    UI->>CC: handleInference(text, files)
+    CC->>CC: Update chatThreads (User Message)
+    CC->>RI: runInference(request, ragSource, history)
     activate RI
-    RI->>RAG: "getRagContext(request, datasource)"
-    RAG-->>RI: "context (documents)"
-    RI->>RI: "processUploadedFiles(files)"
-    RI->>RI: "generatePrompt(history, context, systemPrompt)"
-    RI->>API: "fetch(POST, stream: true)"
+    RI->>RAG: getRagContext(request, datasource)
+    RAG-->>RI: context (documents)
+    RI->>RI: processUploadedFiles(files)
+    RI->>RI: generatePrompt(history, context, systemPrompt)
+    RI->>API: fetch(POST, stream: true)
     activate API
-    API-->>RI: "SSE Stream (tokens/thinking)"
+    API-->>RI: SSE Stream (tokens/thinking)
     deactivate API
-    RI-->>CC: "Update current message (Streaming)"
+    RI-->>CC: Update current message (Streaming)
     deactivate RI
-    CC->>CC: "Finalize Message & Stats"
-```
+    CC->>CC: Finalize Message & Stats```
 Sources: `[app/frontend/src/components/chatui/ChatComponent.tsx:40-135](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatComponent.tsx#L40-L135)`, `[app/frontend/src/components/chatui/runInference.ts:18-36](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L18-L36)`, `[app/frontend/src/components/chatui/runInference.ts:181-185](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L181-L185)`, `[app/frontend/src/components/chatui/runInference.ts:53-55](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L53-L55)`
 
 ---

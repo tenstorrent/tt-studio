@@ -49,15 +49,14 @@ sequenceDiagram
     participant PH as "ProgressHandler"
     participant IS as "run.py (run_main)"
 
-    B->>A: "POST /run {model, device, device_id}"
-    A->>A: "Generate job_id (UUID)"
-    A->>PH: "Initialize ProgressHandler(job_id)"
-    A->>IS: "Start run_main() in threading.Thread"
-    A-->>B: "202 Accepted {job_id}"
-    
-    loop "During Deployment"
-        IS->>PH: "Write logs to run_log file"
-        PH->>PH: "Parse logs for Downloading/Success/Error"
+    B->>A: POST /run {model, device, device_id}
+    A->>A: Generate job_id (UUID)
+    A->>PH: Initialize ProgressHandler(job_id)
+    A->>IS: Start run_main() in threading.Thread
+    A-->>B: 202 Accepted {job_id}
+    loop During Deployment
+        IS->>PH: Write logs to run_log file
+        PH->>PH: Parse logs for Downloading/Success/Error
     end
 ```
 Sources: [app/backend/docker_control/tt_inference_client.py:84-167](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py#L84-L167), [inference-api/api.py:657-750](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L657-L750), [inference-api/api.py:441-450](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L441-L450)

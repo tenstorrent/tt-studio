@@ -37,13 +37,13 @@ The `vite.config.ts` file orchestrates the frontend's connection to the backend 
 **Vite Proxy Data Flow**
 ```mermaid
 graph TD
-    subgraph "Vite_Dev_Server_Port_3000" ["Vite Dev Server (Port 3000)"]
-        "Vite_Config"["vite.config.ts"]
-        "HMR"["HMR Engine"]
+    subgraph "Vite_Dev_Server_Port_3000" Vite_Dev_Server_Port_3000["Vite Dev Server (Port 3000)"]
+        "Vite_Config"vite_config_ts["vite.config.ts"]
+        "HMR"HMR_Engine["HMR Engine"]
     end
 
-    subgraph "Backend_API_Port_8000" ["tt-studio-backend-api (Port 8000)"]
-        "Django"["Django / Uvicorn"]
+    subgraph "Backend_API_Port_8000" tt_studio_backend_api_Port_8000["tt-studio-backend-api (Port 8000)"]
+        "Django"Django_Uvicorn["Django / Uvicorn"]
     end
 
     "Vite_Config" -- "Proxy: /docker-api" --> "Django"
@@ -104,17 +104,17 @@ The `AlertDialog` implementation demonstrates how Radix primitives are extended 
 **UI Component Architecture**
 ```mermaid
 graph LR
-    subgraph "Radix_Primitive_Space" ["Radix Primitive Space"]
-        "RP_Root"["AlertDialogPrimitive.Root"]
-        "RP_Portal"["AlertDialogPrimitive.Portal"]
-        "RP_Content"["AlertDialogPrimitive.Content"]
+    subgraph "Radix_Primitive_Space" Radix_Primitive_Space["Radix Primitive Space"]
+        "RP_Root"AlertDialogPrimitive_Root["AlertDialogPrimitive.Root"]
+        "RP_Portal"AlertDialogPrimitive_Portal["AlertDialogPrimitive.Portal"]
+        "RP_Content"AlertDialogPrimitive_Content["AlertDialogPrimitive.Content"]
     end
 
-    subgraph "Code_Entity_Space" ["Code Entity Space (tt-studio-frontend)"]
-        "UI_Dialog"["AlertDialog"]
-        "UI_Content"["AlertDialogContent"]
-        "UI_Confirm"["ConfirmDialog"]
-        "UI_Health"["HealthBadge"]
+    subgraph "Code_Entity_Space" Code_Entity_Space_tt_studio_frontend["Code Entity Space (tt-studio-frontend)"]
+        "UI_Dialog"AlertDialog["AlertDialog"]
+        "UI_Content"AlertDialogContent["AlertDialogContent"]
+        "UI_Confirm"ConfirmDialog["ConfirmDialog"]
+        "UI_Health"HealthBadge["HealthBadge"]
     end
 
     "UI_Dialog" -- "wraps" --> "RP_Root"

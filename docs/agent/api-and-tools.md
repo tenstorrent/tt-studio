@@ -37,19 +37,19 @@ The frontend initiates communication via the `runInference` function [app/fronte
 **Diagram: Agent API Communication Flow**
 ```mermaid
 sequenceDiagram
-    participant FE as ["ChatComponent (React)"]
-    participant RI as ["runInference.ts"]
-    participant AG as ["tt_studio_agent (FastAPI)"]
-    participant LLM as ["Local LLM Container"]
+    participant FE as "ChatComponent (React)"
+    participant RI as "runInference.ts"
+    participant AG as "tt_studio_agent (FastAPI)"
+    participant LLM as "Local LLM Container"
 
-    FE->>RI: "runInference(..., isAgentSelected=true)"
-    RI->>AG: "POST /models-api/agent/ (messages, thread_id)"
-    AG-->>RI: "200 OK (Request Accepted)"
-    loop "Polling for Updates"
-        RI->>AG: "GET /poll_requests?thread_id=..."
-        AG->>LLM: "Generate Thought/Tool Call"
-        LLM-->>AG: "Tool Request (e.g. Search)"
-        AG-->>RI: "SSE/JSON (Current Thought + Tool Status)"
+    FE->>RI: runInference(..., isAgentSelected=true)
+    RI->>AG: POST /models-api/agent/ (messages, thread_id)
+    AG-->>RI: 200 OK (Request Accepted)
+    loop Polling for Updates
+        RI->>AG: GET /poll_requests?thread_id=...
+        AG->>LLM: Generate Thought/Tool Call
+        LLM-->>AG: Tool Request (e.g. Search)
+        AG-->>RI: SSE/JSON (Current Thought + Tool Status)
     end
 ```
 Sources: [app/docker-compose.yml:106-137](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L106-L137), [app/frontend/src/components/chatui/runInference.ts:181-220](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L181-L220)
