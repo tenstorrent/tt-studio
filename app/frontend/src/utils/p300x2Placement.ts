@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-export interface ChipStatusSlotLike {
-  slot_id: number;
-  status: string;
-}
+import type { ChipStatusSlot } from "../types/chipStatus";
+
+export type ChipStatusSlotLike = Pick<ChipStatusSlot, "slot_id" | "status">;
 
 const LLAMA_P300X2_PAIR = [0, 1] as const;
 
