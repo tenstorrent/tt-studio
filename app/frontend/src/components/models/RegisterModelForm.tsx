@@ -3,14 +3,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -21,12 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible";
-import { Loader2, RefreshCw, ChevronDown, Info, AlertTriangle, Cpu, Layers } from "lucide-react";
+import { Loader2, RefreshCw, Info, AlertTriangle, Cpu, Layers } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import {
   discoverContainers,
@@ -35,10 +22,9 @@ import {
   type DiscoveredContainer,
   type CatalogModel,
 } from "../../api/modelsDeployedApis";
+import { useDetectModel } from "../../hooks/useDetectModel";
 
-interface RegisterModelDialogProps {
-  open: boolean;
-  onClose: () => void;
+interface RegisterModelFormProps {
   onSuccess: () => void;
 }
 
@@ -54,18 +40,6 @@ const MODEL_TYPE_OPTIONS = [
   { value: "object_detection", label: "Object Detection" },
 ] as const;
 
-const DEFAULT_ROUTES: Record<string, string> = {
-  chat: "/v1/chat/completions",
-  vlm: "/v1/chat/completions",
-  embedding: "/v1/chat/completions",
-  tts: "/v1/audio/speech",
-  speech_recognition: "/v1/audio/transcriptions",
-  image_generation: "/v1/images/generations",
-  video_generation: "/v1/chat/completions",
-  object_detection: "/v1/chat/completions",
-  cnn: "/v1/chat/completions",
-};
-
 interface ChipSlot {
   slot_id: number;
   status: "available" | "occupied";
@@ -80,42 +54,7 @@ interface ChipStatus {
   slots: ChipSlot[];
 }
 
-/** Extract the first exposed container port from port_bindings */
-function extractFirstPort(
-  portBindings: DiscoveredContainer["port_bindings"]
-): number | null {
-  if (!portBindings) return null;
-  for (const key of Object.keys(portBindings)) {
-    try {
-      return parseInt(key.split("/")[0], 10);
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** Get all exposed ports from port_bindings */
-function getExposedPorts(
-  portBindings: DiscoveredContainer["port_bindings"]
-): number[] {
-  if (!portBindings) return [];
-  const ports: number[] = [];
-  for (const key of Object.keys(portBindings)) {
-    try {
-      ports.push(parseInt(key.split("/")[0], 10));
-    } catch {
-      continue;
-    }
-  }
-  return ports;
-}
-
-export default function RegisterModelDialog({
-  open,
-  onClose,
-  onSuccess,
-}: RegisterModelDialogProps) {
+export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps) {
   // Container discovery
   const [containers, setContainers] = useState<DiscoveredContainer[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
@@ -132,10 +71,6 @@ export default function RegisterModelDialog({
   const [modelType, setModelType] = useState("");
   const [modelName, setModelName] = useState("");
   const [hfModelId, setHfModelId] = useState("");
-  const [servicePort, setServicePort] = useState("7000");
-  const [serviceRoute, setServiceRoute] = useState("/v1/chat/completions");
-  const [healthRoute, setHealthRoute] = useState("/health");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Device selection state
   const [chipsRequired, setChipsRequired] = useState<1 | 4>(1);
@@ -153,19 +88,16 @@ export default function RegisterModelDialog({
     [containers, selectedContainerId]
   );
 
-  // Port warnings
-  const exposedPorts = useMemo(
-    () => (selectedContainer ? getExposedPorts(selectedContainer.port_bindings) : []),
+  // Chips auto-detected from the container's bound /dev/tenstorrent nodes. When
+  // present these are enforced (the user cannot override); manual selection is
+  // only offered as a last resort when detection yields nothing.
+  const autoDetectedDeviceIds = useMemo<number[] | null>(
+    () =>
+      selectedContainer?.device_ids && selectedContainer.device_ids.length > 0
+        ? selectedContainer.device_ids
+        : null,
     [selectedContainer]
   );
-  const portMismatch = useMemo(() => {
-    if (!servicePort || exposedPorts.length === 0) return false;
-    return !exposedPorts.includes(parseInt(servicePort, 10));
-  }, [servicePort, exposedPorts]);
-
-  // Route hint
-  const expectedRoute = DEFAULT_ROUTES[modelType] ?? "/v1/chat/completions";
-  const routeMismatch = serviceRoute !== expectedRoute && modelType !== "";
 
   // Multi-chip board check
   const isMultiSlotBoard = (chipStatus?.total_slots ?? 1) > 1;
@@ -228,81 +160,63 @@ export default function RegisterModelDialog({
     }
   }, [chipStatus, chipsRequired]);
 
-  // Load on open
+  // Load discovery data on mount (state already starts at the reset defaults).
   useEffect(() => {
-    if (open) {
-      loadContainers();
-      loadCatalog();
-      loadChipStatus();
-      // Reset form
-      setSelectedContainerId("");
-      setModelType("");
-      setModelName("");
-      setHfModelId("");
-      setServicePort("7000");
-      setServiceRoute("/v1/chat/completions");
-      setHealthRoute("/health");
-      setAdvancedOpen(false);
-      setCatalogMatch(null);
-      setChipsRequired(1);
-      setSelectedDeviceId(null);
-    }
-  }, [open, loadContainers, loadCatalog, loadChipStatus]);
+    loadContainers();
+    loadCatalog();
+    loadChipStatus();
+  }, [loadContainers, loadCatalog, loadChipStatus]);
 
-  // When container selection changes, auto-fill port
-  useEffect(() => {
-    if (selectedContainer) {
-      const port = extractFirstPort(selectedContainer.port_bindings);
-      if (port) {
-        setServicePort(String(port));
-      }
-    }
-  }, [selectedContainer]);
-
-  // When model type changes, auto-update service route
-  useEffect(() => {
-    if (modelType) {
-      setServiceRoute(DEFAULT_ROUTES[modelType] ?? "/v1/chat/completions");
-    }
-  }, [modelType]);
-
-  // HF Model ID catalog matching on blur
-  const handleHfModelIdBlur = useCallback(() => {
-    if (!hfModelId.trim() || catalog.length === 0) {
+  // HF Model ID catalog matching — surfaces the model name/type for the summary.
+  // Routes/port are derived server-side at registration, so we don't set them here.
+  const applyCatalogMatch = useCallback((idValue: string) => {
+    if (!idValue.trim() || catalog.length === 0) {
       setCatalogMatch(null);
       return;
     }
     const match = catalog.find(
-      (m) => m.hf_model_id?.toLowerCase() === hfModelId.trim().toLowerCase()
+      (m) => m.hf_model_id?.toLowerCase() === idValue.trim().toLowerCase()
     );
     if (match) {
       setCatalogMatch(match.model_name);
-      // Auto-fill from catalog
       const catalogType = match.model_type?.toLowerCase();
-      if (catalogType && DEFAULT_ROUTES[catalogType]) {
-        setModelType(catalogType);
-        setServiceRoute(match.service_route || DEFAULT_ROUTES[catalogType]);
-      }
-      if (match.health_route) {
-        setHealthRoute(match.health_route);
-      }
+      if (catalogType) setModelType(catalogType);
+      // Prefill the model name from the catalog if the user hasn't typed one.
+      setModelName((prev) => prev || match.model_name);
     } else {
       setCatalogMatch(null);
     }
-  }, [hfModelId, catalog]);
+  }, [catalog]);
 
-  // Form validity
-  const deviceIdValid =
-    chipsRequired >= 4
-      ? multiChipConflicts.length === 0
-      : selectedDeviceId !== null;
+  const handleHfModelIdBlur = useCallback(
+    () => applyCatalogMatch(hfModelId),
+    [applyCatalogMatch, hfModelId]
+  );
 
-  const canSubmit =
-    selectedContainerId !== "" &&
-    modelType !== "" &&
-    modelName.trim() !== "" &&
-    deviceIdValid &&
-    !submitting;
+  // Switching containers clears the previously-derived identity so a stale
+  // model/type can't linger; detection below refills it for the new container.
+  useEffect(() => {
+    setModelType("");
+    setModelName("");
+    setHfModelId("");
+    setCatalogMatch(null);
+  }, [selectedContainerId]);
+
+  // Auto-detect the model served by the selected container and prefill the form.
+  const { detecting, detected } = useDetectModel(selectedContainerId);
+  useEffect(() => {
+    if (!detected) return;
+    if (detected.model_type) setModelType(detected.model_type);
+    if (detected.hf_model_id) {
+      setHfModelId(detected.hf_model_id);
+      applyCatalogMatch(detected.hf_model_id);
+    }
+  }, [detected, applyCatalogMatch]);
+
+  // Only a container is required. The backend derives model name, type, routes,
+  // port and devices from the running container (live /v1/models → logs → catalog
+  // → bound chip nodes). The form fields are optional overrides / last resort.
+  const canSubmit = selectedContainerId !== "" && !submitting;
 
   // Submit
   const handleSubmit = useCallback(async () => {
@@ -314,9 +228,6 @@ export default function RegisterModelDialog({
         model_type: modelType,
         model_name: modelName.trim(),
         hf_model_id: hfModelId.trim() || undefined,
-        service_port: parseInt(servicePort, 10) || 7000,
-        service_route: serviceRoute,
-        health_route: healthRoute,
         device_id: chipsRequired >= 4 ? 0 : (selectedDeviceId ?? 0),
         chips_required: chipsRequired,
       });
@@ -350,25 +261,14 @@ export default function RegisterModelDialog({
     modelType,
     modelName,
     hfModelId,
-    servicePort,
-    serviceRoute,
-    healthRoute,
     chipsRequired,
     selectedDeviceId,
     onSuccess,
   ]);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg dark:bg-stone-950 dark:border-stone-800">
-        <DialogHeader>
-          <DialogTitle>Register External Model</DialogTitle>
-          <DialogDescription>
-            Connect a running Docker container to TT Studio
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
+    <div className="space-y-4">
+      <div className="space-y-4">
           {/* Container selector */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -417,55 +317,65 @@ export default function RegisterModelDialog({
             )}
           </div>
 
-          {/* Model Type */}
-          <div className="space-y-2">
-            <Label>Model Type</Label>
-            <Select value={modelType} onValueChange={setModelType}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select model type..." />
-              </SelectTrigger>
-              <SelectContent>
-                {MODEL_TYPE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Model Name */}
-          <div className="space-y-2">
-            <Label>Model Name</Label>
-            <Input
-              placeholder="e.g. Llama 3.1 8B Instruct"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-            />
-          </div>
-
-          {/* HuggingFace Model ID */}
-          <div className="space-y-2">
-            <Label>
-              HuggingFace Model ID{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </Label>
-            <Input
-              placeholder="e.g. meta-llama/Llama-3.1-8B-Instruct"
-              value={hfModelId}
-              onChange={(e) => setHfModelId(e.target.value)}
-              onBlur={handleHfModelIdBlur}
-            />
-            {catalogMatch && (
+          {/* Model identity — derived from the container. Name is always derived
+              server-side (never asked). Type is derived too; we only ask for it
+              (and the HF id) as a last resort when the model can't be identified. */}
+          {selectedContainerId && (
+            detecting ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Identifying model…
+              </div>
+            ) : modelType ? (
               <div className="flex items-start gap-2 rounded-md bg-blue-950/40 border border-blue-500/25 px-3 py-2 text-xs text-blue-300">
                 <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>
-                  Matched catalog model: <strong>{catalogMatch}</strong> — auto-filled
-                  type and routes
+                  Detected model:{" "}
+                  <strong className="text-foreground">
+                    {catalogMatch || hfModelId || modelName || "custom model"}
+                  </strong>{" "}
+                  · type{" "}
+                  <strong className="text-foreground">
+                    {MODEL_TYPE_OPTIONS.find((o) => o.value === modelType)?.label ?? modelType}
+                  </strong>
                 </span>
               </div>
-            )}
-          </div>
+            ) : (
+              <div className="space-y-3 rounded-md border border-stone-700 bg-stone-900/40 px-3 py-3">
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Add the model's HuggingFace ID to auto-fill everything, or just
+                    pick its type.
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  <Label>HuggingFace Model ID</Label>
+                  <Input
+                    placeholder="e.g. meta-llama/Llama-3.1-8B-Instruct"
+                    value={hfModelId}
+                    onChange={(e) => setHfModelId(e.target.value)}
+                    onBlur={handleHfModelIdBlur}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Model Type</Label>
+                  <Select value={modelType} onValueChange={setModelType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select model type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODEL_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )
+          )}
 
           {/* ── Device Selection ── */}
           <div className="space-y-3">
@@ -484,7 +394,20 @@ export default function RegisterModelDialog({
               </Button>
             </div>
 
-            {loadingChipStatus ? (
+            {autoDetectedDeviceIds ? (
+              <div className="flex items-start gap-2 rounded-md bg-TT-purple-shade/20 border border-TT-purple-accent/25 px-3 py-2 text-xs text-TT-purple">
+                <Cpu className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Auto-detected from the container:{" "}
+                  <strong className="text-foreground">
+                    {autoDetectedDeviceIds
+                      .map((d) => `Device ${String(d).padStart(2, "0")}`)
+                      .join(", ")}
+                  </strong>
+                  . These are fixed by the running container and can't be changed.
+                </span>
+              </div>
+            ) : loadingChipStatus ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading device status...
@@ -657,97 +580,20 @@ export default function RegisterModelDialog({
             )}
           </div>
 
-          {/* Advanced section */}
-          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-between text-muted-foreground hover:text-foreground"
-              >
-                Advanced Settings
-                <ChevronDown
-                  className={`h-4 w-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-                />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-3 pt-2">
-              {/* Service Port */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Service Port</Label>
-                <Input
-                  type="number"
-                  value={servicePort}
-                  onChange={(e) => setServicePort(e.target.value)}
-                />
-                {portMismatch && (
-                  <div className="flex items-start gap-1.5 text-xs text-amber-400">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      Container does not expose port {servicePort}. Available
-                      ports: {exposedPorts.join(", ")}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Service Route */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Service Route</Label>
-                <Input
-                  value={serviceRoute}
-                  onChange={(e) => setServiceRoute(e.target.value)}
-                />
-                {routeMismatch && (
-                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      Typical route for{" "}
-                      {MODEL_TYPE_OPTIONS.find((o) => o.value === modelType)?.label ??
-                        modelType}{" "}
-                      models is <code className="font-mono">{expectedRoute}</code>
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Health Route */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Health Route</Label>
-                <Input
-                  value={healthRoute}
-                  onChange={(e) => setHealthRoute(e.target.value)}
-                />
-                {healthRoute !== "/health" && (
-                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      Standard health route is{" "}
-                      <code className="font-mono">/health</code>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
-            {submitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Registering...
-              </>
-            ) : (
-              "Register"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="flex justify-end pt-2">
+        <Button onClick={handleSubmit} disabled={!canSubmit}>
+          {submitting ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Registering...
+            </>
+          ) : (
+            "Register"
+          )}
+        </Button>
+      </div>
+    </div>
   );
 }

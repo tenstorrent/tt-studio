@@ -5,7 +5,7 @@
 name = "tt-studio-setup"
 version = "0.1.0"
 description = "TT Studio setup / orchestration CLI"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "rich>=13.7",
     "typer>=0.12",
