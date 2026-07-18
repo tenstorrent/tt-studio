@@ -48,23 +48,20 @@ The following diagram illustrates how `run.py` (Natural Language Space) orchestr
 **Figure 1: run.py Initialization Logic**
 ```mermaid
 graph TD
-    subgraph "Host_Space_run_py"
-        run_py["run.py"] --> setup_environment["_setup_environment()"]
+    subgraph Host_Space_run_py["run.py"] --> setup_environment["_setup_environment()"]
         setup_environment["_setup_environment()"] --> create_docker_network_tt_studio_network["_create_docker_network('tt_studio_network')"]
         create_docker_network_tt_studio_network["_create_docker_network('tt_studio_network')"] --> start_docker_control_service["start_docker_control_service()"]
         start_docker_control_service["start_docker_control_service()"] --> run_docker_compose["_run_docker_compose()"]
     end
 
-    subgraph "Docker_Topology_tt_studio_network"
-        run_docker_compose["_run_docker_compose()"] --> tt_studio_backend["tt_studio_backend"]
+    subgraph Docker_Topology_tt_studio_network["_run_docker_compose()"] --> tt_studio_backend["tt_studio_backend"]
         run_docker_compose["_run_docker_compose()"] --> tt_studio_frontend["tt_studio_frontend"]
         run_docker_compose["_run_docker_compose()"] --> tt_studio_chroma["tt_studio_chroma"]
         run_docker_compose["_run_docker_compose()"] --> tt_studio_agent["tt_studio_agent"]
         run_docker_compose["_run_docker_compose()"] --> tt_studio_litellm["tt_studio_litellm"]
     end
 
-    subgraph "Persistence_and_Config"
-        tt_studio_backend["tt_studio_backend"] --- HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
+    subgraph Persistence_and_Config["tt_studio_backend"] --- HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
         tt_studio_chroma["tt_studio_chroma"] --- HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
         setup_environment["_setup_environment()"] --- ROOT_env["ROOT/.env"]
     end
@@ -93,14 +90,12 @@ TT-Studio detects Tenstorrent hardware by checking for devices in `/dev/tenstorr
 **Figure 2: Hardware Access & Resource Mapping**
 ```mermaid
 graph LR
-    subgraph "Host_Resources"
-        dev_tenstorrent["/dev/tenstorrent"]
+    subgraph Host_Resources["/dev/tenstorrent"]
         HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
         DOCKER_CONTROL_SERVICE_URL_Port_8002["DOCKER_CONTROL_SERVICE_URL_Port_8002"]
     end
 
-    subgraph "tt_studio_backend_Container"
-        uvicorn_api_asgi_application["uvicorn_api_asgi_application"]
+    subgraph tt_studio_backend_Container["uvicorn_api_asgi_application"]
         dev_tenstorrent_Mapped["/dev/tenstorrent_Mapped"]
         tt_studio_persistent_volume["/tt_studio_persistent_volume"]
     end

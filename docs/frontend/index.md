@@ -38,32 +38,32 @@ The following diagram illustrates the relationship between the main application 
 ```mermaid
 graph TD
     subgraph "App_Shell_(MainLayout)"
-        "App.tsx"App_tsx["App.tsx"] --> "AppRouter"AppRouter["AppRouter"]
-        "AppRouter" --> "MainLayout"MainLayout_tsx["MainLayout.tsx"]
+        App_tsx["App.tsx"] --> AppRouter["AppRouter"]
+        AppRouter --> MainLayout["MainLayout.tsx"]
     end
 
     subgraph "State_Providers"
-        "ModelsProvider"ModelsContext_tsx["ModelsContext.tsx"]
-        "DeviceProvider"DeviceStateContext_tsx["DeviceStateContext.tsx"]
-        "RefreshProvider"RefreshContext_tsx["RefreshContext.tsx"]
-        "ThemeProvider"ThemeProvider_tsx["ThemeProvider.tsx"]
-        "HeroSectionProvider"HeroSectionContext_tsx["HeroSectionContext.tsx"]
-        "FooterVisibilityProvider"FooterVisibilityContext_tsx["FooterVisibilityContext.tsx"]
+        ModelsProvider["ModelsContext.tsx"]
+        DeviceProvider["DeviceStateContext.tsx"]
+        RefreshProvider["RefreshContext.tsx"]
+        ThemeProvider["ThemeProvider.tsx"]
+        HeroSectionProvider["HeroSectionContext.tsx"]
+        FooterVisibilityProvider["FooterVisibilityContext.tsx"]
     end
 
     subgraph "Functional_Modules"
-        "MainLayout" --> "DeploymentWizard"SelectionSteps_tsx["SelectionSteps.tsx"]
-        "MainLayout" --> "ChatUI"ChatComponent_tsx["ChatComponent.tsx"]
-        "MainLayout" --> "RAG"RagManagement_tsx["RagManagement.tsx"]
-        "MainLayout" --> "Specialized"ObjectDetection_STT_TTS["ObjectDetection/STT/TTS"]
+        MainLayout --> DeploymentWizard["SelectionSteps.tsx"]
+        MainLayout --> ChatUI["ChatComponent.tsx"]
+        MainLayout --> RAG["RagManagement.tsx"]
+        MainLayout --> Specialized["ObjectDetection/STT/TTS"]
     end
 
-    "App.tsx" -.-> "ThemeProvider"
-    "App.tsx" -.-> "HeroSectionProvider"
-    "App.tsx" -.-> "FooterVisibilityProvider"
-    "AppRouter" -.-> "ModelsProvider"
-    "AppRouter" -.-> "DeviceProvider"
-    "AppRouter" -.-> "RefreshProvider"
+    App_tsx -.-> ThemeProvider
+    App_tsx -.-> HeroSectionProvider
+    App_tsx -.-> FooterVisibilityProvider
+    AppRouter -.-> ModelsProvider
+    AppRouter -.-> DeviceProvider
+    AppRouter -.-> RefreshProvider
 ```
 Sources: [app/frontend/src/App.tsx:25-34](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L25-L34), [app/frontend/package.json:73](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L73), [app/frontend/src/App.tsx:5-11](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L5-L11)
 
@@ -99,29 +99,29 @@ The application uses Vite to manage the development server and production build.
 ```mermaid
 graph LR
     subgraph "Frontend_Port_3000"
-        "UI"React_UI["React UI"]
+        UI["React UI"]
     end
 
     subgraph "Vite_Proxy"
-        "D-API"docker_api["/docker-api"]
-        "M-API"models_api["/models-api"]
-        "C-API"collections_api["/collections-api"]
-        "W-API"ws_api["/ws-api"]
+        D_API["/docker-api"]
+        M_API["/models-api"]
+        C_API["/collections-api"]
+        W_API["/ws-api"]
     end
 
     subgraph "Backend_Port_8000"
-        "Django"tt_studio_backend_api["tt-studio-backend-api"]
+        Django["tt-studio-backend-api"]
     end
 
-    "UI" --> "D-API"
-    "UI" --> "M-API"
-    "UI" --> "C-API"
-    "UI" --> "W-API"
+    UI --> D_API
+    UI --> M_API
+    UI --> C_API
+    UI --> W_API
     
-    "D-API" --> "Django"
-    "M-API" --> "Django"
-    "C-API" --> "Django"
-    "W-API" --> "Django"
+    D_API --> Django
+    M_API --> Django
+    C_API --> Django
+    W_API --> Django
 ```
 Sources: [app/frontend/package.json:7-16](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L7-L16), [app/frontend/package.json:102](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L102)
 

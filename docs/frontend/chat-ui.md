@@ -59,7 +59,8 @@ sequenceDiagram
     deactivate API
     RI-->>CC: Update current message (Streaming)
     deactivate RI
-    CC->>CC: Finalize Message & Stats```
+    CC->>CC: Finalize Message & Stats
+```
 Sources: `[app/frontend/src/components/chatui/ChatComponent.tsx:40-135](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatComponent.tsx#L40-L135)`, `[app/frontend/src/components/chatui/runInference.ts:18-36](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L18-L36)`, `[app/frontend/src/components/chatui/runInference.ts:181-185](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L181-L185)`, `[app/frontend/src/components/chatui/runInference.ts:53-55](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L53-L55)`
 
 ---

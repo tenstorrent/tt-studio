@@ -28,12 +28,10 @@ The following diagram illustrates how the `DockerControlClient` in the backend c
 **Title: Docker Operation Proxy Flow**
 ```mermaid
 graph LR
-    subgraph "ContainerizedSpace"
-        [tt_studio_backend] -- "Uses DockerControlClient" --> [API_Requests]
+    subgraph ContainerizedSpace[tt_studio_backend] -- "Uses DockerControlClient" --> [API_Requests]
     end
 
-    subgraph "HostSpace(Port 8002)"
-        [API_Requests] -- "JWT Authenticated" --> [api.py_app]
+    subgraph HostSpace_Port_8002[API_Requests] -- "JWT Authenticated" --> [api.py_app]
         [api.py_app] -- "Routes to" --> [routers/containers.py]
         [routers/containers.py] -- "Direct Access" --> [docker.sock]
     end

@@ -27,20 +27,20 @@ The following diagram illustrates how `logs_control` gathers data from across th
 **Log Collection Architecture**
 ```mermaid
 graph TD
-    subgraph "Frontend_Space" Frontend_Space["Frontend Space"]
+    subgraph Frontend_Space["Frontend Space"]
         A["BugReportModal.tsx"] -- "GET /logs-api/bug-report/" --> B["BugReportDataView"]
         A -- "GET /logs-api/bug-report/download/" --> C["BugReportDownloadView"]
         D["Logs_Control_UI"] -- "GET /logs-api/get-log/<path:filename>/" --> E["GetLogView"]
     end
 
-    subgraph "Django_Backend" Django_Backend_logs_control["Django Backend (logs_control)"]
+    subgraph Django_Backend["Django Backend (logs_control)"]
         B["BugReportDataView"]
         C["BugReportDownloadView"]
         E["GetLogView"]
         F["_collect_bug_report_data()"]
     end
 
-    subgraph "External_Services" External_Services["External Services"]
+    subgraph External_Services["External Services"]
         G["docker-control-service:8002"] -- "HTTP /api/v1/logs/*" --> F
         H["inference-api:8001"] -- "Volume: .artifacts/" --> F
         I["Agent_Container"] -- "Docker API" --> G
@@ -87,19 +87,19 @@ The following diagram maps the frontend UI components to the backend views and t
 **Log Access Mapping**
 ```mermaid
 graph LR
-    subgraph "Frontend_Entities" Frontend_Entities["Frontend Entities"]
+    subgraph Frontend_Entities["Frontend Entities"]
         URS["useBugReport.ts"]
         TYPES["types.ts (BugReportData)"]
     end
 
-    subgraph "Backend_Entities" Backend_Entities_logs_control_views_py["Backend Entities (logs_control/views.py)"]
+    subgraph Backend_Entities["Backend Entities (logs_control/views.py)"]
         FALV["FastAPILogsView"]
         TILV["TtInferenceLogsView"]
         BRDV["BugReportDataView"]
         GLV["GetLogView"]
     end
 
-    subgraph "Data_Sources" Data_Sources_Proxies["Data Sources / Proxies"]
+    subgraph Data_Sources["Data Sources / Proxies"]
         MRLOG["model_run.log (filesystem)"]
         DCS["docker-control-service (port 8002)"]
         PV["Persistent Volume (LOGS_ROOT)"]

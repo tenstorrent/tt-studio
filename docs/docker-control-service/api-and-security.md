@@ -26,18 +26,18 @@ The following diagram maps the high-level service concepts to the specific code 
 **Diagram: Service Entity Mapping**
 ```mermaid
 graph TD
-    subgraph "Host_Space" Host_Space["Host Space"]
+    subgraph Host_Space["Host Space"]
         A["docker-control-service/api.py"] -- "Uses" --> B["docker-control-service/config.py"]
         A -- "Routes" --> C["docker-control-service/routers/"]
         D["docker.sock"] <--> C
     end
 
-    subgraph "Container_Space" Container_Space["Container Space"]
+    subgraph Container_Space["Container Space"]
         E["docker_control/docker_control_client.py"] -- "JWT_Request" --> A
         F["docker_control/health_monitor.py"] -- "Polling" --> E
     end
 
-    subgraph "Code_Entities" Code_Entities["Code Entities"]
+    subgraph Code_Entities["Code Entities"]
         E_Class["DockerControlClient"] 
         A_App["FastAPI_app"]
         C_Cont["containers.py"]

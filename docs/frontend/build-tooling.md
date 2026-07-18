@@ -37,22 +37,22 @@ The `vite.config.ts` file orchestrates the frontend's connection to the backend 
 **Vite Proxy Data Flow**
 ```mermaid
 graph TD
-    subgraph "Vite_Dev_Server_Port_3000" Vite_Dev_Server_Port_3000["Vite Dev Server (Port 3000)"]
-        "Vite_Config"vite_config_ts["vite.config.ts"]
-        "HMR"HMR_Engine["HMR Engine"]
+    subgraph Vite_Dev_Server_Port_3000["Vite Dev Server (Port 3000)"]
+        Vite_Config["vite.config.ts"]
+        HMR["HMR Engine"]
     end
 
-    subgraph "Backend_API_Port_8000" tt_studio_backend_api_Port_8000["tt-studio-backend-api (Port 8000)"]
-        "Django"Django_Uvicorn["Django / Uvicorn"]
+    subgraph Backend_API_Port_8000["tt-studio-backend-api (Port 8000)"]
+        Django["Django / Uvicorn"]
     end
 
-    "Vite_Config" -- "Proxy: /docker-api" --> "Django"
-    "Vite_Config" -- "Proxy: /models-api" --> "Django"
-    "Vite_Config" -- "Proxy: /logs-api" --> "Django"
-    "Vite_Config" -- "Proxy: /collections-api" --> "Django"
-    "Vite_Config" -- "Proxy: /board-api" --> "Django"
-    "Vite_Config" -- "Proxy: /ws-api" --> "Django"
-    "Vite_Config" -- "Proxy: /reset-board" --> "Django"
+    Vite_Config -- "Proxy: /docker-api" --> Django
+    Vite_Config -- "Proxy: /models-api" --> Django
+    Vite_Config -- "Proxy: /logs-api" --> Django
+    Vite_Config -- "Proxy: /collections-api" --> Django
+    Vite_Config -- "Proxy: /board-api" --> Django
+    Vite_Config -- "Proxy: /ws-api" --> Django
+    Vite_Config -- "Proxy: /reset-board" --> Django
 ```
 
 **Key Proxy Features:**
@@ -104,24 +104,24 @@ The `AlertDialog` implementation demonstrates how Radix primitives are extended 
 **UI Component Architecture**
 ```mermaid
 graph LR
-    subgraph "Radix_Primitive_Space" Radix_Primitive_Space["Radix Primitive Space"]
-        "RP_Root"AlertDialogPrimitive_Root["AlertDialogPrimitive.Root"]
-        "RP_Portal"AlertDialogPrimitive_Portal["AlertDialogPrimitive.Portal"]
-        "RP_Content"AlertDialogPrimitive_Content["AlertDialogPrimitive.Content"]
+    subgraph Radix_Primitive_Space["Radix Primitive Space"]
+        RP_Root["AlertDialogPrimitive.Root"]
+        RP_Portal["AlertDialogPrimitive.Portal"]
+        RP_Content["AlertDialogPrimitive.Content"]
     end
 
-    subgraph "Code_Entity_Space" Code_Entity_Space_tt_studio_frontend["Code Entity Space (tt-studio-frontend)"]
-        "UI_Dialog"AlertDialog["AlertDialog"]
-        "UI_Content"AlertDialogContent["AlertDialogContent"]
-        "UI_Confirm"ConfirmDialog["ConfirmDialog"]
-        "UI_Health"HealthBadge["HealthBadge"]
+    subgraph Code_Entity_Space["Code Entity Space (tt-studio-frontend)"]
+        UI_Dialog["AlertDialog"]
+        UI_Content["AlertDialogContent"]
+        UI_Confirm["ConfirmDialog"]
+        UI_Health["HealthBadge"]
     end
 
-    "UI_Dialog" -- "wraps" --> "RP_Root"
-    "UI_Content" -- "wraps" --> "RP_Portal"
-    "UI_Content" -- "wraps" --> "RP_Content"
-    "UI_Confirm" -- "uses" --> "UI_Dialog"
-    "UI_Health" -- "uses" --> "Tooltip"
+    UI_Dialog -- "wraps" --> RP_Root
+    UI_Content -- "wraps" --> RP_Portal
+    UI_Content -- "wraps" --> RP_Content
+    UI_Confirm -- "uses" --> UI_Dialog
+    UI_Health -- "uses" --> Tooltip
 ```
 
 **Sources:** [app/frontend/src/components/ui/alert-dialog.tsx:1-146](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/alert-dialog.tsx#L1-L146), [app/frontend/src/components/ui/scroll-area.tsx:1-59](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/scroll-area.tsx#L1-L59), [app/frontend/src/components/ConfirmDialog.tsx:1-52](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ConfirmDialog.tsx#L1-L52), [app/frontend/src/components/HealthBadge.tsx:1-217](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/HealthBadge.tsx#L1-L217)

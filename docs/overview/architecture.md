@@ -95,7 +95,8 @@ sequenceDiagram
     BE->>MC: Forward to Inference Port (e.g. 7000)
     MC-->>BE: Token Stream
     BE-->>LiteLLM: OpenAI-compatible Stream
-    LiteLLM-->>Client: Final Response```
+    LiteLLM-->>Client: Final Response
+```
 **Sources:** [app/litellm/config.yaml:12-25](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/litellm/config.yaml#L12-L25), [app/docker-compose.yml:138-162](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L138-L162)
 
 ---
