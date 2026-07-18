@@ -1,0 +1,71 @@
+{#-
+  Extends the sphinx_rtd_theme layout to add the Tenstorrent house top nav bar
+  (the fixed `.tt-top-nav`, styled by the vendored tt_theme.css). The logo and
+  nav links point at docs.tenstorrent.com. The search box + Ask-AI modal from
+  the canonical theme are intentionally omitted here (they depend on hosted
+  search infrastructure that isn't available to this standalone site).
+-#}
+{%- extends "!layout.html" %}
+
+{%- block extrabody %}
+{%- set _root_doc = root_doc|default(master_doc) %}
+{%- set _home = logo_link_url|default(pathto(_root_doc)) %}
+<nav class="tt-top-nav" role="navigation" aria-label="Top navigation">
+  <div class="tt-top-nav-left">
+    <a href="{{ _home }}" class="tt-nav-logo">
+      <img src="{{ pathto('_static/logotype.png', 1) }}" alt="Tenstorrent" />
+      <span>DOCUMENTATION</span>
+    </a>
+    <ul class="tt-nav-links">
+      <li class="has-dropdown">
+        <a href="{{ _home }}#get-started">Get Started</a>
+        <div class="tt-nav-dropdown">
+          <a href="{{ _home }}getting-started/tt-software-stack.html">Overview</a>
+          <a href="{{ _home }}getting-started/README.html">Installing Tenstorrent Software</a>
+          <a href="{{ _home }}getting-started/vLLM-servers.html">Deploy LLMs</a>
+          <a href="https://docs.tenstorrent.com/tt-vscode-toolkit/" target="_blank" rel="noopener">Learn by Building</a>
+        </div>
+      </li>
+      <li class="has-dropdown">
+        <a href="{{ _home }}#software">Software</a>
+        <div class="tt-nav-dropdown">
+          <a href="{{ _home }}forge/index.html">TT-Forge</a>
+          <a href="https://docs.tenstorrent.com/tt-xla/" target="_blank" rel="noopener">TT-XLA</a>
+          <a href="https://docs.tenstorrent.com/tt-metal/latest/ttnn/" target="_blank" rel="noopener">TT-NN</a>
+          <a href="https://docs.tenstorrent.com/tt-mlir/" target="_blank" rel="noopener">TT-MLIR</a>
+          <a href="https://docs.tenstorrent.com/tt-metal/latest/tt-metalium/" target="_blank" rel="noopener">TT-Metalium</a>
+          <a href="https://docs.tenstorrent.com/tt-studio/" target="_blank" rel="noopener">TT-Studio</a>
+        </div>
+      </li>
+      <li class="has-dropdown">
+        <a href="{{ _home }}#hardware">Hardware</a>
+        <div class="tt-nav-dropdown">
+          <a href="{{ _home }}aibs/blackhole/index.html">Blackhole™ PCIe Cards</a>
+          <a href="{{ _home }}systems/quietbox/quietbox-bh-2/index.html">TT-QuietBox 2</a>
+          <a href="{{ _home }}aibs/wormhole/index.html">Wormhole™ PCIe Cards</a>
+        </div>
+      </li>
+      <li class="has-dropdown">
+        <a href="{{ _home }}#tools">Tools</a>
+        <div class="tt-nav-dropdown">
+          <a href="https://github.com/tenstorrent/tt-inference-server" target="_blank" rel="noopener">TT-Inference-Server</a>
+          <a href="https://github.com/tenstorrent/tt-studio" target="_blank" rel="noopener">TT-Studio</a>
+          <a href="https://docs.tenstorrent.com/tt-toplike/" target="_blank" rel="noopener">TT-Toplike</a>
+        </div>
+      </li>
+    </ul>
+  </div>
+  <div class="tt-top-nav-right">
+    <div class="tt-nav-actions">
+      <a href="https://docs.tenstorrent.com/tt-awesome/" class="tt-nav-btn-cta" target="_blank" rel="noopener">Explore</a>
+      <a href="https://github.com/tenstorrent/tt-studio" class="tt-nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        Github
+      </a>
+    </div>
+    <i data-toggle="wy-nav-top" class="fa fa-bars tt-nav-hamburger" aria-hidden="true"></i>
+  </div>
+</nav>
+{%- endblock %}

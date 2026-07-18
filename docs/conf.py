@@ -34,6 +34,7 @@ myst_enable_extensions = [
 myst_fence_as_directive = ["mermaid"]
 myst_heading_anchors = 3
 
+templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "assets"]
 
 # Some reproduced code samples are tagged with a language that Pygments can't
@@ -55,7 +56,7 @@ html_static_path = ["_static"]
 # Files copied verbatim to the output root (e.g. .nojekyll so GitHub Pages does
 # not strip the _static/ directory).
 html_extra_path = ["_extra"]
-html_js_files = ["external-nav-links.js", "sidebar-scroll.js"]
+html_js_files = ["external-nav-links.js", "sidebar-scroll.js", "sidebar-carets.js", "topnav.js", "docs-toc.js"]
 html_last_updated_fmt = "%b %d, %Y"
 html_baseurl = "https://docs.tenstorrent.com/tt-studio/"
 
