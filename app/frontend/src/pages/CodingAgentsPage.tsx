@@ -78,6 +78,13 @@ export default function CodingAgentsPage() {
     return names[0] ?? PLACEHOLDER_MODEL;
   }, [info, selectedModel]);
 
+  const gatewayPort = info?.gateway_port ?? 4000;
+
+  // Cursor's servers call the endpoint (not the local client), so the gateway
+  // must be exposed over public HTTPS first — run.py --cursor automates that.
+  const cursorSnippet = `python run.py --cursor`;
+  const cursorManualSnippet = `cloudflared tunnel --url http://localhost:${gatewayPort}`;
+
   const claudeCodeSnippet = `export ANTHROPIC_BASE_URL=${anthropicBase}
 export ANTHROPIC_AUTH_TOKEN=${masterKey || "<your-api-key>"}
 export ANTHROPIC_MODEL=${activeModel}
@@ -164,8 +171,8 @@ PY`;
               Coding Agents
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Connect Claude Code or any OpenAI-compatible client to your
-              locally deployed models.
+              Connect Claude Code, Cursor, or any OpenAI-compatible client to
+              your locally deployed models.
             </p>
           </div>
         </div>
@@ -314,6 +321,7 @@ PY`;
                 <Tabs defaultValue="claude-code" className="w-full">
                   <TabsList>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+                    <TabsTrigger value="cursor">Cursor</TabsTrigger>
                     <TabsTrigger value="opencode">OpenCode</TabsTrigger>
                     <TabsTrigger value="openai">OpenAI / cURL</TabsTrigger>
                   </TabsList>
@@ -325,6 +333,53 @@ PY`;
                       with the <code>/model</code> command.
                     </p>
                     <CodeBlock code={claudeCodeSnippet} language="bash" className="text-left" />
+                  </TabsContent>
+
+                  <TabsContent value="cursor" className="space-y-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Cursor calls custom endpoints from its own servers, so the
+                      gateway must be reachable over public HTTPS. On the machine
+                      running TT-Studio, this command opens a secure tunnel and
+                      prints the exact values to paste:
+                    </p>
+                    <CodeBlock code={cursorSnippet} language="bash" className="text-left" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Then in Cursor open{" "}
+                      <span className="font-medium">
+                        Settings → Models → API Keys
+                      </span>{" "}
+                      and: enable <span className="font-medium">OpenAI API Key</span>{" "}
+                      and paste the key, enable{" "}
+                      <span className="font-medium">Override OpenAI Base URL</span>{" "}
+                      and paste the tunnel URL (it ends in <code>/v1</code>), then
+                      add a custom model named{" "}
+                      <span className="font-mono">{activeModel}</span> and hit
+                      Verify.
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Prefer doing it by hand? Start the tunnel yourself with{" "}
+                      <a
+                        href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-TT-purple underline"
+                      >
+                        cloudflared
+                      </a>{" "}
+                      and use the printed <code>trycloudflare.com</code> URL plus{" "}
+                      <code>/v1</code> as the base URL, with the API key above:
+                    </p>
+                    <CodeBlock code={cursorManualSnippet} language="bash" className="text-left" />
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Good to know</AlertTitle>
+                      <AlertDescription>
+                        Keep the tunnel command running while you work — the URL
+                        dies with it. Cursor routes these requests through its own
+                        backend, and Tab completion always uses Cursor&apos;s
+                        built-in models regardless of API-key settings.
+                      </AlertDescription>
+                    </Alert>
                   </TabsContent>
 
                   <TabsContent value="opencode" className="space-y-3">

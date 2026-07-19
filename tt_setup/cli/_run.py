@@ -228,6 +228,11 @@ def _run(args):
             install_shortcut()
             return
 
+        if args.cursor:
+            from tt_setup.cursor import connect_cursor
+            connect_cursor(args)
+            return
+
         if args.cleanup or args.cleanup_all:
             cleanup_resources(args)
             return

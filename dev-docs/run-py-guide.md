@@ -95,6 +95,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | --- | --- |
 | `--add-headers` | Add missing SPDX license headers (excludes frontend). |
 | `--check-headers` | Report files missing SPDX license headers (no changes). |
+| `--cursor` | Connect the Cursor editor to your deployed models: opens a public tunnel to the coding-agent gateway (Cursor's servers can't reach `localhost`) and prints the base URL, API key, and model name to paste into Cursor Settings → Models. Keep it running while you work. |
 
 ### Troubleshooting & Info
 

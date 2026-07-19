@@ -34,6 +34,13 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         ready.assert_called_once()
 
+    def test_cursor_flag_dispatches_to_connect_cursor(self):
+        # --cursor is a utility flag: it must dispatch early (no phased setup).
+        with patch("tt_setup.cursor.connect_cursor") as connect:
+            result = runner.invoke(M.app, ["--cursor"])
+        self.assertEqual(result.exit_code, 0)
+        connect.assert_called_once()
+
     def test_qb2_defaults_false_and_honors_true(self):
         # IS_QB2 is opt-in: unset defaults to false so the strict QB2 check only
         # runs when a QB2 machine (or the tt_qb2_launch release branch) opts in.

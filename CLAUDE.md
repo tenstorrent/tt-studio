@@ -53,6 +53,7 @@ python run.py --info          # re-show the "TT Studio is ready" summary (URLs, 
 python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + open a GitHub issue
 python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/.bashrc)
 python run.py --check-headers # report files missing SPDX headers
+python run.py --cursor        # tunnel the coding-agent gateway + print Cursor settings
 ```
 
 Frontend (in `app/frontend/`): `npm run dev`, `npm run build`,

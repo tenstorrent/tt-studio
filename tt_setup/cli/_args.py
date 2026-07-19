@@ -49,6 +49,7 @@ def _entry(
     # ── Developer Tools ──────────────────────────────────────────────────────
     add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend).", rich_help_panel="Developer Tools"),
     check_headers: bool = typer.Option(False, "--check-headers", help="Check for missing SPDX license headers.", rich_help_panel="Developer Tools"),
+    cursor: bool = typer.Option(False, "--cursor", help="Connect Cursor: tunnel the coding-agent gateway and print the settings to paste.", rich_help_panel="Developer Tools"),
     # ── Troubleshooting & Info ───────────────────────────────────────────────
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help.", rich_help_panel="Troubleshooting & Info"),
     report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and open a pre-filled GitHub issue.", rich_help_panel="Troubleshooting & Info"),
@@ -80,7 +81,7 @@ def _entry(
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
         status=status, logs=logs, info=info, report_bug=report_bug,
-        install_shortcut=install_shortcut,
+        install_shortcut=install_shortcut, cursor=cursor,
     )
     _run(args)
 
