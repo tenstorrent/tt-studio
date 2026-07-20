@@ -29,6 +29,7 @@ from .views import (
     DiscoverContainersView,
     RegisterExternalModelView,
     AvailableDevicesView,
+    DetectModelFromLogsView,
 )
 
 urlpatterns = [
@@ -56,4 +57,5 @@ urlpatterns = [
     path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
     path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
     path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
+    path("detect-model/<str:container_id>/", views.DetectModelFromLogsView.as_view(), name="detect-model"),
 ]
