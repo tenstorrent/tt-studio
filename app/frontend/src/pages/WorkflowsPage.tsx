@@ -42,11 +42,11 @@ export default function WorkflowsPage() {
       <div className="fixed top-0 bottom-0 right-0 left-16 flex flex-col z-20">
         <WorkflowToolbar />
         <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
-          <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+          <ResizablePanel id="palette" order={1} defaultSize={15} minSize={10} maxSize={25}>
             <NodePalette />
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={selectedNodeId ? 50 : 85} minSize={30}>
+          <ResizablePanel id="canvas" order={2} defaultSize={selectedNodeId ? 50 : 85} minSize={30}>
             <div className="flex flex-col h-full">
               <div className="flex-1 min-h-0">
                 <WorkflowCanvas />
@@ -57,7 +57,7 @@ export default function WorkflowsPage() {
           {selectedNodeId && (
             <>
               <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
+              <ResizablePanel id="config" order={3} defaultSize={35} minSize={25} maxSize={50}>
                 <NodeConfigPanel />
               </ResizablePanel>
             </>
