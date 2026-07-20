@@ -85,11 +85,11 @@ def get_inference_server_version():
     
     # Fallback: try to get from environment variable
     # Check for branch first (branches don't have VERSION files typically)
-    env_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH")
+    env_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
     if env_branch:
         return None  # Branches don't have version numbers
     
-    env_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
+    env_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     if env_version and env_version != "latest":
         return env_version
     

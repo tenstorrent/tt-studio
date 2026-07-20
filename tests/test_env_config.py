@@ -78,6 +78,48 @@ class TestEnvFileRoundTrip(unittest.TestCase):
         self.assertEqual(existing.get("B"), "2")
 
 
+class TestOsEnvironPrecedence(unittest.TestCase):
+    """os.environ must take precedence over .env file values (issue #804)."""
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        self.tmp.close()
+        self.p = patch.object(_ecfg_dotenv, "ENV_FILE_PATH", self.tmp.name)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        os.unlink(self.tmp.name)
+
+    def test_os_environ_overrides_env_file(self):
+        """Shell export must win over the .env file value."""
+        M.write_env_var("MY_VAR", "from-dotenv")
+        with patch.dict(os.environ, {"MY_VAR": "from-shell"}):
+            self.assertEqual(M.get_env_var("MY_VAR"), "from-shell")
+
+    def test_os_environ_overrides_when_no_env_file(self):
+        """Shell export must work even if .env file does not exist."""
+        os.unlink(self.tmp.name)
+        # Re-create so tearDown doesn't fail
+        open(self.tmp.name, "w").close()
+        with patch.object(_ecfg_dotenv, "ENV_FILE_PATH", "/nonexistent/.env"):
+            with patch.dict(os.environ, {"MY_VAR": "from-shell"}):
+                self.assertEqual(M.get_env_var("MY_VAR"), "from-shell")
+
+    def test_env_file_used_when_no_os_environ(self):
+        """Without a shell override, the .env file value is still returned."""
+        M.write_env_var("MY_VAR", "from-dotenv")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MY_VAR", None)
+            self.assertEqual(M.get_env_var("MY_VAR"), "from-dotenv")
+
+    def test_empty_os_environ_value_still_wins(self):
+        """An explicitly empty shell export must override the .env value."""
+        M.write_env_var("MY_VAR", "from-dotenv")
+        with patch.dict(os.environ, {"MY_VAR": ""}):
+            self.assertEqual(M.get_env_var("MY_VAR"), "")
+
+
 class TestConsistentQuoting(unittest.TestCase):
     """write_env_var must produce ONE consistent (unquoted) format."""
 
