@@ -891,6 +891,7 @@ export default function ChatComponent() {
                     text: updatedMessage.text || msg.text,
                     inferenceStats:
                       updatedMessage.inferenceStats as InferenceStats,
+                    modelName: updatedMessage.modelName ?? msg.modelName,
                   };
                 }
                 return msg;
