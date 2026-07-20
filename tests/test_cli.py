@@ -174,6 +174,15 @@ class TestCli(unittest.TestCase):
         self.assertTrue(ns.headless)
         self.assertEqual(ns.device_id, 2)
 
+    def test_model_alias_sets_auto_deploy(self):
+        # `--model` is a friendly alias for `--auto-deploy` on the default path.
+        for flag in ("--auto-deploy", "--model"):
+            with patch.object(_cli_args, "_validate_model_name"), \
+                 patch.object(_cli_args, "_run") as run:
+                result = runner.invoke(M.app, [flag, "Qwen3-32B"])
+            self.assertEqual(result.exit_code, 0, flag)
+            self.assertEqual(run.call_args[0][0].auto_deploy, "Qwen3-32B", flag)
+
     def test_run_prompts_for_model_when_omitted(self):
         # No MODEL_NAME -> interactive picker supplies it, then deploy proceeds.
         with patch.object(_cli_args, "_prompt_for_model", return_value="Qwen3-32B") as pick, \

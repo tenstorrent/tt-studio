@@ -118,7 +118,7 @@ def _entry(
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
-    auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (via the web UI by default; add --headless for a terminal-driven deploy).", rich_help_panel="Model Deployment", autocompletion=_complete_model),
+    auto_deploy: str = typer.Option(None, "--auto-deploy", "--model", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (via the web UI by default; add --headless for a terminal-driven deploy). Or use the `run <model>` subcommand.", rich_help_panel="Model Deployment", autocompletion=_complete_model),
     device_id: Optional[int] = typer.Option(None, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for the deploy. Omit to let the backend allocate based on the model.", rich_help_panel="Model Deployment"),
     headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI.", rich_help_panel="Model Deployment"),
     # ── Lifecycle ────────────────────────────────────────────────────────────
@@ -168,6 +168,9 @@ def _entry(
         console.print(f"[warning]⚠  {legacy} is deprecated; use {replacement} instead.[/warning]")
     full_teardown = purge_all or cleanup_all
     stop_requested = stop or cleanup or full_teardown
+
+    if auto_deploy:
+        _validate_model_name(auto_deploy)
 
     args = _build_args(
         dev=dev, cleanup=stop_requested, cleanup_all=full_teardown, yes=yes, help_env=help_env,
