@@ -146,12 +146,12 @@ export default function NodeConfigPanel() {
           )}
           <span
             className={`text-xs font-medium ${status === "running"
-                ? "text-violet-400"
-                : status === "completed"
-                  ? "text-emerald-400"
-                  : status === "error"
-                    ? "text-red-400"
-                    : "text-zinc-500"
+              ? "text-violet-400"
+              : status === "completed"
+                ? "text-emerald-400"
+                : status === "error"
+                  ? "text-red-400"
+                  : "text-zinc-500"
               }`}
           >
             {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -205,8 +205,8 @@ export default function NodeConfigPanel() {
         <button
           onClick={() => setActiveTab("output")}
           className={`flex items-center gap-1.5 flex-1 px-4 py-2 text-xs font-medium transition-colors relative ${activeTab === "output"
-              ? "text-violet-400 border-b-2 border-violet-500"
-              : "text-zinc-500 hover:text-zinc-300"
+            ? "text-violet-400 border-b-2 border-violet-500"
+            : "text-zinc-500 hover:text-zinc-300"
             }`}
         >
           <Terminal className="w-3.5 h-3.5" />
@@ -233,17 +233,19 @@ export default function NodeConfigPanel() {
         {activeTab === "config" ? renderConfig() : renderOutput()}
       </div>
 
-      {/* Delete button */}
-      <div className="px-4 py-3 border-t border-zinc-800">
-        <button
-          onClick={deleteSelected}
-          className="flex items-center gap-1.5 w-full justify-center px-3 py-2 text-xs text-red-400 
-                     hover:bg-red-500/10 border border-red-500/20 hover:border-red-500/40 rounded transition-colors"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          Delete Node
-        </button>
-      </div>
+      {/* Delete button – hidden for required input/output nodes */}
+      {node.type !== "input" && node.type !== "output" && (
+        <div className="px-4 py-3 border-t border-zinc-800">
+          <button
+            onClick={deleteSelected}
+            className="flex items-center gap-1.5 w-full justify-center px-3 py-2 text-xs text-red-400 
+                       hover:bg-red-500/10 border border-red-500/20 hover:border-red-500/40 rounded transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Node
+          </button>
+        </div>
+      )}
     </div>
   );
 }
