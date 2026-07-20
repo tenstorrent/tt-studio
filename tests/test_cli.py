@@ -37,8 +37,6 @@ class TestCli(unittest.TestCase):
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
                      "--logs", "--info", "--auto-deploy", "--in-browser"):
-            self.assertIn(flag, result.output)
-                     "--logs", "--info"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):

@@ -131,6 +131,9 @@ def _load_deploy_driver():
         console.print(f"[warning]⚠  Headless deploy driver not found at {dh_path}; skipping auto-deploy.[/warning]")
         return None
     spec = importlib.util.spec_from_file_location("deploy_healthcheck", dh_path)
+    if spec is None or spec.loader is None:
+        console.print(f"[warning]⚠  Could not import headless deploy driver from {dh_path}; skipping auto-deploy.[/warning]")
+        return None
     dh = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(dh)
     return dh
@@ -186,7 +189,8 @@ def _headless_deploy(args):
         # poll_progress prints its own change-only progress lines; don't wrap it in
         # a Live spinner (they'd fight over the terminal).
         dh.poll_progress(client, job_id, timeout=3600, interval=10)
-        console.print(f"[success]✅ {model_name} deployed — watch it at http://localhost:3000/models-deployed[/success]\n")
+        frontend_host, frontend_port, _ = get_frontend_config()
+        console.print(f"[success]✅ {model_name} deployed — watch it at http://{frontend_host}:{frontend_port}/models-deployed[/success]\n")
     except dh.SmokeTestError as e:
         console.print(notice_panel("Auto-deploy failed", [str(e)], border_style="error"))
 
