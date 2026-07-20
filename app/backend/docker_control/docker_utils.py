@@ -15,6 +15,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tavily_api_key
 from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
@@ -530,10 +531,17 @@ def run_agent_container(container_name, port_bindings, impl):
         network='tt_studio_network',
         ports={'8080/tcp': host_agent_port},
         environment={
-            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+            'TAVILY_API_KEY': get_tavily_api_key() or '',
             'LLM_CONTAINER_NAME': container_name,
             'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
+            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
+        },
+        volumes={
+            backend_config.host_peristent_storage_volume: {
+                "bind": backend_config.persistent_storage_volume,
+                "mode": "ro",
+            },
         },
         detach=True
     )

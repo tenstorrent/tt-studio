@@ -23,6 +23,7 @@ This module gives Django full ownership of the transition:
 
 import threading
 import time
+from typing import Optional, Tuple
 
 import requests as _requests
 
@@ -34,6 +35,21 @@ logger = get_logger(__name__)
 _FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 _POLL_INTERVAL_SECONDS = 5
 _SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+
+
+def _classify_failure(message: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Classify a FastAPI failure message into (reason_code, raw_message)."""
+    if not message:
+        return None, None
+    m = message.lower()
+    if m.startswith("hf_token authentication failed"):
+        return "hf_auth", message
+    if (
+        any(p in m for p in ("gated repo", "access not granted", "gatedrepoerror", "unauthorized"))
+        and any(p in m for p in ("huggingface", "hugging face", "hf_token", "token"))
+    ):
+        return "hf_auth", message
+    return "unknown", message
 
 # Registry of active sync threads keyed by job_id.
 # Prevents spawning duplicate threads for the same job.
@@ -103,15 +119,19 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 )
 
         elif job_status in ("error", "failed", "cancelled", "timeout", "not_found"):
-            from django.utils import timezone
+            from django.utils import timezone as dj_timezone
 
+            reason, raw_msg = _classify_failure(progress_data.get("message"))
             dep.status = "stopped"
             if dep.stopped_at is None:
-                dep.stopped_at = timezone.now()
+                dep.stopped_at = dj_timezone.now()
+            if dep.failure_reason is None:
+                dep.failure_reason = reason
+                dep.failure_message = raw_msg
             dep.save()
             logger.info(
                 f"[deployment_sync] Marked ModelDeployment for {dep.model_name} as stopped "
-                f"(FastAPI job status: {job_status})"
+                f"(FastAPI job status: {job_status}, failure_reason={dep.failure_reason})"
             )
 
     except Exception as e:

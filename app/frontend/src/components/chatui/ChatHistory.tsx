@@ -337,7 +337,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       }
                       inferenceStats={message.inferenceStats}
                       messageContent={message.text}
-                      modelName={modelName}
+                      modelName={message.modelName ?? modelName}
                       toggleableInlineStats={toggleableInlineStats}
                       hasThinking={
                         messageThinkingState[message.id || index.toString()]
