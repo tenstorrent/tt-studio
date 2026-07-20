@@ -1,0 +1,176 @@
+name: Frontend CI
+
+# End-to-end frontend pipeline: clean install, type-check, production build,
+# Playwright render tests against the built bundle, and Docker image checks
+# (prod image is booted and smoke-tested behind a stubbed backend).
+#
+# Note: if any of these jobs become required status checks, the paths filter
+# below will leave non-frontend PRs waiting on "expected" checks — switch to
+# an in-workflow change detector (e.g. dorny/paths-filter) at that point.
+
+on:
+  pull_request:
+    branches: [dev, main, staging]
+    paths:
+      - "app/frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "app/frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: app/frontend
+
+jobs:
+  install-and-check:
+    name: Install & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - name: Clean install
+        run: npm ci
+      - name: Type-check
+        run: npm run type-check
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    needs: install-and-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: app/frontend/dist
+          retention-days: 7
+
+  e2e:
+    name: Render tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: app/frontend/dist
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run e2e render tests
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            app/frontend/playwright-report
+            app/frontend/test-results
+          retention-days: 7
+
+  docker-prod-smoke:
+    name: Prod image build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: app/frontend
+          file: app/frontend/Dockerfile.prod
+          push: false
+          load: true
+          tags: tt-studio-frontend:ci
+          cache-from: type=gha,scope=frontend-prod
+          cache-to: type=gha,mode=max,scope=frontend-prod
+          build-args: |
+            VITE_APP_TITLE=TT-Studio CI
+            VITE_ENABLE_DEPLOYED=false
+            VITE_ENABLE_RAG_ADMIN=false
+            VITE_APP_VERSION=ci
+            VITE_APP_GIT_BRANCH=${{ github.head_ref || github.ref_name }}
+      - name: Smoke test image
+        working-directory: .
+        run: |
+          # nginx.conf uses a static proxy_pass to tt-studio-backend-api;
+          # nginx resolves that name at startup, so run a stub container with
+          # that network alias to guarantee the image boots and to give the
+          # proxied locations a live upstream to hit.
+          docker network create ci-net
+          docker run -d --name backend-stub --network ci-net \
+            --network-alias tt-studio-backend-api \
+            -w /srv python:3.12-alpine \
+            sh -c "mkdir -p models board docker logs collections && python -m http.server 8000"
+          docker run -d --name frontend --network ci-net -p 18080:80 tt-studio-frontend:ci
+
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:18080/ | grep -qi '<div id="root"'; then ok=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "Frontend container never served the SPA" >&2
+            docker logs frontend >&2
+            exit 1
+          fi
+
+          # SPA fallback must serve index.html for client-side routes
+          curl -fsS http://localhost:18080/chat | grep -qi '<div id="root"'
+          # API locations must proxy through to the backend upstream
+          # (a 200 here comes from the stub; a dead proxy would be a 502)
+          code=$(curl -fsS -o /dev/null -w "%{http_code}" http://localhost:18080/models-api/)
+          [ "$code" = "200" ] || { echo "/models-api/ proxy returned $code" >&2; exit 1; }
+      - name: Clean up containers
+        if: always()
+        working-directory: .
+        run: |
+          docker rm -f frontend backend-stub 2>/dev/null || true
+          docker network rm ci-net 2>/dev/null || true
+
+  docker-dev-build:
+    name: Dev image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build dev image
+        uses: docker/build-push-action@v6
+        with:
+          context: app/frontend
+          file: app/frontend/Dockerfile.dev
+          push: false
+          tags: tt-studio-frontend:ci-dev
+          cache-from: type=gha,scope=frontend-dev
+          cache-to: type=gha,mode=max,scope=frontend-dev
