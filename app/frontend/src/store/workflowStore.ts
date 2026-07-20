@@ -37,6 +37,7 @@ export interface WorkflowState {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   selectedNodeId: string | null;
+  selectedEdgeId: string | null;
 
   // Template tracking
   sourceTemplateName: string | null;
@@ -66,6 +67,7 @@ export interface WorkflowState {
   onConnect: (connection: Connection) => void;
   addNode: (node: WorkflowNode) => void;
   setSelectedNode: (id: string | null) => void;
+  setSelectedEdge: (id: string | null) => void;
   updateNodeData: (nodeId: string, data: Record<string, unknown>) => void;
   deleteSelected: () => void;
 
@@ -88,6 +90,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  selectedEdgeId: null,
 
   sourceTemplateName: null,
   isTemplateModified: false,
@@ -172,6 +175,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: (wf.graph_data?.nodes ?? []) as WorkflowNode[],
         edges: (wf.graph_data?.edges ?? []) as WorkflowEdge[],
         selectedNodeId: null,
+        selectedEdgeId: null,
         sourceTemplateName: null,
         isTemplateModified: false,
       });
@@ -181,6 +185,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         nodes: [],
         edges: [],
         selectedNodeId: null,
+        selectedEdgeId: null,
         sourceTemplateName: null,
         isTemplateModified: false,
       });
@@ -194,6 +199,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: (template.graph_data?.nodes ?? []) as WorkflowNode[],
       edges: (template.graph_data?.edges ?? []) as WorkflowEdge[],
       selectedNodeId: null,
+      selectedEdgeId: null,
       sourceTemplateName: template.name,
       isTemplateModified: false,
     });
@@ -210,8 +216,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const isStructural = changes.some(
       (c) => c.type !== "select" && c.type !== "dimensions"
     );
+
+    // If the currently selected node is removed, clear the selection
+    const selectedNodeRemoved = changes.some(
+      (c) => c.type === "remove" && c.id === get().selectedNodeId
+    );
+
     set((s) => ({
       nodes: applyNodeChanges(changes, s.nodes) as WorkflowNode[],
+      ...(selectedNodeRemoved ? { selectedNodeId: null } : {}),
       ...(isStructural && s.sourceTemplateName && !s.isTemplateModified
         ? { isTemplateModified: true }
         : {}),
@@ -260,7 +273,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   setSelectedNode: (id) => {
-    set({ selectedNodeId: id });
+    set({ selectedNodeId: id, selectedEdgeId: null });
+  },
+
+  setSelectedEdge: (id) => {
+    set({ selectedEdgeId: id, selectedNodeId: null });
   },
 
   updateNodeData: (nodeId, data) => {
@@ -275,8 +292,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   deleteSelected: () => {
-    const { selectedNodeId } = get();
+    const { selectedNodeId, selectedEdgeId, nodes } = get();
+
+    // Delete a selected edge
+    if (selectedEdgeId) {
+      set((s) => ({
+        edges: s.edges.filter((e) => e.id !== selectedEdgeId),
+        selectedEdgeId: null,
+      }));
+      return;
+    }
+
+    // Delete a selected node (guard input/output)
     if (!selectedNodeId) return;
+    const node = nodes.find((n) => n.id === selectedNodeId);
+    if (!node || node.type === "input" || node.type === "output") return;
+
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== selectedNodeId),
       edges: s.edges.filter(
