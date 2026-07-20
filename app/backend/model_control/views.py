@@ -1982,11 +1982,21 @@ class CodingAgentsView(APIView):
             if not name:
                 continue
             mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
+            # Context window + max_tokens ceiling, same policy the gateway and InferenceView enforce
+            context_window = entry.get("max_model_len") or get_max_tokens_limit(
+                getattr(impl, "param_count", None)
+            )
+            max_tokens = max(1, context_window * 3 // 4)
             for exposed in get_gateway_model_names(name):
                 if exposed in seen:
                     continue
                 seen.add(exposed)
-                models.append({"name": exposed, "type": mtype})
+                models.append({
+                    "name": exposed,
+                    "type": mtype,
+                    "context_window": context_window,
+                    "max_tokens": max_tokens,
+                })
 
         return Response(
             {

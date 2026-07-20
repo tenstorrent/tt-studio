@@ -390,7 +390,16 @@ async def stream_response_from_external_api(url: str, json_data: dict):
 
     try:
         async with _vllm_client.stream("POST", url, json=json_data, headers=headers) as response:
-            response.raise_for_status()
+            # Read the error body inside the stream context; a streaming response
+            # must be read before .text is accessible (else httpx.ResponseNotRead).
+            if response.status_code >= 400:
+                body = (await response.aread()).decode(errors="replace")
+                logger.error(
+                    f"stream_response_from_external_api upstream {response.status_code}: {body}"
+                )
+                yield f"data: {json.dumps({'error': {'message': body, 'code': response.status_code}})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             te = response.headers.get("transfer-encoding", "")
             if te != "chunked":
                 logger.warning(f"Unexpected transfer-encoding from vLLM: {te!r}")
@@ -438,12 +447,8 @@ async def stream_response_from_external_api(url: str, json_data: dict):
 
         logger.info("stream_response_from_external_api done")
 
-    except httpx.HTTPStatusError as e:
-        body = e.response.text if e.response is not None else "(no body)"
-        logger.error(f"HTTPError {e.response.status_code}: {body}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
-        logger.error(f"RequestError: {str(e)}")
+        logger.error(f"stream_response_from_external_api RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 
@@ -463,14 +468,19 @@ async def stream_openai_passthrough(url: str, json_data: dict):
         async with _vllm_client.stream(
             "POST", url, json=json_data, headers=headers
         ) as response:
-            response.raise_for_status()
+            # Read the error body inside the stream context; a streaming response
+            # must be read before .text is accessible (else httpx.ResponseNotRead).
+            if response.status_code >= 400:
+                body = (await response.aread()).decode(errors="replace")
+                logger.error(
+                    f"stream_openai_passthrough upstream {response.status_code}: {body}"
+                )
+                yield f"data: {json.dumps({'error': {'message': body, 'code': response.status_code}})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             async for chunk in response.aiter_text():
                 if chunk:
                     yield chunk
-    except httpx.HTTPStatusError as e:
-        body = e.response.text if e.response is not None else "(no body)"
-        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
