@@ -217,6 +217,10 @@ def cleanup_resources(args):
          "docker-control virtualenv"),
         ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
          "workflow virtualenvs"),
+        # Kept last: the launcher itself runs from this venv, so it must be the
+        # final path removed. bootstrap.py recreates it on the next run.
+        ("🐍", os.path.join(TT_STUDIO_ROOT, ".tt_studio_run_venv"),
+         "launcher virtualenv (recreated on next run)"),
     ]
 
     existing = [(emoji, path, desc, _path_size(path))
