@@ -204,8 +204,10 @@ def cleanup_resources(args):
         ("🔧", artifacts_root,
          "inference-server download + tarball"),
         *log_items,
-        ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
-        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
+        ("⚙️ ", TT_STUDIO_CONFIG_PATH, "consolidated config store"),
+        # Legacy pre-consolidation files (issue #807); removed if an old install left them.
+        ("⚙️ ", PREFS_FILE_PATH, "legacy CLI preferences"),
+        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
         ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy setup snapshot"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch"),
@@ -215,6 +217,10 @@ def cleanup_resources(args):
          "docker-control virtualenv"),
         ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
          "workflow virtualenvs"),
+        # Kept last: the launcher itself runs from this venv, so it must be the
+        # final path removed. bootstrap.py recreates it on the next run.
+        ("🐍", os.path.join(TT_STUDIO_ROOT, ".tt_studio_run_venv"),
+         "launcher virtualenv (recreated on next run)"),
     ]
 
     existing = [(emoji, path, desc, _path_size(path))

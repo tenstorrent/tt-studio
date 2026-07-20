@@ -729,6 +729,8 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
 export interface CodingAgentModel {
   name: string;
   type: string;
+  context_window?: number;
+  max_tokens?: number;
 }
 
 export interface CodingAgentsInfo {
