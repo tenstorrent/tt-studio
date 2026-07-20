@@ -15,6 +15,8 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.1-8B",
     "Llama-3.1-8B-Instruct",
     "Llama-3.3-70B-Instruct",
+    "Qwen3.6-27B",
+    "gemma-4-31B-it"
 }
 
 # Model types coding agents can talk to.
