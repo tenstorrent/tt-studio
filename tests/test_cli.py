@@ -235,6 +235,37 @@ class TestBuildArgs(unittest.TestCase):
             self.assertTrue(hasattr(ns, field), f"missing field: {field}")
 
 
+class TestPromptForModel(unittest.TestCase):
+    CATALOG = [
+        {"name": "Qwen3-32B", "group": "LLM", "boards": ["P300x2", "T3K"]},
+        {"name": "Llama-3.1-8B-Instruct", "group": "LLM", "boards": ["N150"]},
+        {"name": "FLUX.1-dev", "group": "IMAGE", "boards": ["P300x2"]},
+        {"name": "whisper-large-v3", "group": "AUDIO", "boards": ["N150"]},
+    ]
+
+    def test_filters_to_detected_board_and_numbers_across_groups(self):
+        # P300x2 shows only Qwen3-32B (LLM) and FLUX.1-dev (IMAGE); numbering runs
+        # continuously in group order (LLM before IMAGE), so #2 is FLUX.1-dev.
+        with patch.object(_cli_args, "_catalog_models", return_value=self.CATALOG), \
+             patch.object(_cli_args, "_detect_board", return_value="P300x2"), \
+             patch.object(_cli_args.typer, "prompt", return_value="2"):
+            self.assertEqual(_cli_args._prompt_for_model(), "FLUX.1-dev")
+
+    def test_no_board_shows_all_and_accepts_name(self):
+        with patch.object(_cli_args, "_catalog_models", return_value=self.CATALOG), \
+             patch.object(_cli_args, "_detect_board", return_value=""), \
+             patch.object(_cli_args.typer, "prompt", return_value="whisper-large-v3"):
+            self.assertEqual(_cli_args._prompt_for_model(), "whisper-large-v3")
+
+    def test_board_with_no_matches_falls_back_to_all(self):
+        # An unknown/incompatible board must not hide everything — show the full list.
+        with patch.object(_cli_args, "_catalog_models", return_value=self.CATALOG), \
+             patch.object(_cli_args, "_detect_board", return_value="E150"), \
+             patch.object(_cli_args.typer, "prompt", return_value="1"):
+            # All 4 shown, grouped LLM(2)->IMAGE(1)->AUDIO(1); #1 is a real name.
+            self.assertIn(_cli_args._prompt_for_model(), [m["name"] for m in self.CATALOG])
+
+
 class TestValidateModelName(unittest.TestCase):
     def _catalog_names(self):
         catalog = os.path.join(

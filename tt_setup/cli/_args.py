@@ -36,19 +36,35 @@ def _build_args(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _catalog_model_names():
-    """Model names from the synced catalog, sorted. Empty list when the catalog
-    isn't fetched yet (first run) or can't be parsed."""
+def _catalog_models():
+    """Full catalog entries as {name, group, boards}. Empty list when the catalog
+    isn't fetched yet (first run) or can't be parsed. `group` is the display type
+    (LLM, VLM, IMAGE, …); `boards` are the device_configurations it supports."""
     catalog = os.path.join(
         TT_STUDIO_ROOT, "app", "backend", "shared_config",
         "models_from_inference_server.json",
     )
     try:
         with open(catalog) as f:
-            names = [m.get("model_name", "") for m in json.load(f).get("models", [])]
+            entries = json.load(f).get("models", [])
     except (OSError, ValueError):
         return []
-    return sorted({n for n in names if n})
+    out = []
+    for m in entries:
+        name = m.get("model_name", "")
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "group": m.get("display_model_type") or m.get("model_type") or "OTHER",
+            "boards": m.get("device_configurations", []) or [],
+        })
+    return out
+
+
+def _catalog_model_names():
+    """Sorted catalog model names (all boards). Empty when not synced yet."""
+    return sorted({m["name"] for m in _catalog_models()})
 
 
 def _complete_model(incomplete: str):
@@ -58,22 +74,64 @@ def _complete_model(incomplete: str):
     return [n for n in _catalog_model_names() if lo in n.lower()]
 
 
+def _detect_board():
+    """Best-effort board code (e.g. 'P300x2', 'N150') via tt-smi, in the same
+    vocabulary as the catalog's device_configurations. Empty string when tt-smi is
+    unavailable/unreadable or there's no local hardware (remote/cloud mode)."""
+    try:
+        from tt_setup.shell import check_tt_smi
+        status, _detail, board = check_tt_smi()
+    except Exception:
+        return ""
+    return board if status == "ok" else ""
+
+
+# Friendly group headers + display order for the interactive picker.
+_MODEL_GROUP_LABELS = {
+    "LLM": "LLMs", "VLM": "Vision-language", "IMAGE": "Image generation",
+    "VIDEO": "Video", "AUDIO": "Speech-to-text", "TEXT_TO_SPEECH": "Text-to-speech",
+    "EMBEDDING": "Embeddings", "CNN": "Vision (CNN)",
+}
+_MODEL_GROUP_ORDER = ["LLM", "VLM", "IMAGE", "VIDEO", "AUDIO", "TEXT_TO_SPEECH", "EMBEDDING", "CNN"]
+
+
 def _prompt_for_model():
-    """Interactively choose a model when `run` is invoked without one. Lists the
-    catalog and accepts a number or a name; falls back to free-text entry when the
-    catalog isn't synced yet (the live resolve check vets it post-startup)."""
-    names = _catalog_model_names()
-    if not names:
+    """Interactively choose a model when `run` is invoked without one. Filters to
+    the detected board (via tt-smi, when available) to keep the list short, groups
+    by model type, and accepts a number or a name. Falls back to free-text entry
+    when the catalog isn't synced yet (the live resolve check vets it post-startup)."""
+    models = _catalog_models()
+    if not models:
         return typer.prompt("Model to deploy").strip()
+
+    board = _detect_board()
+    shown = models
+    if board:
+        compatible = [m for m in models if board in m["boards"]]
+        if compatible:
+            shown = compatible
+            console.print(f"[muted]Filtered to models compatible with your board ({board}).[/muted]")
+
+    groups = {}
+    for m in shown:
+        groups.setdefault(m["group"], []).append(m["name"])
+    ordered_groups = [g for g in _MODEL_GROUP_ORDER if g in groups] + \
+        sorted(g for g in groups if g not in _MODEL_GROUP_ORDER)
+
     console.print("[info]Available models:[/info]")
-    for i, n in enumerate(names, 1):
-        console.print(f"  [bold]{i:>2}[/bold]  {n}")
-    choice = typer.prompt("Select a model (number or name)").strip()
+    ordered_names = []
+    for g in ordered_groups:
+        console.print(f"\n[bold]{_MODEL_GROUP_LABELS.get(g, g.title())}[/bold]")
+        for name in sorted(groups[g]):
+            ordered_names.append(name)
+            console.print(f"  [bold]{len(ordered_names):>2}[/bold]  {name}")
+
+    choice = typer.prompt("\nSelect a model (number or name)").strip()
     if choice.isdigit():
         idx = int(choice)
-        if not 1 <= idx <= len(names):
-            raise typer.BadParameter(f"choice {idx} is out of range 1-{len(names)}")
-        return names[idx - 1]
+        if not 1 <= idx <= len(ordered_names):
+            raise typer.BadParameter(f"choice {idx} is out of range 1-{len(ordered_names)}")
+        return ordered_names[idx - 1]
     return choice  # a name — _validate_model_name vets it next
 
 
