@@ -24,6 +24,12 @@ import {
 import { cn } from "../lib/utils";
 
 const PLACEHOLDER_MODEL = "your-model-name";
+// Fallbacks when the gateway hasn't reported a model's limits yet.
+// maxTokens mirrors the gateway's 75%-of-context ceiling.
+const DEFAULT_CONTEXT_WINDOW = 32768;
+const DEFAULT_MAX_TOKENS = Math.floor((DEFAULT_CONTEXT_WINDOW * 3) / 4);
+// Per-turn output budget advertised to OpenClaw. Consistent with industry norms.
+const OPENCLAW_MAX_OUTPUT_TOKENS = 8192;
 
 export default function CodingAgentsPage() {
   const [info, setInfo] = useState<CodingAgentsInfo | null>(null);
@@ -132,6 +138,81 @@ p.write_text(json.dumps(cfg, indent=2) + "\\n")
 print(f"Updated {p}")
 PY`;
 
+  // OpenClaw configures models via a custom provider in openclaw.json; like
+  // OpenCode it has no discovery, so every deployed model is listed explicitly.
+  const openclawModels = (info?.models ?? []).map((m) => {
+    const entry: {
+      id: string;
+      name: string;
+      input: string[];
+      contextWindow: number;
+      maxTokens: number;
+      reasoning?: boolean;
+    } = {
+      id: m.name,
+      name: m.name,
+      input: ["text"],
+      contextWindow: m.context_window ?? DEFAULT_CONTEXT_WINDOW,
+      maxTokens: Math.min(
+        m.max_tokens ?? DEFAULT_MAX_TOKENS,
+        OPENCLAW_MAX_OUTPUT_TOKENS,
+      ),
+    };
+    if (m.name.endsWith("-thinking")) entry.reasoning = true;
+    return entry;
+  });
+  const openclawProviderEntry = {
+    baseUrl: openaiBase,
+    apiKey: masterKey || "<your-api-key>",
+    api: "openai-completions",
+    models: hasModels
+      ? openclawModels
+      : [
+        {
+          id: PLACEHOLDER_MODEL,
+          name: PLACEHOLDER_MODEL,
+          input: ["text"],
+          contextWindow: DEFAULT_CONTEXT_WINDOW,
+          maxTokens: OPENCLAW_MAX_OUTPUT_TOKENS,
+        },
+      ],
+  };
+  const openclawProvider = JSON.stringify(openclawProviderEntry);
+  const openclawConfig = JSON.stringify(
+    {
+      models: { providers: { "tt-studio": openclawProviderEntry } },
+      agents: {
+        defaults: {
+          // Allowlist the provider so its models show in the /model picker.
+          models: { "tt-studio/*": {} },
+          model: { primary: `tt-studio/${activeModel}` },
+          // Memory search needs an embedding model; off by default here.
+          memorySearch: { enabled: false },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  // Merge only the tt-studio provider into any existing openclaw.json (create
+  // if absent), leaving other providers / keys / plugins untouched. Memory
+  // search is disabled only when the user hasn't already configured it.
+  const openclawSnippet = `python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path.home() / ".openclaw/openclaw.json"
+cfg = json.loads(p.read_text()) if p.exists() else {}
+cfg.setdefault("models", {}).setdefault("providers", {})["tt-studio"] = json.loads('''${openclawProvider}''')
+d = cfg.setdefault("agents", {}).setdefault("defaults", {})
+d.setdefault("models", {})["tt-studio/*"] = {}
+d.setdefault("model", {})["primary"] = "tt-studio/${activeModel}"
+if "memorySearch" not in d:
+    d["memorySearch"] = {"enabled": False}
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2) + "\\n")
+print(f"Updated {p}")
+PY`;
+
   const renderHealth = () => {
     if (!info) return null;
     if (info.health === "healthy")
@@ -154,18 +235,22 @@ PY`;
   };
 
   return (
-    <div className="w-full min-h-screen overflow-y-auto dark:bg-black bg-white pl-[4.5rem] lg:pl-32 pr-4 py-10">
-      <div className="max-w-4xl mx-auto space-y-6">
+    // Full-width root stays transparent so MainLayout's grid shows in the
+    // margins; the content column gets its own solid panel background.
+    <div className="w-full min-h-screen px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-4xl mx-auto space-y-6 dark:bg-black bg-white rounded-2xl p-6 sm:p-8 shadow-sm">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Terminal className="h-7 w-7 text-TT-purple" />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-TT-purple/10 text-TT-purple">
+            <Terminal className="h-6 w-6" />
+          </span>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Coding Agents
+              Connect Agents
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Connect Claude Code or any OpenAI-compatible client to your
-              locally deployed models.
+              Point Claude Code, OpenClaw, or any OpenAI-compatible client at
+              your locally deployed models.
             </p>
           </div>
         </div>
@@ -255,25 +340,25 @@ PY`;
                   <div>
                     <div className="flex flex-wrap gap-2">
                       {info.models.map((m) => (
-                      <button
-                        key={m.name}
-                        type="button"
-                        onClick={() => setSelectedModel(m.name)}
-                        aria-pressed={m.name === activeModel}
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-sm transition-colors",
-                          m.name === activeModel
-                            ? "border-TT-purple bg-TT-purple/10 text-TT-purple font-medium"
-                            : "border-gray-200 dark:border-gray-700 hover:border-TT-purple/50",
-                        )}
-                      >
-                        {m.name === activeModel && <Check className="h-4 w-4" />}
-                        {m.name}
-                        <Badge variant="outline" className="text-[10px]">
-                          {m.name.endsWith("-thinking") ? "thinking" : m.type}
-                        </Badge>
-                      </button>
-                    ))}
+                        <button
+                          key={m.name}
+                          type="button"
+                          onClick={() => setSelectedModel(m.name)}
+                          aria-pressed={m.name === activeModel}
+                          className={cn(
+                            "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-sm transition-colors",
+                            m.name === activeModel
+                              ? "border-TT-purple bg-TT-purple/10 text-TT-purple font-medium"
+                              : "border-gray-200 dark:border-gray-700 hover:border-TT-purple/50",
+                          )}
+                        >
+                          {m.name === activeModel && <Check className="h-4 w-4" />}
+                          {m.name}
+                          <Badge variant="outline" className="text-[10px]">
+                            {m.name.endsWith("-thinking") ? "thinking" : m.type}
+                          </Badge>
+                        </button>
+                      ))}
                     </div>
                     <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
                       Selected model:{" "}
@@ -315,6 +400,7 @@ PY`;
                   <TabsList>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
                     <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+                    <TabsTrigger value="openclaw">OpenClaw</TabsTrigger>
                     <TabsTrigger value="openai">OpenAI / cURL</TabsTrigger>
                   </TabsList>
 
@@ -342,6 +428,21 @@ PY`;
                       run <code>opencode</code>.
                     </p>
                     <CodeBlock code={opencodeConfig} language="json" className="text-left" />
+                  </TabsContent>
+
+                  <TabsContent value="openclaw" className="space-y-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Merges a <code>tt-studio</code> model provider into your{" "}
+                      <code>~/.openclaw/openclaw.json</code> — leaving any other
+                      providers, keys, and plugins untouched. If you haven't configured
+                      memory search yet, it disables it by default to prevent errors.
+                    </p>
+                    <CodeBlock code={openclawSnippet} language="bash" className="text-left" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      No Python? Save this to{" "}
+                      <code>~/.openclaw/openclaw.json</code> yourself.
+                    </p>
+                    <CodeBlock code={openclawConfig} language="json" className="text-left" />
                   </TabsContent>
 
                   <TabsContent value="openai" className="space-y-3">
