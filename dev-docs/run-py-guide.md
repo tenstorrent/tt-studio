@@ -28,20 +28,24 @@ The script will guide you through all configuration options and set up everythin
 - TAVILY_API_KEY for search functionality (optional)
 - Other optional configuration options
 
-### `run <model>` — one-command deploy (ollama-style)
+### `run <model>` — one-command deploy
 
 ```bash
 python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
+python run.py run                           # omit the model to pick from the catalog interactively
 python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
-python run.py run Qwen3-32B --in-browser    # deploy through the web UI instead
+python run.py run Qwen3-32B --headless      # deploy from the terminal instead of the web UI
 ```
 
 `run <model>` brings the whole stack up and deploys the named model in one step.
 The model name is checked against the catalog up front (a typo fails fast with
-suggestions). By default the deploy runs **headlessly** against the backend API —
-progress streams in the terminal — and the browser opens at `/models-deployed`
-so you can watch (suppress with `--no-browser`). Pass `--in-browser` to drive the
-deploy through the web UI instead.
+suggestions), and it supports shell completion. Omit `MODEL_NAME` entirely to get
+an interactive picker listing the catalog.
+
+By default the deploy runs **through the web UI** — the browser opens and drives
+it. Pass `--headless` to deploy against the backend API from the terminal instead
+(progress streams in the terminal, and the browser opens at `/models-deployed`
+only so you can watch). Suppress the browser in either mode with `--no-browser`.
 
 If `--device-id` is omitted, the backend allocates a slot based on the model's
 chip requirements; pass it only to pin a specific chip.
@@ -67,13 +71,13 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Headless by default (see the [`run <model>`](#run-model--one-command-deploy-ollama-style) subcommand); pass `--in-browser` to deploy via the web UI. |
+| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Deploys via the web UI by default (see the [`run <model>`](#run-model--one-command-deploy) subcommand); add `--headless` to deploy from the terminal. Supports shell completion of catalog model names. |
 | `--device-id CHIP_ID` | Chip slot index (0–7) to target. Omit to let the backend allocate a slot based on the model's chip requirements. |
-| `--in-browser` | With an auto-deploy, hand off to the web UI (`?auto-deploy=<model>`) instead of deploying headlessly. |
+| `--headless` | With an auto-deploy, deploy against the backend API from the terminal instead of handing off to the web UI. |
 
 > **Tip**: `python run.py run <model>` is the ergonomic front door for this —
 > it brings the stack up and deploys the model in one command. See
-> [`run <model>`](#run-model--one-command-deploy-ollama-style) above.
+> [`run <model>`](#run-model--one-command-deploy) above.
 
 ### Lifecycle
 

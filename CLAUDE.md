@@ -45,7 +45,7 @@ services via `host.docker.internal`. Health checks: backend `GET /up/` and
 
 ```bash
 python run.py                 # full setup + start (venv, .env, artifact, Docker)
-python run.py run <model>     # ollama-style: setup + start + deploy <model> (headless; --in-browser to deploy via the UI)
+python run.py run <model>     # setup + start + deploy <model> in one step (via the web UI; --headless for a terminal deploy; omit <model> to pick interactively)
 python run.py --dev           # dev mode: hot-reload frontend & backend, mount source
 python run.py --stop          # stop containers, keep the persistent volume
 python run.py --purge-all     # wipe containers, volumes, and .env

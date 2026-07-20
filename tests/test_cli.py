@@ -36,7 +36,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
-                     "--logs", "--info", "--auto-deploy", "--in-browser"):
+                     "--logs", "--info", "--auto-deploy", "--headless"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
@@ -147,12 +147,12 @@ class TestCli(unittest.TestCase):
         result = runner.invoke(M.app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
         # Strip ANSI: Rich interleaves color codes between characters when it
-        # forces color (e.g. in CI), splitting "--in-browser" across escapes.
+        # forces color (e.g. in CI), splitting "--headless" across escapes.
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         self.assertIn("MODEL_NAME", output_without_ansi)
-        self.assertIn("--in-browser", output_without_ansi)
+        self.assertIn("--headless", output_without_ansi)
 
-    def test_run_dispatches_headless_by_default(self):
+    def test_run_dispatches_browser_by_default(self):
         with patch.object(_cli_args, "_validate_model_name"), \
              patch.object(_cli_args, "_run") as run:
             result = runner.invoke(M.app, ["run", "Qwen3-32B"])
@@ -161,18 +161,28 @@ class TestCli(unittest.TestCase):
         run.assert_called_once()
         ns = run.call_args[0][0]
         self.assertEqual(ns.auto_deploy, "Qwen3-32B")
-        self.assertFalse(ns.in_browser)      # headless by default
+        self.assertFalse(ns.headless)        # UI-driven (web UI) by default
         self.assertIsNone(ns.device_id)      # unset -> backend allocates by model
 
-    def test_run_in_browser_and_device_id(self):
+    def test_run_headless_and_device_id(self):
         with patch.object(_cli_args, "_validate_model_name"), \
              patch.object(_cli_args, "_run") as run:
             result = runner.invoke(
-                M.app, ["run", "Qwen3-32B", "--in-browser", "--device-id", "2"])
+                M.app, ["run", "Qwen3-32B", "--headless", "--device-id", "2"])
         self.assertEqual(result.exit_code, 0)
         ns = run.call_args[0][0]
-        self.assertTrue(ns.in_browser)
+        self.assertTrue(ns.headless)
         self.assertEqual(ns.device_id, 2)
+
+    def test_run_prompts_for_model_when_omitted(self):
+        # No MODEL_NAME -> interactive picker supplies it, then deploy proceeds.
+        with patch.object(_cli_args, "_prompt_for_model", return_value="Qwen3-32B") as pick, \
+             patch.object(_cli_args, "_validate_model_name"), \
+             patch.object(_cli_args, "_run") as run:
+            result = runner.invoke(M.app, ["run"])
+        self.assertEqual(result.exit_code, 0)
+        pick.assert_called_once()
+        self.assertEqual(run.call_args[0][0].auto_deploy, "Qwen3-32B")
 
     def test_bare_invocation_still_runs_default_setup(self):
         # The subcommand guard must not break the no-subcommand default path.
@@ -194,16 +204,16 @@ class TestBuildArgs(unittest.TestCase):
         ns = _cli_args._build_args()
         self.assertIsNone(ns.auto_deploy)
         self.assertIsNone(ns.device_id)
-        self.assertFalse(ns.in_browser)
+        self.assertFalse(ns.headless)
         self.assertFalse(ns.cleanup)
         self.assertFalse(ns.cleanup_all)
         self.assertEqual(ns.browser_timeout, 60)
 
     def test_overrides_apply_and_leave_others_default(self):
-        ns = _cli_args._build_args(auto_deploy="Model-X", device_id=3, in_browser=True)
+        ns = _cli_args._build_args(auto_deploy="Model-X", device_id=3, headless=True)
         self.assertEqual(ns.auto_deploy, "Model-X")
         self.assertEqual(ns.device_id, 3)
-        self.assertTrue(ns.in_browser)
+        self.assertTrue(ns.headless)
         self.assertFalse(ns.dev)  # untouched field keeps its default
 
     def test_field_set_matches_entry_namespace(self):
@@ -212,7 +222,7 @@ class TestBuildArgs(unittest.TestCase):
         # every field _run reads.
         ns = _cli_args._build_args()
         for field in ("dev", "cleanup", "cleanup_all", "auto_deploy", "device_id",
-                      "in_browser", "no_browser", "skip_fastapi", "wait_for_services"):
+                      "headless", "no_browser", "skip_fastapi", "wait_for_services"):
             self.assertTrue(hasattr(ns, field), f"missing field: {field}")
 
 

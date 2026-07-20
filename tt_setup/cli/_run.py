@@ -869,22 +869,24 @@ def _run(args):
                 sys.exit(1)
         
         
-        # Model auto-deploy has two modes. Headless (default): drive the backend
-        # deploy API directly, opening the browser only at /models-deployed to
-        # watch. --in-browser: hand off to the web UI via the ?auto-deploy= param.
-        in_browser = getattr(args, "in_browser", False)
+        # Model auto-deploy has two modes. UI-driven (default): open the web UI
+        # with the ?auto-deploy= param and let it perform the deploy. --headless:
+        # drive the backend deploy API directly, opening the browser only at
+        # /models-deployed to watch.
+        headless = getattr(args, "headless", False)
         device_id_val = getattr(args, "device_id", None)
-        headless_deploy = bool(args.auto_deploy) and not in_browser
+        headless_deploy = bool(args.auto_deploy) and headless
+        browser_deploy = bool(args.auto_deploy) and not headless
 
         # Control browser open only if service is healthy
         if not args.no_browser:
             # Get configurable frontend settings
             host, port, timeout = get_frontend_config()
 
-            # Headless deploy opens /models-deployed to watch (no ?auto-deploy=,
-            # which would trigger a second, UI-driven deploy). Browser mode passes
-            # the model so the UI performs the deploy.
-            browser_model = None if headless_deploy else args.auto_deploy
+            # UI-driven deploy passes the model so the web UI performs the deploy.
+            # Headless deploy opens /models-deployed only to watch (no ?auto-deploy=,
+            # which would trigger a second, UI-driven deploy).
+            browser_model = args.auto_deploy if browser_deploy else None
             open_path = "models-deployed" if headless_deploy else ""
 
             # Use the new function that reuses existing infrastructure
@@ -893,7 +895,7 @@ def _run(args):
                 print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
         else:
             host, port, _ = get_frontend_config()
-            auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if (args.auto_deploy and in_browser) else ""
+            auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
 
         # Headless auto-deploy runs after the stack is up, regardless of --no-browser.

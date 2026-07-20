@@ -28,7 +28,7 @@ def _build_args(**overrides):
         skip_docker_control=False, no_sudo=False, no_browser=False,
         wait_for_services=False, browser_timeout=60,
         add_headers=False, check_headers=False, auto_deploy=None,
-        device_id=None, in_browser=False, fix_docker=False, configure_env=False,
+        device_id=None, headless=False, fix_docker=False, configure_env=False,
         status=False, logs=False, info=False, report_bug=False,
         install_shortcut=False,
     )
@@ -36,11 +36,9 @@ def _build_args(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _validate_model_name(model):
-    """Best-effort pre-startup catalog check so a typo fails fast instead of
-    after the ~2-min stack-up. Silently skips when the catalog isn't fetched yet
-    (first run) — resolve_model_id does the authoritative check post-startup.
-    """
+def _catalog_model_names():
+    """Model names from the synced catalog, sorted. Empty list when the catalog
+    isn't fetched yet (first run) or can't be parsed."""
     catalog = os.path.join(
         TT_STUDIO_ROOT, "app", "backend", "shared_config",
         "models_from_inference_server.json",
@@ -49,10 +47,44 @@ def _validate_model_name(model):
         with open(catalog) as f:
             names = [m.get("model_name", "") for m in json.load(f).get("models", [])]
     except (OSError, ValueError):
-        return  # catalog not synced yet — let the live check handle it
-    names = [n for n in names if n]
+        return []
+    return sorted({n for n in names if n})
+
+
+def _complete_model(incomplete: str):
+    """Shell-completion callback: catalog model names matching the partial input.
+    Degrades to nothing when the catalog isn't synced or completion isn't set up."""
+    lo = incomplete.lower()
+    return [n for n in _catalog_model_names() if lo in n.lower()]
+
+
+def _prompt_for_model():
+    """Interactively choose a model when `run` is invoked without one. Lists the
+    catalog and accepts a number or a name; falls back to free-text entry when the
+    catalog isn't synced yet (the live resolve check vets it post-startup)."""
+    names = _catalog_model_names()
     if not names:
-        return
+        return typer.prompt("Model to deploy").strip()
+    console.print("[info]Available models:[/info]")
+    for i, n in enumerate(names, 1):
+        console.print(f"  [bold]{i:>2}[/bold]  {n}")
+    choice = typer.prompt("Select a model (number or name)").strip()
+    if choice.isdigit():
+        idx = int(choice)
+        if not 1 <= idx <= len(names):
+            raise typer.BadParameter(f"choice {idx} is out of range 1-{len(names)}")
+        return names[idx - 1]
+    return choice  # a name — _validate_model_name vets it next
+
+
+def _validate_model_name(model):
+    """Best-effort pre-startup catalog check so a typo fails fast instead of
+    after the ~2-min stack-up. Silently skips when the catalog isn't fetched yet
+    (first run) — resolve_model_id does the authoritative check post-startup.
+    """
+    names = _catalog_model_names()
+    if not names:
+        return  # catalog not synced yet — let the live check handle it
     needle = model.lower()
     if any(needle == n.lower() or needle in n.lower() for n in names):
         return
@@ -65,7 +97,7 @@ def _validate_model_name(model):
         for n in close:
             console.print(f"  [bold]{n}[/bold]")
     else:
-        console.print(f"[muted]Available: {', '.join(sorted(names))}[/muted]")
+        console.print(f"[muted]Available: {', '.join(names)}[/muted]")
     raise typer.Exit(1)
 
 
@@ -86,9 +118,9 @@ def _entry(
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
-    auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (headless by default).", rich_help_panel="Model Deployment"),
+    auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (via the web UI by default; add --headless for a terminal-driven deploy).", rich_help_panel="Model Deployment", autocompletion=_complete_model),
     device_id: Optional[int] = typer.Option(None, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for the deploy. Omit to let the backend allocate based on the model.", rich_help_panel="Model Deployment"),
-    in_browser: bool = typer.Option(False, "--in-browser", help="Deploy through the web UI instead of headlessly.", rich_help_panel="Model Deployment"),
+    headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI.", rich_help_panel="Model Deployment"),
     # ── Lifecycle ────────────────────────────────────────────────────────────
     stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
     status: bool = typer.Option(False, "--status", help="Open the live monitor TUI for a running stack.", rich_help_panel="Lifecycle"),
@@ -144,7 +176,7 @@ def _entry(
         skip_docker_control=skip_docker_control, no_sudo=no_sudo, no_browser=no_browser,
         wait_for_services=wait_for_services, browser_timeout=browser_timeout,
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
-        device_id=device_id, in_browser=in_browser, fix_docker=fix_docker,
+        device_id=device_id, headless=headless, fix_docker=fix_docker,
         configure_env=configure_env, status=status, logs=logs, info=info,
         report_bug=report_bug, install_shortcut=install_shortcut,
     )
@@ -153,25 +185,28 @@ def _entry(
 
 @app.command("run")
 def run_model_command(
-    model: str = typer.Argument(..., metavar="MODEL_NAME", help="Model to deploy, e.g. Qwen3-32B."),
+    model: Optional[str] = typer.Argument(None, metavar="MODEL_NAME", help="Model to deploy, e.g. Qwen3-32B. Omit to pick from the catalog interactively.", autocompletion=_complete_model),
     device_id: Optional[int] = typer.Option(None, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7). Omit to let the backend allocate based on the model."),
-    in_browser: bool = typer.Option(False, "--in-browser", help="Deploy through the web UI instead of headlessly."),
+    headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI."),
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload)."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Skip opening the browser."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary."),
 ):
-    """Launch TT Studio and deploy MODEL_NAME (ollama-style).
+    """Launch TT Studio and deploy a model in one command.
 
-    Brings the whole stack up and deploys the model in one command. The deploy
-    runs headlessly against the backend by default and also opens the browser at
-    /models-deployed so you can watch; pass --in-browser to drive the deploy
-    through the web UI instead.
+    Brings the whole stack up and deploys the model. By default the deploy runs
+    through the web UI (the browser opens and drives it); pass --headless to
+    deploy against the backend API from the terminal instead, with the browser
+    opening at /models-deployed only so you can watch. Omit MODEL_NAME to choose
+    from the synced catalog interactively.
     """
     set_verbose(verbose)
+    if model is None:
+        model = _prompt_for_model()
     _validate_model_name(model)
     args = _build_args(
         dev=dev, auto_deploy=model, device_id=device_id,
-        in_browser=in_browser, no_browser=no_browser,
+        headless=headless, no_browser=no_browser,
     )
     _run(args)
 
