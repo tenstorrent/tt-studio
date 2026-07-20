@@ -66,6 +66,10 @@ MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
 DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
+# Consolidated launcher config store (issue #807): one namespaced JSON at the
+# repo root. The two dotfiles below are legacy sources, read only by the
+# one-time migration and removed by --purge-all.
+TT_STUDIO_CONFIG_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_config.json")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_setup_config.json")
 LEGACY_SETUP_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")

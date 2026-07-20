@@ -2,7 +2,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """Characterization tests for environment/preference configuration."""
-import json
 import os
 import tempfile
 import unittest
@@ -17,10 +16,8 @@ except ImportError:  # pre-refactor
 try:
     from tt_setup.env_config import _configure as _ecfg_configure
     from tt_setup.env_config import _dotenv as _ecfg_dotenv
-    from tt_setup.env_config import _preferences as _ecfg_prefs
-    from tt_setup.env_config import _version as _ecfg_version
 except ImportError:
-    _ecfg_dotenv = _ecfg_configure = _ecfg_prefs = _ecfg_version = M
+    _ecfg_dotenv = _ecfg_configure = M
 
 
 class TestPlaceholderAndBoolean(unittest.TestCase):
@@ -133,17 +130,20 @@ class TestShouldConfigureVar(unittest.TestCase):
 
 class TestPreferences(unittest.TestCase):
     def setUp(self):
+        # Preferences are now backed by the consolidated config store; point it at
+        # a throwaway file via the TT_STUDIO_CONFIG_PATH env override, and stub the
+        # legacy migration so the repo's real dotfiles don't seed the test store.
+        from tt_setup import config_store
         self.dir = tempfile.TemporaryDirectory()
-        self.prefs = os.path.join(self.dir.name, "prefs.json")
-        self.setup = os.path.join(self.dir.name, "setup.json")
-        self.p1 = patch.object(_ecfg_prefs, "PREFS_FILE_PATH", self.prefs)
-        self.p2 = patch.object(_ecfg_version, "SETUP_CONFIG_FILE_PATH", self.setup)
-        self.p1.start()
-        self.p2.start()
+        self.cfg = os.path.join(self.dir.name, "config.json")
+        self.env = patch.dict(os.environ, {"TT_STUDIO_CONFIG_PATH": self.cfg})
+        self.mig = patch.object(config_store, "_migrate_or_default", config_store._empty_config)
+        self.env.start()
+        self.mig.start()
 
     def tearDown(self):
-        self.p1.stop()
-        self.p2.stop()
+        self.mig.stop()
+        self.env.stop()
         self.dir.cleanup()
 
     def test_first_time_setup_true_when_no_prefs(self):
@@ -162,10 +162,16 @@ class TestPreferences(unittest.TestCase):
         self.assertTrue(M.clear_preferences())
         self.assertTrue(M.is_first_time_setup())
 
-    def test_setup_config_snapshot_is_written(self):
-        M.save_setup_config({"mode": "quick"})
-        with open(self.setup) as f:
-            self.assertEqual(json.load(f), {"mode": "quick"})
+    def test_setup_config_snapshot_splits_into_namespaces(self):
+        from tt_setup import config_store
+        M.save_setup_config({
+            "mode": "quick",
+            "tt_studio_mode": True,
+            "vite_app_title": "TT Studio",
+        })
+        self.assertEqual(config_store.get("setup", "mode"), "quick")
+        self.assertEqual(config_store.get("features", "tt_studio_mode"), True)
+        self.assertEqual(config_store.get("ui", "vite_app_title"), "TT Studio")
 
 
 if __name__ == "__main__":
