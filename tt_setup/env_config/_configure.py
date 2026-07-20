@@ -222,6 +222,17 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
 
+    # --reconfigure-inference-server is scoped: it only reconfigures the
+    # inference-server artifact source. Skip the full env sweep (HF_TOKEN,
+    # secrets, ports, …) so the user is asked exactly one thing — the release
+    # or branch to fetch. A full --reconfigure (force_reconfigure) still runs
+    # the whole flow below.
+    if reconfigure_inference and not force_reconfigure:
+        configure_inference_server_artifact(dev_mode, quick_setup, force_reconfigure, reconfigure_inference)
+        if not in_phase():  # folded into the "Set up" phase line when run inside a phase
+            console.print("[success]✓[/success] Inference server configured")
+        return
+
     if not quick_setup:
         console.print("\n[bold accent]TT Studio Environment Configuration[/bold accent]")
         console.print("[success]⚙️  Configure Env Mode: Full interactive setup for all variables[/success]")

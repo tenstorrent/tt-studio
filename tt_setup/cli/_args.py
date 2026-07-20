@@ -22,7 +22,7 @@ app = typer.Typer(
 def _entry(
     # ── Setup & Configuration (the everyday flags) ───────────────────────────
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults).", rich_help_panel="Setup & Configuration"),
-    reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", help="Reconfigure the TT Inference Server artifact.", rich_help_panel="Setup & Configuration"),
+    reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", "--reconfig-inf", help="Reconfigure the TT Inference Server artifact (short alias: --reconfig-inf).", rich_help_panel="Setup & Configuration"),
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
