@@ -1,59 +1,41 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-"""Persistent CLI preferences (JSON) + first-run detection."""
+"""Persistent CLI preferences + first-run detection.
 
-import json
-import os
-from tt_setup.constants import *
-from tt_setup.console import console
+Backed by the ``preferences`` namespace of the consolidated config store
+(``.tt_studio_config.json``); see tt_setup/config_store.py.
+"""
+
+from tt_setup import config_store
 
 
 def load_preferences():
-    """Load user preferences from JSON file."""
-    if os.path.exists(PREFS_FILE_PATH):
-        try:
-            with open(PREFS_FILE_PATH, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
+    """Load user preferences."""
+    return config_store.get_ns("preferences")
 
 
 def save_preferences(prefs):
-    """Save user preferences to JSON file."""
-    try:
-        with open(PREFS_FILE_PATH, 'w') as f:
-            json.dump(prefs, f, indent=2)
-    except IOError as e:
-        console.print(f"[warning]Warning: Could not save preferences: {e}[/warning]")
+    """Replace all user preferences."""
+    config_store.set_ns("preferences", dict(prefs))
 
 
 def save_preference(key, value):
     """Save a single preference key-value pair."""
-    prefs = load_preferences()
-    prefs[key] = value
-    save_preferences(prefs)
+    config_store.set("preferences", key, value)
 
 
 def get_preference(key, default=None):
     """Get a preference value by key, returning default if not found."""
-    prefs = load_preferences()
-    return prefs.get(key, default)
+    return config_store.get("preferences", key, default)
 
 
 def clear_preferences():
-    """Clear all user preferences by deleting the preferences file."""
-    if os.path.exists(PREFS_FILE_PATH):
-        try:
-            os.remove(PREFS_FILE_PATH)
-            return True
-        except IOError:
-            return False
+    """Clear all user preferences (leaves other config namespaces untouched)."""
+    config_store.set_ns("preferences", {})
     return True
 
 
 def is_first_time_setup():
-    """Check if this is the first time setup by checking if preferences exist."""
-    return not os.path.exists(PREFS_FILE_PATH)
-
+    """First run == no preferences recorded yet."""
+    return not config_store.get_ns("preferences")
