@@ -70,7 +70,10 @@ class TestCli(unittest.TestCase):
     def test_help_shows_reconfig_inf_alias(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("--reconfig-inf", result.output)
+        # Strip ANSI: Rich interleaves color codes between characters when it
+        # forces color (e.g. in CI), so match against the de-colored output.
+        output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        self.assertIn("--reconfig-inf", output_without_ansi)
 
     def test_help_env_prints_and_exits_zero(self):
         # --help-env prints the env help and returns (no heavy setup runs).
