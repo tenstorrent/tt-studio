@@ -30,6 +30,7 @@ import {
   isLlama31_8BModel,
   isP300x2Board,
 } from "../utils/p300x2Placement";
+import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
 
@@ -273,7 +274,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     // Board slot count for the device pre-flight check.
     const loadSlotCount = fetch("/docker-api/chip-status/")
       .then((r) => r.json())
-      .then((d: { total_slots?: number }) =>
+      .then((d: Partial<Pick<ChipStatus, "total_slots">>) =>
         setTotalSlots(typeof d.total_slots === "number" ? d.total_slots : null)
       )
       .catch(() => { /* non-fatal */ });

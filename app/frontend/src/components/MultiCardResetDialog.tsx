@@ -30,6 +30,7 @@ import type { Model } from "../contexts/ModelsContext";
 import BoardBadge from "./BoardBadge";
 import StreamingLogPanel from "./StreamingLogPanel";
 import ResetStepRow from "./ResetStepRow";
+import type { ChipStatus } from "../types/chipStatus";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,13 +49,9 @@ type ResetUnit =
   | { kind: "model"; id: string; model: Model; slots: number[] }
   | { kind: "empty"; id: string; slot: number };
 
-interface ChipStatusData {
-  total_slots: number;
-}
-
 type ChipStatusFetchState =
   | { status: "loading" }
-  | { status: "success"; data: ChipStatusData; fetchedAt: Date }
+  | { status: "success"; data: Pick<ChipStatus, "total_slots">; fetchedAt: Date }
   | { status: "error"; message: string };
 
 interface MultiCardResetDialogProps {
@@ -336,7 +333,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     try {
       const res = await fetch("/docker-api/chip-status/");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: ChipStatusData = await res.json();
+      const data: Pick<ChipStatus, "total_slots"> = await res.json();
       const models = await fetchModels();
       setChipFetch({ status: "success", data, fetchedAt: new Date() });
       setUnits(buildUnits(models, data.total_slots));
