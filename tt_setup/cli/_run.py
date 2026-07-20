@@ -290,9 +290,10 @@ def _run(args):
         # tt-smi check below only runs when a QB2 machine (or the tt_qb2_launch
         # release branch) sets IS_QB2=true. (Independent of the artifact branch.)
         is_qb2 = _qb2_configured()
-        # Hard-stop only on release branches behind origin (feature branches just
-        # continue). The actionable warning is printed by startup_checks.
-        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+        # Hard-stop only on true release branches behind origin (main, rc/*,
+        # release/*, QB2 launch). `dev` and feature branches warn and continue.
+        # The actionable warning is printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_hard_stop"):
             print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
             stop_active_phase()
             startup_log.summary(exit_code=1)

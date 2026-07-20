@@ -112,13 +112,19 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         "artifact_behind": False,
         "artifact_branch": None,
         "tt_studio_branch_is_release": False,
+        "tt_studio_branch_hard_stop": False,
     }
 
-    # Branches where being behind GitHub should hard-stop startup. Feature
-    # branches just warn — devs often have in-flight local work and shouldn't
-    # be blocked from running the stack.
+    # Release-ish branches: being behind GitHub surfaces a visible (actionable)
+    # warning rather than a silent feature-branch note.
     _RELEASE_BRANCHES = {"main", "dev", "tt_qb2_launch_branch"}
     _RELEASE_PREFIXES = ("rc/", "release/")
+
+    # Branches where being behind GitHub should HARD-STOP startup. `dev` is a
+    # shared integration branch that devs check out and work on directly, so it
+    # warns-and-continues (like feature branches) instead of blocking — only
+    # true release refs (main, rc/*, release/*, the QB2 launch branch) gate.
+    _HARD_STOP_BRANCHES = {"main", "tt_qb2_launch_branch"}
 
     verbose = is_verbose()
     ok_items = []     # (short_label, "✓ …" line) — confirmed up to date (verbose-only)
@@ -166,6 +172,11 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         or local_branch.startswith(_RELEASE_PREFIXES)
     ):
         result["tt_studio_branch_is_release"] = True
+    if local_branch and (
+        local_branch in _HARD_STOP_BRANCHES
+        or local_branch.startswith(_RELEASE_PREFIXES)
+    ):
+        result["tt_studio_branch_hard_stop"] = True
 
     if local_sha and studio_check_branch and studio_check_branch not in ("HEAD", ""):
         remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", studio_check_branch)
@@ -176,10 +187,14 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
                 f"[success]✓[/success] tt-studio '{studio_check_branch}': up to date [muted]({local_sha[:7]})[/muted]"))
         else:
             result["tt_studio_behind"] = True
-            if result["tt_studio_branch_is_release"]:
+            if result["tt_studio_branch_hard_stop"]:
                 # Release branch behind → hard-stop follows; this is actionable.
                 actionable.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}[/warning]")
                 actionable.append("[warning]     → git pull, then re-run python run.py  (release branch — cannot continue)[/warning]")
+            elif result["tt_studio_branch_is_release"]:
+                # dev: shared integration branch. Warn visibly but continue —
+                # being a few commits behind shouldn't block a dev run.
+                actionable.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update (continuing)[/warning]")
             else:
                 # Feature branch just behind-but-continuing → informational only.
                 quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")
