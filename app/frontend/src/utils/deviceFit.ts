@@ -9,12 +9,9 @@
 // edit getModelPlacement() below — nothing else in the frontend needs to change.
 
 import { isFluxModel, isLlama31_8BModel, isP300x2Board } from "./p300x2Placement";
+import type { ChipStatusSlot } from "../types/chipStatus";
 
-export interface DeviceSlotLike {
-  slot_id: number;
-  status: string;
-  model_name?: string;
-}
+export type DeviceSlotLike = Pick<ChipStatusSlot, "slot_id" | "status" | "model_name">;
 
 // Wormhole mesh boards: a single-device-capable model deploys across the whole
 // board by default (the backend selects the chips itself); only an explicit slot

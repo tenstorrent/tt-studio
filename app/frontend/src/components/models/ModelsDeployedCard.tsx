@@ -51,6 +51,7 @@ import { useTablePrefs } from "../../hooks/useTablePrefs";
 import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
+import type { ChipStatus } from "../../types/chipStatus";
 
 const deviceIdsForRow = (
   row?: { device_ids?: number[]; device_id?: number | null },
@@ -73,16 +74,12 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Chip slot status for multi-chip boards
-  const [chipStatus, setChipStatus] = useState<{
-    board_type: string;
-    total_slots: number;
-    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
-  } | null>(null);
+  const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
 
   useEffect(() => {
     const fetchChipStatus = () => {
       axios
-        .get("/docker-api/chip-status/")
+        .get<ChipStatus>("/docker-api/chip-status/")
         .then((res) => setChipStatus(res.data))
         .catch(() => setChipStatus(null));
     };
@@ -710,11 +707,7 @@ export default function ModelsDeployedCard(): JSX.Element {
         {/* Chip slot visualization for multi-chip boards */}
         {isMultiChipBoard && chipStatus && (
           <div className="px-6 pb-4">
-            <ChipStatusDisplay
-              boardType={chipStatus.board_type}
-              totalSlots={chipStatus.total_slots}
-              slots={chipStatus.slots as any}
-            />
+            <ChipStatusDisplay chipStatus={chipStatus} />
           </div>
         )}
 

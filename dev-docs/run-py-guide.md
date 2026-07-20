@@ -64,7 +64,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--help`, `-h` | Display the help message with all options grouped by panel. |
 | `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. |
 | `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
-| `--reconfigure-inference-server` | Reconfigure the TT Inference Server artifact (version/branch selection). |
+| `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
 | `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
 
 ### Model Deployment

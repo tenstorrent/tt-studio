@@ -155,8 +155,8 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     # Set artifact path and version/branch so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
         env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
-        artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
-        artifact_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH")
+        artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
+        artifact_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
         if artifact_version:
             env["TT_INFERENCE_ARTIFACT_VERSION"] = artifact_version
         if artifact_branch:

@@ -15,6 +15,7 @@ import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
 import { DeploymentTray } from "./DeploymentTray";
 import { useActiveDeployments } from "../hooks/useActiveDeployments";
+import type { ChipStatus } from "../types/chipStatus";
 import {
   autoPlacement,
   fullBoardSlots,
@@ -56,11 +57,7 @@ export default function StepperDemo() {
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
 
-  const [chipStatus, setChipStatus] = useState<{
-    board_type: string;
-    total_slots: number;
-    slots: { slot_id: number; status: "available" | "occupied"; model_name?: string; port?: number; deployment_id?: number; is_multi_chip?: boolean }[];
-  } | null>(null);
+  const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
 
@@ -77,7 +74,7 @@ export default function StepperDemo() {
 
   const fetchChipStatus = useCallback(() => {
     axios
-      .get("/docker-api/chip-status/")
+      .get<ChipStatus>("/docker-api/chip-status/")
       .then((res) => {
         setChipStatus(res.data);
         setTotalSlots(res.data.total_slots ?? 1);

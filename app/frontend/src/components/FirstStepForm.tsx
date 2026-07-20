@@ -39,6 +39,7 @@ import BoardBadge from "./BoardBadge";
 // import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
 import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
+import type { ChipStatus } from "../types/chipStatus";
 
 // Status configuration with icons and labels
 const STATUS_CONFIG = {
@@ -104,11 +105,7 @@ export function FirstStepForm({
   setFormError: (hasError: boolean) => void;
   chipMode?: "single" | "multi";
   onModelNameChange?: (name: string) => void;
-  chipStatus?: {
-    board_type: string;
-    total_slots: number;
-    slots: { slot_id: number; status: string; model_name?: string }[];
-  } | null;
+  chipStatus?: ChipStatus | null;
   // Model ids with a deploy already in flight — kept selectable so the user can
   // reconnect to their progress rather than being blocked by their own reservation.
   deployingModelIds?: Set<string>;
