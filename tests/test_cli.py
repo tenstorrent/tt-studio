@@ -146,8 +146,11 @@ class TestCli(unittest.TestCase):
     def test_run_help_shows_model_arg_and_options(self):
         result = runner.invoke(M.app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("MODEL_NAME", result.output)
-        self.assertIn("--in-browser", result.output)
+        # Strip ANSI: Rich interleaves color codes between characters when it
+        # forces color (e.g. in CI), splitting "--in-browser" across escapes.
+        output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        self.assertIn("MODEL_NAME", output_without_ansi)
+        self.assertIn("--in-browser", output_without_ansi)
 
     def test_run_dispatches_headless_by_default(self):
         with patch.object(_cli_args, "_validate_model_name"), \
