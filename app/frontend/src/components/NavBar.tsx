@@ -807,7 +807,7 @@ export default function NavBar() {
   const homeNavItem = navItems.find((item) => item.label === "Home");
   const navGroups = [
     {
-      label: "Models",
+      label: "Model Lifecycle",
       icon: Boxes,
       items: navItems.filter((item) => modelsGroupLabels.includes(item.label)),
     },
