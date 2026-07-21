@@ -201,7 +201,19 @@ def get_artifact_info() -> dict:
 
 
 def is_setup_complete() -> bool:
-    return bool(load_user_config().get("setup_complete"))
+    """Whether the first-run Welcome guide can be skipped.
+
+    True once the wizard was finished (flag set), or when the required secret
+    (the HF token) is already configured via user_config.env or the
+    environment — e.g. a preprovisioned .env. The guide should reappear only
+    when something it collects is actually missing, not because the completion
+    flag was lost (issue #1145). The flag alone also counts: the wizard allows
+    skipping every secret, and requiring the token on top of the flag would
+    bounce those users straight back to /welcome.
+    """
+    if load_user_config().get("setup_complete"):
+        return True
+    return bool(get_hf_token())
 
 
 def mark_setup_complete() -> None:

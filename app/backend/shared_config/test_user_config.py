@@ -71,12 +71,30 @@ class TestSaveLoadRoundTrip:
         user_config.save_user_config({"hf_token": "hf_abc123", "evil_key": "x"})
         assert "evil_key" not in user_config.load_user_config()
 
-    def test_setup_complete_round_trip(self, volume):
+    def test_setup_complete_round_trip(self, volume, monkeypatch):
+        monkeypatch.delenv("HF_TOKEN", raising=False)
         assert not user_config.is_setup_complete()
         user_config.mark_setup_complete()
         assert user_config.is_setup_complete()
         content = (volume / "backend_volume" / "user_config.env").read_text()
         assert "SETUP_COMPLETE=true" in content
+
+    def test_setup_complete_when_required_secret_configured(self, volume, monkeypatch):
+        """The Welcome guide is driven by env completeness (issue #1145): a
+        configured HF token counts as complete even without the flag, and a
+        finished wizard counts even if every secret was skipped."""
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        user_config.save_user_config({"hf_token": "hf_abc123"})
+        assert user_config.is_setup_complete()
+
+    def test_setup_complete_honors_env_var_token(self, volume, monkeypatch):
+        monkeypatch.setenv("HF_TOKEN", "hf_from_env")
+        assert user_config.is_setup_complete()
+
+    def test_setup_incomplete_without_flag_or_token(self, volume, monkeypatch):
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        user_config.save_user_config({"tavily_api_key": "tvly-x"})
+        assert not user_config.is_setup_complete()
 
 
 class TestValueSanitization:
