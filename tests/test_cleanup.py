@@ -193,6 +193,33 @@ class CleanupAllTests(unittest.TestCase):
             self.assertTrue(sentinel.exists())
             self.assertTrue(sentinel.read_text().isdigit())
 
+    def test_plain_stop_preserves_welcome_setup_state(self):
+        # A plain --stop must leave user_config.env byte-identical — secrets AND
+        # the SETUP_COMPLETE flag — so the Welcome wizard doesn't re-run on the
+        # next bring-up. Only --purge-all resets first-run state.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backend_volume = root / "tt_studio_persistent_volume" / "backend_volume"
+            backend_volume.mkdir(parents=True)
+            user_config = backend_volume / "user_config.env"
+            original = "HF_TOKEN=hf_test\nSETUP_COMPLETE=true\n"
+            user_config.write_text(original)
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(_cl_orch, "TT_STUDIO_ROOT", str(root)))
+                stack.enter_context(patch.object(_cl_orch,
+                    "get_env_var",
+                    side_effect=lambda name, default="": default,
+                ))
+                stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(_cl_orch, "_cleanup_runtime"))
+                stack.enter_context(patch.object(_cl_orch, "_docker_daemon_status", return_value="down"))
+                args = SimpleNamespace(cleanup_all=False, yes=False, no_sudo=True, dev=False)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    run.cleanup_resources(args)
+
+            self.assertEqual(user_config.read_text(), original)
+
 
 class CleanupDockerSurfaceTests(unittest.TestCase):
     """Covers the gaps the original cleanup-all missed: deployment containers
