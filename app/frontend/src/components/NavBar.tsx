@@ -790,9 +790,9 @@ export default function NavBar() {
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
 
   // Group the flat nav items into submenus for the horizontal desktop navbar.
-  // Home stays top-level; anything not claimed by Models/Tools (the deployed
-  // model pages, Voice Agent, etc.) lands in Playground. The vertical and
-  // mobile navbars keep the flat icon list.
+  // Home stays top-level; anything not claimed by Model Lifecycle/Tools (the
+  // deployed model pages: Chat UI, Speech to Text, etc.) lands in Model
+  // Interaction. The vertical and mobile navbars keep the flat icon list.
   const modelsGroupLabels = [
     "Models Deployed",
     "Deployment History",
@@ -803,6 +803,7 @@ export default function NavBar() {
     "Workflows",
     "Canvas",
     "Connect Agents",
+    "Voice Agent",
   ];
   const homeNavItem = navItems.find((item) => item.label === "Home");
   const navGroups = [
@@ -817,7 +818,7 @@ export default function NavBar() {
       items: navItems.filter((item) => toolsGroupLabels.includes(item.label)),
     },
     {
-      label: "Playground",
+      label: "Model Interaction",
       icon: BotMessageSquare,
       items: navItems.filter(
         (item) =>
