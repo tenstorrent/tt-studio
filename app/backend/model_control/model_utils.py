@@ -175,7 +175,7 @@ def health_check(url, json_data, timeout=5, auth_token: str = None):
     logger.info(f"calling health_url:= {url}")
     try:
         headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
-        response = requests.get(url, json=json_data, headers=headers, timeout=5)
+        response = requests.get(url, json=json_data, headers=headers, timeout=timeout)
     except requests.exceptions.ConnectionError as e:
         # Port not yet listening — container is still starting up
         logger.info(f"Health check: connection refused (starting): {e}")

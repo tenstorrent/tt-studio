@@ -2097,6 +2097,7 @@ _MODEL_ARG = re.compile(r"^--?model$", re.IGNORECASE)
 _SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
 # vLLM auto tool-choice, in the forms it can appear in a launch command.
 _TOOL_CHOICE_ARG = re.compile(r"^--?enable[-_]auto[-_]tool[-_]choice$", re.IGNORECASE)
+_TOOL_PARSER_ARG = re.compile(r"^--?tool[-_]call[-_]parser$", re.IGNORECASE)
 # A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
 _TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
 
@@ -2132,34 +2133,40 @@ def _find_arg_value(tokens: list, arg_re) -> "str | None":
 
 
 def _container_has_tool_calling(container_info: dict) -> bool:
-    """True if the container's vLLM was launched with auto tool-choice enabled.
+    """True if the container's vLLM was launched for tool calling.
 
     vLLM can only emit tool calls (for ``tool_choice:"auto"`` requests that coding
-    agents send) when started with ``--enable-auto-tool-choice --tool-call-parser``.
-    This is set at process start and can't be turned on afterward, so a container
-    without it can't serve coding agents. TT-Studio's own deploy path injects the
-    flags; an externally-launched container may not have them.
+    agents send) when started with BOTH ``--enable-auto-tool-choice`` AND
+    ``--tool-call-parser <parser>`` — auto tool-choice without a parser fails to
+    serve tool calls (and vLLM won't even start). This is set at process launch and
+    can't be turned on afterward. TT-Studio's own deploy path injects both flags; an
+    externally-launched container may not have them.
 
-    Checks all the ways the flag can reach vLLM: the launch command, the
-    ``VLLM_OVERRIDE_ARGS`` JSON env (how TT-Studio's deploy passes it), and the
-    deprecated ``ENABLE_AUTO_TOOL_CHOICE`` env.
+    Checks every place the flags can reach vLLM: the launch command, the
+    ``VLLM_OVERRIDE_ARGS`` env (JSON dict or raw string, how TT-Studio's deploy
+    passes it), and the deprecated ``ENABLE_AUTO_TOOL_CHOICE`` env. Requires both
+    signals to be present before reporting the container as capable.
     """
-    if any(_TOOL_CHOICE_ARG.match(t) for t in _cmd_tokens(container_info)):
-        return True
+    tokens = _cmd_tokens(container_info)
     env = _container_env(container_info)
-    if str(env.get("ENABLE_AUTO_TOOL_CHOICE", "")).strip().lower() in ("1", "true", "yes"):
-        return True
-    raw = env.get("VLLM_OVERRIDE_ARGS")
-    if raw:
-        try:
-            overrides = json.loads(raw)
-            if isinstance(overrides, dict) and overrides.get("enable-auto-tool-choice"):
-                return True
-        except (ValueError, TypeError):
-            pass
-        if "enable-auto-tool-choice" in str(raw):
-            return True
-    return False
+    raw = str(env.get("VLLM_OVERRIDE_ARGS") or "")
+
+    choice = (
+        any(_TOOL_CHOICE_ARG.match(t) for t in tokens)
+        or "enable-auto-tool-choice" in raw
+        or str(env.get("ENABLE_AUTO_TOOL_CHOICE", "")).strip().lower() in ("1", "true", "yes")
+    )
+    parser = any(_TOOL_PARSER_ARG.match(t) for t in tokens) or "tool-call-parser" in raw
+
+    try:
+        overrides = json.loads(raw) if raw else None
+    except (ValueError, TypeError):
+        overrides = None
+    if isinstance(overrides, dict):
+        choice = choice or bool(overrides.get("enable-auto-tool-choice"))
+        parser = parser or bool(overrides.get("tool-call-parser"))
+
+    return choice and parser
 
 
 def _container_env(container_info: dict) -> dict:
