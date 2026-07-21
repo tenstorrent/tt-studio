@@ -159,6 +159,23 @@ def _validate_model_name(model):
     raise typer.Exit(1)
 
 
+def _validate_device_id(value: Optional[str]) -> Optional[str]:
+    """Typer callback for `--device-id`. Accepts a single chip slot ("0") or a
+    comma-separated list ("0,1") for multi-chip models. Validates format only
+    (comma-separated non-negative integers) and returns the normalized string;
+    the backend serializer owns the authoritative hardware range check.
+    """
+    if value is None:
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    if not all(p.isdigit() for p in parts):
+        raise typer.BadParameter(
+            f"'{value}' must be a chip slot like '0', or a comma-separated list "
+            "like '0,1' for multi-chip models."
+        )
+    return ",".join(parts)
+
+
 app = typer.Typer(
     add_completion=False,
     rich_markup_mode="rich",
@@ -177,7 +194,7 @@ def _entry(
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
     auto_deploy: str = typer.Option(None, "--auto-deploy", "--model", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (via the web UI by default; add --headless for a terminal-driven deploy). Or use the `run <model>` subcommand.", rich_help_panel="Model Deployment", autocompletion=_complete_model),
-    device_id: Optional[int] = typer.Option(None, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for the deploy. Omit to let the backend allocate based on the model.", rich_help_panel="Model Deployment"),
+    device_id: Optional[str] = typer.Option(None, "--device-id", metavar="CHIP_IDS", help="Chip slot(s) for the deploy, e.g. `0` or `0,1` for multi-chip models. Omit to let the backend allocate based on the model.", rich_help_panel="Model Deployment", callback=_validate_device_id),
     headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI.", rich_help_panel="Model Deployment"),
     # ── Lifecycle ────────────────────────────────────────────────────────────
     stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
@@ -247,7 +264,7 @@ def _entry(
 @app.command("run")
 def run_model_command(
     model: Optional[str] = typer.Argument(None, metavar="MODEL_NAME", help="Model to deploy, e.g. Qwen3-32B. Omit to pick from the catalog interactively.", autocompletion=_complete_model),
-    device_id: Optional[int] = typer.Option(None, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7). Omit to let the backend allocate based on the model."),
+    device_id: Optional[str] = typer.Option(None, "--device-id", metavar="CHIP_IDS", help="Chip slot(s), e.g. `0` or `0,1` for multi-chip models. Omit to let the backend allocate based on the model.", callback=_validate_device_id),
     headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI."),
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload)."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Skip opening the browser."),

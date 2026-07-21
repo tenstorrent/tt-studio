@@ -22,6 +22,7 @@ import {
   getModelPlacement,
   isMultiChipModel,
 } from "../utils/deviceFit";
+import { parseDeviceIds } from "../utils/p300x2Placement";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -275,11 +276,16 @@ export default function StepperDemo() {
         model_id: model.id,
         weights_id: "", // Empty string for default weights
       };
+      // device-id may be a single chip ("0") or a comma-separated list ("0,1")
+      // for multi-chip models. Send a number for one chip, a joined string for
+      // several — matching the manual deploy path in DeployModelStep.
       const deviceIdParam = searchParams.get("device-id");
       if (deviceIdParam !== null && deviceIdParam !== "") {
-        const parsed = parseInt(deviceIdParam, 10);
-        if (!isNaN(parsed)) {
-          deployPayload.device_id = parsed;
+        const ids = parseDeviceIds(deviceIdParam);
+        if (ids.length === 1) {
+          deployPayload.device_id = ids[0];
+        } else if (ids.length > 1) {
+          deployPayload.device_id = ids.join(",");
         }
       }
 

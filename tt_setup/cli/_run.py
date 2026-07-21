@@ -120,6 +120,56 @@ def _auto_deploy_query(model, device_id):
     return f"?{urlencode(query)}"
 
 
+def _preflight_device_availability(args):
+    """Fast-reject a `--device-id`-pinned deploy when the requested chip slots are
+    already occupied, *before* the full stack-up / browser open.
+
+    Only runs when a model and explicit chip slots are both set. Queries the
+    backend chip-status endpoint with a short timeout; if the backend isn't up
+    yet (fresh boot) or the check can't complete, it silently returns and lets
+    the deploy-time allocator stay the authoritative guard. This just moves the
+    common "chips busy" rejection to the front so a re-run against occupied
+    devices fails in a second instead of after a ~50s startup."""
+    model = getattr(args, "auto_deploy", None)
+    device_id = getattr(args, "device_id", None)
+    if not model or not device_id:
+        return
+    try:
+        requested = [int(x.strip()) for x in str(device_id).split(",") if x.strip() != ""]
+    except ValueError:
+        return  # malformed — Typer already validated; let the backend re-check
+    if not requested:
+        return
+
+    dh = _load_deploy_driver()
+    if dh is None:
+        return
+    client = dh.Client("http://localhost:8000", proxy=False)
+    try:
+        st, data = client.get("chip-status", timeout=5)
+    except Exception:
+        return  # backend not reachable yet — deploy-time guard will handle it
+    if st != 200 or not isinstance(data, dict):
+        return
+
+    slots = {s.get("slot_id"): s for s in data.get("slots", []) if isinstance(s, dict)}
+    busy = []
+    for slot in requested:
+        info = slots.get(slot)
+        if info and info.get("status") == "occupied":
+            occupant = info.get("model_name") or "another model"
+            busy.append(f"chip {slot} — in use by {occupant}")
+    if not busy:
+        return
+
+    lines = [f"Requested --device-id {device_id}, but:"] + busy
+    lines.append("")
+    lines.append("Free the chips (stop that model in the UI, or python run.py --stop) or")
+    lines.append("pick different slots, then re-run.")
+    console.print(notice_panel("Requested chips are busy", lines, border_style="error"))
+    sys.exit(1)
+
+
 def _load_deploy_driver():
     """Import ci/deploy_healthcheck.py as a module (it's import-safe: all argparse/
     tee/report machinery lives under a guarded main()). Returns the module, or
@@ -332,7 +382,11 @@ def _run(args):
         if args.add_headers:
             add_spdx_headers()
             return
-        
+
+        # Fast reject a pinned deploy onto already-busy chips before any stack-up
+        # work (no-op on a fresh boot / unreachable backend).
+        _preflight_device_availability(args)
+
         run_start = time.monotonic()
 
         # Install the sticky-top stepper FIRST, on an empty screen — this is what

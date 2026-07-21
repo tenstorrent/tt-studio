@@ -192,7 +192,25 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         ns = run.call_args[0][0]
         self.assertTrue(ns.headless)
-        self.assertEqual(ns.device_id, 2)
+        self.assertEqual(ns.device_id, "2")   # kept as a string for multi-chip parity
+
+    def test_run_multi_chip_device_id(self):
+        # Multi-chip models take a comma-separated list, e.g. --device-id 0,1.
+        with patch.object(_cli_args, "_validate_model_name"), \
+             patch.object(_cli_args, "_run") as run:
+            result = runner.invoke(
+                M.app, ["run", "Llama3.1-8B", "--device-id", "0,1"])
+        self.assertEqual(result.exit_code, 0)
+        ns = run.call_args[0][0]
+        self.assertEqual(ns.device_id, "0,1")
+
+    def test_run_rejects_non_integer_device_id(self):
+        with patch.object(_cli_args, "_validate_model_name"), \
+             patch.object(_cli_args, "_run") as run:
+            result = runner.invoke(
+                M.app, ["run", "Qwen3-32B", "--device-id", "abc"])
+        self.assertNotEqual(result.exit_code, 0)
+        run.assert_not_called()
 
     def test_model_alias_sets_auto_deploy(self):
         # `--model` is a friendly alias for `--auto-deploy` on the default path.
@@ -324,9 +342,14 @@ class TestAutoDeployQuery(unittest.TestCase):
         self.assertNotIn("device-id", q)
 
     def test_with_device_id(self):
-        q = _cli_run._auto_deploy_query("Qwen3-32B", 2)
+        q = _cli_run._auto_deploy_query("Qwen3-32B", "2")
         self.assertIn("auto-deploy=Qwen3-32B", q)
         self.assertIn("device-id=2", q)
+
+    def test_with_multi_chip_device_id(self):
+        # A comma-separated list is threaded verbatim (url-encoded) into the query.
+        q = _cli_run._auto_deploy_query("Llama3.1-8B", "0,1")
+        self.assertIn("device-id=0%2C1", q)
 
 
 class _FakeSmokeTestError(Exception):
@@ -367,19 +390,28 @@ class TestHeadlessDeploy(unittest.TestCase):
     def test_includes_device_id_when_set(self):
         bodies = []
         dh = _fake_driver(bodies)
-        args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id=3)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id="3")
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": 3}])
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": "3"}])
+
+    def test_includes_multi_chip_device_id(self):
+        # Multi-chip list is passed straight through to the deploy payload.
+        bodies = []
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="Llama3.1-8B", device_id="0,1")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
+            _cli_run._headless_deploy(args)
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": "0,1"}])
 
     def test_device_id_zero_is_explicit(self):
         # 0 is a real slot, distinct from "unset" — it must reach the payload.
         bodies = []
         dh = _fake_driver(bodies)
-        args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id=0)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id="0")
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": 0}])
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": "0"}])
 
     def test_missing_driver_is_a_noop(self):
         args = _cli_args._build_args(auto_deploy="X")
@@ -415,6 +447,61 @@ class TestHeadlessDeploy(unittest.TestCase):
             _cli_run._headless_deploy(args)
         self.assertEqual(calls["n"], 2)          # retried once past the warmup error
         self.assertEqual(len(bodies), 1)         # then deployed
+
+
+def _fake_chip_driver(slots, raise_get=False):
+    """A stand-in deploy driver whose Client.get returns a chip-status payload."""
+    class FakeClient:
+        def __init__(self, base, proxy):
+            pass
+
+        def get(self, key, timeout=30, query=None, **fmt):
+            if raise_get:
+                raise _FakeSmokeTestError("cannot reach http://localhost:8000/chip-status/")
+            return 200, {"board_type": "P300x2", "total_slots": 4, "slots": slots}
+
+    return types.SimpleNamespace(
+        SmokeTestError=_FakeSmokeTestError,
+        Client=FakeClient,
+    )
+
+
+class TestPreflightDeviceAvailability(unittest.TestCase):
+    def _run_preflight(self, dh, **args_kw):
+        args = _cli_args._build_args(**args_kw)
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
+            _cli_run._preflight_device_availability(args)
+
+    def test_noop_without_device_id(self):
+        # No explicit slots -> nothing to pre-check; must not touch the driver.
+        with patch.object(_cli_run, "_load_deploy_driver") as loader:
+            _cli_run._preflight_device_availability(
+                _cli_args._build_args(auto_deploy="Qwen3-32B", device_id=None))
+        loader.assert_not_called()
+
+    def test_rejects_when_requested_chip_busy(self):
+        slots = [
+            {"slot_id": 0, "status": "occupied", "model_name": "Qwen3-32B"},
+            {"slot_id": 1, "status": "available"},
+        ]
+        with self.assertRaises(SystemExit) as cm:
+            self._run_preflight(_fake_chip_driver(slots),
+                                auto_deploy="Llama3.1-8B", device_id="0,1")
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_allows_when_requested_chips_free(self):
+        slots = [
+            {"slot_id": 0, "status": "available"},
+            {"slot_id": 1, "status": "available"},
+        ]
+        # Must return normally (no SystemExit) when the slots are free.
+        self._run_preflight(_fake_chip_driver(slots),
+                            auto_deploy="Llama3.1-8B", device_id="0,1")
+
+    def test_skips_when_backend_unreachable(self):
+        # Fresh boot: backend isn't up yet -> skip silently, let deploy-time guard run.
+        self._run_preflight(_fake_chip_driver([], raise_get=True),
+                            auto_deploy="Llama3.1-8B", device_id="0,1")
 
 
 if __name__ == "__main__":

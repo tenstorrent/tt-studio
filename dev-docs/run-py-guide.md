@@ -34,6 +34,7 @@ The script will guide you through all configuration options and set up everythin
 python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
 python run.py run                           # omit the model to pick from the catalog interactively
 python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
+python run.py run Llama3.1-8B --device-id 0,1 # pin a multi-chip model to chips 0 and 1
 python run.py run Qwen3-32B --headless      # deploy from the terminal instead of the web UI
 ```
 
@@ -48,7 +49,8 @@ it. Pass `--headless` to deploy against the backend API from the terminal instea
 only so you can watch). Suppress the browser in either mode with `--no-browser`.
 
 If `--device-id` is omitted, the backend allocates a slot based on the model's
-chip requirements; pass it only to pin a specific chip.
+chip requirements; pass it only to pin a specific chip. Multi-chip models take a
+comma-separated list (e.g. `--device-id 0,1`).
 
 ---
 
@@ -72,7 +74,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | Option | Description |
 | --- | --- |
 | `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Deploys via the web UI by default (see the [`run <model>`](#run-model--one-command-deploy) subcommand); add `--headless` to deploy from the terminal. Supports shell completion of catalog model names. |
-| `--device-id CHIP_ID` | Chip slot index (0–7) to target. Omit to let the backend allocate a slot based on the model's chip requirements. |
+| `--device-id CHIP_IDS` | Chip slot(s) to target: a single slot (`0`) or a comma-separated list (`0,1`) for multi-chip models. Omit to let the backend allocate based on the model's chip requirements. |
 | `--headless` | With an auto-deploy, deploy against the backend API from the terminal instead of handing off to the web UI. |
 
 > **Tip**: `python run.py run <model>` is the ergonomic front door for this —

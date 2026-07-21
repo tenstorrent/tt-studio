@@ -65,6 +65,7 @@ PATHS_DIRECT = {
     "health": "models/health/",
     "logs": "docker/deploy/logs/{job_id}/",
     "stop": "docker/stop/stream/{container_id}/",
+    "chip-status": "docker/chip-status/",
 }
 PATHS_PROXY = {
     "catalog": "docker-api/catalog/",
@@ -74,6 +75,7 @@ PATHS_PROXY = {
     "health": "models-api/health/",
     "logs": "docker-api/deploy/logs/{job_id}/",
     "stop": "docker-api/stop/stream/{container_id}/",
+    "chip-status": "docker-api/chip-status/",
 }
 
 # Progress statuses that mean "stop polling".
