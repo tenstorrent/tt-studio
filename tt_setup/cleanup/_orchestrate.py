@@ -4,9 +4,7 @@
 """--stop / --purge-all orchestration: build the inventory, confirm, then run the
 teardown and (for --purge-all) wipe persistent state."""
 
-import json
 import os
-import subprocess
 from rich.table import Table
 from tt_setup.constants import *
 from tt_setup.constants import _CLEANUP_VOLUME_PREFIX
@@ -46,96 +44,12 @@ def _print_preserved_summary(has_docker_access):
 
     rows = [
         ("Model deployments", models),
-        ("Config & secrets", ".env"),
+        ("Config & secrets", ".env, saved settings (Welcome setup)"),
         ("Saved data", "model weights, chat history, RAG"),
     ]
     footer = ["[muted]Remove these too →[/muted]  [accent]python run.py --purge-all[/accent]"]
     console.print()
     console.print(kept_panel("[bold]Preserved[/bold]", rows, footer))
-
-
-def _atomic_write_0600(path, text):
-    """Rewrite `path` with `text` atomically at mode 0600, never leaving a
-    world-readable temp file behind (secrets must not be briefly exposed)."""
-    tmp = os.path.join(os.path.dirname(path) or ".", ".user_config.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w") as f:
-            os.fchmod(f.fileno(), 0o600)
-            f.write(text)
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def _reset_welcome_flag(user_config_path, legacy_json_path, no_sudo):
-    """Drop the Welcome/SETUP_COMPLETE flag while preserving saved secrets.
-
-    Prefers an in-place, atomic, secrets-preserving rewrite; only removes a file
-    outright as a last resort (root-owned and no sudo) so the backend can
-    regenerate it. Returns a short status string for the step detail."""
-    # Preferred store: the dotenv file. Strip the SETUP_COMPLETE line, keep the rest.
-    if os.path.exists(user_config_path):
-        try:
-            with open(user_config_path, "r") as f:
-                lines = f.readlines()
-            kept = [ln for ln in lines if not ln.strip().startswith("SETUP_COMPLETE")]
-            if len(kept) == len(lines):
-                return "already cleared"
-            _atomic_write_0600(user_config_path, "".join(kept))
-            return "SETUP_COMPLETE cleared"
-        except PermissionError:
-            # Root-owned (Docker wrote it on the host volume). Prefer a sudo
-            # in-place strip that keeps the saved secrets and the 0600 mode;
-            # only remove the whole file if that isn't possible.
-            if not no_sudo and _sudo_strip_setup_complete(user_config_path):
-                return "SETUP_COMPLETE cleared (sudo)"
-            if _remove_path(user_config_path, no_sudo=no_sudo):
-                return "removed root-owned user_config.env (secrets reset)"
-            return None
-
-    # Legacy JSON from before the .env migration: strip the flag in place so the
-    # backend migrates the remaining secrets (and deletes the file) on next start.
-    if os.path.exists(legacy_json_path):
-        try:
-            with open(legacy_json_path, "r") as f:
-                data = json.load(f)
-            if not isinstance(data, dict) or "setup_complete" not in data:
-                return "already cleared"
-            data.pop("setup_complete", None)
-            _atomic_write_0600(legacy_json_path, json.dumps(data))
-            return "SETUP_COMPLETE cleared (legacy JSON; secrets kept)"
-        except PermissionError:
-            # Can't safely edit a root-owned legacy JSON without risking its
-            # secrets; removal lets the backend re-run Welcome.
-            if _remove_path(legacy_json_path, no_sudo=no_sudo):
-                return "removed root-owned legacy user_config.json"
-            return None
-        except (OSError, json.JSONDecodeError):
-            if _remove_path(legacy_json_path, no_sudo=no_sudo):
-                return "removed unreadable legacy user_config.json"
-            return None
-
-    return "nothing to reset"
-
-
-def _sudo_strip_setup_complete(path):
-    """Remove the SETUP_COMPLETE line from a root-owned dotenv file via sudo.
-
-    `sed -i` edits in place, preserving the file's existing owner and 0600 mode,
-    so saved secrets survive. Returns True on success."""
-    try:
-        subprocess.run(
-            ["sudo", "sed", "-i", "/^[[:space:]]*SETUP_COMPLETE/d", path],
-            check=True,
-        )
-        return True
-    except Exception:
-        return False
 
 
 def cleanup_resources(args):
@@ -148,25 +62,9 @@ def cleanup_resources(args):
         has_access = check_docker_access()
         _cleanup_runtime(args, has_access)
 
-        # Unset the Welcome flag so the next bring-up re-runs first-run setup,
-        # while preserving saved secrets (HF token, etc.). See _reset_welcome_flag
-        # for the in-place/atomic rewrite and root-owned fallbacks.
-        host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
-            os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        backend_volume = os.path.join(host_persistent_volume, "backend_volume")
-        user_config_path = os.path.join(backend_volume, "user_config.env")
-        legacy_json_path = os.path.join(backend_volume, "user_config.json")
-        if os.path.exists(user_config_path) or os.path.exists(legacy_json_path):
-            with step("Resetting Welcome flag", spinner=False) as s:
-                detail = _reset_welcome_flag(
-                    user_config_path, legacy_json_path, no_sudo=args.no_sudo
-                )
-                if detail is None:
-                    s.fail()
-                    s.detail("permission denied")
-                else:
-                    s.detail(detail)
-
+        # user_config.env (saved secrets + the Welcome/SETUP_COMPLETE flag) is
+        # left untouched: a plain --stop must not re-trigger first-run setup.
+        # Only --purge-all resets it, by removing the persistent volume.
         _print_preserved_summary(has_access)
         return
 
@@ -204,8 +102,10 @@ def cleanup_resources(args):
         ("🔧", artifacts_root,
          "inference-server download + tarball"),
         *log_items,
-        ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
-        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "quick-setup snapshot"),
+        ("⚙️ ", TT_STUDIO_CONFIG_PATH, "consolidated config store"),
+        # Legacy pre-consolidation files (issue #807); removed if an old install left them.
+        ("⚙️ ", PREFS_FILE_PATH, "legacy CLI preferences"),
+        ("⚙️ ", SETUP_CONFIG_FILE_PATH, "legacy quick-setup snapshot"),
         ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy setup snapshot"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch"),
@@ -215,6 +115,10 @@ def cleanup_resources(args):
          "docker-control virtualenv"),
         ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
          "workflow virtualenvs"),
+        # Kept last: the launcher itself runs from this venv, so it must be the
+        # final path removed. bootstrap.py recreates it on the next run.
+        ("🐍", os.path.join(TT_STUDIO_ROOT, ".tt_studio_run_venv"),
+         "launcher virtualenv (recreated on next run)"),
     ]
 
     existing = [(emoji, path, desc, _path_size(path))

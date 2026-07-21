@@ -137,10 +137,10 @@ class DocumentProcessor:
             'text/html': cls.process_html,
         }
 
-        # Handle code files
-        if file_type.startswith('text/x-') or file_type.startswith('application/'):
-            if file_type in ['application/javascript', 'application/typescript']:
-                return cls.process_code(file_path, metadata)
+        # Handle code files (.py, .js, .jsx, .ts, .tsx)
+        code_mime_types = {'text/x-python', 'application/javascript', 'application/typescript'}
+        if file_type in code_mime_types:
+            return cls.process_code(file_path, metadata)
 
         if file_type not in processors:
             raise ValueError(f"No processor available for file type: {file_type}")

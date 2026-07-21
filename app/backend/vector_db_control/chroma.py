@@ -59,13 +59,19 @@ def delete_collection(collection_name: str):
 
 
 def query_collection(
-    collection_name: str, embedding_func_name: str, query_texts: List[str], n_results: int = 10
+    collection_name: str,
+    embedding_func_name: str,
+    query_texts: List[str],
+    n_results: int = 10,
+    where: dict = None,
 ):
     embedding_func = get_embedding_function(model_name=embedding_func_name)
     target_collection = ChromaClient().get_collection(
         name=collection_name, embedding_function=embedding_func
     )
-    return target_collection.query(query_texts=query_texts, n_results=n_results)
+    return target_collection.query(
+        query_texts=query_texts, n_results=n_results, where=where or None
+    )
 
 
 def serialize_collection(collection: Collection):
@@ -95,11 +101,11 @@ def insert_to_chroma_collection(
     for batch in batched(document_indices, 166):
         start_idx = batch[0]
         end_idx = batch[-1] + 1
-        metadatas = (
+        batch_metadatas = (
             metadatas[start_idx:end_idx] if metadatas and len(metadatas) else None
         )
         target_collection.add(
             ids=ids[start_idx:end_idx],
             documents=documents[start_idx:end_idx],
-            metadatas=metadatas,
+            metadatas=batch_metadatas,
         )

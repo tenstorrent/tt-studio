@@ -23,6 +23,7 @@ import {
   type CatalogModel,
 } from "../../api/modelsDeployedApis";
 import { useDetectModel } from "../../hooks/useDetectModel";
+import type { ChipStatus } from "../../types/chipStatus";
 
 interface RegisterModelFormProps {
   onSuccess: () => void;
@@ -39,20 +40,6 @@ const MODEL_TYPE_OPTIONS = [
   { value: "cnn", label: "CNN" },
   { value: "object_detection", label: "Object Detection" },
 ] as const;
-
-interface ChipSlot {
-  slot_id: number;
-  status: "available" | "occupied";
-  model_name?: string;
-  deployment_id?: number;
-  is_multi_chip?: boolean;
-}
-
-interface ChipStatus {
-  board_type: string;
-  total_slots: number;
-  slots: ChipSlot[];
-}
 
 export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps) {
   // Container discovery
