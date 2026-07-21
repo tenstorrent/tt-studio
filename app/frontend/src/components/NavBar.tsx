@@ -15,6 +15,7 @@ import {
   Mic,
   Volume2,
   ScanFace,
+  ChevronDown,
   ChevronRight,
   ChevronLeft,
   Video,
@@ -36,6 +37,12 @@ import {
   NavigationMenuList,
 } from "./ui/navigation-menu";
 import { Separator } from "./ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -196,6 +203,70 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
     </Tooltip>
   </NavigationMenuItem>
 );
+
+// Grouped dropdown for the horizontal desktop navbar. Renders a trigger styled
+// like a regular nav link and lists the group's items in a dropdown; the
+// trigger takes the active border when any child route is the current one.
+interface NavDropdownProps {
+  label: string;
+  icon: LucideIcon;
+  items: NavItemData[];
+  iconColor: string;
+  getNavLinkClass: (isActive: boolean) => string;
+  isRouteActive: (route: string) => boolean;
+  onNavigate: (to: string) => void;
+}
+
+const NavDropdown: React.FC<NavDropdownProps> = ({
+  label,
+  icon: Icon,
+  items,
+  iconColor,
+  getNavLinkClass,
+  isRouteActive,
+  onNavigate,
+}) => {
+  const isActive = items.some((item) =>
+    item.type === "link"
+      ? isRouteActive(item.to)
+      : item.route
+        ? isRouteActive(item.route)
+        : false
+  );
+  return (
+    <NavigationMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className={`${getNavLinkClass(isActive)} flex justify-start items-center`}
+          >
+            <Icon
+              className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+            />
+            <span>{label}</span>
+            <ChevronDown className={`ml-1 h-4 w-4 ${iconColor}`} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="font-tt_a_mono">
+          {items.map((item, index) => (
+            <DropdownMenuItem
+              key={`${item.label}-${index}`}
+              disabled={item.type === "button" && item.isDisabled}
+              title={item.type === "link" ? item.tooltip : item.tooltipText}
+              className="cursor-pointer"
+              onSelect={() =>
+                item.type === "link" ? onNavigate(item.to) : item.onClick()
+              }
+            >
+              <item.icon className="mr-2 h-4 w-4" />
+              <span>{item.label}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </NavigationMenuItem>
+  );
+};
 
 // Action button component for the utility actions
 const ActionButton: React.FC<ActionButtonProps> = ({
@@ -718,6 +789,45 @@ export default function NavBar() {
 
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
 
+  // Group the flat nav items into submenus for the horizontal desktop navbar.
+  // Home stays top-level; anything not claimed by Models/Tools (the deployed
+  // model pages, Voice Agent, etc.) lands in Playground. The vertical and
+  // mobile navbars keep the flat icon list.
+  const modelsGroupLabels = [
+    "Models Deployed",
+    "Deployment History",
+    "Register Model",
+  ];
+  const toolsGroupLabels = [
+    "Rag Management",
+    "Workflows",
+    "Canvas",
+    "Connect Agents",
+  ];
+  const homeNavItem = navItems.find((item) => item.label === "Home");
+  const navGroups = [
+    {
+      label: "Models",
+      icon: Boxes,
+      items: navItems.filter((item) => modelsGroupLabels.includes(item.label)),
+    },
+    {
+      label: "Tools",
+      icon: Workflow,
+      items: navItems.filter((item) => toolsGroupLabels.includes(item.label)),
+    },
+    {
+      label: "Playground",
+      icon: BotMessageSquare,
+      items: navItems.filter(
+        (item) =>
+          item.label !== "Home" &&
+          !modelsGroupLabels.includes(item.label) &&
+          !toolsGroupLabels.includes(item.label)
+      ),
+    },
+  ].filter((group) => group.items.length > 0);
+
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
     // Dark/light mode toggle disabled — app stays in dark mode.
@@ -1044,38 +1154,38 @@ export default function NavBar() {
           {/* Navigation Menu */}
           <NavigationMenu className="w-full px-4">
             <NavigationMenuList className="flex justify-between list-none">
-              {navItems.map((item, index) => (
-                <div key={item.label} className="flex items-center">
-                  {item.type === "link" ? (
-                    <NavItem
-                      to={item.to}
-                      icon={item.icon}
-                      label={item.label}
-                      tooltip={item.tooltip}
-                      isChatUI={false}
-                      iconColor={iconColor}
-                      getNavLinkClass={getNavLinkClass}
-                      isMobile={isMobile}
-                    />
-                  ) : (
-                    <ButtonNavItem
-                      onClick={item.onClick}
-                      icon={item.icon}
-                      label={item.label}
-                      isChatUI={false}
-                      iconColor={iconColor}
-                      getNavLinkClass={getNavLinkClass}
-                      isActive={
-                        item.type === "button" && item.route
-                          ? isRouteActive(item.route)
-                          : false
-                      }
-                      isDisabled={item.isDisabled}
-                      tooltipText={item.tooltipText}
-                      isMobile={isMobile}
+              {homeNavItem && homeNavItem.type === "link" && (
+                <div className="flex items-center">
+                  <NavItem
+                    to={homeNavItem.to}
+                    icon={homeNavItem.icon}
+                    label={homeNavItem.label}
+                    tooltip={homeNavItem.tooltip}
+                    isChatUI={false}
+                    iconColor={iconColor}
+                    getNavLinkClass={getNavLinkClass}
+                    isMobile={isMobile}
+                  />
+                  {navGroups.length > 0 && (
+                    <Separator
+                      className="h-6 w-px bg-zinc-400 mx-1"
+                      orientation="vertical"
                     />
                   )}
-                  {index < navItems.length - 1 && (
+                </div>
+              )}
+              {navGroups.map((group, index) => (
+                <div key={group.label} className="flex items-center">
+                  <NavDropdown
+                    label={group.label}
+                    icon={group.icon}
+                    items={group.items}
+                    iconColor={iconColor}
+                    getNavLinkClass={getNavLinkClass}
+                    isRouteActive={isRouteActive}
+                    onNavigate={navigate}
+                  />
+                  {index < navGroups.length - 1 && (
                     <Separator
                       className="h-6 w-px bg-zinc-400 mx-1"
                       orientation="vertical"
