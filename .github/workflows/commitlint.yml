@@ -15,6 +15,9 @@ jobs:
   commitlint:
     name: Validate PR Title
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +27,7 @@ jobs:
           node-version: "20"
 
       - name: Install commitlint
-        run: npm install --save-dev @commitlint/cli@latest @commitlint/config-conventional@latest
+        run: npm install --save-dev @commitlint/cli@^19.7.1 @commitlint/config-conventional@^19.7.1
 
       - name: Lint PR title
         env:
