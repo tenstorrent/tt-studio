@@ -13,6 +13,7 @@ from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var
 from tt_setup.cleanup._runtime import _cleanup_runtime
 from tt_setup.cleanup._resource_ops import (
+    _container_pycache_dirs,
     _docker_reclaimable_bytes,
     _deployed_model_names,
     _docker_daemon_status,
@@ -109,6 +110,14 @@ def cleanup_resources(args):
         ("⚙️ ", LEGACY_SETUP_CONFIG_FILE_PATH, "legacy setup snapshot"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch"),
         ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch"),
+        # Files the backend container wrote into the ./backend bind mount as
+        # root in older installs (issue #1154). The DB now lives in the
+        # persistent volume; these entries clear what previous versions left.
+        ("🗄️ ", os.path.join(TT_STUDIO_ROOT, "app", "backend", "db.sqlite3"),
+         "backend DB (legacy in-repo location)"),
+        ("📁", os.path.join(TT_STUDIO_ROOT, "app", "backend", "temp"),
+         "RAG upload scratch"),
+        *[("🐍", p, "container bytecode cache") for p in _container_pycache_dirs()],
         ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
          "inference-api virtualenv"),
         ("🐍", os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv"),
