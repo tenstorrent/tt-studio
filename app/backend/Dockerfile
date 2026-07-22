@@ -8,6 +8,8 @@ FROM python:3.12.8-slim-bookworm
 ARG VITE_ENABLE_DEPLOYED=false
 ENV VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
 ENV PYTHONUNBUFFERED=1
+# /backend is bind-mounted from the host repo; don't litter it with bytecode
+ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8000
 

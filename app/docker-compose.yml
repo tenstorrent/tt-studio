@@ -32,6 +32,9 @@ services:
       # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
       # be extremely slow/hang here and stall the embedding-model download on boot.
       - HF_HUB_DISABLE_XET=1
+      # ./backend is bind-mounted from the host repo; keep root-owned
+      # __pycache__ out of the source tree
+      - PYTHONDONTWRITEBYTECODE=1
       - CHROMA_DB_HOST=tt_studio_chroma
       - CHROMA_DB_PORT=8111
       - CHROMA_DB_EMBED_MODEL=${CHROMA_DB_EMBED_MODEL:-all-MiniLM-L6-v2}
@@ -122,6 +125,8 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # dev mode bind-mounts ./agent; keep bytecode out of the source tree
+      - PYTHONDONTWRITEBYTECODE=1
       - JWT_SECRET
       - TAVILY_API_KEY
       - CLOUD_CHAT_UI_URL

@@ -108,10 +108,12 @@ CHANNEL_LAYERS = {
 }
 
 # Database – SQLite for lightweight ORM models (workflow storage, etc.)
+# Lives in the persistent volume rather than the bind-mounted source tree, so
+# the file never lands root-owned in the repo and --purge-all removes it.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": Path(backend_config.backend_cache_root) / "db.sqlite3",
     }
 }
 
