@@ -197,8 +197,9 @@ function DeploymentTrayItem({
             onOpen(deployment);
           }
         }}
-        className="flex cursor-pointer items-center gap-2 text-xs"
+        aria-label={`View deployment progress for ${deployment.modelName}`}
         title="View deployment progress"
+        className="flex cursor-pointer items-center gap-2 rounded text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent focus-visible:ring-offset-2"
       >
         {isCompleted ? (
           <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
@@ -209,8 +210,7 @@ function DeploymentTrayItem({
         )}
         <span className="truncate text-sm font-medium">{deployment.modelName}</span>
         <span
-          className={`ml-auto shrink-0 tabular-nums ${isFailed ? "text-destructive" : "text-muted-foreground"
-            }`}
+          className={`ml-auto shrink-0 tabular-nums ${isFailed ? "text-destructive" : "text-muted-foreground"}`}
         >
           {statusLabel}
         </span>
