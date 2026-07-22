@@ -129,6 +129,21 @@ def _remove_directory_contents(path, preserve_names=None, no_sudo=False):
     return ok
 
 
+def _container_pycache_dirs():
+    """__pycache__ dirs that the backend/agent containers compiled into the
+    bind-mounted source tree in older installs (often root-owned; issue #1154).
+    Containers now set PYTHONDONTWRITEBYTECODE, so these only exist as
+    leftovers from previous versions."""
+    dirs = []
+    for rel in (("app", "backend"), ("app", "agent")):
+        root = os.path.join(TT_STUDIO_ROOT, *rel)
+        for cur, subdirs, _files in os.walk(root):
+            if "__pycache__" in subdirs:
+                dirs.append(os.path.join(cur, "__pycache__"))
+                subdirs.remove("__pycache__")
+    return sorted(dirs)
+
+
 def _parse_size_to_bytes(s):
     """Parse a docker-formatted size string (e.g. "39.42GB", "545kB", "32B") to bytes.
 
