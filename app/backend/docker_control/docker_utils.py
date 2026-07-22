@@ -1012,6 +1012,7 @@ def get_canonical_deployments():
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
             entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
+            entry["jwt_secret"] = getattr(dep, "jwt_secret", None)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
@@ -1110,7 +1111,7 @@ def serialize_canonical_entry_for_http(entry):
     object so callers like _resolve_model_identity can read attributes off
     it. For HTTP responses we serialize and strip env_vars /docker_config for security.
     """
-    out = {k: v for k, v in entry.items() if k != "env_vars"}
+    out = {k: v for k, v in entry.items() if k not in ("env_vars", "jwt_secret")}
 
     model_impl = entry.get("model_impl")
     # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)

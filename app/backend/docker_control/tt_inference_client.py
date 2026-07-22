@@ -44,6 +44,21 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     return None
 
 
+def tool_calling_launch_flags(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
+    """The vLLM flags a container must be launched with for coding-agent tool
+    calling, or None if the model family has no known tool-call parser."""
+    from shared_config.coding_agent_config import get_reasoning_parser
+
+    parser = tool_call_parser_for(model_name, hf_model_id)
+    if not parser:
+        return None
+    flags = f"--enable-auto-tool-choice --tool-call-parser {parser}"
+    reasoning = get_reasoning_parser(model_name)
+    if reasoning:
+        flags += f" --reasoning-parser {reasoning}"
+    return flags
+
+
 def resolve_deploy_image(
     model_name: str,
     device: Optional[str] = None,

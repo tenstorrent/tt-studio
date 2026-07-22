@@ -41,7 +41,7 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, tool_call_parser_for, resolve_deploy_image
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
@@ -573,6 +573,7 @@ class DeployView(APIView):
                 # Only for /v1/chat/completions models with a known parser — base
                 # (/v1/completions) models and unknown families are left untouched.
                 vllm_override_args = None
+                tool_calling_supported = False
                 if impl.service_route == "/v1/chat/completions":
                     overrides = {}
                     tool_parser = tool_call_parser_for(
@@ -581,6 +582,7 @@ class DeployView(APIView):
                     if tool_parser:
                         overrides["enable-auto-tool-choice"] = True
                         overrides["tool-call-parser"] = tool_parser
+                        tool_calling_supported = True
                     # Reasoning models: split thinking into reasoning_content.
                     reasoning_parser = get_reasoning_parser(impl.model_name)
                     if reasoning_parser:
@@ -732,7 +734,7 @@ class DeployView(APIView):
                         device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
-                        tool_calling_enabled=bool(vllm_override_args),
+                        tool_calling_enabled=tool_calling_supported,
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
@@ -2055,11 +2057,19 @@ class DiscoverContainersView(APIView):
                 if not port_bindings:
                     port_bindings = c.get("port_bindings", {})
 
-                # Auto-detected chips from bound /dev/tenstorrent nodes (ground
-                # truth). A list means specific chips the UI should enforce; null
-                # means undetermined (whole-board or none) so the user may choose.
+                # Auto-detected chips. Specific bound nodes give the exact list;
+                # a whole-/dev/tenstorrent mount (mesh model) has no per-chip
+                # granularity, so enumerate the board's slots from its device type
+                # so the UI still shows the real all-device mapping instead of a
+                # single-device picker. null only when nothing can be determined.
                 bound = _detect_device_ids_from_mounts(c)
-                detected_device_ids = bound if isinstance(bound, list) else None
+                if isinstance(bound, list):
+                    detected_device_ids = bound
+                elif bound == "whole":
+                    count = _board_to_chip_count(_detect_device_board(c))
+                    detected_device_ids = list(range(count)) if count else None
+                else:
+                    detected_device_ids = None
 
                 results.append({
                     "id": cid,
@@ -2085,6 +2095,9 @@ _DEVICE_ID_ARG = re.compile(r"^--?device[-_]?ids?$", re.IGNORECASE)
 _TT_DEVICE_ARG = re.compile(r"^--?tt[-_]?device$", re.IGNORECASE)
 _MODEL_ARG = re.compile(r"^--?model$", re.IGNORECASE)
 _SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
+# vLLM auto tool-choice, in the forms it can appear in a launch command.
+_TOOL_CHOICE_ARG = re.compile(r"^--?enable[-_]auto[-_]tool[-_]choice$", re.IGNORECASE)
+_TOOL_PARSER_ARG = re.compile(r"^--?tool[-_]call[-_]parser$", re.IGNORECASE)
 # A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
 _TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
 
@@ -2117,6 +2130,43 @@ def _find_arg_value(tokens: list, arg_re) -> "str | None":
             if arg_re.match(key):
                 return rhs
     return None
+
+
+def _container_has_tool_calling(container_info: dict) -> bool:
+    """True if the container's vLLM was launched for tool calling.
+
+    vLLM can only emit tool calls (for ``tool_choice:"auto"`` requests that coding
+    agents send) when started with BOTH ``--enable-auto-tool-choice`` AND
+    ``--tool-call-parser <parser>`` — auto tool-choice without a parser fails to
+    serve tool calls (and vLLM won't even start). This is set at process launch and
+    can't be turned on afterward. TT-Studio's own deploy path injects both flags; an
+    externally-launched container may not have them.
+
+    Checks every place the flags can reach vLLM: the launch command, the
+    ``VLLM_OVERRIDE_ARGS`` env (JSON dict or raw string, how TT-Studio's deploy
+    passes it), and the deprecated ``ENABLE_AUTO_TOOL_CHOICE`` env. Requires both
+    signals to be present before reporting the container as capable.
+    """
+    tokens = _cmd_tokens(container_info)
+    env = _container_env(container_info)
+    raw = str(env.get("VLLM_OVERRIDE_ARGS") or "")
+
+    choice = (
+        any(_TOOL_CHOICE_ARG.match(t) for t in tokens)
+        or "enable-auto-tool-choice" in raw
+        or str(env.get("ENABLE_AUTO_TOOL_CHOICE", "")).strip().lower() in ("1", "true", "yes")
+    )
+    parser = any(_TOOL_PARSER_ARG.match(t) for t in tokens) or "tool-call-parser" in raw
+
+    try:
+        overrides = json.loads(raw) if raw else None
+    except (ValueError, TypeError):
+        overrides = None
+    if isinstance(overrides, dict):
+        choice = choice or bool(overrides.get("enable-auto-tool-choice"))
+        parser = parser or bool(overrides.get("tool-call-parser"))
+
+    return choice and parser
 
 
 def _container_env(container_info: dict) -> dict:
@@ -2406,6 +2456,23 @@ class RegisterExternalModelView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Record if the model was launched with tool-calling capability and
+            # warn when a tool-capable model was launched without tool-calling capability.
+            launch_flags = tool_calling_launch_flags(model_name, hf_model_id or "")
+            container_has_tools = _container_has_tool_calling(container_info)
+            tool_calling_enabled = launch_flags is not None and container_has_tools
+            if launch_flags is not None and not container_has_tools:
+                corrections.append(
+                    "This container was started without vLLM tool-calling support, so "
+                    "coding agents (opencode, Claude Code, Cursor) will get empty "
+                    f"responses. Relaunch it with: {launch_flags}"
+                )
+
+            # Capture the container's JWT_SECRET so the backend can authenticate to its OpenAI API.
+            jwt_secret = _container_env(container_info).get("JWT_SECRET") or None
+            if jwt_secret:
+                corrections.append("Detected the container's JWT secret for authenticated inference.")
+
             # --- Rename container based on model name ---
             current_name = container_info.get("name", container_id)
             if current_name.startswith("/"):
@@ -2470,6 +2537,8 @@ class RegisterExternalModelView(APIView):
                     rec.device_ids = device_ids
                     rec.model_name = model_name
                     rec.port = int(service_port) if service_port else 7000
+                    rec.tool_calling_enabled = tool_calling_enabled
+                    rec.jwt_secret = jwt_secret
                     rec.save()
                     corrections.append("Deployment record already existed — updated device mapping.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
@@ -2484,6 +2553,8 @@ class RegisterExternalModelView(APIView):
                         status="running",
                         stopped_by_user=False,
                         port=int(service_port) if service_port else 7000,
+                        tool_calling_enabled=tool_calling_enabled,
+                        jwt_secret=jwt_secret,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:

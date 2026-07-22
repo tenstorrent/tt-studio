@@ -54,17 +54,17 @@ def note_inference_loop() -> None:
 
 
 async def _ping_all() -> None:
-    from model_control.model_utils import _vllm_client, encoded_jwt, get_deploy_cache
+    from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
         entries = get_deploy_cache()
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
-    headers = {"Authorization": f"Bearer {encoded_jwt}"}
     for con_id, entry in entries.items():
         health_url = entry.get("health_url")
         if not health_url:
             continue
+        headers = auth_headers(entry)
         try:
             await _vllm_client.get(
                 f"http://{health_url}",
@@ -78,17 +78,17 @@ async def _ping_all() -> None:
 async def _warmup_inference_all() -> None:
     """Send a max_tokens=1 inference to each deployed model to warm vLLM's
     scheduler / allocator / kernel state, not just the TCP socket."""
-    from model_control.model_utils import _vllm_client, encoded_jwt, get_deploy_cache
+    from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
         entries = get_deploy_cache()
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
-    headers = {"Authorization": f"Bearer {encoded_jwt}"}
     for con_id, entry in entries.items():
         internal_url = entry.get("internal_url")
         if not internal_url:
             continue
+        headers = auth_headers(entry)
         impl = entry.get("model_impl")
         model_name = entry.get("cached_model_name") or (
             impl.hf_model_id if impl is not None else None
