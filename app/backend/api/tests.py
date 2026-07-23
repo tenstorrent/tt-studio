@@ -62,6 +62,12 @@ class SettingsViewPostTests(SimpleTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_tts_api_key_is_rejected(self):
+        response = self.client.post(
+            "/settings/", {"tts_api_key": "hax"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 @patch("api.views.is_setup_complete", return_value=True)
 @patch("api.views.get_artifact_info", return_value={"branch": None, "version": "v0.0.0"})
@@ -93,3 +99,10 @@ class SettingsViewGetTests(SimpleTestCase):
         self.assertTrue(jwt["set"])
         self.assertIsNone(jwt["value"])
         self.assertNotEqual(jwt["masked"], "jwt-secret-value-123")
+
+    def test_tts_api_key_is_read_only(self, *_mocks):
+        # Auto-managed like the JWT secret: shown but never editable or in plaintext.
+        response = self.client.get("/settings/")
+        tts = response.data["tts_api_key"]
+        self.assertFalse(tts["editable"])
+        self.assertIsNone(tts["value"])

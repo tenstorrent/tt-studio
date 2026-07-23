@@ -171,3 +171,13 @@ class TestGetters:
     def test_env_var_fallback(self, volume, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-env")
         assert user_config.get_tavily_api_key() == "tvly-env"
+
+    def test_tts_api_key_defaults_to_media_server_key(self, volume, monkeypatch):
+        # Unconfigured TTS key must resolve to the media server's default so
+        # TTS/STT models authenticate out of the box (see DEFAULT_TTS_API_KEY).
+        monkeypatch.delenv("TTS_API_KEY", raising=False)
+        assert user_config.get_tts_api_key() == "your-secret-key"
+
+    def test_tts_api_key_config_beats_default(self, volume):
+        user_config.save_user_config({"tts_api_key": "custom-key"})
+        assert user_config.get_tts_api_key() == "custom-key"

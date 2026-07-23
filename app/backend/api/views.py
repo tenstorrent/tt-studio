@@ -46,7 +46,7 @@ def _field(cfg, key, value, editable=True):
     }
 
 
-_EDITABLE_FIELDS = ("tavily_api_key", "hf_token", "tts_api_key")
+_EDITABLE_FIELDS = ("tavily_api_key", "hf_token")
 _ARTIFACT_DESCRIPTION = (
     "Pins which tt-inference-server release TT Studio is built against. "
     "Changing it requires a redeploy; editing here is intentionally disabled."
@@ -69,7 +69,7 @@ class SettingsView(APIView):
             "jwt_secret": _field(cfg, "jwt_secret", jwt_value, editable=False),
             "tavily_api_key": _field(cfg, "tavily_api_key", get_tavily_api_key()),
             "hf_token": _field(cfg, "hf_token", get_hf_token()),
-            "tts_api_key": _field(cfg, "tts_api_key", get_tts_api_key()),
+            "tts_api_key": _field(cfg, "tts_api_key", get_tts_api_key(), editable=False),
             "artifact": {
                 "branch": artifact["branch"],
                 "version": artifact["version"],
@@ -83,6 +83,11 @@ class SettingsView(APIView):
         if "jwt_secret" in data:
             return Response(
                 {"error": "jwt_secret is auto-managed and cannot be set via the UI."},
+                status=400,
+            )
+        if "tts_api_key" in data:
+            return Response(
+                {"error": "tts_api_key is auto-managed and cannot be set via the UI."},
                 status=400,
             )
         if "artifact" in data or "tt_inference_artifact_branch" in data or "tt_inference_artifact_version" in data:
