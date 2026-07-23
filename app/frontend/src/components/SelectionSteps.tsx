@@ -13,8 +13,7 @@ import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
-import { DeploymentTray } from "./DeploymentTray";
-import { useActiveDeployments } from "../hooks/useActiveDeployments";
+import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ChipStatus } from "../types/chipStatus";
 import {
   autoPlacement,
@@ -56,6 +55,9 @@ export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
+  // ?resume=<modelId> opens straight to the deploy step for an in-flight model
+  // (e.g. clicking a deployment in the tray) so its progress bar resumes.
+  const resumeModelId = searchParams.get("resume");
 
   const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
@@ -85,10 +87,9 @@ export default function StepperDemo() {
       });
   }, []);
 
-  // Session-wide tracker for in-flight deploys. Refresh chip-status whenever one
-  // resolves so a freed (failed) or newly-claimed (completed) slot is reflected.
-  const { deployments, progressByJob, addDeployment, removeDeployment, reservedDeviceIds } =
-    useActiveDeployments({ onResolved: () => fetchChipStatus() });
+  // Session-wide tracker for in-flight deploys (shared with the app-wide banner).
+  const { deployments, progressByJob, addDeployment, reservedDeviceIds } =
+    useActiveDeploymentsContext();
   const hasActiveDeployments = deployments.some((d) => d.status === "active");
 
   // Poll chip status faster while deploys are in flight (a pending slot must grey
@@ -98,6 +99,13 @@ export default function StepperDemo() {
     const interval = setInterval(fetchChipStatus, hasActiveDeployments ? 5000 : 7 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchChipStatus, hasActiveDeployments]);
+
+  // Refresh chip-status the moment a deploy is added or resolves, so a freed
+  // (failed) or newly-claimed (completed) slot is reflected without waiting for a poll.
+  const deploymentSignature = deployments.map((d) => `${d.jobId}:${d.status}`).join(",");
+  useEffect(() => {
+    fetchChipStatus();
+  }, [deploymentSignature, fetchChipStatus]);
 
   // Overlay reserved devices onto chip-status so the model list greys out
   // configurations a pending deploy already claimed — before the backend
@@ -152,13 +160,19 @@ export default function StepperDemo() {
     }
   };
 
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(resumeModelId);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
   const [useImageOverride, setUseImageOverride] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
+
+  // A tray click can change ?resume while this page is already mounted; keep the
+  // selection in sync so the deploy step resumes the right model.
+  useEffect(() => {
+    if (resumeModelId) setSelectedModel(resumeModelId);
+  }, [resumeModelId]);
 
   // Chip requirement of the currently selected model (selectedModel holds the id).
   const selectedModelChips =
@@ -616,8 +630,10 @@ export default function StepperDemo() {
           </div>
         )}
         <Stepper
+          // Remount to jump to the deploy step when arriving via a tray click.
+          key={resumeModelId ?? "select"}
           variant="circle-alt"
-          initialStep={0}
+          initialStep={resumeModelId ? 1 : 0}
           steps={steps}
           state={loading ? "loading" : formError ? "error" : undefined}
         >
@@ -677,16 +693,6 @@ export default function StepperDemo() {
           </div>
         </Stepper>
       </ElevatedCard>
-
-      {/* Floating, minimizable deployment banner (fixed, bottom-right). Stays
-          mounted across Prev/Next so parallel deploys remain visible regardless of
-          the active step. Lists every deploy — including the one whose detailed bar
-          is also open in the deploy step. */}
-      <DeploymentTray
-        deployments={deployments}
-        progressByJob={progressByJob}
-        onDismiss={removeDeployment}
-      />
     </div>
   );
 }
