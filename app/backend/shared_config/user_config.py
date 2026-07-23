@@ -20,6 +20,10 @@ from typing import Optional
 _CONFIG_FILENAME = "user_config.env"
 _LEGACY_JSON_FILENAME = "user_config.json"
 
+# Default bearer token for the media (TTS/STT) inference server. Matches the
+# tt-inference-server media server's own default API_KEY (security/api_key_checker.py):
+DEFAULT_TTS_API_KEY = "your-secret-key"
+
 # Python-facing keys <-> keys as written in user_config.env.
 _ENV_KEYS = {
     "jwt_secret": "JWT_SECRET",
@@ -184,12 +188,12 @@ def get_hf_token() -> Optional[str]:
     return os.environ.get("HF_TOKEN") or None
 
 
-def get_tts_api_key() -> Optional[str]:
+def get_tts_api_key() -> str:
     cfg = load_user_config()
     val = cfg.get("tts_api_key")
     if val:
         return val
-    return os.environ.get("TTS_API_KEY") or None
+    return os.environ.get("TTS_API_KEY") or DEFAULT_TTS_API_KEY
 
 
 def get_artifact_info() -> dict:
@@ -201,7 +205,19 @@ def get_artifact_info() -> dict:
 
 
 def is_setup_complete() -> bool:
-    return bool(load_user_config().get("setup_complete"))
+    """Whether the first-run Welcome guide can be skipped.
+
+    True once the wizard was finished (flag set), or when the required secret
+    (the HF token) is already configured via user_config.env or the
+    environment — e.g. a preprovisioned .env. The guide should reappear only
+    when something it collects is actually missing, not because the completion
+    flag was lost (issue #1145). The flag alone also counts: the wizard allows
+    skipping every secret, and requiring the token on top of the flag would
+    bounce those users straight back to /welcome.
+    """
+    if load_user_config().get("setup_complete"):
+        return True
+    return bool(get_hf_token())
 
 
 def mark_setup_complete() -> None:

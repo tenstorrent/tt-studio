@@ -391,13 +391,12 @@ def _run(args):
         configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
         startup_log.step("configure_environment", "OK")
 
-        # Save quick-setup configuration snapshot to JSON if not in --configure-env mode
+        # Save quick-setup configuration snapshot to the config store if not in
+        # --configure-env mode. Secrets are omitted here — they live in .env.
         if not args.configure_env:
             setup_config = {
                 "mode": "quick",
                 "setup_timestamp": datetime.now().isoformat(),
-                "jwt_secret_default": "test-secret-456",
-                "django_secret_key_default": "django-insecure-default",
                 "hf_token_provided": True,
                 "tt_studio_mode": True,
                 "ai_playground_mode": False,

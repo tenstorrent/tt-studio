@@ -305,7 +305,12 @@ export const runInference = async (
     const newMessageId = uuidv4();
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { id: newMessageId, sender: "assistant", text: "" },
+      {
+        id: newMessageId,
+        sender: "assistant",
+        text: "",
+        modelName: modelName ?? undefined,
+      },
     ]);
 
     let inferenceStats: InferenceStats | undefined;

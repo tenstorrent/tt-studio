@@ -729,6 +729,15 @@ export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
 export interface CodingAgentModel {
   name: string;
   type: string;
+  context_window?: number;
+  max_tokens?: number;
+}
+
+// Coding-eligible but launched without vLLM tool-calling support, so unusable
+// by coding agents until relaunched with the given flags.
+export interface UnavailableCodingAgentModel extends CodingAgentModel {
+  reason: string;
+  relaunch_with: string | null;
 }
 
 export interface CodingAgentsInfo {
@@ -738,6 +747,7 @@ export interface CodingAgentsInfo {
   openai_base_path: string;
   master_key: string;
   models: CodingAgentModel[];
+  unavailable?: UnavailableCodingAgentModel[];
 }
 
 export const fetchCodingAgentsInfo = async (): Promise<CodingAgentsInfo> => {

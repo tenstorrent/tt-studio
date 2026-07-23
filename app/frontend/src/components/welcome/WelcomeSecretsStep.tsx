@@ -12,7 +12,6 @@ import type { SettingsResponse } from "../../api/settingsApi";
 
 export interface WelcomeSecrets {
   hf_token: string;
-  tts_api_key: string;
   tavily_api_key: string;
 }
 
@@ -92,6 +91,7 @@ export default function WelcomeSecretsStep({
 }: Props) {
   const loading = !current;
   const jwtMasked = current?.jwt_secret.masked;
+  const ttsMasked = current?.tts_api_key.masked;
   const artifact = current?.artifact;
 
   return (
@@ -139,23 +139,12 @@ export default function WelcomeSecretsStep({
       </div>
 
       <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Label htmlFor="tts_api_key">TTS API key</Label>
-          {current?.tts_api_key.set && <SavedBadge />}
-        </div>
-        <RevealInput
-          id="tts_api_key"
-          value={values.tts_api_key}
-          onChange={(v) => onChange({ ...values, tts_api_key: v })}
-          placeholder={fieldPlaceholder(
-            loading,
-            current?.tts_api_key.set,
-            current?.tts_api_key.masked,
-            "Enter TTS API key"
-          )}
-        />
+        <Label className="flex items-center gap-1">
+          <Lock className="w-3.5 h-3.5" /> TTS API key
+        </Label>
+        <Input readOnly disabled value={ttsMasked || "Auto-managed"} />
         <p className="text-xs text-stone-500">
-          Authenticates calls to the TTS inference server.
+          Auto-managed for media / voice (TTS &amp; STT) model auth.
         </p>
       </div>
 

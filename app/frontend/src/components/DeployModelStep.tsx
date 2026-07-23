@@ -13,6 +13,7 @@ import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-reac
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import type { ChipStatus } from "../types/chipStatus";
 
 export function DeployModelStep({
   handleDeploy,
@@ -44,11 +45,7 @@ export function DeployModelStep({
   // True when no valid device configuration is currently free (auto mode).
   placementBlocked?: boolean;
   // Reservation-aware chip status from the parent (in-flight deploys overlaid)
-  chipStatus?: {
-    board_type: string;
-    total_slots: number;
-    slots: { slot_id: number; status: string; model_name?: string; port?: number }[];
-  } | null;
+  chipStatus?: ChipStatus | null;
   // Registers a fired deploy with the session-wide tracker (progress tray + reservations).
   registerDeployment: (d: {
     jobId: string;

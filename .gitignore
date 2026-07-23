@@ -50,8 +50,11 @@ db.sqlite3
 # secrets
 .env
 
-# preferences
+# config store (issue #807) + legacy pre-consolidation dotfiles
+.tt_studio_config.json
 .tt_studio_preferences.json
+.tt_studio_setup_config.json
+.tt_studio_easy_config.json
 
 # unignore
 !requirements.txt
