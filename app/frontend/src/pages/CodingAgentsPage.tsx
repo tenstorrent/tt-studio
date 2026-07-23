@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Terminal, CheckCircle2, Check, XCircle, AlertCircle } from "lucide-react";
+import { Terminal, CheckCircle2, Check, XCircle, AlertCircle, AlertTriangle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -76,6 +76,7 @@ export default function CodingAgentsPage() {
 
   const masterKey = info?.master_key || "";
   const hasModels = (info?.models?.length ?? 0) > 0;
+  const unavailable = info?.unavailable ?? [];
 
   // The model the snippets target: the user's pick if still deployed, else the first.
   const activeModel = useMemo(() => {
@@ -335,8 +336,8 @@ PY`;
                   step-by-step reasoning.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {hasModels ? (
+              <CardContent className="space-y-4">
+                {hasModels && (
                   <div>
                     <div className="flex flex-wrap gap-2">
                       {info.models.map((m) => (
@@ -367,7 +368,43 @@ PY`;
                       </span>
                     </p>
                   </div>
-                ) : (
+                )}
+
+                {/* Deployed but launched without tool-calling support: shown so the
+                    user knows why they're missing and how to fix them. */}
+                {unavailable.length > 0 && (
+                  <div className="space-y-2">
+                    {hasModels && (
+                      <div className="text-xs uppercase tracking-wide text-gray-500">
+                        Deployed but not usable for coding agents
+                      </div>
+                    )}
+                    {unavailable.map((m) => (
+                      <div
+                        key={m.name}
+                        className="rounded-md border border-amber-300/60 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                          <span className="font-mono">{m.name}</span>
+                          <Badge variant="outline" className="text-[10px]">
+                            tool calling off
+                          </Badge>
+                        </div>
+                        {m.relaunch_with && (
+                          <div className="mt-2 pl-6 text-xs text-gray-500 dark:text-gray-400">
+                            Relaunch the container with these vLLM flags to enable it:
+                            <div className="mt-1 font-mono rounded bg-gray-100 dark:bg-gray-900 px-2 py-1 text-gray-700 dark:text-gray-300">
+                              <CopyableText text={m.relaunch_with} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!hasModels && unavailable.length === 0 && (
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>No chat models deployed</AlertTitle>

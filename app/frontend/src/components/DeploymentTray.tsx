@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, CheckCircle2, AlertTriangle, X, ChevronDown, Rocket } from "lucide-react";
 import { Progress } from "./ui/progress";
@@ -22,9 +23,15 @@ interface DeploymentTrayProps {
  * all deploys — including the one whose detailed bar is also open in the deploy step.
  */
 export function DeploymentTray({ deployments, progressByJob, onDismiss }: DeploymentTrayProps) {
+  const navigate = useNavigate();
   const [minimized, setMinimized] = useState(false);
   const shown = deployments;
   if (shown.length === 0) return null;
+
+  // Open the single-model deploy step (view=single skips the mode chooser), where
+  // the model's full progress bar resumes from the shared deployment state.
+  const openDeployment = (d: ActiveDeployment) =>
+    navigate(`/?view=single&resume=${encodeURIComponent(d.modelId)}`);
 
   const activeCount = shown.filter((d) => d.status === "active").length;
   const failedCount = shown.filter((d) => d.status === "failed").length;
@@ -93,6 +100,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
                   deployment={d}
                   progress={progressByJob[d.jobId] ?? null}
                   onDismiss={onDismiss}
+                  onOpen={openDeployment}
                 />
               ))}
             </div>
@@ -103,13 +111,24 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
   );
 }
 
-/** Coarse percent for the slim bar — download fraction during a pull, else the
- *  backend's stage progress. The detailed unified bar lives in DeploymentProgress. */
-function compactPercent(p: DeploymentProgressData | null, completed: boolean): number {
+// Mirrors DeploymentProgress's unified bar
+function compactPercent(
+  p: DeploymentProgressData | null,
+  completed: boolean,
+  hadImagePull: boolean
+): number {
   if (completed) return 100;
   if (!p) return 0;
-  if (p.stage === "pulling_image" && p.total_bytes && p.downloaded_bytes != null) {
-    return Math.min(100, Math.round((p.downloaded_bytes / p.total_bytes) * 100));
+  const isPull = p.stage === "pulling_image";
+  if (isPull || hadImagePull) {
+    if (isPull) {
+      const frac =
+        p.total_bytes && p.downloaded_bytes != null
+          ? Math.min(1, Math.max(0, p.downloaded_bytes / p.total_bytes))
+          : 0;
+      return Math.round(frac * 80);
+    }
+    return Math.min(99, Math.round(80 + Math.min(100, Math.max(0, p.progress ?? 0)) * 0.2));
   }
   return Math.min(100, Math.max(0, Math.round(p.progress ?? 0)));
 }
@@ -118,10 +137,12 @@ function DeploymentTrayItem({
   deployment,
   progress,
   onDismiss,
+  onOpen,
 }: {
   deployment: ActiveDeployment;
   progress: DeploymentProgressData | null;
   onDismiss: (jobId: string) => void;
+  onOpen: (deployment: ActiveDeployment) => void;
 }) {
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<string[] | null>(null);
@@ -129,7 +150,7 @@ function DeploymentTrayItem({
 
   const isFailed = deployment.status === "failed";
   const isCompleted = deployment.status === "completed";
-  const pct = compactPercent(progress, isCompleted);
+  const pct = compactPercent(progress, isCompleted, deployment.hadImagePull);
 
   const deviceLabel =
     deployment.deviceIds.length > 0
@@ -166,7 +187,20 @@ function DeploymentTrayItem({
 
   return (
     <div className="rounded-lg border bg-background/60 px-3 py-2.5">
-      <div className="flex items-center gap-2 text-xs">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpen(deployment)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen(deployment);
+          }
+        }}
+        aria-label={`View deployment progress for ${deployment.modelName}`}
+        title="View deployment progress"
+        className="flex cursor-pointer items-center gap-2 rounded text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent focus-visible:ring-offset-2"
+      >
         {isCompleted ? (
           <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
         ) : isFailed ? (
@@ -176,15 +210,16 @@ function DeploymentTrayItem({
         )}
         <span className="truncate text-sm font-medium">{deployment.modelName}</span>
         <span
-          className={`ml-auto shrink-0 tabular-nums ${
-            isFailed ? "text-destructive" : "text-muted-foreground"
-          }`}
+          className={`ml-auto shrink-0 tabular-nums ${isFailed ? "text-destructive" : "text-muted-foreground"}`}
         >
           {statusLabel}
         </span>
         {(isFailed || isCompleted) && (
           <button
-            onClick={() => onDismiss(deployment.jobId)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismiss(deployment.jobId);
+            }}
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Dismiss"
           >
