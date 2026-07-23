@@ -198,6 +198,7 @@ class _Manager:
                 "device_ids": normalized_device_ids,
                 "workflow_log_path": kwargs.get("workflow_log_path", None),
                 "tool_calling_enabled": kwargs.get("tool_calling_enabled", False),
+                "jwt_secret": kwargs.get("jwt_secret", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -239,6 +240,7 @@ class ModelDeployment:
         self.failure_reason: Optional[str] = None
         self.failure_message: Optional[str] = None
         self.tool_calling_enabled: bool = False
+        self.jwt_secret: Optional[str] = None   # Set for externally-registered containers only
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -263,6 +265,7 @@ class ModelDeployment:
         obj.failure_reason = d.get("failure_reason")
         obj.failure_message = d.get("failure_message")
         obj.tool_calling_enabled = d.get("tool_calling_enabled", False)
+        obj.jwt_secret = d.get("jwt_secret")
         return obj
 
     def _to_dict(self) -> dict:
@@ -283,6 +286,7 @@ class ModelDeployment:
             "failure_reason": self.failure_reason,
             "failure_message": self.failure_message,
             "tool_calling_enabled": self.tool_calling_enabled,
+            "jwt_secret": self.jwt_secret,
         }
 
     def save(self) -> None:
