@@ -1046,6 +1046,14 @@ class DeploymentProgressView(APIView):
                         status=status.HTTP_200_OK,
                     )
 
+            # An imgpull_ id that isn't a tracked pull job (job_id is reassigned to
+            # the real inference id on handoff above) is an orphan — its in-memory
+            # pull job was lost, e.g. the backend restarted mid-pull. It maps to no
+            # real container, so the container fallback below would fabricate endless
+            # fake progress. Report it terminal so the client stops polling.
+            if job_id.startswith("imgpull_"):
+                return Response({"status": "not_found"}, status=status.HTTP_200_OK)
+
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
                 deployment_start_times[job_id] = time.time()
