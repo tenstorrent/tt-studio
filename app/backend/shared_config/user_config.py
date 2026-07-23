@@ -188,7 +188,7 @@ def get_hf_token() -> Optional[str]:
     return os.environ.get("HF_TOKEN") or None
 
 
-def get_tts_api_key() -> Optional[str]:
+def get_tts_api_key() -> str:
     cfg = load_user_config()
     val = cfg.get("tts_api_key")
     if val:

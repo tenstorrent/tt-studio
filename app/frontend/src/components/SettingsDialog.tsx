@@ -279,7 +279,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               Auto-managed for media / voice (TTS &amp; STT) auth. Matches the
               media inference server's default; to use a custom key, set{" "}
               <code className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-0.5 font-mono">
-                API_KEY
+                TTS_API_KEY
               </code>{" "}
               in the root .env and redeploy.
             </p>
