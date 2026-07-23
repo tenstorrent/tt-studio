@@ -420,8 +420,26 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Pass UI-managed secrets explicitly. The inference server runs on the host
+        # and cannot read user_config.env in the persistent volume when the backend
+        # container (root) wrote it, so the request payload is its reliable source.
+        # Mirrors start_chat_deployment in tt_inference_client.py; without this,
+        # media/forge deploys (e.g. FLUX) reach run.py with no JWT_SECRET and fall
+        # back to an interactive getpass prompt that EOFs in the non-TTY subprocess.
+        from shared_config.user_config import get_hf_token, get_jwt_secret
+        hf_token = get_hf_token()
+        if hf_token:
+            payload["hf_token"] = hf_token
+        jwt_secret = get_jwt_secret()
+        if jwt_secret:
+            payload["jwt_secret"] = jwt_secret
 
-        logger.info(f"API payload: {payload}")
+        # Redact secrets before logging the payload.
+        _redacted_payload = {
+            k: ("***" if k in ("jwt_secret", "hf_token") else v)
+            for k, v in payload.items()
+        }
+        logger.info(f"API payload: {_redacted_payload}")
 
         # Make POST request to TT Inference Server API
         api_url = f"{FASTAPI_BASE_URL}/run"

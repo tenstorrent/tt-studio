@@ -36,8 +36,8 @@ export default function WelcomeIntroStep({ onNext }: Props) {
         <li className="flex items-start gap-2">
           <span className="text-TT-purple">•</span>
           <span>
-            <span className="font-medium">TTS API key</span> — required to call
-            TTS inference endpoints.
+            <span className="font-medium">TTS API key</span> — auto-managed;
+            authenticates media / voice (TTS &amp; STT) models for you.
           </span>
         </li>
         <li className="flex items-start gap-2">
