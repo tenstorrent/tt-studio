@@ -34,7 +34,6 @@ export interface SettingsResponse {
 
 export interface UpdateSettingsPayload {
   hf_token?: string;
-  tts_api_key?: string;
   tavily_api_key?: string;
   setup_complete?: true;
 }
