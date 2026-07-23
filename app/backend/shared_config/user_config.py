@@ -20,6 +20,10 @@ from typing import Optional
 _CONFIG_FILENAME = "user_config.env"
 _LEGACY_JSON_FILENAME = "user_config.json"
 
+# Default bearer token for the media (TTS/STT) inference server. Matches the
+# tt-inference-server media server's own default API_KEY (security/api_key_checker.py):
+DEFAULT_TTS_API_KEY = "your-secret-key"
+
 # Python-facing keys <-> keys as written in user_config.env.
 _ENV_KEYS = {
     "jwt_secret": "JWT_SECRET",
@@ -189,7 +193,7 @@ def get_tts_api_key() -> Optional[str]:
     val = cfg.get("tts_api_key")
     if val:
         return val
-    return os.environ.get("TTS_API_KEY") or None
+    return os.environ.get("TTS_API_KEY") or DEFAULT_TTS_API_KEY
 
 
 def get_artifact_info() -> dict:

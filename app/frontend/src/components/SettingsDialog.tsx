@@ -33,7 +33,6 @@ import {
 
 const formSchema = z.object({
   hf_token: z.string().optional(),
-  tts_api_key: z.string().optional(),
   tavily_api_key: z.string().optional(),
 });
 
@@ -143,7 +142,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { hf_token: "", tts_api_key: "", tavily_api_key: "" },
+    defaultValues: { hf_token: "", tavily_api_key: "" },
   });
 
   const hfTokenValue = (form.watch("hf_token") || "").trim();
@@ -154,7 +153,6 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
     if (open) {
       form.reset({
         hf_token: data?.hf_token.value ?? "",
-        tts_api_key: data?.tts_api_key.value ?? "",
         tavily_api_key: data?.tavily_api_key.value ?? "",
       });
       setShowHfCheck(false);
@@ -169,7 +167,6 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
       const body: Record<string, string> = {};
       for (const key of [
         "hf_token",
-        "tts_api_key",
         "tavily_api_key",
       ] as const) {
         const val = (payload[key] || "").trim();
@@ -267,19 +264,26 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
             </div>
           </SecretField>
 
-          <SecretField
-            id="tts_api_key"
-            label="TTS API key"
-            field={data?.tts_api_key}
-            loading={isLoading}
-            placeholder="Enter TTS API key"
-            register={form.register("tts_api_key")}
-          >
+          <div className="space-y-1">
+            <Label className="flex items-center gap-1">
+              <Lock className="w-3.5 h-3.5" /> TTS API key
+            </Label>
+            <Input
+              readOnly
+              disabled
+              value={
+                isLoading ? "Loading…" : data?.tts_api_key.masked || "Auto-managed"
+              }
+            />
             <p className="text-xs text-stone-500">
-              Authenticates TTS inference calls for media / voice models. Applied
-              immediately, per request.
+              Auto-managed for media / voice (TTS &amp; STT) auth. Matches the
+              media inference server's default; to use a custom key, set{" "}
+              <code className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-0.5 font-mono">
+                API_KEY
+              </code>{" "}
+              in the root .env and redeploy.
             </p>
-          </SecretField>
+          </div>
 
           <SecretField
             id="tavily_api_key"
