@@ -638,6 +638,7 @@ class DeployView(APIView):
                             device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
+                            tool_calling_enabled=tool_calling_supported,
                         )
                     except Exception as e:
                         logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
