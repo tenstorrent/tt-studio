@@ -13,6 +13,8 @@ import { BackendHealthProvider } from "../providers/BackendHealthProvider";
 import { getRoutes } from "./route-config";
 import { MainLayout } from "../layouts/MainLayout";
 import { getSettings } from "../api/settingsApi";
+import { DeploymentTray } from "../components/DeploymentTray";
+import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 
 function FirstRunGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -37,6 +39,8 @@ function FirstRunGuard({ children }: { children: React.ReactNode }) {
 
 const AppRouter = () => {
   const routes = getRoutes();
+  const { deployments, progressByJob, removeDeployment } =
+    useActiveDeploymentsContext();
 
   return (
     <BackendHealthProvider>
@@ -63,6 +67,12 @@ const AppRouter = () => {
                     ))}
                 </Routes>
               </FirstRunGuard>
+              {/* Rendered inside the Router (not the provider) so an item click can navigate. */}
+              <DeploymentTray
+                deployments={deployments}
+                progressByJob={progressByJob}
+                onDismiss={removeDeployment}
+              />
             </Router>
           </ModelsProvider>
         </RefreshProvider>
