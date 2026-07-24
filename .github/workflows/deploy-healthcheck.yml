@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Deploy healthcheck CI — drives ci/auto_healthcheck.py against a live TT-Studio
+# backend on a Tenstorrent self-hosted runner.
+#
+# Access / security model (public repo):
+#   * NO `pull_request` trigger — forks can never reach the hardware.
+#   * `workflow_dispatch` only — restricted to users with write access (internal
+#     devs). They pick which branch to run from the "Run workflow" dropdown, so
+#     a feature branch can be tested manually without merging it anywhere.
+#
+# NOTE: the manual-trigger button only appears once this file is on the DEFAULT
+# branch (main). Once it's there, dispatching against any branch runs THAT
+# branch's checkout + workflow. See dev-docs/ci-self-hosted-runner.md.
+
+name: Deploy Healthcheck
+
+on:
+  # TEMPORARY — remove before merging to main. Lets you test the full pipeline
+  # on this feature branch (push triggers use the branch's own workflow, with no
+  # default-branch requirement). Safe here: only write-access users can push to
+  # repo branches; this is NOT a pull_request trigger, so forks can't reach it.
+  # On a push run, inputs are empty, so models/timeout fall back to defaults.
+  push:
+    branches: [raahem/gh-ci-setup]
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Model(s) to deploy, space-separated (matched against the catalog)."
+        type: string
+        default: "Qwen3-32B"
+      timeout:
+        description: "Max wait applied to BOTH deploy and health phases (e.g. 4h, 90m, 3600s)."
+        type: string
+        default: "2h"
+      runner_label:
+        description: "Self-hosted runner label to target."
+        type: string
+        default: "pool"
+
+# Serialize per runner label so two runs never fight over the same board.
+concurrency:
+  group: deploy-healthcheck-${{ github.event.inputs.runner_label || 'pool' }}
+  cancel-in-progress: false
+
+# Least privilege: this job needs no write access to the repo.
+permissions:
+  contents: read
+
+jobs:
+  healthcheck:
+    # Targets [self-hosted, <label>]; the runner MUST carry the chosen label
+    # (default "pool") or the job queues forever.
+    runs-on:
+      - self-hosted
+      - ${{ github.event.inputs.runner_label || 'pool' }}
+    # Deploys can run hours; caps a hung run (does not cap a queued job).
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout the dispatched branch
+        uses: actions/checkout@v4
+
+      - name: Show what is under test
+        run: echo "ref=${{ github.ref_name }}  models='${{ github.event.inputs.models }}'  runner=${{ github.event.inputs.runner_label }}"
+
+      - name: Boot TT-Studio
+        # Secrets come from the environment (run.py reads os.environ first, and
+        # the compose files pass HF_TOKEN/TAVILY_API_KEY through to containers).
+        # --accept-terms suppresses the first-time terms prompt. No box-local
+        # .env needed: run.py auto-creates one from .env.default.
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: python run.py --accept-terms
+
+      - name: Wait for backend health
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8000/up/ >/dev/null 2>&1 && { echo "backend up"; exit 0; }
+            echo "waiting for backend... ($i)"; sleep 5
+          done
+          echo "::error::backend did not come up on :8000"; exit 1
+
+      - name: Run deploy healthcheck
+        env:
+          MODELS: ${{ github.event.inputs.models || 'Qwen3-32B' }}
+          TIMEOUT: ${{ github.event.inputs.timeout || '2h' }}
+        run: |
+          set -euo pipefail
+          # auto_healthcheck.py cleans up by default and writes the step summary
+          # + ::error:: annotations itself. Its exit code drives the pass/fail ✓.
+          python3 ci/auto_healthcheck.py --models $MODELS --timeout "$TIMEOUT"
+
+      - name: Upload logs + report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-runs-${{ github.run_id }}
+          path: ci-runs/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Cleanup (free the board)
+        if: always()
+        # Backstop teardown so a cancelled/failed run never wedges the next one.
+        run: python run.py --cleanup || true
