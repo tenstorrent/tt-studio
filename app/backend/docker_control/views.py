@@ -760,7 +760,8 @@ class DeployView(APIView):
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
-                deploy_image = resolve_deploy_image(impl.model_name, media_device) or impl.image_version
+                inference_impl = getattr(impl, "inference_impl", None)
+                deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:

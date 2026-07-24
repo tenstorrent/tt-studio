@@ -1331,6 +1331,7 @@
       ],
       "hf_model_id": "google/gemma-1.1-2b-it",
       "inference_engine": "forge",
+      "impl": "training_lora",
       "supported_modalities": [
         "text"
       ],
@@ -1360,6 +1361,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B",
       "inference_engine": "forge",
+      "impl": "training_lora",
       "supported_modalities": [
         "text"
       ],

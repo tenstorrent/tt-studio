@@ -48,12 +48,16 @@ def resolve_deploy_image(
     model_name: str,
     device: Optional[str] = None,
     *,
+    impl: Optional[str] = None,
     fastapi_base_url: Optional[str] = None,
     timeout_seconds: int = 5,
 ) -> Optional[str]:
     """Ask the TT Inference Server which Docker image it will actually deploy for
     a model. Returns the image ref, or None if it can't be resolved. `device` is an
     optional hint; the server falls back to a per-model lookup when it's omitted.
+    `impl` disambiguates models whose name+device match multiple engine specs (e.g.
+    a forge/training and a vLLM spec share a name); without it the server may
+    default to the wrong engine's image.
 
     The deployed image is chosen by the server's own model_spec, which can differ
     from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
@@ -66,6 +70,8 @@ def resolve_deploy_image(
         params = {"model": model_name}
         if device:
             params["device"] = device
+        if impl:
+            params["impl"] = impl
         r = requests.get(
             f"{fastapi_base_url}/resolve-image",
             params=params,

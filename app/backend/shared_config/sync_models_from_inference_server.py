@@ -239,6 +239,10 @@ def _iter_v1_entries(model_specs: dict):
             for _engine, by_impl in by_engine.items():
                 for _impl_name, entry in by_impl.items():
                     if isinstance(entry, dict):
+                        # The impl name is the nesting key, not always a field on
+                        # the leaf. Carry it so the catalog can disambiguate models
+                        # whose name+device match multiple engine specs.
+                        entry.setdefault("impl", _impl_name)
                         yield entry
 
 
@@ -297,6 +301,7 @@ def normalize(source_path: Path) -> list[dict]:
             "device_configurations": device_configurations,
             "hf_model_id": first.get("hf_model_repo"),
             "inference_engine": inference_engine,
+            "impl": first.get("impl"),
             "status": status,
             "version": canonical.get("version", "0.0.0"),
             "docker_image": canonical.get("docker_image"),

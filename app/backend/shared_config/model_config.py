@@ -64,6 +64,10 @@ class ModelImpl:
     health_route: str = "/health"
     display_model_type: str = "LLM"
     inference_engine: str = "vllm"
+    # tt-inference-server impl name (e.g. "training_lora", "tt_transformers").
+    # Disambiguates models whose name+device match multiple engine specs so the
+    # server deploys the intended one instead of defaulting to another engine.
+    inference_impl: Optional[str] = None
     param_count: Optional[int] = None
 
     def __post_init__(self):
@@ -318,6 +322,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             shm_size=entry.get("shm_size", "32G"),
             display_model_type=entry.get("display_model_type", "LLM"),
             inference_engine=entry.get("inference_engine", "vllm"),
+            inference_impl=entry.get("impl"),
             param_count=entry.get("param_count"),
         )
         impls.append(impl)

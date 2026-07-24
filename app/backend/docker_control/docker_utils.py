@@ -420,6 +420,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Disambiguate the target model_spec. Some models share a name+device across
+        # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
+        # spec on P150); without an impl the server defaults to the wrong engine and
+        # pulls the wrong image. `impl.inference_impl` comes from the catalog.
+        inference_impl = getattr(impl, "inference_impl", None)
+        if inference_impl:
+            payload["impl"] = inference_impl
 
         logger.info(f"API payload: {payload}")
 
