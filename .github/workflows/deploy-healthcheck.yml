@@ -68,8 +68,7 @@ jobs:
       - name: Boot TT-Studio
         # Secrets come from the environment (run.py reads os.environ first, and
         # the compose files pass HF_TOKEN/TAVILY_API_KEY through to containers).
-        # --accept-terms suppresses the first-time terms prompt. No box-local
-        # .env needed: run.py auto-creates one from .env.default.
+        # --accept-terms suppresses the first-time terms prompt.
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
@@ -93,6 +92,23 @@ jobs:
           # auto_healthcheck.py cleans up by default and writes the step summary
           # + ::error:: annotations itself. Its exit code drives the pass/fail ✓.
           python3 ci/auto_healthcheck.py --models $MODELS --timeout "$TIMEOUT"
+
+      - name: Collect extra logs into the artifact
+        if: always()
+        # Runs before cleanup so nothing is wiped first. The checkout is fresh
+        # each run (git clean -ffdx), so these dirs hold ONLY this session's logs.
+        # ./logs (host services + per-deploy) and the inference-server's workflow_logs collected.
+        run: |
+          set -uo pipefail
+          dest="ci-runs/collected-logs"
+          mkdir -p "$dest"
+          if [ -d logs ]; then
+            cp -r logs "$dest/logs"
+            find "$dest/logs" -name '*.pid' -delete   # drop pid files, keep logs
+          fi
+          ws=".artifacts/tt-inference-server/workflow_logs"
+          [ -d "$ws" ] && cp -r "$ws" "$dest/workflow_logs" || true
+          echo "collected $(find "$dest" -type f | wc -l) log files into $dest"
 
       - name: Upload logs + report
         if: always()
