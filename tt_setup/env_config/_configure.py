@@ -44,8 +44,12 @@ def should_configure_var(var_name, current_value):
     return False
 
 
-def display_first_time_welcome():
-    """Display welcome message for first-time setup."""
+def display_first_time_welcome(accept_terms=False):
+    """Display welcome message for first-time setup.
+
+    When accept_terms is True (e.g. --accept-terms in CI), the terms are
+    accepted automatically without an interactive prompt.
+    """
     terms_url = "https://docs.tenstorrent.com/os-model-terms.html"
     terms_link = f"[link={terms_url}]OS Model Terms[/link]"
     console.print()
@@ -64,7 +68,7 @@ def display_first_time_welcome():
     console.print()
 
     # Terms acceptance confirmation
-    if confirm("Do you agree to these terms?", default=False):
+    if accept_terms or confirm("Do you agree to these terms?", default=False):
         console.print("[success]Terms accepted. Continuing with setup...[/success]")
         save_preference("terms_accepted", True)
     else:
@@ -176,7 +180,7 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     return False
 
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False, accept_terms=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
@@ -186,12 +190,13 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         force_reconfigure (bool): If True, force reconfiguration and clear preferences
         quick_setup (bool): If True, use minimal prompts and defaults for quick setup
         reconfigure_inference (bool): If True, force reconfiguration of inference server artifact only
+        accept_terms (bool): If True, accept the OS Model Terms non-interactively (for CI/automation)
     """
     global FORCE_OVERWRITE
-    
+
     # Show first-time welcome if this is the first time
     if is_first_time_setup():
-        display_first_time_welcome()
+        display_first_time_welcome(accept_terms=accept_terms)
     
     # Clear preferences if reconfiguring
     if force_reconfigure:
