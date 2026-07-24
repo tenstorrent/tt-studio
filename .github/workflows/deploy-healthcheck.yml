@@ -59,6 +59,16 @@ jobs:
     timeout-minutes: 360
 
     steps:
+      - name: Reclaim workspace (drop root-owned leftovers from a prior run)
+        # Containers (chroma/backend as root, model as uid 1000) write into
+        # tt_studio_persistent_volume/.artifacts/logs inside the workspace. The
+        # runner user can't delete those, so actions/checkout's `git clean` fails
+        # with EACCES. Remove them first via a root cleanup container (uses the
+        # runner's Docker access — no host sudo). Runs before checkout.
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" alpine \
+            sh -c 'rm -rf /w/tt_studio_persistent_volume /w/.artifacts /w/logs' 2>/dev/null || true
+
       - name: Checkout the dispatched branch
         uses: actions/checkout@v4
 
@@ -85,7 +95,7 @@ jobs:
 
       - name: Run deploy healthcheck
         env:
-          MODELS: ${{ github.event.inputs.models || 'Qwen3-32B' }}
+          MODELS: ${{ github.event.inputs.models || 'Llama-3.1-8B-Instruct' }}
           TIMEOUT: ${{ github.event.inputs.timeout || '2h' }}
         run: |
           set -euo pipefail
