@@ -35,6 +35,7 @@ export interface Model {
   current_board: string; // The detected board type
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
+  inference_engine?: string; // Backend engine: "vllm" | "media" | "forge"
   chips_required?: number; // Number of chips required (1 or 4)
 }
 

@@ -347,6 +347,11 @@ export function FirstStepForm({
         <div className="flex items-center w-full">
           <span className={`${dotClass} mr-2 text-xs`}>●</span>
           <span className="flex-1">{model.name}</span>
+          {model.inference_engine === "forge" && (
+            <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-TT-purple bg-TT-purple/10 dark:text-TT-purple-tint2 dark:bg-TT-purple/20 whitespace-nowrap">
+              Forge
+            </span>
+          )}
           {isDeploying ? (
             <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
               Deploying…

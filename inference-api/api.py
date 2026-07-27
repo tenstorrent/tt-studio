@@ -15,6 +15,8 @@ import threading
 import uuid
 import re
 import json
+import io
+import contextlib
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -1509,6 +1511,27 @@ class RunRequest(BaseModel):
     is_retry: Optional[bool] = False
     skip_system_sw_validation: Optional[bool] = False
 
+class _CapturingStderr(io.TextIOBase):
+    """Tee stderr to the real stream while keeping a copy. argparse writes its
+    `error: ...` message to sys.stderr (bypassing the logger) then raises
+    SystemExit; teeing lets us surface that message while leaving run.py's
+    normal stderr flowing to the logs unchanged.
+    """
+
+    def __init__(self, mirror):
+        self._mirror = mirror
+        self._parts = []
+
+    def write(self, s):
+        if self._mirror is not None:
+            self._mirror.write(s)
+        self._parts.append(s)
+        return len(s)
+
+    def getvalue(self):
+        return "".join(self._parts)
+
+
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
     if not device:
@@ -2076,7 +2099,21 @@ async def run_inference(request: RunRequest):
                                 attempt_mode,
                                 " ".join(argv_for_attempt),
                             )
-                            run_result = run_main()
+                            # Tee stderr so an early argparse SystemExit (e.g. an
+                            # unsupported --model) can be surfaced to the caller
+                            # instead of silently killing this daemon thread.
+                            captured_stderr = _CapturingStderr(sys.__stderr__)
+                            try:
+                                with contextlib.redirect_stderr(captured_stderr):
+                                    run_result = run_main()
+                            except SystemExit as se:
+                                text = captured_stderr.getvalue().strip()
+                                logger.error(
+                                    "Job %s: run.py exited early via SystemExit(code=%s). stderr:\n%s",
+                                    job_id, getattr(se, "code", None), text or "(no stderr captured)",
+                                )
+                                se._captured_stderr = text
+                                raise
                             if isinstance(run_result, tuple):
                                 attempt_return_code, attempt_container_info = run_result
                             else:
@@ -2357,6 +2394,33 @@ async def run_inference(request: RunRequest):
                                     "last_updated": time.time(),
                                 }
                             )
+            except SystemExit as e:
+                # argparse (and other early sys.exit paths) raise SystemExit, a
+                # BaseException that the `except Exception` below never catches —
+                # historically this killed the thread and left the progress record
+                # frozen at "starting". Surface it instead.
+                captured = (getattr(e, "_captured_stderr", "") or "").strip()
+                argparse_line = next(
+                    (ln.strip() for ln in reversed(captured.splitlines()) if "error:" in ln),
+                    "",
+                )
+                code = getattr(e, "code", None)
+                message = argparse_line or (
+                    f"run.py exited (code {code}) before startup — invalid or "
+                    "unsupported deployment arguments"
+                )
+                logger.error(f"Job {job_id}: run.py exited early: {message}")
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id].update(
+                            {
+                                "status": "error",
+                                "stage": "error",
+                                "progress": 0,
+                                "message": message[:300],
+                                "last_updated": time.time(),
+                            }
+                        )
             except Exception as e:
                 logger.error(f"Job {job_id}: error: {e}", exc_info=True)
                 with progress_lock:

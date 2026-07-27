@@ -224,6 +224,7 @@ class ContainersView(APIView):
                 "compatible_boards": compatible_boards,
                 "model_type": impl.model_type.value,
                 "display_model_type": impl.display_model_type,
+                "inference_engine": impl.inference_engine,
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
                 "chips_required": chips_required,
