@@ -54,6 +54,7 @@ PATHS_DIRECT = {
     "health": "models/health/",
     "logs": "docker/deploy/logs/{job_id}/",
     "stop": "docker/stop/stream/{container_id}/",
+    "chip_status": "docker/chip-status/",
 }
 PATHS_PROXY = {
     "catalog": "docker-api/catalog/",
@@ -63,6 +64,7 @@ PATHS_PROXY = {
     "health": "models-api/health/",
     "logs": "docker-api/deploy/logs/{job_id}/",
     "stop": "docker-api/stop/stream/{container_id}/",
+    "chip_status": "docker-api/chip-status/",
 }
 
 # Progress statuses that mean "stop polling".
@@ -220,8 +222,43 @@ def resolve_model_id(client, model_name, explicit_id):
     raise SmokeTestError(f"no catalog model matches {model_name!r}. Available: {available}")
 
 
-def deploy(client, model_id):
-    st, data = client.post("deploy", {"model_id": model_id}, timeout=120)
+def _norm(name):
+    return re.sub(r"[\s_]", "", (name or "").lower())
+
+
+def _is_llama31_8b(name):
+    t = _norm(name)
+    return "llama-3.1-8b" in t or "llama3.18b" in t
+
+
+def fe_deploy_overrides(client, model_name):
+    """Build the same deploy body the frontend sends, so CI is a faithful
+    representation of a real UI deploy (not a bare API call).
+
+    The one case where the backend's bare auto-allocation diverges from the UI:
+    a flexible model on a P300x2 board. A single P300 chip is a tt-metal
+    "CUSTOM cluster type" that fails to init, so the UI deploys full-board via
+    `force_full_board`. The backend only honors that flag for CHAT + P300x2 +
+    Llama-3.1-8B (see should_force_full_board_llama / getModelPlacement); it's
+    ignored elsewhere, and other models already auto-allocate correctly.
+    """
+    overrides = {"weights_id": "", "use_image_override": True}
+    try:
+        st, cs = client.get("chip_status", timeout=15)
+    except SmokeTestError:
+        st, cs = 0, {}
+    board = cs.get("board_type") if st == 200 and isinstance(cs, dict) else None
+    if board == "P300x2" and _is_llama31_8b(model_name):
+        overrides["force_full_board"] = True
+        log(f"placement: {model_name} on {board} → force_full_board (full mesh), mirroring the UI")
+    return overrides
+
+
+def deploy(client, model_id, extra=None):
+    body = {"model_id": model_id}
+    if extra:
+        body.update(extra)
+    st, data = client.post("deploy", body, timeout=120)
     if st not in (200, 201) or data.get("status") != "success":
         raise SmokeTestError(f"deploy failed (HTTP {st}): {data}")
     job_id = data.get("job_id")
@@ -418,7 +455,7 @@ def run_model(client, model_name, model_id_override, do_cleanup,
         model_id = resolve_model_id(client, model_name, model_id_override)
         report["model_id"] = model_id
 
-        job_id = deploy(client, model_id)
+        job_id = deploy(client, model_id, fe_deploy_overrides(client, model_name))
         report["job_id"] = job_id
 
         deploy_id = None
