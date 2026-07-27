@@ -75,6 +75,9 @@ jobs:
       - name: Show what is under test
         run: echo "ref=${{ github.ref_name }}  models='${{ github.event.inputs.models }}'  runner=${{ github.event.inputs.runner_label }}"
 
+      - name: Stop any prior TT-Studio stack
+        run: python run.py --stop || true
+
       - name: Boot TT-Studio
         # Secrets come from the environment (run.py reads os.environ first, and
         # the compose files pass HF_TOKEN/TAVILY_API_KEY through to containers).
