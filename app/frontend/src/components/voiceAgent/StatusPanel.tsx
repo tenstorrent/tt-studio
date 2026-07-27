@@ -98,7 +98,7 @@ export function StatusPanel({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Mic className="w-3.5 h-3.5 text-TT-purple-accent" />
-              <span className="text-xs">Whisper</span>
+              <span className="text-xs">Speech-to-text</span>
             </div>
             <div className="flex items-center gap-1.5">
               <StatusDot connected={!!models.whisper} />
@@ -136,7 +136,7 @@ export function StatusPanel({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Volume2 className="w-3.5 h-3.5 text-TT-purple-accent" />
-              <span className="text-xs">TTS</span>
+              <span className="text-xs">Text-to-speech</span>
             </div>
             <div className="flex items-center gap-1.5">
               <StatusDot connected={!!models.tts} />
