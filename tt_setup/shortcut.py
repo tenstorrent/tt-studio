@@ -15,6 +15,7 @@ and a one-time offer on a normal launch when it isn't already set up.
 """
 
 import os
+import re
 
 from tt_setup.console import confirm, console, notice_panel
 from tt_setup.constants import OS_NAME, TT_STUDIO_ROOT
@@ -56,6 +57,35 @@ def _shortcut_block():
     return f"{_MARKER_START}\n{_shortcut_line()}\n{_MARKER_END}\n"
 
 
+# Matches the shell function to recover the repo path baked into an install.
+_SHORTCUT_PATH_RE = re.compile(
+    rf'^{re.escape(SHORTCUT_NAME)}\(\)\s*{{\s*\(\s*cd\s+"(.+)"\s+&&'
+)
+
+
+def extract_shortcut_path(content):
+    """Repo path baked into an installed shortcut block, or None. Pure."""
+    for line in content.splitlines():
+        match = _SHORTCUT_PATH_RE.match(line.strip())
+        if match:
+            return match.group(1)
+    return None
+
+
+def installed_shortcut_path(rc_path=None):
+    """Repo path the installed shortcut points at, or None when there is no
+    supported rc file, no block, or the file can't be read."""
+    if rc_path is None:
+        _, rc_path = _detect_shell_rc()
+    if not rc_path or not os.path.exists(rc_path):
+        return None
+    try:
+        with open(rc_path, "r") as f:
+            return extract_shortcut_path(f.read())
+    except OSError:
+        return None
+
+
 def _strip_block(lines):
     """Drop a *complete* marked block (inclusive) so re-install replaces cleanly.
 
@@ -95,6 +125,74 @@ def is_shortcut_installed(rc_path=None):
         return False
 
 
+def _write_shortcut_block(rc_path):
+    """Strip any existing complete block and append a fresh one pointing at the
+    current TT_STUDIO_ROOT. Returns True on success."""
+    try:
+        existing = ""
+        if os.path.exists(rc_path):
+            with open(rc_path, "r") as f:
+                existing = f.read()
+        cleaned = "".join(_strip_block(existing.splitlines(keepends=True))).rstrip("\n")
+        new_content = (cleaned + "\n\n" if cleaned else "") + _shortcut_block()
+        with open(rc_path, "w") as f:
+            f.write(new_content)
+    except OSError as e:
+        console.print(f"[error]❌ Could not update {rc_path}: {e}[/error]")
+        return False
+    return True
+
+
+def maybe_repair_shortcut():
+    """Re-point an installed shortcut whose baked-in path no longer matches this
+    checkout (the repo moved, or the user launched a different clone). Silent
+    no-op otherwise; never raises — a broken rc file must not block startup."""
+    try:
+        _, rc_path = _detect_shell_rc()
+        if not rc_path or not is_shortcut_installed(rc_path):
+            return
+        current = installed_shortcut_path(rc_path)
+        if not current or os.path.realpath(current) == os.path.realpath(TT_STUDIO_ROOT):
+            return
+        if _write_shortcut_block(rc_path):
+            console.print(
+                f"[muted]Updated the {SHORTCUT_NAME} shortcut to this checkout: {TT_STUDIO_ROOT}[/muted]"
+            )
+    except Exception:
+        pass
+
+
+def uninstall_shortcut():
+    """Remove the marked shortcut block from the shell rc. Returns True if the
+    block was removed."""
+    _, rc_path = _detect_shell_rc()
+    if not rc_path or not is_shortcut_installed(rc_path):
+        console.print(f"[muted]No {SHORTCUT_NAME} shell shortcut found — nothing to remove.[/muted]")
+        return False
+    try:
+        with open(rc_path, "r") as f:
+            lines = f.read().splitlines(keepends=True)
+        stripped = _strip_block(lines)
+        if stripped == lines:
+            # Unbalanced markers: _strip_block refused rather than truncate.
+            console.print(
+                f"[warning]⚠  Couldn't remove the {SHORTCUT_NAME} shortcut automatically — "
+                f"the markers in {rc_path} look edited. Remove the lines between "
+                f"'{_MARKER_START}' and '{_MARKER_END}' manually.[/warning]"
+            )
+            return False
+        with open(rc_path, "w") as f:
+            f.write("".join(stripped))
+    except OSError as e:
+        console.print(f"[error]❌ Could not update {rc_path}: {e}[/error]")
+        return False
+    console.print(
+        f"[success]✓[/success] Removed the {SHORTCUT_NAME} shortcut from {rc_path} "
+        f"[muted](reopen your terminal, or `source {rc_path}`, to drop it from this shell)[/muted]"
+    )
+    return True
+
+
 def install_shortcut():
     """Add (or update) the `tt-studio` shortcut in the user's shell rc. Returns
     True on success. Unsupported shells get a printed manual snippet instead."""
@@ -114,17 +212,7 @@ def install_shortcut():
         return False
 
     already = is_shortcut_installed(rc_path)
-    try:
-        existing = ""
-        if os.path.exists(rc_path):
-            with open(rc_path, "r") as f:
-                existing = f.read()
-        cleaned = "".join(_strip_block(existing.splitlines(keepends=True))).rstrip("\n")
-        new_content = (cleaned + "\n\n" if cleaned else "") + _shortcut_block()
-        with open(rc_path, "w") as f:
-            f.write(new_content)
-    except OSError as e:
-        console.print(f"[error]❌ Could not update {rc_path}: {e}[/error]")
+    if not _write_shortcut_block(rc_path):
         return False
 
     # Put the activation command on the clipboard so it's one paste away — the
