@@ -172,7 +172,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
     return all_healthy
 
 
-def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None, device_id=0):
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None, device_id=None, path=""):
     """
     Wait for frontend service to be healthy before opening browser.
 
@@ -180,22 +180,25 @@ def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, 
         host: Frontend host
         port: Frontend port
         timeout: Timeout in seconds
-        auto_deploy_model: Model name to auto-deploy (optional)
-        device_id: Chip slot index for auto-deploy (default 0)
+        auto_deploy_model: Model name to auto-deploy via the web UI (optional)
+        device_id: Chip slot index for auto-deploy; None lets the backend allocate
+        path: Path to open under the frontend root (e.g. "models-deployed")
 
     Returns:
         bool: True if browser opened successfully, False otherwise
     """
     base_url = f"http://{host}:{port}/"
+    frontend_url = base_url + path.lstrip("/")
 
-    # Add auto-deploy parameter if specified
+    # Add auto-deploy parameter if specified (UI-driven deploy path)
     if auto_deploy_model:
         from urllib.parse import urlencode
-        params = urlencode({"auto-deploy": auto_deploy_model, "device-id": device_id})
-        frontend_url = f"{base_url}?{params}"
-        console.print(f"\n[info]🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}[/info]")
-    else:
-        frontend_url = base_url
+        query = {"auto-deploy": auto_deploy_model}
+        if device_id is not None:
+            query["device-id"] = device_id
+        frontend_url = f"{frontend_url}?{urlencode(query)}"
+        where = f" on chip {device_id}" if device_id is not None else ""
+        console.print(f"\n[info]🤖 Auto-deploying model: {auto_deploy_model}{where}[/info]")
 
     if wait_for_service_health("Frontend", base_url, timeout=timeout, interval=2):
         try:
