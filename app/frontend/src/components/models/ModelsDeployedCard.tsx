@@ -643,14 +643,14 @@ export default function ModelsDeployedCard(): JSX.Element {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex items-center gap-2">
-                          <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                          <PulsatingDot label="Speech-to-text" color="blue" size="md" delay={0} />
                           <PulsatingDot label="LLM" color="green" size="md" delay={400} />
-                          <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                          <PulsatingDot label="Text-to-speech" color="purple" size="md" delay={800} />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs">
                         <p className="text-sm">
-                          TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                          TT Studio automatically chains your deployed models: Speech-to-text → LLM → Text-to-speech for seamless voice conversations
                         </p>
                       </TooltipContent>
                     </Tooltip>
