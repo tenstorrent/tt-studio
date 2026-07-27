@@ -44,6 +44,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
 | `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
 | `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
+| `--switch REF` | Switch this checkout to a git branch or tag (e.g. `dev`, `v2.9.0-rc1`): fetches origin, checks the ref out (fast-forwarding branches), then exits — re-run to start on that version. Refuses if you have uncommitted changes. |
 
 ### Model Deployment
 
@@ -74,6 +75,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | --- | --- |
 | `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
 | `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
+| `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
 
 ### Advanced
 
@@ -496,6 +498,30 @@ subshell, so your current directory is untouched). Reopen your terminal (or
 etc. The first time you launch without the shortcut installed, TT-Studio also
 offers to set it up for you (once). Bash/zsh are handled automatically; other
 shells get a snippet to paste.
+
+The shortcut bakes in the repo path it was installed from. If you move the repo
+or start launching from a different clone, the next normal startup re-points the
+shortcut to that checkout automatically (a one-line notice tells you when it
+does).
+
+### Switching Versions
+```bash
+python run.py --switch dev          # a branch
+python run.py --switch v2.9.0-rc1   # a release tag / RC
+```
+Fetches origin and checks out the given branch (fast-forwarded to origin) or tag
+(detached HEAD), then exits — re-run `python run.py` (or `tt-studio`) to start on
+that version. It refuses to run if your checkout has uncommitted changes, and if
+TT-Studio is currently running you should `--stop` and start again so the stack
+matches the new code.
+
+### Uninstalling
+```bash
+python run.py --uninstall
+```
+Runs the full `--purge-all` teardown (containers, volumes, `.env`, artifacts) and
+then removes the `tt-studio` shell function from your shell config. One
+confirmation covers both; answering no leaves everything in place.
 
 ### Reporting a Bug
 ```bash
