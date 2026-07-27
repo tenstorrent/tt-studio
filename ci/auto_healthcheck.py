@@ -55,6 +55,8 @@ PATHS_DIRECT = {
     "logs": "docker/deploy/logs/{job_id}/",
     "stop": "docker/stop/stream/{container_id}/",
     "chip_status": "docker/chip-status/",
+    "reset_all": "docker/reset_all/",
+    "reset_all_status": "docker/reset_all/status/",
 }
 PATHS_PROXY = {
     "catalog": "docker-api/catalog/",
@@ -65,6 +67,8 @@ PATHS_PROXY = {
     "logs": "docker-api/deploy/logs/{job_id}/",
     "stop": "docker-api/stop/stream/{container_id}/",
     "chip_status": "docker-api/chip-status/",
+    "reset_all": "docker-api/reset_all/",
+    "reset_all_status": "docker-api/reset_all/status/",
 }
 
 # Progress statuses that mean "stop polling".
@@ -252,6 +256,46 @@ def fe_deploy_overrides(client, model_name):
         overrides["force_full_board"] = True
         log(f"placement: {model_name} on {board} → force_full_board (full mesh), mirroring the UI")
     return overrides
+
+
+def reset_all_board(client, timeout=600, interval=5):
+    """Whole-board reset before the first deploy: stop every deployed model, then
+    reset all devices (tt-smi -r) — mirrors the UI's 'Reset all'. Ensures a clean
+    mesh so a prior crashed run can't wedge this deploy (on p300x2 a dirty mesh
+    makes ttnn.get_num_devices() raise IndexError). Best-effort: warns and
+    continues if it can't confirm completion. Deploys are blocked (409) while a
+    reset is in flight, so this waits for `done` before returning.
+    """
+    log("reset: whole-board reset (stop models + tt-smi -r)…")
+    try:
+        st, data = client.post("reset_all", {}, timeout=60)
+    except SmokeTestError as e:
+        log(f"reset: WARNING could not start reset ({e}) — continuing")
+        return
+    if st not in (200, 202):
+        log(f"reset: WARNING start returned HTTP {st}: {data} — continuing")
+        return
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        try:
+            st, state = client.get("reset_all_status", timeout=15)
+        except SmokeTestError:
+            time.sleep(interval)
+            continue
+        if st == 200 and isinstance(state, dict):
+            step = state.get("step")
+            if step != last:
+                log(f"reset: step={step}")
+                last = step
+            if state.get("done"):
+                if state.get("ok"):
+                    log("reset: board clean ✓")
+                else:
+                    log(f"reset: WARNING finished not-ok: {state.get('error')}")
+                return
+        time.sleep(interval)
+    log(f"reset: WARNING not confirmed done within {timeout}s — continuing")
 
 
 def deploy(client, model_id, extra=None):
@@ -512,6 +556,8 @@ def main():
                    help="Preflight only: verify connectivity + resolve the model id, then exit. Deploys nothing.")
     p.add_argument("--no-cleanup", action="store_true",
                    help="Leave the model deployed after the check (default: clean up to free the board)")
+    p.add_argument("--no-reset", action="store_true",
+                   help="Skip the whole-board reset (stop models + tt-smi -r) before the first deploy")
     args = p.parse_args()
 
     # --timeout is the simple knob: it sets both phase timeouts at once.
@@ -576,6 +622,11 @@ def main():
                     combined["models"].append({"model_name": name, "result": "failed", "reason": str(e)})
             combined["result"] = "dry_run_ok" if ok else "some_failed"
             return 0 if ok else 1
+
+        # Clean slate before the first deploy: stop any leftover models + reset
+        # all devices, so a prior crashed run can't wedge the mesh.
+        if not args.no_reset:
+            reset_all_board(client)
 
         # Deploy each model in succession.
         for name in models:
