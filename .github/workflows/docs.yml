@@ -48,8 +48,10 @@ jobs:
       - name: Install docs toolchain
         run: pip install -r docs/requirements.txt
       - name: Build HTML
-        # dirhtml gives clean, extensionless page URLs (foo/ instead of foo.html)
-        run: sphinx-build -b dirhtml docs docs/_build/html --keep-going -n
+        # dirhtml gives clean, extensionless page URLs (foo/ instead of foo.html).
+        # -n -W turns a broken cross-reference into a failed build; --keep-going
+        # still reports every problem in one run rather than stopping at the first.
+        run: sphinx-build -b dirhtml docs docs/_build/html --keep-going -n -W
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
