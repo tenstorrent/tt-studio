@@ -1,24 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { MainContent } from "@/src/components/voiceAgent/mainContent";
 import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
 import { MetricsPanel } from "@/src/components/voiceAgent/MetricsPanel";
 import { AudioRecorderWithVisualizer, type AudioRecorderHandle } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
 import { useWakeWord } from "@/src/components/voiceAgent/hooks/useWakeWord";
-import { Activity, BarChart3, Settings2, UserCheck, X } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Check,
+  Database,
+  Globe,
+  Settings2,
+  UserCheck,
+  X,
+} from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   fetchDeployedModelsInfo,
   runTTSInference,
 } from "@/src/api/modelsDeployedApis";
 import { runInference } from "@/src/components/chatui/runInference";
-import type { ChatMessage } from "@/src/components/chatui/types";
+import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
+import { usePersistentState } from "@/src/components/chatui/usePersistentState";
+import { useAgentAvailability } from "../../hooks/useAgentAvailability";
+import type { ChatMessage, RagDataSource } from "@/src/components/chatui/types";
 import { v4 as uuidv4 } from "uuid";
 import { sendAudioRecording } from "./lib/apiClient";
 import {
@@ -30,8 +43,6 @@ import {
   Sheet,
   SheetTrigger,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/src/components/ui/sheet";
 import {
   Tooltip,
@@ -51,8 +62,14 @@ import {
   loadVoiceSystemPrompt,
   saveVoiceSystemPrompt,
   renderVoiceSystemPrompt,
+  VOICE_PROMPT_GROUNDING_CLAUSE,
   VOICE_PROMPT_SAFETY_SUFFIX,
 } from "./lib/prompts";
+import {
+  cleanSpeechText,
+  hasAnswerContent,
+  parseSearchProgress,
+} from "./lib/cleanSpeech";
 
 export type { Conversation, ConversationMessage };
 
@@ -60,10 +77,20 @@ const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; dotCol
   idle: { label: "Ready", color: "text-TT-purple-accent", dotColor: "bg-TT-purple-accent" },
   recording: { label: "Listening", color: "text-TT-red-accent", dotColor: "bg-TT-red-accent" },
   transcribing: { label: "Transcribing", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
+  retrieving: { label: "Searching your documents", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
+  searching: { label: "Searching the web", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
   thinking: { label: "Thinking", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
   speaking: { label: "Speaking", color: "text-TT-green", dotColor: "bg-TT-green" },
   done: { label: "Ready", color: "text-TT-purple-accent", dotColor: "bg-TT-purple-accent" },
 };
+
+const ALL_COLLECTIONS_ID = "special-all";
+
+function collectionLabel(source: RagDataSource | undefined): string {
+  if (!source) return "Knowledge";
+  if (source.id === ALL_COLLECTIONS_ID) return "All collections";
+  return source.name;
+}
 
 export default function VoiceAgentApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -82,6 +109,62 @@ export default function VoiceAgentApp() {
     llm: null,
     tts: null,
   });
+
+  // Knowledge (RAG) and Web search (Search Agent) reuse the chat plumbing; the
+  // voice UI only has to pick a datasource and flip the agent flag.
+  const { data: ragDataSources } = useQuery<RagDataSource[]>({
+    queryKey: ["collectionsList"],
+    queryFn: fetchCollections,
+    initialData: [],
+  });
+  const [ragCollectionId, setRagCollectionId] = usePersistentState<string | null>(
+    "voice_ragDatasource",
+    null
+  );
+  const [isAgentSelected, setIsAgentSelected] = usePersistentState<boolean>(
+    "voice_isAgentSelected",
+    false
+  );
+  const [showMetrics, setShowMetrics] = usePersistentState<boolean>(
+    "voice_showMetrics",
+    false
+  );
+
+  const { isAgentAvailable, hasChecked: agentCheckDone } = useAgentAvailability(
+    models.llm?.id
+  );
+
+  // "All collections" first, then the user's own. The backend's seeded docs
+  // collection isn't listed individually — "All collections" spans it, and it's
+  // merged into every single-collection query server-side regardless. It still
+  // counts toward whether there's anything to search at all.
+  const knowledgeOptions = useMemo<RagDataSource[]>(() => {
+    const collections = Array.isArray(ragDataSources) ? ragDataSources : [];
+    const own = collections.filter((c) => !isSystemKnowledgeCollection(c));
+    const all: RagDataSource[] = collections.length
+      ? [{ id: ALL_COLLECTIONS_ID, name: "All collections" } as RagDataSource]
+      : [];
+    return [...all, ...own];
+  }, [ragDataSources]);
+
+  const ragDatasource = useMemo(
+    () => knowledgeOptions.find((c) => c.id === ragCollectionId),
+    [knowledgeOptions, ragCollectionId]
+  );
+
+  // A collection can disappear (deleted elsewhere); don't keep pointing at it.
+  useEffect(() => {
+    if (ragCollectionId && knowledgeOptions.length && !ragDatasource) {
+      setRagCollectionId(null);
+    }
+  }, [ragCollectionId, ragDatasource, knowledgeOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Web search follows availability — no tool-calling model or no Tavily key
+  // means the agent path would just fail, so clear the selection. Only once the
+  // first probe has answered, or a persisted "on" would be wiped on every load.
+  useEffect(() => {
+    if (agentCheckDone && !isAgentAvailable) setIsAgentSelected(false);
+  }, [agentCheckDone, isAgentAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [recognizedUser, setRecognizedUser] = useState<string | null>(null);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
@@ -208,20 +291,30 @@ export default function VoiceAgentApp() {
     const greetText = `Welcome, ${recognizedUser}! How can I help you today?`;
     setStage("speaking");
     setIsTTSGenerating(true);
+    let playing = false;
     runTTSInference(models.tts.id, greetText)
       .then((audioBlob) => {
         const audioUrl = URL.createObjectURL(audioBlob);
         ttsAudioUrlRef.current = audioUrl;
         if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
-        ttsAudioRef.current.src = audioUrl;
-        ttsAudioRef.current.load();
-        ttsAudioRef.current.play().catch((e) => console.warn("TTS autoplay blocked:", e));
-        ttsAudioRef.current.onended = () => setStage("idle");
+        const audio = ttsAudioRef.current;
+        audio.src = audioUrl;
+        audio.load();
+        // Same rule as a normal turn: stay in "speaking" until the greeting has
+        // actually finished, so the wake word doesn't arm over our own audio.
+        audio.onended = () => setStage("idle");
+        audio.onerror = () => setStage("idle");
+        playing = true;
+        audio.play().catch((e) => {
+          console.warn("TTS autoplay blocked:", e);
+          playing = false;
+          setStage("idle");
+        });
       })
       .catch((e) => console.error("Auto-greet TTS failed:", e))
       .finally(() => {
         setIsTTSGenerating(false);
-        setStage("idle");
+        if (!playing) setStage("idle");
       });
   }, [recognizedUser, models.tts]);
 
@@ -232,6 +325,9 @@ export default function VoiceAgentApp() {
       title: `Conversation ${conversationCounter}`,
       date: new Date(),
       messages: [],
+      // The agent service keys its memory off thread_id, so each conversation
+      // needs its own — a shared constant would blend them together.
+      threadId: Number(id),
     };
     setConversations((prev) => [newConversation, ...prev]);
     setSelectedConversation(id);
@@ -278,7 +374,9 @@ export default function VoiceAgentApp() {
         return;
       }
 
-      setStage("thinking");
+      // Retrieval runs first when a collection is picked, so say so rather than
+      // showing "Thinking" through a multi-second Chroma round trip.
+      setStage(ragDatasource ? "retrieving" : "thinking");
       const assistantMsgId = uuidv4();
       const assistantMessage: ConversationMessage = {
         id: assistantMsgId,
@@ -286,10 +384,12 @@ export default function VoiceAgentApp() {
         text: "",
         date: new Date(),
         isStreaming: true,
+        ragCollection: ragDatasource ? collectionLabel(ragDatasource) : undefined,
       };
       addMessageToConversation(conversationId, assistantMessage);
 
       const currentConvo = conversations.find((c) => c.id === conversationId);
+      const threadId = currentConvo?.threadId ?? Number(conversationId);
       const priorMessages: ChatMessage[] = (currentConvo?.messages ?? [])
         .filter((m) => m.text)
         .map((m) => ({ id: m.id, sender: m.sender, text: m.text }));
@@ -299,6 +399,14 @@ export default function VoiceAgentApp() {
       let llmFirstChunk = false;
       const llmStart = performance.now();
       let llmTtfbMs = 0;
+      let ragLatencyMs: number | undefined;
+      let ragDocCount: number | undefined;
+      let reportedQueries: string[] = [];
+      // Once real answer text arrives the search markers stop mattering — skip
+      // re-scanning every subsequent chunk.
+      let sawAnswerText = false;
+      // Set once TTS playback owns the stage transition back to "done".
+      let handedOffToPlayback = false;
 
       const setLocalChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>> = (updater) => {
         if (typeof updater === "function") {
@@ -309,6 +417,26 @@ export default function VoiceAgentApp() {
               llmFirstChunk = true;
               llmTtfbMs = Math.round(performance.now() - llmStart);
             }
+
+            // The agent narrates its tool use in-band ("[searching]",
+            // "Searching: <query>") before any answer tokens arrive. Surface
+            // that as a stage instead of a silent pause.
+            if (isAgentSelected && !sawAnswerText) {
+              const progress = parseSearchProgress(lastMsg.text);
+              if (progress.queries.length !== reportedQueries.length) {
+                reportedQueries = progress.queries;
+                updateMessageInConversation(conversationId, assistantMsgId, {
+                  searchQueries: progress.queries,
+                });
+              }
+              if (hasAnswerContent(lastMsg.text)) {
+                sawAnswerText = true;
+                setStage("thinking");
+              } else if (progress.isSearching) {
+                setStage("searching");
+              }
+            }
+
             updateMessageInConversation(conversationId, assistantMsgId, {
               text: lastMsg.text,
             });
@@ -335,6 +463,10 @@ export default function VoiceAgentApp() {
             .map((n) => `- ${n}`)
             .join(" ")} `
           : "";
+        // Grounding rules only make sense when there is context to ground in.
+        const groundingBlock =
+          ragDatasource || isAgentSelected ? `\n${VOICE_PROMPT_GROUNDING_CLAUSE}` : "";
+
         await runInference(
           {
             deploy_id: models.llm.id,
@@ -344,17 +476,25 @@ export default function VoiceAgentApp() {
             top_p: 0.9,
             top_k: 40,
           },
-          undefined,
+          ragDatasource,
           localChatHistory,
           setLocalChatHistory,
           setIsStreaming,
-          false,
-          0,
+          isAgentSelected,
+          threadId,
           undefined,
           `${userContext}${memoryBlock}${renderVoiceSystemPrompt(systemPromptRef.current, {
             userName: recognizedUserRef.current,
             modelName: models.llm.modelName,
-          })}\n${VOICE_PROMPT_SAFETY_SUFFIX}`
+          })}${groundingBlock}\n${VOICE_PROMPT_SAFETY_SUFFIX}`,
+          null,
+          null,
+          ({ documents, latencyMs }) => {
+            ragLatencyMs = latencyMs;
+            ragDocCount = documents.length;
+            // Retrieval done — the model is the one working now.
+            setStage("thinking");
+          }
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
@@ -364,9 +504,20 @@ export default function VoiceAgentApp() {
         const llmResponseText = lastAssistant?.text || "";
         const llmTokenEstimate = llmResponseText.split(/\s+/).length;
 
+        // Citations the agent emitted are already parsed out by runInference.
+        if (lastAssistant?.sources?.length) {
+          updateMessageInConversation(conversationId, assistantMsgId, {
+            sources: lastAssistant.sources,
+          });
+        }
+
+        // The transcript keeps the full answer; speech gets the markdown,
+        // citations, and URLs stripped out first.
+        const spokenText = cleanSpeechText(llmResponseText);
+
         let ttsLatencyMs: number | undefined;
 
-        if (llmResponseText && models.tts) {
+        if (spokenText && models.tts) {
           setStage("speaking");
           setIsTTSGenerating(true);
           const ttsStart = performance.now();
@@ -380,7 +531,7 @@ export default function VoiceAgentApp() {
               ttsAudioUrlRef.current = null;
             }
 
-            const audioBlob = await runTTSInference(models.tts.id, llmResponseText);
+            const audioBlob = await runTTSInference(models.tts.id, spokenText);
             ttsLatencyMs = Math.round(performance.now() - ttsStart);
             const audioUrl = URL.createObjectURL(audioBlob);
             ttsAudioUrlRef.current = audioUrl;
@@ -391,9 +542,20 @@ export default function VoiceAgentApp() {
             });
 
             if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
-            ttsAudioRef.current.src = audioUrl;
-            ttsAudioRef.current.load();
-            ttsAudioRef.current.play().catch((e) => console.warn("TTS autoplay blocked:", e));
+            const audio = ttsAudioRef.current;
+            audio.src = audioUrl;
+            audio.load();
+            // Hold "speaking" until playback actually finishes. The wake word only
+            // listens in idle/done, so returning to done early would re-open the
+            // mic while the assistant is still talking — and it would hear itself.
+            audio.onended = () => setStage("done");
+            audio.onerror = () => setStage("done");
+            handedOffToPlayback = true;
+            audio.play().catch((e) => {
+              console.warn("TTS autoplay blocked:", e);
+              handedOffToPlayback = false;
+              setStage("done");
+            });
           } catch (ttsErr) {
             console.error("TTS error:", ttsErr);
           } finally {
@@ -402,13 +564,24 @@ export default function VoiceAgentApp() {
         }
 
         const totalMs = Math.round(performance.now() - pipelineStart);
-        setMetrics({
+        const turnMetrics: PipelineMetrics = {
           stt_latency_ms: sttLatencyMs,
           llm_ttfb_ms: llmTtfbMs,
           llm_total_ms: llmTotalMs,
           llm_tokens: llmTokenEstimate,
           tts_latency_ms: ttsLatencyMs,
           total_ms: totalMs,
+          rag_used: Boolean(ragDatasource),
+          rag_collection: ragDatasource ? collectionLabel(ragDatasource) : undefined,
+          rag_latency_ms: ragLatencyMs,
+          rag_doc_count: ragDocCount,
+          web_search_used: isAgentSelected,
+        };
+        // Header strip shows the latest turn; the transcript keeps each turn's
+        // own numbers next to the answer they belong to.
+        setMetrics(turnMetrics);
+        updateMessageInConversation(conversationId, assistantMsgId, {
+          metrics: turnMetrics,
         });
       } catch (err) {
         console.error("LLM inference error:", err);
@@ -418,10 +591,19 @@ export default function VoiceAgentApp() {
         });
       } finally {
         updateMessageInConversation(conversationId, assistantMsgId, { isStreaming: false });
-        setStage("done");
+        // When playback started, its onended handler returns us to "done".
+        if (!handedOffToPlayback) setStage("done");
       }
     },
-    [models, conversations, addMessageToConversation, updateMessageInConversation, extractMemoryFromUserTurn]
+    [
+      models,
+      conversations,
+      addMessageToConversation,
+      updateMessageInConversation,
+      extractMemoryFromUserTurn,
+      ragDatasource,
+      isAgentSelected,
+    ]
   );
 
   const handleRecordingComplete = async (audioBlob: Blob) => {
@@ -471,8 +653,33 @@ export default function VoiceAgentApp() {
     localStorage.setItem("conversationCounter", conversationCounter.toString());
   }, [conversationCounter]);
 
-  const isProcessing = stage === "transcribing" || stage === "thinking" || stage === "speaking";
+  const isProcessing =
+    stage === "transcribing" ||
+    stage === "retrieving" ||
+    stage === "searching" ||
+    stage === "thinking" ||
+    stage === "speaking";
   const stageConfig = STAGE_CONFIG[stage];
+
+  // Header buttons keep the existing icon-button look exactly — same size, same
+  // hover treatment as Status/Settings. "On" is shown by the icon taking the
+  // accent colour, not by a filled pill, so the header reads as it always has.
+  const toggleClass = (active: boolean, disabled = false) =>
+    cn(
+      "w-8 h-8 flex items-center justify-center rounded-lg transition-colors relative",
+      disabled && "opacity-40 cursor-not-allowed",
+      active
+        ? "text-TT-purple-accent"
+        : theme === "dark"
+          ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+          : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+    );
+
+  const webSearchTooltip = isAgentAvailable
+    ? "Let the assistant search the web before answering"
+    : models.llm
+      ? "Web search needs a tool-calling model and a configured TAVILY_API_KEY"
+      : "Deploy a chat model to enable web search";
 
   return (
     <motion.div
@@ -495,7 +702,7 @@ export default function VoiceAgentApp() {
         transition={{ delay: 0.1 }}
         className={cn(
           "flex items-center justify-between px-5 py-3 shrink-0 border-b",
-          theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
+          theme === "dark" ? "border-white/[0.1] bg-white/[0.03]" : "border-black/[0.08] bg-black/[0.02]"
         )}
       >
         <div className="flex items-center gap-3">
@@ -545,6 +752,82 @@ export default function VoiceAgentApp() {
             </Tooltip>
           </TooltipProvider>
 
+          {/* Knowledge (RAG) toggle — click toggles, chevron picks a collection */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        aria-label="Knowledge source"
+                        aria-pressed={Boolean(ragDatasource)}
+                        disabled={knowledgeOptions.length === 0}
+                        className={toggleClass(
+                          Boolean(ragDatasource),
+                          knowledgeOptions.length === 0
+                        )}
+                      >
+                        <Database className="w-4 h-4" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-60 p-1">
+                      <p className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+                        Answer from documents
+                      </p>
+                      <button
+                        onClick={() => setRagCollectionId(null)}
+                        className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted transition-colors"
+                      >
+                        <span>Off</span>
+                        {!ragDatasource && <Check className="h-3.5 w-3.5" />}
+                      </button>
+                      {knowledgeOptions.map((collection) => (
+                        <button
+                          key={collection.id}
+                          onClick={() => setRagCollectionId(collection.id)}
+                          className="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted transition-colors"
+                        >
+                          <span className="truncate">{collectionLabel(collection)}</span>
+                          {ragCollectionId === collection.id && (
+                            <Check className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {knowledgeOptions.length === 0
+                  ? "No collections yet — add one in RAG Management"
+                  : "Ground answers in a document collection"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Web search (Search Agent) toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <button
+                    aria-label="Web search"
+                    aria-pressed={isAgentSelected}
+                    disabled={!isAgentAvailable}
+                    onClick={() => setIsAgentSelected(!isAgentSelected)}
+                    className={toggleClass(isAgentSelected, !isAgentAvailable)}
+                  >
+                    <Globe className="w-4 h-4" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {webSearchTooltip}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           {/* Status popover */}
           <Popover>
             <PopoverTrigger asChild>
@@ -569,27 +852,24 @@ export default function VoiceAgentApp() {
             </PopoverContent>
           </Popover>
 
-          {/* Metrics sheet */}
-          <Sheet>
-            <SheetTrigger asChild>
-              <button
-                className={cn(
-                  "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
-                  theme === "dark"
-                    ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
-                    : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
-                )}
-              >
-                <BarChart3 className="w-4 h-4" />
-              </button>
-            </SheetTrigger>
-            <SheetContent side="right">
-              <SheetHeader>
-                <SheetTitle className="font-['Bricolage_Grotesque']">Pipeline Metrics</SheetTitle>
-              </SheetHeader>
-              <MetricsPanel metrics={metrics} />
-            </SheetContent>
-          </Sheet>
+          {/* Metrics — shows the panel inline, right under the header */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label="Pipeline metrics"
+                  aria-pressed={showMetrics}
+                  onClick={() => setShowMetrics(!showMetrics)}
+                  className={toggleClass(showMetrics)}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {showMetrics ? "Hide pipeline metrics" : "Show pipeline metrics"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           {/* Assistant prompt settings sheet */}
           <Sheet>
@@ -649,6 +929,27 @@ export default function VoiceAgentApp() {
         </motion.div>
       )}
 
+      {/* Inline metrics — stays open across turns while the toggle is on */}
+      <AnimatePresence initial={false}>
+        {showMetrics && (
+          <motion.div
+            key="metrics"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className={cn(
+              "shrink-0 overflow-hidden border-b",
+              theme === "dark"
+                ? "border-white/[0.1] bg-white/[0.02]"
+                : "border-black/[0.08] bg-black/[0.01]"
+            )}
+          >
+            <MetricsPanel metrics={metrics} variant="compact" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Transcript area */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -672,7 +973,7 @@ export default function VoiceAgentApp() {
         transition={{ delay: 0.2 }}
         className={cn(
           "shrink-0 border-t px-5 py-3",
-          theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
+          theme === "dark" ? "border-white/[0.1] bg-white/[0.03]" : "border-black/[0.08] bg-black/[0.02]"
         )}
       >
         <AudioRecorderWithVisualizer

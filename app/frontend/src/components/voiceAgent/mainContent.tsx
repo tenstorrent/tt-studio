@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import { Copy, Play, Pause, Volume2, Mic } from "lucide-react";
+import { memo, useCallback, useState, useEffect, useRef, useMemo } from "react";
+import { Copy, Database, ExternalLink, Globe, Play, Pause, Search, Volume2 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { cn } from "../../lib/utils";
 import {
@@ -14,19 +14,21 @@ import {
 import { useTheme } from "../../hooks/useTheme";
 import { motion } from "framer-motion";
 import MarkdownComponent from "@/src/components/chatui/MarkdownComponent";
-import type { Conversation, ConversationMessage, PipelineStage } from "./types";
+import type {
+  Conversation,
+  ConversationMessage,
+  PipelineMetrics,
+  PipelineStage,
+} from "./types";
+import { cleanLlmText } from "./lib/cleanSpeech";
 
-function cleanLlmText(text: string): string {
-  return text
-    .replace(/<\|.*?\|>(&gt;)?/g, "")
-    .replace(/\b(assistant|user)\b/gi, "")
-    .replace(/\|(?:eot_id|start_header_id)\|/g, "")
-    .replace(/<think>.*?<\/think>/gis, "")
-    .replace(/<think>.*$/is, "")
-    .replace(/<\/think>/gi, "")
-    .replace(/&(lt|gt);/g, "")
-    .trim();
-}
+// Labels for the stages where the assistant is working before any answer text
+// exists, so a slow retrieval or web search doesn't look like a hang.
+const ACTIVITY_LABELS: Partial<Record<PipelineStage, string>> = {
+  retrieving: "Searching your documents",
+  searching: "Searching the web",
+  thinking: "Thinking",
+};
 
 interface MainContentProps {
   conversations: Conversation[];
@@ -52,36 +54,43 @@ export function MainContent({
     ? conversations.find((c) => c.id === selectedConversation)
     : null;
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
-    if (contentContainerRef.current) {
-      setTimeout(() => {
-        if (contentContainerRef.current) {
-          contentContainerRef.current.scrollTo({
-            top: contentContainerRef.current.scrollHeight,
-            behavior,
-          });
-        }
-      }, 50);
-    }
-  };
+  const scrollToBottom = useCallback((behavior: "smooth" | "auto" = "smooth") => {
+    const container = contentContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  }, []);
 
   useEffect(() => {
     if (selectedConversationData?.messages.length) {
       scrollToBottom("auto");
     }
-  }, [selectedConversation]);
+  }, [selectedConversation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (autoScrollEnabled && selectedConversationData?.messages.length) {
       scrollToBottom();
     }
-  }, [selectedConversationData?.messages.length, autoScrollEnabled]);
+  }, [selectedConversationData?.messages.length, autoScrollEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // While tokens stream in, follow the bottom on animation frames and only when
+  // the content actually grew. The previous 300ms interval fired a *smooth*
+  // scroll unconditionally, so every tick queued a new easing animation on top
+  // of the one still running — that's what made streaming feel choppy. Instant
+  // scroll on real growth keeps the text pinned without animation pile-up.
   useEffect(() => {
-    if (isStreaming && autoScrollEnabled) {
-      const interval = setInterval(() => scrollToBottom(), 300);
-      return () => clearInterval(interval);
-    }
+    if (!isStreaming || !autoScrollEnabled) return;
+    let frame = 0;
+    let lastHeight = -1;
+    const follow = () => {
+      const container = contentContainerRef.current;
+      if (container && container.scrollHeight !== lastHeight) {
+        lastHeight = container.scrollHeight;
+        container.scrollTop = container.scrollHeight;
+      }
+      frame = requestAnimationFrame(follow);
+    };
+    frame = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(frame);
   }, [isStreaming, autoScrollEnabled]);
 
   useEffect(() => {
@@ -97,9 +106,19 @@ export function MainContent({
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const copyToClipboard = (text: string) => {
+  // Stable identity, or every ChatMessage's memo would be invalidated per frame.
+  const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-  };
+  }, []);
+
+  // Hoisted out of the render map, which used to run findLastIndex per message.
+  const lastAssistantIndex = useMemo(
+    () =>
+      selectedConversationData?.messages.findLastIndex(
+        (m) => m.sender === "assistant"
+      ) ?? -1,
+    [selectedConversationData?.messages]
+  );
 
   return (
     <div
@@ -110,29 +129,22 @@ export function MainContent({
         {selectedConversationData &&
         selectedConversationData.messages.length > 0 ? (
           <div className="flex flex-col gap-5">
-            {selectedConversationData.messages.map((message, index) => {
-              const isLastAssistant =
-                message.sender === "assistant" &&
-                index ===
-                  selectedConversationData.messages.findLastIndex(
-                    (m) => m.sender === "assistant"
-                  );
-              return (
-                <motion.div
-                  key={message.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25, delay: 0.03 }}
-                >
-                  <ChatMessage
-                    message={message}
-                    theme={theme}
-                    onCopy={copyToClipboard}
-                    isSynthesizing={isLastAssistant && isTTSGenerating}
-                  />
-                </motion.div>
-              );
-            })}
+            {/* No wrapper element here on purpose: a motion.div per message
+                re-rendered on every streamed frame (inline props = fresh
+                identity), defeating ChatMessage's memo from the outside. The
+                entrance animation lives on ChatMessage's own root instead. */}
+            {selectedConversationData.messages.map((message, index) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                theme={theme}
+                onCopy={copyToClipboard}
+                isSynthesizing={index === lastAssistantIndex && isTTSGenerating}
+                // Only the in-flight turn cares about the stage. Passing it to
+                // every message would break their memo on each change.
+                stage={message.isStreaming ? stage : undefined}
+              />
+            ))}
 
             {isStreaming && (
               <div className="flex items-center gap-1.5 px-1 py-2">
@@ -152,43 +164,31 @@ export function MainContent({
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full min-h-[200px] sm:min-h-[300px] gap-3 sm:gap-4">
+          // Empty state is centred in the panel; the message log itself stays
+          // left-aligned once there's a conversation to show.
+          <div className="flex flex-col items-center justify-center h-full min-h-[200px] sm:min-h-[300px] gap-2 text-center">
             {stage === "recording" ? (
               <>
-                <div className="relative w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 flex items-center justify-center">
+                <div className="relative w-8 h-8 flex items-center justify-center">
                   <span className="absolute inset-0 rounded-full bg-TT-red-accent/30 animate-ping" />
-                  <span className="relative w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full bg-TT-red-accent" />
+                  <span className="relative w-2.5 h-2.5 rounded-full bg-TT-red-accent" />
                 </div>
-                <p
-                  className={cn(
-                    "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium text-TT-red-accent"
-                  )}
-                >
-                  Listening...
+                <p className="text-sm font-['Bricolage_Grotesque'] font-medium text-TT-red-accent">
+                  Listening…
                 </p>
               </>
             ) : (
-              <>
-                <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center bg-TT-purple-accent/10">
-                  <Mic className="w-6 h-6 sm:w-7 sm:h-7 lg:w-8 lg:h-8 text-TT-purple-accent opacity-60" />
-                </div>
-                <p
-                  className={cn(
-                    "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium",
-                    theme === "dark" ? "text-gray-500" : "text-gray-400"
-                  )}
-                >
-                  Press the microphone to start
-                </p>
-                <p
-                  className={cn(
-                    "text-xs sm:text-sm font-mono tracking-wide",
-                    theme === "dark" ? "text-gray-600" : "text-gray-400/80"
-                  )}
-                >
-                  or say <span className="text-TT-purple-accent font-semibold">"Hey Quiet Box"</span>
-                </p>
-              </>
+              // Just says what the area is. How to start is the mic button's
+              // own status line right below it — saying it in both places put
+              // the same "Hey Quiet Box" hint on screen twice.
+              <p
+                className={cn(
+                  "text-sm sm:text-base font-['Bricolage_Grotesque'] font-medium",
+                  theme === "dark" ? "text-gray-300" : "text-gray-600"
+                )}
+              >
+                Your conversation will appear here
+              </p>
             )}
           </div>
         )}
@@ -197,18 +197,34 @@ export function MainContent({
   );
 }
 
-function ChatMessage({
+const ChatMessage = memo(function ChatMessage({
   message,
   theme,
   onCopy,
   isSynthesizing = false,
+  stage = "idle",
 }: {
   message: ConversationMessage;
   theme: string;
   onCopy: (text: string) => void;
   isSynthesizing?: boolean;
+  stage?: PipelineStage;
 }) {
   const isUser = message.sender === "user";
+  // cleanLlmText runs ~15 chained regex replacements over the whole message.
+  // Uncached, that ran for every message on every streamed frame — O(n²) over a
+  // turn. Keyed on the text so only the message that actually changed pays.
+  const displayText = useMemo(
+    () => (isUser ? message.text : cleanLlmText(message.text)),
+    [isUser, message.text]
+  );
+  // Search markers can arrive before any answer text — show what's happening
+  // instead of an empty bubble.
+  const activityLabel =
+    !isUser && message.isStreaming && !displayText
+      ? ACTIVITY_LABELS[stage] ?? "Thinking"
+      : null;
+  const latestQuery = message.searchQueries?.[message.searchQueries.length - 1];
 
   const audioSrc = useMemo(() => {
     if (message.audioBlob) return URL.createObjectURL(message.audioBlob);
@@ -222,14 +238,26 @@ function ChatMessage({
   }, [audioSrc]);
 
   return (
-    <div className={cn(
-      "flex flex-col gap-1 pl-3 border-l-2",
-      isUser
-        ? "border-TT-purple-accent/50"
-        : theme === "dark"
-          ? "border-white/[0.08]"
-          : "border-black/[0.08]"
-    )}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className={cn(
+        // text-left is explicit because #root in App.css sets text-align:center
+        // app-wide (Vite boilerplate leftover), which every message would
+        // otherwise inherit. The chat transcript does the same thing.
+        "flex flex-col gap-1 pl-3 border-l-2 text-left transition-colors duration-500",
+        isUser
+          ? "border-TT-purple-accent/50"
+          // The in-flight turn's rail warms to the active accent, then settles
+          // back when the answer lands. Colour transition only — nothing layout.
+          : message.isStreaming
+            ? "border-TT-yellow/60"
+            : theme === "dark"
+              ? "border-white/[0.08]"
+              : "border-black/[0.08]"
+      )}
+    >
       {/* Role label + timestamp */}
       <div className="flex items-center gap-2">
         <span
@@ -260,21 +288,29 @@ function ChatMessage({
           theme === "dark" ? "text-gray-200" : "text-gray-800"
         )}
       >
-        {message.text ? (
+        {displayText ? (
           isUser ? (
-            <p className="whitespace-pre-wrap break-words">{message.text}</p>
+            <p className="whitespace-pre-wrap break-words">{displayText}</p>
           ) : (
-            <MarkdownComponent>{cleanLlmText(message.text)}</MarkdownComponent>
+            <MarkdownComponent>{displayText}</MarkdownComponent>
           )
-        ) : (
-          <span className="opacity-40 italic">
-            {message.isStreaming ? "Thinking..." : ""}
-          </span>
-        )}
-        {message.isStreaming && message.text && (
+        ) : activityLabel ? (
+          <ActivityRow label={activityLabel} query={latestQuery} theme={theme} stage={stage} />
+        ) : null}
+        {message.isStreaming && displayText && (
           <span className="inline-block w-1 h-3.5 bg-TT-yellow ml-0.5 animate-pulse align-text-bottom" />
         )}
       </div>
+
+      {/* Where this answer came from */}
+      {!isUser && !message.isStreaming && (
+        <SourceChips message={message} theme={theme} />
+      )}
+
+      {/* What the turn cost, once it's finished */}
+      {!isUser && !message.isStreaming && message.metrics && (
+        <TurnMetrics metrics={message.metrics} theme={theme} />
+      )}
 
       {/* Audio playback / synthesizing indicator */}
       {message.audioBlob && audioSrc ? (
@@ -308,6 +344,157 @@ function ChatMessage({
           </TooltipProvider>
         </div>
       )}
+    </motion.div>
+  );
+});
+
+// Live "what the assistant is doing" row, shown in place of an empty bubble.
+function ActivityRow({
+  label,
+  query,
+  theme,
+  stage,
+}: {
+  label: string;
+  query?: string;
+  theme: string;
+  stage: PipelineStage;
+}) {
+  const Icon = stage === "retrieving" ? Database : stage === "searching" ? Globe : Search;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className="flex items-center gap-2 py-0.5"
+    >
+      <Icon className="w-3.5 h-3.5 text-TT-yellow shrink-0 animate-pulse" />
+      <span
+        className={cn(
+          "text-xs font-mono",
+          theme === "dark" ? "text-gray-400" : "text-gray-500"
+        )}
+      >
+        {label}
+        {query && (
+          <>
+            {" — "}
+            <span className="italic text-TT-yellow">{query}</span>
+          </>
+        )}
+      </span>
+      <span className="flex items-center gap-1">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="w-1 h-1 rounded-full bg-TT-yellow animate-bounce"
+            style={{ animationDelay: `${i * 150}ms` }}
+          />
+        ))}
+      </span>
+    </motion.div>
+  );
+}
+
+// Per-turn pipeline timings, printed under the answer they belong to. Mirrors
+// the chat transcript's inline stats line (chatui/InferenceStats.tsx): mono,
+// tabular, dot-separated, and quiet enough to ignore until you look for it.
+function TurnMetrics({
+  metrics,
+  theme,
+}: {
+  metrics: PipelineMetrics;
+  theme: string;
+}) {
+  const ms = (value: number | undefined) =>
+    value === undefined
+      ? null
+      : value >= 1000
+        ? `${(value / 1000).toFixed(1)}s`
+        : `${Math.round(value)}ms`;
+
+  const segments = [
+    metrics.stt_latency_ms !== undefined ? `STT ${ms(metrics.stt_latency_ms)}` : null,
+    metrics.rag_used && metrics.rag_latency_ms !== undefined
+      ? `RAG ${ms(metrics.rag_latency_ms)}`
+      : null,
+    metrics.rag_used && metrics.rag_doc_count !== undefined
+      ? `${metrics.rag_doc_count} docs`
+      : null,
+    metrics.llm_ttfb_ms ? `TTFB ${ms(metrics.llm_ttfb_ms)}` : null,
+    metrics.llm_total_ms !== undefined ? `LLM ${ms(metrics.llm_total_ms)}` : null,
+    metrics.tts_latency_ms !== undefined ? `TTS ${ms(metrics.tts_latency_ms)}` : null,
+    metrics.total_ms !== undefined ? `total ${ms(metrics.total_ms)}` : null,
+  ].filter((segment): segment is string => segment !== null);
+
+  if (!segments.length) return null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-1.5 font-mono text-[11px] tabular-nums mt-0.5",
+        theme === "dark" ? "text-white/30" : "text-gray-400"
+      )}
+    >
+      {segments.map((segment, i) => (
+        <span key={segment} className="flex items-center gap-1.5">
+          {i > 0 && <span className="opacity-40">·</span>}
+          {segment}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// After the turn settles: which collection grounded it, and any web sources.
+function SourceChips({
+  message,
+  theme,
+}: {
+  message: ConversationMessage;
+  theme: string;
+}) {
+  const hasSources = Boolean(message.sources?.length);
+  if (!message.ragCollection && !hasSources) return null;
+
+  const chipClass = cn(
+    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono max-w-[14rem]",
+    theme === "dark"
+      ? "bg-white/[0.06] text-gray-400"
+      : "bg-black/[0.04] text-gray-500"
+  );
+
+  // Chips arrive together at the end of a turn, so a short stagger reads as
+  // "here's where that came from" rather than a block appearing at once.
+  const chipMotion = (index: number) => ({
+    initial: { opacity: 0, y: 3 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.18, delay: index * 0.04 },
+  });
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+      {message.ragCollection && (
+        <motion.span className={chipClass} {...chipMotion(0)}>
+          <Database className="w-2.5 h-2.5 shrink-0" />
+          <span className="truncate">{message.ragCollection}</span>
+        </motion.span>
+      )}
+      {message.sources?.map((source, i) => (
+        <motion.a
+          key={source.url}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={source.url}
+          className={cn(chipClass, "hover:text-TT-purple-accent transition-colors")}
+          {...chipMotion(i + (message.ragCollection ? 1 : 0))}
+        >
+          <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+          <span className="truncate">{source.title || source.url}</span>
+        </motion.a>
+      ))}
     </div>
   );
 }

@@ -20,6 +20,14 @@ export const VOICE_PROMPT_VARIABLES = ["{user_name}", "{model_name}"] as const;
 export const VOICE_PROMPT_SAFETY_SUFFIX =
   "Warning: ONLY reply to what the user is saying. Do not make up information or talk to yourself.";
 
+// Added on top of the prompt for turns where retrieved documents or web search
+// results are in play. Grounding rules plus a reminder that citations and URLs
+// are unusable in speech.
+export const VOICE_PROMPT_GROUNDING_CLAUSE =
+  "Grounding: Answer from the provided context and search results. If the answer isn't in them, say so plainly instead of guessing. " +
+  "Never read out URLs, citation markers, or source lists — the user hears your reply, they don't see it. " +
+  "Mention a source only by its plain name if it genuinely helps.";
+
 export const DEFAULT_VOICE_SYSTEM_PROMPT = `Role: You are a helpful, friendly voice assistant having a real spoken conversation with the user.
 Style: Talk like a person — warm, natural, and conversational. Use contractions, light filler ("sure", "got it", "hmm"), and vary your phrasing so you don't sound scripted.
 Engagement: Actually answer the user's question or request. When it makes sense, ask a brief follow-up to keep the conversation going, but don't force it on every turn.

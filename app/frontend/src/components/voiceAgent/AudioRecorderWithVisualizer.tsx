@@ -234,7 +234,7 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
           : "Processing..."
     : isRecording
       ? "Listening — click to stop"
-      : "Click to record";
+      : 'Say "Hey Quiet Box" or click to record';
 
   return (
     <div className={cn("flex flex-col items-center gap-0.5 sm:gap-1.5", className)}>
