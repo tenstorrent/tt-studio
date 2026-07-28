@@ -75,10 +75,13 @@ body:has(.hero) footer {
   margin: 0 0 1.25rem;
 }
 
-/* tt_theme.css gives headings inside .document `overflow-x: scroll` so a long
-   one can scroll rather than overflow. The hero headline is sized to fit, and
-   the rule leaves a permanent scrollbar drawn across it in Firefox. */
+/* tt_theme.css makes every heading in .document a flex container with
+   `overflow-x: scroll`, so that a heading and its anchor link sit on one
+   centred line. The hero headline is a sentence with an emphasised word in
+   it, so under those rules each run of text becomes its own flex item and
+   wraps separately, and Firefox draws a permanent scrollbar across it. */
 .rst-content .hero .hero-title {
+  display: block;
   overflow: visible;
   font-family: var(--font-display);
   font-weight: 400;
@@ -200,6 +203,22 @@ body:has(.hero) footer {
   margin: 8px 0 0 !important;
   line-height: 1.5 !important;
   letter-spacing: var(--wide);
+}
+
+/* ── Reference tables ────────────────────────────────────────────────────
+   Wide tables (the board support matrix, the flag reference) otherwise run
+   past the right edge of the content column. Excludes the two card classes,
+   which do their own layout. */
+
+.rst-content table.docutils:not(.tt-index-cards):not(.tt-feature-cards) {
+  width: 100%;
+  table-layout: auto;
+}
+
+.rst-content table.docutils:not(.tt-index-cards):not(.tt-feature-cards) td,
+.rst-content table.docutils:not(.tt-index-cards):not(.tt-feature-cards) th {
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 /* ── Source file dropdown ────────────────────────────────────────────────

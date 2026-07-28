@@ -12,7 +12,9 @@ no per-token cost.
   **Llama-3.3-70B-Instruct**, or **Qwen3-32B**.
 - The LiteLLM gateway, which starts with the rest of the stack on port 4000.
 
-:::{note} Why only those models
+:::{admonition} Why only those models
+:class: note
+
 A coding agent leans hard on tool calling — reading files, running commands, applying edits. A
 model that gets tool calls subtly wrong is worse than no agent at all, so the gateway only offers
 models whose native tool calling has been verified.

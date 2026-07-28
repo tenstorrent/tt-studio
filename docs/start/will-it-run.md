@@ -5,19 +5,25 @@ the answer for your specific board, and the two supported paths if you don't hav
 
 ## The 30-second answer
 
-:::{tip} You have a Tenstorrent card
+:::{admonition} You have a Tenstorrent card
+:class: tip
+
 Yes. Run `python3 run.py`. The card is detected automatically through `/dev/tenstorrent`, the
 hardware compose overlay is applied for you, and the model list is filtered to what your board can
 actually run. Skip to [Quickstart](quickstart.md).
 :::
 
-:::{note} You don't have a Tenstorrent card
+:::{admonition} You don't have a Tenstorrent card
+:class: note
+
 Yes, with limits. Either point TT-Studio at remote endpoints running on cards elsewhere, or deploy
 the CPU-only echo model to exercise the full workflow locally. Both are covered in
 [No Tenstorrent hardware](#no-tenstorrent-hardware) below.
 :::
 
-:::{warning} You have a card that isn't in the table below
+:::{admonition} You have a card that isn't in the table below
+:class: warning
+
 TT-Studio will start and detect it, but individual models declare which device configurations they
 support, so the catalog may show little or nothing as deployable. Mixed board types in one machine
 are not supported — detection requires a homogeneous setup.
@@ -32,7 +38,9 @@ are not supported — detection requires a homogeneous setup.
   [Tenstorrent Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html).
 - **A Hugging Face account and token**, for gated weights such as Llama.
 
-:::{important} Secrets are set in the app, not in a file
+:::{admonition} Secrets are set in the app, not in a file
+:class: important
+
 The Hugging Face token and the other API keys are entered in the first-run Welcome wizard, or later
 under Settings. Values in `.env` are only used as a fallback. If you last used TT-Studio when these
 lived in the environment file, this is the change most likely to trip you up.
@@ -58,7 +66,10 @@ board isn't held to that check.
 Complete models over total models in the catalog, per board. A dash means nothing in the catalog
 targets that combination.
 
-| Board | Chat | Vision-lang. | Image | Video | Speech-to-text | Text-to-speech | Embeddings | Classification |
+Columns are **VLM** vision-language, **Image** image generation, **Video** video generation,
+**STT** speech-to-text, **TTS** text-to-speech, **Embed** embeddings, **CNN** image classification.
+
+| Board | Chat | VLM | Image | Video | STT | TTS | Embed | CNN |
 | :--- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | N150 | 2/8 | 0/4 | 3/3 | — | 2/2 | 1/1 | 0/3 | 3/7 |
 | N300 | 2/10 | 0/6 | 3/3 | — | 2/2 | 1/1 | 0/3 | 3/7 |
@@ -69,9 +80,11 @@ targets that combination.
 | P150X4 | 2/2 | — | 2/2 | 1/1 | — | — | — | — |
 | P150X8 | 3/3 | — | 2/2 | 1/1 | — | — | — | — |
 | P300 | 1/1 | — | 2/2 | — | — | — | — | — |
-| P300x2 (QuietBox 2) | 3/3 | — | 2/2 | 1/1 | 2/2 | 1/1 | — | — |
+| P300x2 | 3/3 | — | 2/2 | 1/1 | 2/2 | 1/1 | — | — |
 | GALAXY | 3/8 | 0/2 | 6/8 | 1/1 | 2/2 | — | 0/3 | — |
 | GALAXY_T3K | 3/8 | 0/2 | — | — | — | — | — | — |
+
+`P300x2` is the QuietBox 2.
 
 Counts are from tt-inference-server artifact v0.18.0 (54 entries, 17 complete). Two things the
 table can't show:

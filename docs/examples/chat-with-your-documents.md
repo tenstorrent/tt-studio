@@ -63,7 +63,9 @@ your own. It's password-protected via `RAG_ADMIN_PASSWORD`.
 
 ## Troubleshooting
 
-:::{warning} Your collections vanished
+:::{admonition} Your collections vanished
+:class: warning
+
 Collections are scoped per browser. If you switched browsers, opened a private window, or cleared
 site data, you're a different user as far as the backend is concerned and you'll see an empty list.
 The data is still there — the admin page can see it.

@@ -91,7 +91,9 @@ the containers. Use `--stop` for anything routine.
 | `--report-bug` | Collect a diagnostics bundle and open a pre-filled GitHub issue |
 | `--verbose`, `-v` | Full output |
 
-:::{note} Deprecated aliases
+:::{admonition} Deprecated aliases
+:class: note
+
 `--cleanup` and `--cleanup-all` still work but are hidden. Use `--stop` and `--purge-all`.
 :::
 
@@ -100,7 +102,9 @@ the containers. Use `--stop` for anything routine.
 A single canonical `.env` at the repository root configures the whole project. `run.py` creates it
 from `.env.default` if it doesn't exist. Run `python3 run.py --help-env` for the complete list.
 
-:::{important} Secrets live in the UI
+:::{admonition} Secrets live in the UI
+:class: important
+
 `HF_TOKEN`, `TTS_API_KEY`, `TAVILY_API_KEY` and `JWT_SECRET` are set in the first-run Welcome wizard
 or later under Settings, and are stored for you. Values in `.env` are a fallback only, and
 `JWT_SECRET` is generated automatically on first run.

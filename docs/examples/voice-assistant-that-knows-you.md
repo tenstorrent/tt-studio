@@ -14,7 +14,9 @@ Three models deployed and healthy:
 - **A chat model** for the reply
 - **SpeechT5** for text-to-speech
 
-:::{warning} Check your board first
+:::{admonition} Check your board first
+:class: warning
+
 SpeechT5 targets N150, N300, P150 and P300x2 only. On a T3K there is no text-to-speech model in the
 catalog, so you can build the listening half of the pipeline but it won't speak back. See
 [Will it run on my machine?](../start/will-it-run.md).

@@ -23,7 +23,9 @@ requirements than chat models. Find your board here before deploying anything.
 All of the above are marked complete. Qwen-Image is also in the catalog for T3K and Galaxy, but
 it's functional rather than complete.
 
-:::{note} On a single Wormhole card
+:::{admonition} On a single Wormhole card
+:class: note
+
 N150 and N300 get the three SDXL variants and nothing else. That's still text-to-image,
 image-to-image and inpainting — a complete workflow. FLUX and video need a multi-chip board.
 :::
