@@ -133,4 +133,4 @@ To maintain system hygiene or reset the environment, `run.py` provides cleanup o
     ```
     [app/README.md:65-76](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L65-L76)
 
-**Sources:** [run.py:18-19](https://github.com/tenstorrent/tt-studio/blob/c837b829/run.py#L18-L19), [app/README.md:65-78](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L65-L78)19:T1eb4,# Architecture Overview
+**Sources:** [run.py:18-19](https://github.com/tenstorrent/tt-studio/blob/c837b829/run.py#L18-L19), [app/README.md:65-78](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L65-L78)

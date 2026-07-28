@@ -135,4 +135,4 @@ The app relies on two primary environment variables for log location:
 1.  `INTERNAL_PERSISTENT_STORAGE_VOLUME`: The base path (aliased as `LOGS_ROOT`) for persistent backend logs [app/backend/logs_control/views.py:24](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py#L24).
 2.  `TT_STUDIO_ROOT`: The root directory used to locate inference artifacts and internal logs [app/backend/logs_control/views.py:25](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py#L25).
 
-Sources: [app/backend/logs_control/views.py:24-25](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py#L24-L25)21:T1a3a,# Docker Control Service
+Sources: [app/backend/logs_control/views.py:24-25](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py#L24-L25)

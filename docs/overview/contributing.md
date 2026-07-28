@@ -207,4 +207,4 @@ graph LR
     LCS -- "Checks_Drift" --> LINT
 ```
 
-**Sources:** [.claude/skills/feature-branch-pr/SKILL.md:1-181](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md?plain=1#L1-L181), [.claude/skills/license-attribution-compliance/SKILL.md:1-135](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L1-L135), [.claude/skills/tt-studio-overview/SKILL.md:1-56](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/tt-studio-overview/SKILL.md?plain=1#L1-L56)1b:T180d,# Backend Services
+**Sources:** [.claude/skills/feature-branch-pr/SKILL.md:1-181](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md?plain=1#L1-L181), [.claude/skills/license-attribution-compliance/SKILL.md:1-135](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md?plain=1#L1-L135), [.claude/skills/tt-studio-overview/SKILL.md:1-56](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/tt-studio-overview/SKILL.md?plain=1#L1-L56)

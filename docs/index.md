@@ -114,7 +114,7 @@ The system relies on an `.env` file (managed via `run.py`) to handle critical pa
 *   **LITELLM_MASTER_KEY**: Authentication key for the LiteLLM gateway [app/docker-compose.yml:65](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L65).
 *   **HF_TOKEN**: Hugging Face token for downloading gated models [CLAUDE.md:75-76](https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md?plain=1#L75-L76).
 
-**Sources:** [app/docker-compose.yml:30-67](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L30-L67), [app/README.md:79-81](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L79-L81), [CLAUDE.md:73-80](https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md?plain=1#L73-L80)18:T1fc3,# Getting Started & Setup
+**Sources:** [app/docker-compose.yml:30-67](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L30-L67), [app/README.md:79-81](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L79-L81), [CLAUDE.md:73-80](https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md?plain=1#L73-L80)
 
 
 ```{toctree}

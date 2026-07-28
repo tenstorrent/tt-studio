@@ -36,6 +36,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Check for leaked generator artifacts
+        # The pages were originally exported from a tool that appended chunks of
+        # its own response stream to the end of each file. Catch a re-export
+        # that reintroduces them before it reaches the published site.
+        run: |
+          if grep -rnE '[0-9a-f]{2}:T[0-9a-f]{4},' docs --include='*.md'; then
+            echo "::error::Leaked generator stream markers found in docs/"
+            exit 1
+          fi
       - name: Install docs toolchain
         run: pip install -r docs/requirements.txt
       - name: Build HTML

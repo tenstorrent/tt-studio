@@ -113,4 +113,4 @@ Sources: [inference-api/api.py:32-139](https://github.com/tenstorrent/tt-studio/
 | `/models` | GET | Returns the list of supported models from `MODEL_SPECS` [inference-api/api.py:642](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L642). |
 | `/resolve-image` | GET | Returns the specific Docker image tag for a model/device combo via `get_runtime_model_spec` [inference-api/api.py:618](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L618). |
 
-Sources: [inference-api/api.py:618-815](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L618-L815)24:T14b6,# AI Agent Service
+Sources: [inference-api/api.py:618-815](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L618-L815)

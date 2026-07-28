@@ -127,4 +127,4 @@ The agent service is designed to be resilient. If the primary high-performance m
 *   **Endpoint Resolution**: The API URL is determined dynamically at runtime based on the `BACKEND_API_HOSTNAME` [app/docker-compose.yml:124-124](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L124-L124).
 *   **Polling Configuration**: Retry logic is governed by `AGENT_LLM_POLLING_MAX_ATTEMPTS` and `AGENT_LLM_POLLING_TIMEOUT` [app/docker-compose.yml:125-126](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L125-L126).
 
-Sources: [app/docker-compose.yml:117-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L117-L128).26:T1fe8,# Agent API & Tool Integration
+Sources: [app/docker-compose.yml:117-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L117-L128).

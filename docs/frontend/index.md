@@ -140,7 +140,7 @@ Sources: [app/frontend/package.json:7-16](https://github.com/tenstorrent/tt-stud
 *   `src/providers/`: React Context providers for global state [app/frontend/src/App.tsx:5-10](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L5-L10).
 *   `src/routes/`: Route definitions and path constants [app/frontend/src/App.tsx:6](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L6).
 
-Sources: [app/frontend/package.json:1-105](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L1-L105), [app/frontend/src/App.tsx:1-47](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L1-L47)28:T259e,# Application Shell: Routing, Layout & Providers
+Sources: [app/frontend/package.json:1-105](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L1-L105), [app/frontend/src/App.tsx:1-47](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx#L1-L47)
 
 
 ```{toctree}

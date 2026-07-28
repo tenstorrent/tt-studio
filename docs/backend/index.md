@@ -127,7 +127,7 @@ The backend environment is strictly controlled. It includes specific workarounds
 
 For development, the project includes VS Code settings for consistent formatting via ESLint and Prettier [.vscode/settings.json:1-16](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/settings.json#L1-L16), [.vscode/extensions.json:1-7](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/extensions.json#L1-L7).
 
-Sources: [app/backend/Dockerfile:5-58](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile#L5-L58), [app/backend/requirements.txt:1-32](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/requirements.txt#L1-L32).1c:T288d,# Docker Control & Container Lifecycle
+Sources: [app/backend/Dockerfile:5-58](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile#L5-L58), [app/backend/requirements.txt:1-32](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/requirements.txt#L1-L32).
 
 
 ```{toctree}

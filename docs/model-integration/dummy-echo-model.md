@@ -115,4 +115,4 @@ Sources: [models/dummy_echo_model/Dockerfile:59-60](https://github.com/tenstorre
 
 A standalone test script `test_dummy_backend.py` is provided to verify the backend logic without starting the Flask server. It manually pushes prompts into the `prompt_q` and executes `run_backend` to ensure tokens are generated and the sequence completes.
 
-Sources: [models/dummy_echo_model/src/dummy_echo_backend.py:124-143](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py#L124-L143), [models/dummy_echo_model/src/dummy_echo_backend.py:144-159](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py#L144-L159)31:T2626,# Glossary
+Sources: [models/dummy_echo_model/src/dummy_echo_backend.py:124-143](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py#L124-L143), [models/dummy_echo_model/src/dummy_echo_backend.py:144-159](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py#L144-L159)

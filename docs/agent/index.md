@@ -99,7 +99,7 @@ The service is configured via environment variables to communicate with the `tt_
 
 For details, see [Agent API & Tool Integration](api-and-tools.md).
 
-Sources: [app/docker-compose.yml:117-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L117-L128), [app/README.md:15-15](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L15-L15)25:T1d09,# Agent Architecture & LLM Discovery
+Sources: [app/docker-compose.yml:117-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L117-L128), [app/README.md:15-15](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L15-L15)
 
 
 ```{toctree}

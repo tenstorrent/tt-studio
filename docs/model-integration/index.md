@@ -100,7 +100,7 @@ graph LR
 
 For a step-by-step breakdown of the reference implementation and how to use it as a template, see **[Dummy Echo Model Reference Implementation](dummy-echo-model.md)**.
 
-Sources: [models/dummy_echo_model/src/inference_api_server.py:115-150](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py#L115-L150), [models/dummy_echo_model/Dockerfile:50-64](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile#L50-L64), [app/backend/docker_control/deployment_sync.py:47-54](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py#L47-L54).2f:T288e,# Model Configuration & Catalog
+Sources: [models/dummy_echo_model/src/inference_api_server.py:115-150](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py#L115-L150), [models/dummy_echo_model/Dockerfile:50-64](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile#L50-L64), [app/backend/docker_control/deployment_sync.py:47-54](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py#L47-L54).
 
 
 ```{toctree}

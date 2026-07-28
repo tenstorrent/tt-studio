@@ -135,4 +135,4 @@ Model implementations often require specific environment variables for tuning (e
 - Environment loading: [app/backend/shared_config/model_config.py:21-40](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/model_config.py#L21-L40)
 - Env file discovery: [app/backend/shared_config/model_config.py:155-168](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/model_config.py#L155-L168)
 - Catalog Env Vars: [app/backend/shared_config/models_from_inference_server.json:114-119](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json#L114-L119)
-- Coding Agent Config: [app/backend/shared_config/coding_agent_config.py:10-71](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/coding_agent_config.py#L10-L71)30:T1d9e,# Dummy Echo Model Reference Implementation
+- Coding Agent Config: [app/backend/shared_config/coding_agent_config.py:10-71](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/coding_agent_config.py#L10-L71)

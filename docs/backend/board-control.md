@@ -150,4 +150,4 @@ The `ChipStatusDisplay` component visualizes the physical layout of the chips. I
 **Sources:**
 - `app/backend/board_control/services.py`
 - `app/frontend/src/components/Footer.tsx`
-- `app/frontend/src/components/ChipStatusDisplay.tsx`20:T205a,# Logs Control & Bug Reporting
+- `app/frontend/src/components/ChipStatusDisplay.tsx`

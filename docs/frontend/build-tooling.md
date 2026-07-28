@@ -162,4 +162,4 @@ TT-Studio requires every source file to contain an SPDX license header. This is 
 ### License Auditing
 The project includes a script to generate a comprehensive third-party license file, ensuring compliance with open-source dependencies [app/frontend/package.json:17](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L17).
 
-**Sources:** [app/frontend/package.json:11-28](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L11-L28), [app/frontend/package.json:63-104](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L63-L104)2e:T1886,# Model Integration & Dummy Echo Model
+**Sources:** [app/frontend/package.json:11-28](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L11-L28), [app/frontend/package.json:63-104](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json#L63-L104)

@@ -105,7 +105,7 @@ The Inference API (port `8001`) uses the Docker Control Service to orchestrate t
 For details, see [Inference API (FastAPI Bridge)](inference-api.md).
 
 ---
-**Sources:** [app/backend/docker_control/docker_control_client.py:1-195](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py#L1-L195), [docker-control-service/api.py:1-90](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py#L1-L90), [docker-control-service/config.py:1-56](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py#L1-L56), [app/backend/docker_control/health_monitor.py:1-171](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py#L1-L171)22:T21a5,# Docker Control Service API & Security
+**Sources:** [app/backend/docker_control/docker_control_client.py:1-195](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py#L1-L195), [docker-control-service/api.py:1-90](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py#L1-L90), [docker-control-service/config.py:1-56](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py#L1-L56), [app/backend/docker_control/health_monitor.py:1-171](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py#L1-L171)
 
 
 ```{toctree}
