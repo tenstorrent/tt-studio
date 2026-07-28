@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-# Deploy healthcheck CI — drives ci/auto_healthcheck.py against a live TT-Studio
+# Deploy healthcheck CI — drives ci/deploy_healthcheck.py against a live TT-Studio
 # backend on a Tenstorrent self-hosted runner.
 #
 # Access / security model (public repo):
@@ -118,9 +118,10 @@ jobs:
           TIMEOUT: ${{ github.event.inputs.timeout || '2h' }}
         run: |
           set -euo pipefail
-          # auto_healthcheck.py cleans up by default and writes the step summary
-          # + ::error:: annotations itself. Its exit code drives the pass/fail ✓.
-          python3 ci/auto_healthcheck.py --models $MODELS --timeout "$TIMEOUT"
+          # deploy_healthcheck.py resets the board, mirrors the UI deploy, cleans
+          # up by default, and writes the step summary + ::error:: annotations.
+          # Its exit code drives the pass/fail ✓.
+          python3 ci/deploy_healthcheck.py --models $MODELS --timeout "$TIMEOUT"
 
       - name: Collect extra logs into the artifact
         if: always()
