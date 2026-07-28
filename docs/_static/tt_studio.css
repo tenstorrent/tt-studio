@@ -19,7 +19,9 @@
    exists on the tenstorrent.github.io /core homepage. The page title is kept
    in the source for the browser tab, breadcrumbs and the toctree label, and
    hidden here in favour of the hero headline. */
-body:has(.hero) .rst-content .document > section > h1,
+/* Selectors hang off the section that contains the hero rather than off
+   .document, because Sphinx puts an itemprop wrapper in between. */
+.rst-content section:has(> .hero) > h1,
 body:has(.hero) .wy-breadcrumbs,
 body:has(.hero) .wy-breadcrumbs-aside,
 body:has(.hero) .rst-footer-buttons {
@@ -29,17 +31,17 @@ body:has(.hero) .rst-footer-buttons {
 /* home.css zeroes the content padding so the hero can bleed to the viewport
    edge. Docutils wraps each `##` in its own section, so the sections below
    the hero can have their gutter back without affecting the hero itself. */
-body:has(.hero) .rst-content .document > section > section {
+.rst-content section:has(> .hero) > section {
   max-width: 76rem;
   margin: 0 auto;
   padding: 0 clamp(1.5rem, 6vw, 5rem);
 }
 
-body:has(.hero) .rst-content .document > section > section:first-of-type {
+.rst-content section:has(> .hero) > section:first-of-type {
   padding-top: 3.5rem;
 }
 
-body:has(.hero) .rst-content .document > section > section:last-of-type {
+.rst-content section:has(> .hero) > section:last-of-type {
   padding-bottom: 3rem;
 }
 
@@ -73,7 +75,11 @@ body:has(.hero) footer {
   margin: 0 0 1.25rem;
 }
 
+/* tt_theme.css gives headings inside .document `overflow-x: scroll` so a long
+   one can scroll rather than overflow. The hero headline is sized to fit, and
+   the rule leaves a permanent scrollbar drawn across it in Firefox. */
 .rst-content .hero .hero-title {
+  overflow: visible;
   font-family: var(--font-display);
   font-weight: 400;
   font-size: clamp(2.2rem, 5.5vw, 3.75rem);

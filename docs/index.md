@@ -1,116 +1,131 @@
-# TT-Studio Overview
+# TT-Studio
 
-TT-Studio is a comprehensive web-based platform designed to simplify the deployment and management of AI models on **Tenstorrent AI accelerators**. It integrates the model execution capabilities of [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) and the orchestration framework of [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) into a unified graphical user interface.
+::::{container} hero
 
-The system automates technical setup, hardware detection, and containerization, allowing users to interact with large language models (LLMs), computer vision, and speech-to-text pipelines through an intuitive React-based frontend. For users without local hardware, the platform supports connecting to remote endpoints via "AI Playground" configurations.
+<div class="hero-copy">
+<p class="hero-eyebrow">TT-Studio</p>
+<h1 class="hero-title">Run local AI on your <span>Tenstorrent</span> hardware.</h1>
+<p class="hero-lede">Deploy language models, voice agents, and image and video generation
+through one interface — privately, on hardware you own, without paying for tokens.</p>
+</div>
 
-## System Architecture & Code Entities
+:::{container} hero-cta
+[Get started](start/quickstart.md) [What is TT-Studio?](start/what-is-tt-studio.md)
+:::
 
-The following diagram illustrates how the logical services of TT-Studio map to specific code entities and network configurations defined in the orchestration layer.
+::::
 
-**Service-to-Code Mapping**
-```mermaid
-graph TD
-    subgraph "Frontend Space (Vite/React)"
-        FE["tt_studio_frontend"] -->|Entry| Main["app/frontend/src/main.tsx"]
-        FE -->|Routes| App["app/frontend/src/App.tsx"]
-    end
+## Up and running in one command
 
-    subgraph "Backend Space (Django/Uvicorn)"
-        BE["tt_studio_backend"] -->|ASGI| ASGI["app/backend/api/asgi.py"]
-        BE -->|Settings| SET["app/backend/api/settings.py"]
-        BE -->|Models| DB["app/backend/docker_control/models.py"]
-    end
-
-    subgraph "Agent Space (FastAPI)"
-        AG["tt_studio_agent"] -->|Logic| AL["app/agent/main.py"]
-    end
-
-    subgraph "Infrastructure"
-        DCS["docker-control-service"] -->|Port 8002| DC["docker-control-service/"]
-        CH["tt_studio_chroma"] -->|Port 8111| CR["chromadb/chroma:0.5.3"]
-        LT["tt_studio_litellm"] -->|Port 4000| LC["ghcr.io/berriai/litellm"]
-    end
-
-    FE ---|REST/WS| BE
-    BE ---|JWT Auth| DCS
-    BE ---|HTTP| CH
-    BE ---|Proxy| LT
-    AG ---|Polling| BE
+```bash
+tt-studio
 ```
 
----
+That's once it's installed. From a fresh clone it's `python3 run.py`, which fetches the inference
+server artifact, writes your configuration, picks the right Docker overlays for your hardware, and
+brings up the whole stack. See the [Quickstart](start/quickstart.md).
 
-## Key Capabilities
+## One stack. Every modality.
 
-TT-Studio provides several high-level features for both end-users and developers:
+Everything you need to deploy, talk to, and build on AI models, running on your own cards.
 
-* **Automated Model Deployment:** Orchestrates the lifecycle of AI models, including weight downloading, container instantiation via the `docker-control-service`, and chip slot allocation.
-* **Multi-Modal AI Features:** Built-in support for Chat (LLMs), Image Generation (Stable Diffusion), Speech-to-Text (Whisper), and Object Detection (YOLOv4).
-* **Retrieval-Augmented Generation (RAG):** Integrated ChromaDB vector store for document indexing and semantic search, enabling "chat with your data" capabilities.
-* **Autonomous AI Agent:** A dedicated `tt_studio_agent` service that can perform complex tasks, discover local LLM containers, and execute code.
-* **LiteLLM Gateway:** A LiteLLM instance acting as a gateway for coding-agent tasks and upstream LLM providers.
+:::{list-table}
+:class: tt-feature-cards
+:widths: 33 33 34
 
----
+* - Chat with language models
 
-## Logical Subsystems
+    Deploy a model and start talking. Llama, Qwen, Mistral and more, served from your cards.
+  - Voice agent
 
-TT-Studio is composed of several interdependent services networked via the `tt_studio_network` bridge.
+    Speak and listen, with a bundled wake word and per-stage latency you can actually see.
+  - Media generation
 
-**Subsystem Interaction Flow**
-```mermaid
-sequenceDiagram
-    participant User as "User (Browser)"
-    participant FE as "tt_studio_frontend"
-    participant BE as "tt_studio_backend"
-    participant DCS as "docker-control-service"
-    participant AG as "tt_studio_agent"
+    FLUX, Stable Diffusion and Wan video, generated entirely on-device.
+* - Retrieval over your documents
 
-    User->>FE: Request Model Deploy
-    FE->>BE: POST /api/docker_control/deploy/
-    BE->>DCS: API Call (Start Container)
-    DCS-->>BE: Container ID / Success
-    BE-->>FE: Deployment Started (SSE)
-    AG->>BE: /poll_requests (Discover LLM)
-    BE-->>AG: Active LLM Endpoint
-```
+    Ask questions about your own PDFs and notes. Nothing is uploaded anywhere.
+  - Your box as an endpoint
 
-### 1.1 Getting Started & Setup
-The entry point for the project is the `run.py` script. It handles prerequisite checks, hardware detection, environment configuration via `.env`, and offers different modes such as `--dev` for active development (mounting local source for hot-reload) and `--cleanup-all` for a clean slate.
-For details, see [Setup reference](start/setup-reference.md).
+    Point Claude Code, OpenCode or any OpenAI-compatible client at your own hardware.
+  - No card? Still works
 
-### 1.2 Architecture Overview
-The system runs as a multi-container Docker topology. It includes a Django backend (port 8000), a React frontend (port 3000), a FastAPI-based `docker-control-service` (port 8002) to proxy host-level operations (replacing direct socket mounts), and ChromaDB (port 8111) for vector storage.
-For details, see [Architecture Overview](architecture.md).
+    Use models running on cards elsewhere, or exercise the whole stack on CPU.
+:::
 
-### 1.3 Contributing & Development Workflow
-TT-Studio follows a structured contribution process, including branching strategies (branch off `dev`) and mandatory SPDX license headers. The workflow includes tools for checking and adding headers to maintain codebase compliance.
-For details, see [Contributing & Development Workflow](contributing.md).
+## Start here
 
----
+:::{list-table}
+:class: tt-index-cards
+:widths: 33 33 34
 
-## Configuration & Environment
-The system relies on an `.env` file (managed via `run.py`) to handle critical paths and secrets. Key variables include:
-* **TT_STUDIO_ROOT**: Absolute path to the repository root.
-* **HOST_PERSISTENT_STORAGE_VOLUME**: Location for database and model weight persistence on the host machine.
-* **DOCKER_CONTROL_SERVICE_URL**: Endpoint for the secure Docker operations proxy, typically `http://host.docker.internal:8002`.
-* **JWT_SECRET**: Used for authenticating internal service communication.
-* **LITELLM_MASTER_KEY**: Authentication key for the LiteLLM gateway.
-* **HF_TOKEN**: Hugging Face token for downloading gated models.
+* - [What is TT-Studio?](start/what-is-tt-studio.md)
 
----
+    What it does, where it sits in the Tenstorrent stack, and when to use something else instead.
+  - [Will it run on my machine?](start/will-it-run.md)
 
-:::{admonition} Source files this page was written from
-:class: dropdown tt-sources
+    Supported boards, what's deployable on each, and the two paths if you have no hardware.
+  - [Quickstart](start/quickstart.md)
 
-Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+    From clone to a model answering questions, in about ten minutes.
+:::
 
-- [`.cursor/rules/project-overview.mdc`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.cursor/rules/project-overview.mdc)
-- [`CLAUDE.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md)
-- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
-- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
-- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
-- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+## Explore the docs
+
+:::{list-table}
+:class: tt-index-cards
+:widths: 50 50
+
+* - [What you can build](start/use-cases.md)
+
+    The jobs people use TT-Studio for, and the features behind each one.
+  - [Examples](examples/index.md)
+
+    Eight worked walkthroughs, from document retrieval to unattended deployment.
+* - [Architecture Overview](architecture.md)
+
+    How the frontend, backend, gateway and control services fit together.
+  - [Backend Services](backend/index.md)
+
+    The Django app: container control, model control, board telemetry, vector store, logs.
+* - [Docker Control Service](docker-control-service/index.md)
+
+    The host-side proxy that manages containers, and its security model.
+  - [AI Agent Service](agent/index.md)
+
+    Model discovery, health monitoring, and the agent's tool integrations.
+* - [Frontend Application](frontend/index.md)
+
+    App shell, chat, deployment, retrieval and the specialised model interfaces.
+  - [Model Integration](model-integration/index.md)
+
+    The model catalog and configuration schema, and the reference echo model.
+* - [Setup reference](start/setup-reference.md)
+
+    Prerequisites, environment configuration, hardware detection and run modes.
+  - [Glossary](glossary.md)
+
+    Terms used across TT-Studio and the wider Tenstorrent stack.
+:::
+
+## Other resources
+
+More open-source tools from Tenstorrent.
+
+:::{list-table}
+:class: tt-index-cards
+:widths: 33 33 34
+
+* - [TT Developer Toolkit](https://docs.tenstorrent.com/tt-vscode-toolkit/)
+
+    Interactive AI lessons, hardware monitoring, and production inference templates, all inside
+    your editor.
+  - [tt-toplike](https://docs.tenstorrent.com/tt-toplike/)
+
+    A psychedelic, ASCII-native terminal monitor for Tenstorrent Blackhole and Wormhole hardware.
+  - [tt-local-generator](https://docs.tenstorrent.com/tt-local-generator/)
+
+    Local AI image and video generation for builders, running entirely on your own hardware.
 :::
 
 ```{toctree}
