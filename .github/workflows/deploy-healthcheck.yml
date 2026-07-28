@@ -9,27 +9,17 @@
 #   * `workflow_dispatch` only — restricted to users with write access (internal
 #     devs). They pick which branch to run from the "Run workflow" dropdown, so
 #     a feature branch can be tested manually without merging it anywhere.
-#
-# NOTE: the manual-trigger button only appears once this file is on the DEFAULT
-# branch (main). Once it's there, dispatching against any branch runs THAT
-# branch's checkout + workflow. See dev-docs/ci-self-hosted-runner.md.
 
 name: Deploy Healthcheck
 
 on:
-  # TEMPORARY — remove before merging to main. Lets you test the full pipeline
-  # on this feature branch (push triggers use the branch's own workflow, with no
-  # default-branch requirement). Safe here: only write-access users can push to
-  # repo branches; this is NOT a pull_request trigger, so forks can't reach it.
-  # On a push run, inputs are empty, so models/timeout fall back to defaults.
-  push:
-    branches: [raahem/gh-ci-setup]
+  # Manual only. Restricted to users with write access; they pick the branch to run from the "Run workflow" dropdown.
   workflow_dispatch:
     inputs:
       models:
         description: "Model(s) to deploy, space-separated (matched against the catalog)."
         type: string
-        default: "Qwen3-32B"
+        default: "Llama-3.1-8B-Instruct"
       timeout:
         description: "Max wait applied to BOTH deploy and health phases (e.g. 4h, 90m, 3600s)."
         type: string
@@ -50,8 +40,7 @@ permissions:
 
 jobs:
   healthcheck:
-    # Targets [self-hosted, <label>]; the runner MUST carry the chosen label
-    # (default "pool") or the job queues forever.
+    # Targets [self-hosted, <label>]; the runner MUST carry the chosen label (default "pool") or the job queues forever.
     runs-on:
       - self-hosted
       - ${{ github.event.inputs.runner_label || 'pool' }}
@@ -76,11 +65,7 @@ jobs:
           echo "host services :8001/:8002 are clear (or owned by this runner)"
 
       - name: Reclaim workspace (drop root-owned leftovers from a prior run)
-        # Containers (chroma/backend as root, model as uid 1000) write into
-        # tt_studio_persistent_volume/.artifacts/logs inside the workspace. The
-        # runner user can't delete those, so actions/checkout's `git clean` fails
-        # with EACCES. Remove them first via a root cleanup container (uses the
-        # runner's Docker access — no host sudo). Runs before checkout.
+        # Remove root-owned leftovers from a prior run.
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/w" alpine \
             sh -c 'rm -rf /w/tt_studio_persistent_volume /w/.artifacts /w/logs' 2>/dev/null || true
@@ -95,9 +80,6 @@ jobs:
         run: python run.py --stop || true
 
       - name: Boot TT-Studio
-        # Secrets come from the environment (run.py reads os.environ first, and
-        # the compose files pass HF_TOKEN/TAVILY_API_KEY through to containers).
-        # --accept-terms suppresses the first-time terms prompt.
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}

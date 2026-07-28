@@ -505,7 +505,7 @@ def emit_github_outputs(combined):
 
 
 def run_model(client, model_name, model_id_override, do_cleanup,
-              deploy_timeout, health_timeout, poll_interval):
+              total_timeout, poll_interval):
     """Deploy one model and drive it to healthy. Returns a result dict; never
     raises SmokeTestError (it's caught and recorded) so a caller running a batch
     can continue to the next model."""
@@ -529,12 +529,18 @@ def run_model(client, model_name, model_id_override, do_cleanup,
         job_id = deploy(client, model_id, fe_deploy_overrides(client, model_name))
         report["job_id"] = job_id
 
+        # One overall budget for the whole deploy->healthy process
+        deadline = started + total_timeout
+
+        def remaining():
+            return max(0, deadline - time.time())
+
         deploy_id = None
         try:
-            poll_progress(client, job_id, deploy_timeout, poll_interval)
-            deploy_id = resolve_deploy_id(client, model_id, timeout=120, interval=poll_interval)
+            poll_progress(client, job_id, remaining(), poll_interval)
+            deploy_id = resolve_deploy_id(client, model_id, timeout=min(120, remaining()), interval=poll_interval)
             report["deploy_id"] = deploy_id
-            poll_health(client, deploy_id, job_id, health_timeout, poll_interval)
+            poll_health(client, deploy_id, job_id, remaining(), poll_interval)
             log(f"SUCCESS: {model_name} reached HEALTHY status.")
             report["result"] = "healthy"
         finally:
@@ -566,15 +572,11 @@ def main():
                         "Ignored if --model-name is passed.")
     p.add_argument("--model-id", default=os.environ.get("TTSTUDIO_MODEL_ID"),
                    help="Exact catalog model_id; overrides --model-name (single-model mode only)")
-    p.add_argument("--timeout", type=parse_duration, default=None,
-                   help="Max time to wait, applied to BOTH the deploy and health phases. "
-                        "Accepts 4h / 90m / 3600s / plain seconds. Simple knob for 'give it up to N'.")
-    p.add_argument("--deploy-timeout", type=parse_duration,
-                   default=os.environ.get("TTSTUDIO_DEPLOY_TIMEOUT", "3600"),
-                   help="Advanced: seconds/duration to wait for deployment to complete (default: 1h). Overridden by --timeout.")
-    p.add_argument("--health-timeout", type=parse_duration,
-                   default=os.environ.get("TTSTUDIO_HEALTH_TIMEOUT", "1800"),
-                   help="Advanced: seconds/duration to wait for the model to become healthy (default: 30m). Overridden by --timeout.")
+    p.add_argument("--timeout", type=parse_duration,
+                   default=os.environ.get("TTSTUDIO_TIMEOUT", "2h"),
+                   help="Total wall-clock budget for the WHOLE per-model run (deploy + resolve + "
+                        "health), NOT per phase — each phase uses whatever time is left. "
+                        "Accepts 4h / 90m / 3600s / plain seconds (default: 2h).")
     p.add_argument("--poll-interval", type=parse_duration, default=os.environ.get("TTSTUDIO_POLL_INTERVAL", "10"),
                    help="Seconds between polls (default: 10)")
     p.add_argument("--output-dir", default=os.environ.get("TTSTUDIO_OUTPUT_DIR", "ci-runs"),
@@ -588,11 +590,6 @@ def main():
     p.add_argument("--no-reset", action="store_true",
                    help="Skip the whole-board reset (stop models + tt-smi -r) before the first deploy")
     args = p.parse_args()
-
-    # --timeout is the simple knob: it sets both phase timeouts at once.
-    if args.timeout is not None:
-        args.deploy_timeout = args.timeout
-        args.health_timeout = args.timeout
 
     # Resolve the run mode. --model-name (single) has priority over --models;
     # then a batch via --models; then $TTSTUDIO_MODEL_NAME; then the default.
@@ -622,8 +619,7 @@ def main():
     label = f"{len(models)} models {models}" if batch else repr(models[0])
     # --detach forks into the background so a run survives losing SSH (manual use;
     # CI never passes it). The foreground process prints where the log/report live
-    # and exits; the daemon child writes everything to the log file. Otherwise run
-    # foreground, mirroring output to the terminal / Actions log AND the log file.
+    # and exits; the daemon child writes everything to the log file.
     if args.detach and not args.dry_run:
         print(f"Deploying {label} in the background.")
         print(f"  live log : {logpath}")
@@ -673,8 +669,7 @@ def main():
                 client, name,
                 model_id_override=(args.model_id if not batch else None),
                 do_cleanup=do_cleanup,
-                deploy_timeout=args.deploy_timeout,
-                health_timeout=args.health_timeout,
+                total_timeout=args.timeout,
                 poll_interval=args.poll_interval,
             )
             combined["models"].append(result)
