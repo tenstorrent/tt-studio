@@ -32,7 +32,6 @@ export default function WelcomePage() {
   const [stepIndex, setStepIndex] = useState(0);
   const [secrets, setSecrets] = useState<WelcomeSecrets>({
     hf_token: "",
-    tts_api_key: "",
     tavily_api_key: "",
   });
 
@@ -50,7 +49,6 @@ export default function WelcomePage() {
     prefilled.current = true;
     setSecrets({
       hf_token: current.hf_token.value ?? "",
-      tts_api_key: current.tts_api_key.value ?? "",
       tavily_api_key: current.tavily_api_key.value ?? "",
     });
   }, [current]);
@@ -63,7 +61,6 @@ export default function WelcomePage() {
       const body: Record<string, string> = {};
       for (const key of [
         "hf_token",
-        "tts_api_key",
         "tavily_api_key",
       ] as const) {
         const val = secrets[key].trim();

@@ -492,7 +492,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
               <ModelCard
                 icon={<Mic className="w-5 h-5" />}
-                label="Whisper"
+                label="Speech-to-text"
                 deviceLabel={`Device ${whisperDeviceId}`}
                 deployState={whisperState}
                 accent="purple"
@@ -506,7 +506,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
               <ModelCard
                 icon={<Volume2 className="w-5 h-5" />}
-                label="SpeechT5 TTS"
+                label="Text-to-speech"
                 deviceLabel={`Device ${ttsDeviceId}`}
                 deployState={ttsState}
                 accent="green"
