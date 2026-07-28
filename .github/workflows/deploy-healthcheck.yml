@@ -103,7 +103,8 @@ jobs:
           # deploy_healthcheck.py resets the board, mirrors the UI deploy, cleans
           # up by default, and writes the step summary + ::error:: annotations.
           # Its exit code drives the pass/fail ✓.
-          python3 ci/deploy_healthcheck.py --models $MODELS --timeout "$TIMEOUT"
+          IFS=' ' read -r -a models_arr <<<"$MODELS"
+          python3 ci/deploy_healthcheck.py --models "${models_arr[@]}" --timeout "$TIMEOUT"
 
       - name: Collect extra logs into the artifact
         if: always()
