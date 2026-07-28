@@ -21,7 +21,7 @@ on:
         type: string
         default: "Llama-3.1-8B-Instruct"
       timeout:
-        description: "Max wait applied to BOTH deploy and health phases (e.g. 4h, 90m, 3600s)."
+        description: "Total wall-clock budget per model (deploy + resolve + health), e.g. 4h, 90m, 3600s."
         type: string
         default: "2h"
       runner_label:
