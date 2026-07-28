@@ -9,11 +9,11 @@ The entry point of the frontend application is `App.tsx`, which establishes the 
 ### Provider Hierarchy
 The application wraps the router in several layers of context to ensure data availability across all routes:
 
-1. **`ThemeProvider`**: Manages light/dark mode state and provides theme-switching logic,.
-2. **`QueryClientProvider`**: Integrates `@tanstack/react-query` for server-state management and caching,.
-3. **`HeroSectionProvider`**: Manages the visibility and state of the home page hero section,.
-4. **`FooterVisibilityProvider`**: Controls whether the hardware monitoring footer is rendered, persisting state in local storage,.
-5. **`DeviceStateProvider`**: Tracks the health and telemetry of Tenstorrent hardware devices, implementing adaptive polling intervals,.
+1. **`ThemeProvider`**: Manages light/dark mode state and provides theme-switching logic.
+2. **`QueryClientProvider`**: Integrates `@tanstack/react-query` for server-state management and caching.
+3. **`HeroSectionProvider`**: Manages the visibility and state of the home page hero section.
+4. **`FooterVisibilityProvider`**: Controls whether the hardware monitoring footer is rendered, persisting state in local storage.
+5. **`DeviceStateProvider`**: Tracks the health and telemetry of Tenstorrent hardware devices, implementing adaptive polling intervals.
 6. **`RefreshProvider`**: Provides a global trigger mechanism (`triggerRefresh`, `triggerResetAll`) to force re-fetching of data across components.
 7. **`ModelsProvider`**: The central registry for deployed model containers and their operational status.
 
@@ -32,7 +32,7 @@ The `ModelsProvider` is critical for the application's shell as it determines wh
 TT-Studio uses `react-router-dom` for client-side navigation. Routes are defined centrally in `route-config.tsx` and managed by the `AppRouter`.
 
 ### Route Configuration
-Routes are generated via `getRoutes()`, which allows for conditional rendering based on environment variables. For example, `isDeployedEnabled` (from `VITE_ENABLE_DEPLOYED`) determines whether the root path `/` shows the standard `HomePage` or the `DeployedHomePage`,.
+Routes are generated via `getRoutes()`, which allows for conditional rendering based on environment variables. For example, `isDeployedEnabled` (from `VITE_ENABLE_DEPLOYED`) determines whether the root path `/` shows the standard `HomePage` or the `DeployedHomePage`.
 
 Key routes include:
 *   `/chat`: The `ChatUI` interface.

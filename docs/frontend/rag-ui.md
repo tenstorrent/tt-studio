@@ -62,12 +62,12 @@ graph TD
 The UI supports multi-modal document ingestion, primarily focusing on PDF and text-based documents.
 
 ### Upload Workflow
-1. **Trigger:** Users utilize the `GentleFileUpload` component or drag-and-drop files onto a collection row,.
+1. **Trigger:** Users utilize the `GentleFileUpload` component or drag-and-drop files onto a collection row.
 2. **Validation:** The system detects file types (PDF, text, etc.) defined in `FileData`. The `RagDataSourceForm` validates collection names to ensure they contain no spaces and are at least 2 characters long.
 3. **Transmission:** Files are uploaded using the `uploadDocument` function which interfaces with the backend RAG endpoints.
 
 ### UI Interaction
-The `FileUpload` component uses `react-dropzone` to handle file selection and provides visual feedback via `framer-motion` animations,.
+The `FileUpload` component uses `react-dropzone` to handle file selection and provides visual feedback via `framer-motion` animations.
 
 ---
 
@@ -84,7 +84,7 @@ The `getRagContext` function performs the following:
 `runInference.ts` orchestrates the retrieval before calling the model API:
 1. It calls `getRagContext` if a `ragDatasource` is provided.
 2. The returned documents are passed to `generatePrompt`, which formats them into a system-level context block for the LLM.
-3. **File-based Context:** If a user uploads a text file directly in chat, `runInference` processes it as an ad-hoc RAG context via `processUploadedFiles`, merging it with any existing collection context,.
+3. **File-based Context:** If a user uploads a text file directly in chat, `runInference` processes it as an ad-hoc RAG context via `processUploadedFiles`, merging it with any existing collection context.
 
 **RAG Retrieval to Prompt Flow**
 ```mermaid

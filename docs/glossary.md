@@ -14,7 +14,7 @@ TT-Studio is designed to orchestrate AI models on Tenstorrent AI accelerators.
 ### Docker Topology
 TT-Studio uses a multi-container architecture managed via Docker Compose.
 * **Docker Control Service**: A standalone FastAPI service (port 8002) that acts as a secure proxy for Docker socket operations, preventing the need to mount `/var/run/docker.sock` directly into the web backend.
-* **tt_studio_network**: A dedicated Docker bridge network that allows the backend to communicate with dynamically deployed model containers,.
+* **tt_studio_network**: A dedicated Docker bridge network that allows the backend to communicate with dynamically deployed model containers.
 * **Compose Overlays**: Modular configuration files (e.g., `docker-compose.tt-hardware.yml`) that add hardware-specific capabilities like mounting `/dev/tenstorrent`.
 
 ---

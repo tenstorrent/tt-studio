@@ -107,9 +107,9 @@ This app aggregates logs from all services in the `tt_studio_network`. It provid
 ---
 
 ### Core Configuration & Development
-The backend environment is strictly controlled. It includes specific workarounds for dependencies like `openwakeword` (v0.6.0), which is installed without dependencies to avoid Python 3.12 wheel conflicts with `tflite-runtime`, relying instead on `onnxruntime`,.
+The backend environment is strictly controlled. It includes specific workarounds for dependencies like `openwakeword` (v0.6.0), which is installed without dependencies to avoid Python 3.12 wheel conflicts with `tflite-runtime`, relying instead on `onnxruntime`.
 
-For development, the project includes VS Code settings for consistent formatting via ESLint and Prettier,.
+For development, the project includes VS Code settings for consistent formatting via ESLint and Prettier.
 
 ---
 

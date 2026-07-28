@@ -1,74 +1,164 @@
-# Getting Started & Setup
+# Setup reference
 
-This page provides a technical guide for setting up and initializing the TT-Studio environment. It covers prerequisites, the execution flow of the primary setup script, environment configuration, and hardware detection mechanisms.
+The full detail behind `run.py`: prerequisites, every command-line flag, environment configuration,
+hardware detection, and the Compose overlays.
+
+If you just want it running, the [Quickstart](quickstart.md) is shorter. This page is what you
+consult when something isn't behaving.
 
 ## Prerequisites
 
-Before deploying TT-Studio, the host system must meet specific hardware and software requirements to ensure compatibility with Tenstorrent AI accelerators and Docker-based service orchestration.
+- **Tenstorrent software stack** — drivers and system configuration, following the
+  [Tenstorrent Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html).
+  Only needed if you have a card.
+- **Python 3.8+** — `run.py` creates and manages its own virtual environment.
+- **Docker and Docker Compose** — your user must be in the `docker` group so containers can be
+  managed without `sudo`: `sudo usermod -aG docker $USER`, then log out and back in.
+- **A Hugging Face token** — for gated weights such as Llama. Entered in the Welcome wizard on
+  first run, not in a file.
+- **Node.js** — `run.py` installs frontend dependencies during setup.
 
-* **Tenstorrent Software Stack**: Drivers and system configuration must be completed following the [Tenstorrent Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html).
-* **Python 3.8+**: Required for running the orchestration script `run.py`.
-* **Docker & Docker Compose**: Used for containerizing all subsystems. Users must be added to the `docker` group to allow non-sudo execution: `sudo usermod -aG docker $USER`.
-* **Hugging Face Token**: Required for downloading gated models such as Llama.
-* **Node.js**: The `run.py` script manages frontend dependencies (`node_modules`) during the setup process.
+## Command reference
 
-## Setup Orchestration: run.py
+Flags are grouped the same way `python3 run.py --help` groups them, so the two can be compared
+directly.
 
-The `run.py` script is the unified entry point for TT-Studio. It manages the lifecycle of backend services, environment configuration, and auxiliary services like the `docker-control-service`.
+### Setup and configuration
 
-### Execution Modes
+| Flag | What it does |
+| :--- | :--- |
+| `--dev` | Development mode: hot reload, local source mounted into the containers |
+| `--configure-env` | Interactively configure all environment variables |
+| `--reconfigure-inference-server` | Reconfigure the TT Inference Server artifact (alias: `--reconfig-inf`) |
+| `--install-shortcut` | Add a `tt-studio` shell shortcut so you can skip typing `python run.py` |
+| `--switch REF` | Switch this checkout to a branch or tag, then exit; re-run to start |
 
-| Mode | Command | Description |
-| :--- | :--- | :--- |
-| **Standard** | `python3 run.py` | Interactive setup that configures `.env`, checks dependencies, and starts containers. |
-| **Dev Mode** | `python3 run.py --dev` | Development mode: mounts local source code for the backend and frontend into containers to enable hot-reloading,. |
-| **Cleanup** | `python3 run.py --cleanup` | Stops and removes TT-Studio containers and networks while preserving persistent data,. |
-| **Cleanup All** | `python3 run.py --cleanup-all` | Full wipe: removes containers, networks, the persistent volume, and the `.env` file,. |
+### Model deployment
 
-### Startup Data Flow
+| Flag | What it does |
+| :--- | :--- |
+| `--auto-deploy MODEL_NAME` | Deploy the named model once startup finishes |
+| `--device-id CHIP_ID` | Chip slot (0–7) for `--auto-deploy` |
 
-The following diagram illustrates how `run.py` (Natural Language Space) orchestrates the system components defined in the codebase (Code Entity Space).
+### Lifecycle
 
-**Figure 1: run.py Initialization Logic**
-```mermaid
-graph TD
-    subgraph Host_Space_run_py["run.py"] --> setup_environment["_setup_environment()"]
-        setup_environment["_setup_environment()"] --> create_docker_network_tt_studio_network["_create_docker_network('tt_studio_network')"]
-        create_docker_network_tt_studio_network["_create_docker_network('tt_studio_network')"] --> start_docker_control_service["start_docker_control_service()"]
-        start_docker_control_service["start_docker_control_service()"] --> run_docker_compose["_run_docker_compose()"]
-    end
+| Flag | What it does |
+| :--- | :--- |
+| `--stop` | Tear down containers and networks, keeping persistent data |
+| `--status` | Open the live monitor for a running stack |
+| `--logs` | Stream all container logs |
+| `--info` | Re-show the "TT Studio is ready" summary: URLs, mode, hardware |
 
-    subgraph Docker_Topology_tt_studio_network["_run_docker_compose()"] --> tt_studio_backend["tt_studio_backend"]
-        run_docker_compose["_run_docker_compose()"] --> tt_studio_frontend["tt_studio_frontend"]
-        run_docker_compose["_run_docker_compose()"] --> tt_studio_chroma["tt_studio_chroma"]
-        run_docker_compose["_run_docker_compose()"] --> tt_studio_agent["tt_studio_agent"]
-        run_docker_compose["_run_docker_compose()"] --> tt_studio_litellm["tt_studio_litellm"]
-    end
+### Reset
 
-    subgraph Persistence_and_Config["tt_studio_backend"] --- HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
-        tt_studio_chroma["tt_studio_chroma"] --- HOST_PERSISTENT_STORAGE_VOLUME["HOST_PERSISTENT_STORAGE_VOLUME"]
-        setup_environment["_setup_environment()"] --- ROOT_env["ROOT/.env"]
-    end
-```
+| Flag | What it does |
+| :--- | :--- |
+| `--purge-all` | Stop and wipe everything, including the persistent volume and `.env` |
+| `--uninstall` | The `--purge-all` teardown, plus removal of the `tt-studio` shortcut |
+| `--yes`, `-y` | Skip the confirmation prompt |
 
-## Environment Configuration (.env)
+:::{warning}
+`--purge-all` deletes downloaded model weights, RAG collections and deployment history along with
+the containers. Use `--stop` for anything routine.
+:::
 
-TT-Studio uses a single, canonical `.env` file located at the repository root for the whole project. The `run.py` script generates this from `.env.default` if it does not exist,.
+### Advanced
 
-### Key Variables
-* **`TT_STUDIO_ROOT`**: Absolute path to the repository root, used for volume mounting.
-* **`TT_INFERENCE_ARTIFACT_VERSION`**: Specifies the version of the `tt-inference-server` artifact to deploy (e.g., `v0.17.0`).
-* **`JWT_SECRET`**: Secret for signing tokens used in service-to-service communication.
-* **`VITE_ENABLE_DEPLOYED`**: Boolean flag that toggles between using local Tenstorrent hardware or remote cloud endpoints for inference,.
-* **`DOCKER_CONTROL_SERVICE_URL`**: Points to the host-side proxy for Docker operations, typically `http://host.docker.internal:8002`.
-* **`LITELLM_PORT`**: Host port the LiteLLM gateway is published on, defaulting to 4000,.
-* **`WAKEWORD_MODEL`**: Defines the model used for wake word detection (default: `hey_quiet_box`).
+| Flag | What it does |
+| :--- | :--- |
+| `--reconfigure` | Reset preferences and reconfigure all options |
+| `--resync` | Force a resync of the model catalog |
+| `--pull-branch` | Re-download the inference artifact from its branch |
+| `--skip-fastapi` | Skip TT Inference Server FastAPI setup |
+| `--skip-docker-control` | Skip the Docker Control Service |
+| `--no-sudo` | Skip sudo usage, which may limit functionality |
+| `--no-browser` | Don't open a browser automatically |
+| `--wait-for-services` | Block until every service reports healthy |
+| `--browser-timeout N` | Seconds to wait for the frontend before opening a browser |
 
-## Hardware Detection & Container Mounting
+### Developer tools
 
-TT-Studio detects Tenstorrent hardware by checking for devices in `/dev/tenstorrent`. When hardware is present, `run.py` includes the `docker-compose.tt-hardware.yml` override during the `docker compose up` command,.
+| Flag | What it does |
+| :--- | :--- |
+| `--add-headers` | Add missing SPDX license headers, excluding the frontend |
+| `--check-headers` | Report files missing SPDX headers |
 
-**Figure 2: Hardware Access & Resource Mapping**
+### Troubleshooting and info
+
+| Flag | What it does |
+| :--- | :--- |
+| `--help-env` | Detailed help for every environment variable |
+| `--report-bug` | Collect a diagnostics bundle and open a pre-filled GitHub issue |
+| `--verbose`, `-v` | Full output |
+
+:::{note} Deprecated aliases
+`--cleanup` and `--cleanup-all` still work but are hidden. Use `--stop` and `--purge-all`.
+:::
+
+## Environment configuration
+
+A single canonical `.env` at the repository root configures the whole project. `run.py` creates it
+from `.env.default` if it doesn't exist. Run `python3 run.py --help-env` for the complete list.
+
+:::{important} Secrets live in the UI
+`HF_TOKEN`, `TTS_API_KEY`, `TAVILY_API_KEY` and `JWT_SECRET` are set in the first-run Welcome wizard
+or later under Settings, and are stored for you. Values in `.env` are a fallback only, and
+`JWT_SECRET` is generated automatically on first run.
+:::
+
+### Paths and artifact
+
+| Variable | Purpose |
+| :--- | :--- |
+| `TT_STUDIO_ROOT` | Absolute path to the repository root, used for volume mounts |
+| `HOST_PERSISTENT_STORAGE_VOLUME` | Where model weights and application state are kept on the host |
+| `TT_INFERENCE_ARTIFACT_VERSION` | Version of the tt-inference-server artifact to use |
+
+### Services
+
+| Variable | Purpose |
+| :--- | :--- |
+| `DOCKER_CONTROL_SERVICE_URL` | Host-side Docker proxy, usually `http://host.docker.internal:8002` |
+| `LITELLM_PORT` | Host port for the LiteLLM gateway, default 4000 |
+| `LITELLM_MASTER_KEY` | Client-facing key for the gateway |
+| `LITELLM_UPSTREAM_KEY` | Shared secret between the gateway and the backend |
+| `CHROMA_DB_EMBED_MODEL` | Embedding model for the vector store. Changing it on an existing volume means recreating collections |
+| `RAG_RELEVANCE_THRESHOLD` | Maximum cosine distance for a retrieval result to be used |
+
+### Hardware
+
+| Variable | Purpose |
+| :--- | :--- |
+| `IS_QB2` | Set `true` on a QuietBox 2 to verify the board via `tt-smi` at startup. Off by default so laptops and cloud runs aren't blocked |
+
+### Voice
+
+| Variable | Purpose |
+| :--- | :--- |
+| `WAKEWORD_MODEL` | Wake-word model name, default `hey_quiet_box` |
+| `WAKEWORD_THRESHOLD` | Detection threshold, default `0.3` |
+| `WAKEWORD_DEBUG_SCORES` | Log per-frame scores while tuning the threshold |
+
+### Remote endpoints
+
+Only used when `VITE_ENABLE_DEPLOYED=true`. Each service takes a URL and an auth token:
+`CLOUD_CHAT_UI_URL`, `CLOUD_YOLOV4_API_URL`, `CLOUD_SPEECH_RECOGNITION_URL` and
+`CLOUD_STABLE_DIFFUSION_URL`, each with a matching `_AUTH_TOKEN`. See
+[Run without a Tenstorrent card](../examples/run-without-a-tenstorrent-card.md).
+
+## Hardware detection and container mounting
+
+TT-Studio detects Tenstorrent hardware by looking for `/dev/tenstorrent`. When it's present,
+`run.py` adds the `docker-compose.tt-hardware.yml` overlay, which passes the device through to the
+containers.
+
+Board identification is separate and runs through `tt-smi`, which reports the board type and card
+count; those are mapped onto a device configuration such as `N300`, `T3K` or `P300x2`. Mixed board
+types in one machine are not supported. The detected configuration is what filters the model
+catalog — see [Will it run on my machine?](will-it-run.md) for the full board list.
+
+**Figure: hardware access and resource mapping**
+
 ```mermaid
 graph LR
     subgraph Host_Resources["/dev/tenstorrent"]
@@ -86,41 +176,40 @@ graph LR
     uvicorn_api_asgi_application["uvicorn_api_asgi_application"] -->|"DOCKER_CONTROL_SERVICE_URL"| DOCKER_CONTROL_SERVICE_URL_Port_8002["DOCKER_CONTROL_SERVICE_URL_Port_8002"]
 ```
 
-## AI Playground & Remote Endpoints
+## Compose overlays
 
-For users without local Tenstorrent hardware, TT-Studio supports an "AI Playground" mode by connecting to external model endpoints. This is configured via the `VITE_ENABLE_DEPLOYED` variable and various `CLOUD_*` environment variables in the `.env` file.
+`run.py` composes the right set of overlay files for the situation, so you rarely need to invoke
+Docker Compose yourself.
 
-* **External Chat**: `CLOUD_CHAT_UI_URL` and `CLOUD_CHAT_UI_AUTH_TOKEN`.
-* **Vision/Media**: Supports external URLs for YOLOv4, Speech Recognition, and Stable Diffusion.
-* **LiteLLM Gateway**: Acts as a proxy for coding agents, utilizing `LITELLM_MASTER_KEY` and `LITELLM_UPSTREAM_KEY`.
+| Overlay | Applied when |
+| :--- | :--- |
+| `docker-compose.yml` | Always — the base stack |
+| `docker-compose.dev-mode.yml` | `--dev` |
+| `docker-compose.tt-hardware.yml` | `/dev/tenstorrent` exists |
+| `docker-compose.prod.yml` | Production deployment |
 
-## Cleanup and Reset Commands
+If you do drive Compose directly, pass every active overlay to `down` as well, or you'll leave
+orphaned services behind:
 
-To maintain system hygiene or reset the environment, `run.py` provides cleanup options that interface with the Docker daemon and host filesystem.
+```bash
+docker compose -f app/docker-compose.yml \
+  -f app/docker-compose.dev-mode.yml \
+  -f app/docker-compose.tt-hardware.yml down
+```
 
-*   **Standard Cleanup**: `python3 run.py --cleanup`
-    *   Stops all containers and removes the `tt_studio_network`.
- * Preserves the `HOST_PERSISTENT_STORAGE_VOLUME` and `.env` file.
-*   **Full Reset**: `python3 run.py --cleanup-all`
-    *   Removes containers, networks, and images.
- * Wipes the `HOST_PERSISTENT_STORAGE_VOLUME` directory and the `.env` file,.
-*   **Manual Cleanup**:
-    If using raw docker-compose, you must pass all active overlays to the `down` command to avoid orphaned services:
-    ```bash
-    docker compose -f app/docker-compose.yml -f app/docker-compose.dev-mode.yml -f app/docker-compose.tt-hardware.yml down
-    ```
+## Next steps
+
+- [Quickstart](quickstart.md) — the short version
+- [Will it run on my machine?](will-it-run.md) — boards and what each can deploy
+- [Deploy a model in one command](../examples/unattended-deploy.md) — using these flags in anger
 
 ---
 
 :::{admonition} Source files this page was written from
 :class: dropdown tt-sources
 
-Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
-
-- [`.env.default`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.env.default)
-- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
-- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
-- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
-- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
-- [`run.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/run.py)
+- [`.env.default`](https://github.com/tenstorrent/tt-studio/blob/dev/.env.default)
+- [`run.py`](https://github.com/tenstorrent/tt-studio/blob/dev/run.py)
+- [`tt_setup/cli/_args.py`](https://github.com/tenstorrent/tt-studio/blob/dev/tt_setup/cli/_args.py)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/dev/app/docker-compose.yml)
 :::

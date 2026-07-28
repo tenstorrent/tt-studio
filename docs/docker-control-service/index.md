@@ -33,7 +33,7 @@ graph LR
 * **Authentication:** Enforces JWT-based security. The `DockerControlClient` generates tokens using `HS256`, which are validated by the service's `authenticate_request` middleware.
 * **Security Policy Enforcement:** Validates operations against `ALLOWED_IMAGES` (e.g., `ghcr.io/tenstorrent/`) and `ALLOWED_NETWORKS` (e.g., `tt_studio_network`), while enforcing limits like `MAX_MEMORY` (16g) and `MAX_CPUS` (8).
 * **Health & State Reconciliation:** The backend's `health_monitor.py` uses the service to detect containers that died unexpectedly and to clean up stale "starting" records that might block hardware chip slots.
-* **Log Aggregation:** Exposes host-level logs for the studio services and individual deployment logs through dedicated routers,.
+* **Log Aggregation:** Exposes host-level logs for the studio services and individual deployment logs through dedicated routers.
 
 ---
 

@@ -1,5 +1,10 @@
 # Architecture Overview
 
+This page is the map of what `python3 run.py` actually starts, and how the pieces talk to each
+other. Read it when you're debugging a service, adding one, or trying to work out which container
+owns a behaviour. For where TT-Studio sits relative to the rest of the Tenstorrent stack, see
+[What is TT-Studio?](start/what-is-tt-studio.md) instead.
+
 TT-Studio is built as a distributed multi-service system orchestrated via Docker. It bridges high-level user interactions (web UI, AI agents) with low-level hardware execution on Tenstorrent AI accelerators. The architecture follows a microservices pattern where specific responsibilities—such as Docker lifecycle management, vector search, and model inference—are isolated into distinct containers.
 
 ## Multi-Service Topology
@@ -13,6 +18,9 @@ The system is defined by a core `docker-compose.yml` that establishes the networ
 * **tt_studio_chroma**: A ChromaDB instance (v0.5.3) used for vector storage and semantic retrieval (RAG). It persists data to the host volume at `/chroma/chroma`.
 * **tt_studio_litellm**: A LiteLLM gateway that provides an OpenAI/Anthropic compatible surface for coding agents, routing requests back to the Django backend.
 * **docker-control-service**: A security-hardened FastAPI service running on the **host** (port 8002). It acts as a proxy for Docker socket operations, allowing the backend to manage containers without mounting `/var/run/docker.sock` directly into the backend container.
+
+The backend also serves WebSocket traffic through Django Channels, which is how the browser streams
+microphone audio to the wake-word detector while the voice agent is idle.
 
 ### Networking & Storage
 All services communicate over a dedicated bridge network named `tt_studio_network`. Persistence is handled via host-mounted volumes defined by `HOST_PERSISTENT_STORAGE_VOLUME`, which stores ChromaDB data and backend application state. The backend also mounts `hf_cache` to persist embedding models across restarts.
@@ -93,13 +101,23 @@ The architecture is highly configurable via environment variables, typically man
 | `TT_STUDIO_ROOT` | Absolute path for volume mounting and artifact access | |
 | `JWT_SECRET` | Used for backend-to-agent and general service auth | |
 | `DOCKER_CONTROL_JWT_SECRET` | Specifically for authenticating with the host Docker service | |
-| `VITE_ENABLE_DEPLOYED` | Toggles "AI Playground" mode (skips local hardware checks) | |
+| `VITE_ENABLE_DEPLOYED` | Switches the UI to remote-endpoint mode, skipping local hardware checks | |
 
 ### Security & Deployment Modes
 The system supports multiple execution modes through Docker Compose overlays:
 1. **Dev Mode**: Uses `docker-compose.dev-mode.yml` to mount local source code into `tt_studio_backend` and `tt_studio_frontend` for hot-reloading.
-2. **Hardware Mode**: Uses `docker-compose.tt-hardware.yml` to mount `/dev/tenstorrent` devices. The backend container attempts to install `tt-smi` during build if not in Playground mode.
+2. **Hardware Mode**: Uses `docker-compose.tt-hardware.yml` to mount `/dev/tenstorrent` devices. The backend container attempts to install `tt-smi` during build unless it's running against remote endpoints.
 3. **Network Security**: Services are isolated within `tt_studio_network`. The backend uses `extra_hosts` to resolve `host.docker.internal` for communicating with the host-side `docker-control-service`.
+
+## Next steps
+
+Each service has its own section:
+
+- [Backend Services](backend/index.md) — the Django app and its five subsystems
+- [Docker Control Service](docker-control-service/index.md) — the host-side proxy and its security model
+- [AI Agent Service](agent/index.md) — model discovery and tool integration
+- [Frontend Application](frontend/index.md) — the React app
+- [Model Integration](model-integration/index.md) — how a model gets into the catalog
 
 ---
 

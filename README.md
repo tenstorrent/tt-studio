@@ -8,7 +8,7 @@
 
 > A web UI for deploying and chatting with AI models on Tenstorrent hardware. It wraps [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) packaging and [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) execution behind a Django + React + agent stack.
 
-> **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](dev-docs/remote-endpoint-setup.md) running on cards elsewhere.
+> **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](https://docs.tenstorrent.com/tt-studio/examples/run-without-a-tenstorrent-card/) running on cards elsewhere.
 
 
 ---
@@ -63,7 +63,7 @@ That's all most people need. Everything else — hardware modes, environment var
 - **[Detailed setup & usage](dev-docs/detailed-setup.md)** — hardware modes, env vars, dev workflow, remote access, troubleshooting
 - [run.py reference](dev-docs/run-py-guide.md) — every flag and environment variable, explained
 - [Troubleshooting](dev-docs/troubleshooting.md) and [FAQ](dev-docs/FAQ.md)
-- [Remote endpoints](dev-docs/remote-endpoint-setup.md) — use TT-Studio without local hardware
+- [Remote endpoints](https://docs.tenstorrent.com/tt-studio/examples/run-without-a-tenstorrent-card/) — use TT-Studio without local hardware
 - [Contributing](CONTRIBUTING.md) — branching strategy and PR standards
 
 ---

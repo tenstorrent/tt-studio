@@ -117,7 +117,7 @@ The service behavior is controlled via environment variables typically set in th
 
 - `DOCKER_CONTROL_JWT_SECRET`: The shared secret used to sign and verify JWTs.
 - `DEV_MODE`: If `true`, enables FastAPI auto-reload and more verbose logging.
-- `DOCKER_CONTROL_SERVICE_URL`: Used by the backend to locate the service. In development, the backend container uses `extra_hosts` to resolve the host's IP,.
+- `DOCKER_CONTROL_SERVICE_URL`: Used by the backend to locate the service. In development, the backend container uses `extra_hosts` to resolve the host's IP.
 
 The service logs its own operations and can also serve logs from other system components by reading the paths defined in `SERVICE_LOG_FILE`, `STARTUP_LOG_FILE`, and `MODEL_RUN_LOG_FILE`.
 

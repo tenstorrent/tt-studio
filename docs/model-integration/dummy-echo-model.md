@@ -55,7 +55,7 @@ The server manages the lifecycle of the backend process and provides the REST in
 
 * **NUMA Awareness**: To simulate performance optimization, the server parses the system `cpulist` and pins the backend process to NUMA node 0 while keeping the Flask API on other cores.
 * **Garbage Collection**: The `_garbage_collection` function periodically reclaims resources for inactive `user_ids` from the `output_queue_map`.
-* **Warmup**: Upon initialization, it sends a dummy prompt (`COMPILE-INITIALIZATION`) to the backend to trigger any "just-in-time" compilation or weight loading,.
+* **Warmup**: Upon initialization, it sends a dummy prompt (`COMPILE-INITIALIZATION`) to the backend to trigger any "just-in-time" compilation or weight loading.
 
 ### 3. Dummy Echo Backend (`dummy_echo_backend.py`)
 The `DummyEchoBackend` class simulates a multi-user LLM engine.
