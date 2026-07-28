@@ -10,18 +10,16 @@
 </ul>
 </details>
 
-
-
-The `tt_studio_agent` service (operating on port `8080`) is an autonomous AI assistant subsystem within TT-Studio. It provides a high-level reasoning interface that can discover locally deployed LLMs, monitor their health, and execute complex tasks using a suite of integrated tools, including web search and secure code execution. [app/docker-compose.yml:106-116](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L106-L116)
+The `tt_studio_agent` service (operating on port `8080`) is an autonomous AI assistant subsystem within TT-Studio. It provides a high-level reasoning interface that can discover locally deployed LLMs, monitor their health, and execute complex tasks using a suite of integrated tools, including web search and secure code execution.
 
 ## Overview
 
-The agent service acts as a bridge between natural language user intent and the technical capabilities of the TT-Studio ecosystem. Unlike standard inference routes that provide direct model access, the agent service manages stateful conversations and selects the best available local model to fulfill requests. [app/README.md:15-15](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L15-L15)
+The agent service acts as a bridge between natural language user intent and the technical capabilities of the TT-Studio ecosystem. Unlike standard inference routes that provide direct model access, the agent service manages stateful conversations and selects the best available local model to fulfill requests.
 
 ### Key Capabilities
-*   **LLM Discovery & Fallback**: Automatically identifies available LLM containers on the `tt_studio_network` and maintains a priority-based fallback list. [app/docker-compose.yml:113-123](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L113-L123)
-*   **Health Monitoring**: Continuously polls inference endpoints to ensure the agent only routes traffic to responsive models. [app/docker-compose.yml:125-127](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L125-L127)
-*   **Tool Integration**: Extends LLM capabilities with a Tavily-powered web search and an optional E2B code interpreter for executing Python code in isolated environments. [app/docker-compose.yml:119-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L119-L128)
+* **LLM Discovery & Fallback**: Automatically identifies available LLM containers on the `tt_studio_network` and maintains a priority-based fallback list.
+* **Health Monitoring**: Continuously polls inference endpoints to ensure the agent only routes traffic to responsive models.
+* **Tool Integration**: Extends LLM capabilities with a Tavily-powered web search and an optional E2B code interpreter for executing Python code in isolated environments.
 *   **Conversation Management**: Uses `thread_id` to maintain context across multiple turns in a chat session.
 
 ### Service Interaction Map
@@ -48,7 +46,6 @@ graph TD
     DeployedLLMs -- "SSE Stream" --> AgentAPI
     AgentAPI -- "SSE Stream" --> User
 ```
-Sources: [app/docker-compose.yml:106-124](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L106-L124), [app/README.md:15-15](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L15-L15)
 
 ---
 
@@ -56,7 +53,7 @@ Sources: [app/docker-compose.yml:106-124](https://github.com/tenstorrent/tt-stud
 
 The core of the service is built on a **LangChain-based ReAct (Reasoning and Acting) architecture**. It utilizes a `CustomLLM` wrapper to standardize communication with various local inference servers (e.g., vLLM or TGI-based containers).
 
-The **LLMDiscoveryService** is responsible for scanning the Docker environment to find containers that match known LLM signatures. It works in tandem with the **LLMHealthMonitor**, which performs periodic heartbeats. If the primary high-performance model becomes unresponsive, the agent utilizes polling timeouts and circuit breaker thresholds to manage fallbacks. [app/docker-compose.yml:125-127](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L125-L127)
+The **LLMDiscoveryService** is responsible for scanning the Docker environment to find containers that match known LLM signatures. It works in tandem with the **LLMHealthMonitor**, which performs periodic heartbeats. If the primary high-performance model becomes unresponsive, the agent utilizes polling timeouts and circuit breaker thresholds to manage fallbacks.
 
 For details, see [Agent Architecture & LLM Discovery](architecture.md).
 
@@ -80,27 +77,23 @@ graph LR
 
     Req -.-> Discovery
 ```
-Sources: [app/docker-compose.yml:125-127](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L125-L127)
 
 ---
 
 ## [Agent API & Tool Integration](api-and-tools.md)
 
-The agent exposes a FastAPI-based REST interface. Authentication is handled via **JWT (JSON Web Tokens)** to ensure secure access to tool execution and backend communication. [app/docker-compose.yml:118-118](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L118-L118)
+The agent exposes a FastAPI-based REST interface. Authentication is handled via **JWT (JSON Web Tokens)** to ensure secure access to tool execution and backend communication.
 
 ### Integrated Tools
 | Tool Name | Code Reference | Description |
 | :--- | :--- | :--- |
-| **Tavily Search** | `TAVILY_API_KEY` | Provides real-time web search capabilities to ground agent responses in current data. [app/docker-compose.yml:119-119](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L119-L119) |
-| **E2B Interpreter** | `E2B_API_KEY` | An optional tool for executing Python code in a secure sandbox. [app/docker-compose.yml:128-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L128-L128) |
-| **Cloud Fallback** | `USE_CLOUD_LLM` | Allows the agent to route queries to cloud providers if local resources are unavailable. [app/docker-compose.yml:122-122](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L122-L122) |
+| **Tavily Search** | `TAVILY_API_KEY` | Provides real-time web search capabilities to ground agent responses in current data. |
+| **E2B Interpreter** | `E2B_API_KEY` | An optional tool for executing Python code in a secure sandbox. |
+| **Cloud Fallback** | `USE_CLOUD_LLM` | Allows the agent to route queries to cloud providers if local resources are unavailable. |
 
-The service is configured via environment variables to communicate with the `tt_studio_backend` via `BACKEND_API_HOSTNAME` and manage specific container targets via `LLM_CONTAINER_NAME`. [app/docker-compose.yml:123-124](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L123-L124)
+The service is configured via environment variables to communicate with the `tt_studio_backend` via `BACKEND_API_HOSTNAME` and manage specific container targets via `LLM_CONTAINER_NAME`.
 
 For details, see [Agent API & Tool Integration](api-and-tools.md).
-
-Sources: [app/docker-compose.yml:117-128](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L117-L128), [app/README.md:15-15](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L15-L15)
-
 
 ```{toctree}
 :hidden:

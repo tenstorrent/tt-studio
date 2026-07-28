@@ -21,24 +21,22 @@
 </ul>
 </details>
 
-
-
 This page provides definitions for codebase-specific terms, abbreviations, and domain concepts used throughout the TT-Studio project. It serves as a technical reference for onboarding engineers to understand how high-level concepts map to specific implementation details.
 
 ## Core System Concepts
 
 ### Tenstorrent Hardware & Drivers
 TT-Studio is designed to orchestrate AI models on Tenstorrent AI accelerators.
-*   **TT-Metal**: The low-level programming model and hardware abstraction layer used to execute kernels on Tenstorrent chips [README.md:9](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md?plain=1#L9).
+* **TT-Metal**: The low-level programming model and hardware abstraction layer used to execute kernels on Tenstorrent chips.
 *   **Device Configuration**: A specification within a model's metadata defining which hardware (e.g., Grayskull, Wormhole) and how many chips are required.
 *   **Chip Slot Allocation**: The logic responsible for tracking which physical Tenstorrent chips are currently occupied by running Docker containers. Implementation is handled in the `ChipSlotAllocator` class within the `docker_control` app. It manages mapping board types like `T3K` or `GALAXY` to available slots.
-*   **Hardware Context**: Contextual information about the underlying Tenstorrent hardware (e.g., board type) passed during inference to optimize prompt generation [app/frontend/src/components/chatui/runInference.ts:28-30](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L28-L30).
+* **Hardware Context**: Contextual information about the underlying Tenstorrent hardware (e.g., board type) passed during inference to optimize prompt generation.
 
 ### Docker Topology
-TT-Studio uses a multi-container architecture managed via Docker Compose [app/docker-compose.yml:5-190](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L5-L190).
-*   **Docker Control Service**: A standalone FastAPI service (port 8002) that acts as a secure proxy for Docker socket operations, preventing the need to mount `/var/run/docker.sock` directly into the web backend [app/README.md:18](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L18).
-*   **tt_studio_network**: A dedicated Docker bridge network that allows the backend to communicate with dynamically deployed model containers [app/docker-compose.yml:19-20](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L19-L20), [app/docker-compose.yml:188-189](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L188-L189).
-*   **Compose Overlays**: Modular configuration files (e.g., `docker-compose.tt-hardware.yml`) that add hardware-specific capabilities like mounting `/dev/tenstorrent` [app/README.md:20-30](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md?plain=1#L20-L30).
+TT-Studio uses a multi-container architecture managed via Docker Compose.
+* **Docker Control Service**: A standalone FastAPI service (port 8002) that acts as a secure proxy for Docker socket operations, preventing the need to mount `/var/run/docker.sock` directly into the web backend.
+* **tt_studio_network**: A dedicated Docker bridge network that allows the backend to communicate with dynamically deployed model containers,.
+* **Compose Overlays**: Modular configuration files (e.g., `docker-compose.tt-hardware.yml`) that add hardware-specific capabilities like mounting `/dev/tenstorrent`.
 
 ---
 
@@ -46,17 +44,15 @@ TT-Studio uses a multi-container architecture managed via Docker Compose [app/do
 
 | Term | Definition | Code Pointers |
 | :--- | :--- | :--- |
-| **ModelImpl** | Specification for an AI model, including its image and hardware requirements. | [app/backend/docker_control/tt_inference_client.py:45-59](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py#L45-L59) |
-| **Inference API** | A FastAPI bridge (port 8001) that translates TT-Studio requests into `tt-inference-server` commands. | [inference-api/api.py:4-165](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L4-L165) |
-| **Deployment Store** | A JSON-backed persistence layer that tracks the lifecycle of deployed model containers. | [app/frontend/src/api/modelsDeployedApis.ts:103-105](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L103-L105) |
-| **TTFT** | Time To First Token. Metric measuring latency from request to first character. | [app/backend/model_control/model_utils.py:21](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L21) |
-| **TPOT** | Time Per Output Token. The average time taken to generate each token after the first. | [app/backend/model_control/model_utils.py:21](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L21) |
-| **RAG** | Retrieval-Augmented Generation. Queries ChromaDB to provide context to the LLM. | [app/docker-compose.yml:164-187](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L164-L187) |
-| **Canonical Deployment** | The single source of truth (SoT) object representing a live or pending container. | [app/frontend/src/api/modelsDeployedApis.ts:106-134](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L106-L134) |
-| **Deploy Cache** | A Django-based cache (using pickle) that stores enriched container metadata, including `max_model_len`. | [app/backend/model_control/model_utils.py:111-145](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L111-L145) |
-| **Tool Call Parser** | Model-specific parser used by vLLM to enable auto-tool choice for coding agents. | [app/backend/docker_control/tt_inference_client.py:24-42](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py#L24-L42) |
-
-**Sources:** [app/backend/model_control/model_utils.py:127-145](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L127-L145), [app/frontend/src/api/modelsDeployedApis.ts:106-134](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L106-L134), [app/backend/docker_control/tt_inference_client.py:24-42](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py#L24-L42)
+| **ModelImpl** | Specification for an AI model, including its image and hardware requirements. | |
+| **Inference API** | A FastAPI bridge (port 8001) that translates TT-Studio requests into `tt-inference-server` commands. | |
+| **Deployment Store** | A JSON-backed persistence layer that tracks the lifecycle of deployed model containers. | |
+| **TTFT** | Time To First Token. Metric measuring latency from request to first character. | |
+| **TPOT** | Time Per Output Token. The average time taken to generate each token after the first. | |
+| **RAG** | Retrieval-Augmented Generation. Queries ChromaDB to provide context to the LLM. | |
+| **Canonical Deployment** | The single source of truth (SoT) object representing a live or pending container. | |
+| **Deploy Cache** | A Django-based cache (using pickle) that stores enriched container metadata, including `max_model_len`. | |
+| **Tool Call Parser** | Model-specific parser used by vLLM to enable auto-tool choice for coding agents. | |
 
 ---
 
@@ -88,7 +84,6 @@ graph TD
     C -- "stream back" --> B
     B -- "update UI" --> A
 ```
-**Sources:** [app/backend/model_control/model_utils.py:31-38](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L31-L38), [app/backend/model_control/model_utils.py:111-125](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L111-L125), [app/frontend/src/components/chatui/runInference.ts:18-185](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L18-L185)
 
 ### Model Deployment Lifecycle
 When a user selects a model to deploy, the system orchestrates multiple services to prepare the environment and download weights via the `inference-api` bridge.
@@ -111,33 +106,31 @@ graph LR
         R1 -- "isolated_popen" --> D1["Docker Engine"]
     end
 ```
-**Sources:** [app/backend/docker_control/tt_inference_client.py:84-166](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py#L84-L166), [inference-api/api.py:153-165](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py#L153-L165), [app/frontend/src/components/FirstStepForm.tsx:173-213](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx#L173-L213)
 
 ---
 
 ## Domain Concepts
 
 ### Retrieval-Augmented Generation (RAG)
-In TT-Studio, RAG is implemented using **ChromaDB** as the vector store [app/docker-compose.yml:164-165](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml#L164-L165).
+In TT-Studio, RAG is implemented using **ChromaDB** as the vector store.
 *   **Collection**: A logical grouping of documents within ChromaDB.
 *   **X-Browser-ID**: A unique identifier used to isolate RAG sessions per browser instance.
-*   **Context Injection**: The process where relevant snippets from the vector DB or uploaded text files are retrieved and prepended to the LLM's system message [app/frontend/src/components/chatui/runInference.ts:42-86](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L42-L86).
+* **Context Injection**: The process where relevant snippets from the vector DB or uploaded text files are retrieved and prepended to the LLM's system message.
 
 ### Model Types
-The system categorizes models into specific types to determine which UI component and API endpoint to use [app/frontend/src/api/modelsDeployedApis.ts:55-66](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L55-L66):
-*   `ChatModel`: Standard LLM interaction [app/frontend/src/api/modelsDeployedApis.ts:76-77](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L76-L77).
-*   `ObjectDetectionModel`: YOLO-based models that return bounding box coordinates and metadata [app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx:64-66](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx#L64-L66).
-*   `VLM`: Vision Language Models capable of processing images via `image_url` message structures [app/frontend/src/components/chatui/runInference.ts:87-106](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L87-L106).
-*   `ImageGeneration`: Diffusion-based image creation (e.g., FLUX.1) [app/frontend/src/components/FirstStepForm.tsx:84-88](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx#L84-L88).
-*   `TTS` / `SpeechRecognitionModel`: Audio processing pipelines [app/frontend/src/api/modelsDeployedApis.ts:86-91](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L86-L91).
+The system categorizes models into specific types to determine which UI component and API endpoint to use:
+* `ChatModel`: Standard LLM interaction.
+* `ObjectDetectionModel`: YOLO-based models that return bounding box coordinates and metadata.
+* `VLM`: Vision Language Models capable of processing images via `image_url` message structures.
+* `ImageGeneration`: Diffusion-based image creation (e.g., FLUX.1).
+* `TTS` / `SpeechRecognitionModel`: Audio processing pipelines.
 
 ### Hardware Compatibility
 The system performs automated checks to ensure models fit on the detected hardware.
-*   **is_compatible**: A flag returned by the models API indicating if the model supports the current board (e.g., Grayskull vs Wormhole) [app/frontend/src/components/FirstStepForm.tsx:178-185](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx#L178-L185).
-*   **deviceFit**: Utility logic (e.g., `autoPlacement`, `getModelPlacement`) used to determine if a model's requirements match available chip slots [app/frontend/src/components/FirstStepForm.tsx:41](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx#L41).
+* **is_compatible**: A flag returned by the models API indicating if the model supports the current board (e.g., Grayskull vs Wormhole).
+* **deviceFit**: Utility logic (e.g., `autoPlacement`, `getModelPlacement`) used to determine if a model's requirements match available chip slots.
 
 ### Metrics Tracking
-TT-Studio tracks inference performance using the `InferenceMetricsTracker` [app/backend/model_control/model_utils.py:21](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L21).
-*   **InferenceStats**: Data structure containing `ttft`, `tpot`, and `total_tokens` displayed in the Chat UI [app/frontend/src/components/chatui/MessageActions.tsx:9-10](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx#L9-L10).
+TT-Studio tracks inference performance using the `InferenceMetricsTracker`.
+* **InferenceStats**: Data structure containing `ttft`, `tpot`, and `total_tokens` displayed in the Chat UI.
 
-**Sources:** [app/frontend/src/api/modelsDeployedApis.ts:67-99](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts#L67-L99), [app/frontend/src/components/FirstStepForm.tsx:144-160](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx#L144-L160), [app/frontend/src/components/chatui/runInference.ts:15-16](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts#L15-L16), [app/backend/model_control/model_utils.py:21](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py#L21)
