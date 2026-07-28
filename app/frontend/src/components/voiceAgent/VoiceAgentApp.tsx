@@ -744,9 +744,9 @@ export default function VoiceAgentApp() {
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
                 <div className="flex flex-col gap-1">
-                  <span>Whisper: {models.whisper?.modelName || "not deployed"}</span>
+                  <span>Speech-to-text: {models.whisper?.modelName || "not deployed"}</span>
                   <span>LLM: {models.llm?.modelName || "not deployed"}</span>
-                  <span>TTS: {models.tts?.modelName || "not deployed"}</span>
+                  <span>Text-to-speech: {models.tts?.modelName || "not deployed"}</span>
                 </div>
               </TooltipContent>
             </Tooltip>

@@ -25,7 +25,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
-                     "--logs", "--info"):
+                     "--logs", "--info", "--uninstall", "--switch"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
@@ -151,6 +151,41 @@ class TestCli(unittest.TestCase):
             self.assertIn(panel, result.output)
         # Service-control flags live under Advanced now, not their own panel.
         self.assertNotIn("Service Control", result.output)
+
+    def test_uninstall_runs_purge_then_removes_shortcut(self):
+        with patch.object(_cli_run, "cleanup_resources", return_value=True) as cleanup, \
+             patch.object(_cli_run, "uninstall_shortcut") as remove:
+            result = runner.invoke(M.app, ["--uninstall"])
+        self.assertEqual(result.exit_code, 0)
+        cleanup.assert_called_once()
+        remove.assert_called_once()
+        # --uninstall implies the full purge (and therefore the stop trigger).
+        ns = cleanup.call_args[0][0]
+        self.assertTrue(ns.cleanup_all)
+        self.assertTrue(ns.cleanup)
+
+    def test_uninstall_keeps_shortcut_when_purge_aborted(self):
+        # Declining the purge confirmation aborts the whole uninstall.
+        with patch.object(_cli_run, "cleanup_resources", return_value=False), \
+             patch.object(_cli_run, "uninstall_shortcut") as remove:
+            result = runner.invoke(M.app, ["--uninstall"])
+        self.assertEqual(result.exit_code, 0)
+        remove.assert_not_called()
+
+    def test_switch_dispatches_with_ref(self):
+        with patch.object(_cli_run, "switch_checkout", return_value=0) as switch:
+            result = runner.invoke(M.app, ["--switch", "v2.9.0-rc1"])
+        self.assertEqual(result.exit_code, 0)
+        switch.assert_called_once_with("v2.9.0-rc1")
+
+    def test_switch_requires_value(self):
+        result = runner.invoke(M.app, ["--switch"])
+        self.assertEqual(result.exit_code, 2)
+
+    def test_switch_nonzero_exit_propagates(self):
+        with patch.object(_cli_run, "switch_checkout", return_value=1):
+            result = runner.invoke(M.app, ["--switch", "dev"])
+        self.assertEqual(result.exit_code, 1)
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))

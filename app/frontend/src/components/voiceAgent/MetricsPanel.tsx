@@ -254,7 +254,7 @@ export function MetricsPanel({ metrics, variant = "full" }: MetricsPanelProps) {
         </h3>
         <div className="flex flex-col gap-3">
           <TimingBar
-            label="STT (Whisper)"
+            label="Speech-to-text"
             valueMs={metrics?.stt_latency_ms}
             maxMs={5000}
           />
@@ -276,7 +276,7 @@ export function MetricsPanel({ metrics, variant = "full" }: MetricsPanelProps) {
             maxMs={10000}
           />
           <TimingBar
-            label="TTS (SpeechT5)"
+            label="Text-to-speech"
             valueMs={metrics?.tts_latency_ms}
             maxMs={10000}
           />
