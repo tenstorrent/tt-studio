@@ -46,9 +46,6 @@ def should_configure_var(var_name, current_value):
 
 def display_first_time_welcome(accept_terms=False):
     """Display welcome message for first-time setup.
-
-    When accept_terms is True (e.g. --accept-terms in CI), the terms are
-    accepted automatically without an interactive prompt.
     """
     terms_url = "https://docs.tenstorrent.com/os-model-terms.html"
     terms_link = f"[link={terms_url}]OS Model Terms[/link]"
