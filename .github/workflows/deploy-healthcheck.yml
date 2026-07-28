@@ -17,9 +17,13 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "Model(s) to deploy, space-separated (matched against the catalog)."
+        description: "Model(s) to deploy, space-separated (matched against the catalog). Ignored if 'all_compatible' is checked."
         type: string
         default: "Llama-3.1-8B-Instruct"
+      all_compatible:
+        description: "Deploy EVERY model the frontend shows as compatible with the runner's board (long — timeout is per model)."
+        type: boolean
+        default: false
       timeout:
         description: "Total wall-clock budget per model (deploy + resolve + health), e.g. 4h, 90m, 3600s."
         type: string
@@ -98,13 +102,19 @@ jobs:
         env:
           MODELS: ${{ github.event.inputs.models || 'Llama-3.1-8B-Instruct' }}
           TIMEOUT: ${{ github.event.inputs.timeout || '2h' }}
+          ALL_COMPATIBLE: ${{ github.event.inputs.all_compatible }}
         run: |
           set -euo pipefail
           # deploy_healthcheck.py resets the board, mirrors the UI deploy, cleans
           # up by default, and writes the step summary + ::error:: annotations.
           # Its exit code drives the pass/fail ✓.
-          IFS=' ' read -r -a models_arr <<<"$MODELS"
-          python3 ci/deploy_healthcheck.py --models "${models_arr[@]}" --timeout "$TIMEOUT"
+          if [ "${ALL_COMPATIBLE:-false}" = "true" ]; then
+            # Deploy every model the frontend marks compatible with this board.
+            python3 ci/deploy_healthcheck.py --all-compatible --timeout "$TIMEOUT"
+          else
+            IFS=' ' read -r -a models_arr <<<"$MODELS"
+            python3 ci/deploy_healthcheck.py --models "${models_arr[@]}" --timeout "$TIMEOUT"
+          fi
 
       - name: Collect extra logs into the artifact
         if: always()

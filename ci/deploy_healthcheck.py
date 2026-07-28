@@ -66,6 +66,7 @@ PATHS_DIRECT = {
     "chip_status": "docker/chip-status/",
     "reset_all": "docker/reset_all/",
     "reset_all_status": "docker/reset_all/status/",
+    "containers": "docker/get_containers/",
 }
 PATHS_PROXY = {
     "catalog": "docker-api/catalog/",
@@ -78,6 +79,7 @@ PATHS_PROXY = {
     "chip_status": "docker-api/chip-status/",
     "reset_all": "docker-api/reset_all/",
     "reset_all_status": "docker-api/reset_all/status/",
+    "containers": "docker-api/get_containers/",
 }
 
 # Progress statuses that mean "stop polling".
@@ -251,6 +253,28 @@ def resolve_model_id(client, model_name, explicit_id):
 
     available = sorted(m.get("model_name") for m in models.values())
     raise SmokeTestError(f"no catalog model matches {model_name!r}. Available: {available}")
+
+
+def list_compatible_models(client):
+    """Return the model names the frontend shows as compatible for the runner's
+    board — get_containers/ entries with is_compatible == True. This is the exact
+    source + filter the deploy dropdown uses (the backend computes is_compatible
+    per model against the detected board), so CI deploys precisely the dropdown's
+    options rather than re-deriving hardware compatibility here."""
+    st, data = client.get("containers", timeout=30)
+    if st != 200 or not isinstance(data, list):
+        raise SmokeTestError(f"get_containers failed (HTTP {st}): {data}")
+    names = sorted({
+        m["name"] for m in data
+        if isinstance(m, dict) and m.get("is_compatible") is True and m.get("name")
+    })
+    if not names:
+        board = next((m.get("current_board") for m in data if isinstance(m, dict)), "unknown")
+        raise SmokeTestError(
+            f"no compatible models for this board ({board}). "
+            "The backend reported is_compatible=False for every catalog model."
+        )
+    return names
 
 
 def _norm(name):
@@ -570,6 +594,11 @@ def main():
                    help="Deploy several models one after another (space-separated). Cleanup is forced "
                         "between them so each frees the board for the next — ideal for overnight runs. "
                         "Ignored if --model-name is passed.")
+    p.add_argument("--all-compatible", action="store_true",
+                   help="Deploy every model the frontend shows as compatible with this board "
+                        "(get_containers/ is_compatible==True), one after another with cleanup "
+                        "between each. Overrides --model-name/--models. Long — the --timeout is "
+                        "per model, so budget accordingly (ideal for an overnight sweep).")
     p.add_argument("--model-id", default=os.environ.get("TTSTUDIO_MODEL_ID"),
                    help="Exact catalog model_id; overrides --model-name (single-model mode only)")
     p.add_argument("--timeout", type=parse_duration,
@@ -591,9 +620,12 @@ def main():
                    help="Skip the whole-board reset (stop models + tt-smi -r) before the first deploy")
     args = p.parse_args()
 
-    # Resolve the run mode. --model-name (single) has priority over --models;
-    # then a batch via --models; then $TTSTUDIO_MODEL_NAME; then the default.
-    if args.model_name:
+    # Resolve the run mode. --all-compatible (every FE-compatible model) wins;
+    # then --model-name (single); then a batch via --models; then
+    # $TTSTUDIO_MODEL_NAME; then the default.
+    if args.all_compatible:
+        models, batch = None, True   # actual list fetched once the client is up
+    elif args.model_name:
         models, batch = [args.model_name], False
     elif args.models:
         models, batch = args.models, True
@@ -606,7 +638,9 @@ def main():
 
     # Auto-name the log + report under --output-dir. Single: <model>_<ts>;
     # batch: batch_<ts>.
-    if batch:
+    if args.all_compatible:
+        slug = "all-compatible"
+    elif batch:
         slug = "batch"
     else:
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", models[0]).strip("-") or "model"
@@ -616,7 +650,10 @@ def main():
     args.report = base + ".json"
     os.makedirs(args.output_dir, exist_ok=True)
 
-    label = f"{len(models)} models {models}" if batch else repr(models[0])
+    if args.all_compatible:
+        label = "all compatible models"
+    else:
+        label = f"{len(models)} models {models}" if batch else repr(models[0])
     # --detach forks into the background so a run survives losing SSH (manual use;
     # CI never passes it). The foreground process prints where the log/report live
     # and exits; the daemon child writes everything to the log file.
@@ -631,7 +668,20 @@ def main():
         print(f"logging to {logpath}")
 
     client = Client(args.base_url, args.proxy)
-    log(f"target base_url={client.base} proxy={args.proxy} models={models} cleanup={do_cleanup}")
+    log(f"target base_url={client.base} proxy={args.proxy} cleanup={do_cleanup}")
+
+    # --all-compatible defers the model list until here so it can query the live
+    # board via get_containers/ (the same set the deploy dropdown shows).
+    if args.all_compatible:
+        try:
+            models = list_compatible_models(client)
+        except SmokeTestError as e:
+            log(f"FAILURE: {e}")
+            print(f"::error title=deploy healthcheck::{e}", flush=True)
+            return 1
+        log(f"--all-compatible: {len(models)} compatible model(s): {models}")
+    else:
+        log(f"models={models}")
 
     run_started = time.time()
     combined = {
