@@ -77,15 +77,15 @@ sequenceDiagram
 
 ### 1.1 Getting Started & Setup
 The entry point for the project is the `run.py` script. It handles prerequisite checks, hardware detection, environment configuration via `.env`, and offers different modes such as `--dev` for active development (mounting local source for hot-reload) and `--cleanup-all` for a clean slate.
-For details, see [Getting Started & Setup](overview/getting-started.md).
+For details, see [Setup reference](start/setup-reference.md).
 
 ### 1.2 Architecture Overview
 The system runs as a multi-container Docker topology. It includes a Django backend (port 8000), a React frontend (port 3000), a FastAPI-based `docker-control-service` (port 8002) to proxy host-level operations (replacing direct socket mounts), and ChromaDB (port 8111) for vector storage.
-For details, see [Architecture Overview](overview/architecture.md).
+For details, see [Architecture Overview](architecture.md).
 
 ### 1.3 Contributing & Development Workflow
 TT-Studio follows a structured contribution process, including branching strategies (branch off `dev`) and mandatory SPDX license headers. The workflow includes tools for checking and adding headers to maintain codebase compliance.
-For details, see [Contributing & Development Workflow](overview/contributing.md).
+For details, see [Contributing & Development Workflow](contributing.md).
 
 ---
 
@@ -115,15 +115,30 @@ Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/
 
 ```{toctree}
 :hidden:
+:caption: Start here
 :maxdepth: 2
 
-overview/getting-started
-overview/architecture
-overview/contributing
+start/setup-reference
+```
+
+```{toctree}
+:hidden:
+:caption: How it works
+:maxdepth: 2
+
+architecture
 backend/index
 docker-control-service/index
 agent/index
 frontend/index
 model-integration/index
+```
+
+```{toctree}
+:hidden:
+:caption: Reference
+:maxdepth: 2
+
 glossary
+contributing
 ```
