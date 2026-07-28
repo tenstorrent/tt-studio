@@ -77,13 +77,13 @@ jobs:
         run: echo "ref=${{ github.ref_name }}  models='${{ github.event.inputs.models }}'  runner=${{ github.event.inputs.runner_label }}"
 
       - name: Stop any prior TT-Studio stack
-        run: python run.py --stop || true
+        run: python3 run.py --stop || true
 
       - name: Boot TT-Studio
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-        run: python run.py --accept-terms
+        run: python3 run.py --accept-terms
 
       - name: Wait for backend health
         run: |
@@ -135,4 +135,4 @@ jobs:
       - name: Cleanup (free the board)
         if: always()
         # Backstop teardown so a cancelled/failed run never wedges the next one.
-        run: python run.py --cleanup || true
+        run: python3 run.py --stop || true
