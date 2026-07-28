@@ -1,17 +1,5 @@
 # RAG Management UI
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx">app/frontend/src/components/chatui/MessageActions.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts">app/frontend/src/components/chatui/runInference.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts">app/frontend/src/components/chatui/types.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagDataSourceForm.tsx">app/frontend/src/components/rag/RagDataSourceForm.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx">app/frontend/src/components/rag/RagManagement.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/file-upload.tsx">app/frontend/src/components/ui/file-upload.tsx</a></li>
-</ul>
-</details>
-
 The RAG (Retrieval-Augmented Generation) Management UI provides a comprehensive interface for managing vector database collections, uploading documents, and configuring context injection for chat sessions. It allows users to create isolated knowledge bases, track document chunking, and perform administrative operations on collections.
 
 ## Core Components
@@ -139,3 +127,17 @@ Details regarding individual files within a collection.
 | `upload_date` | `string` | ISO timestamp of ingestion. |
 | `file_extension` | `string` | Extension used for icon rendering (e.g., PDF, TXT). |
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/frontend/src/components/chatui/MessageActions.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx)
+- [`app/frontend/src/components/chatui/runInference.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts)
+- [`app/frontend/src/components/chatui/types.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts)
+- [`app/frontend/src/components/rag/RagDataSourceForm.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagDataSourceForm.tsx)
+- [`app/frontend/src/components/rag/RagManagement.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx)
+- [`app/frontend/src/components/ui/file-upload.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/file-upload.tsx)
+:::

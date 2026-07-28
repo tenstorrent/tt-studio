@@ -1,15 +1,5 @@
 # Backend Services
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/extensions.json">.vscode/extensions.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/settings.json">.vscode/settings.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile">app/backend/Dockerfile</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/requirements.txt">app/backend/requirements.txt</a></li>
-</ul>
-</details>
-
 The TT-Studio Backend is a Django-based application responsible for orchestrating model lifecycles, managing hardware resources, and providing the primary API for the frontend. It operates as a central hub, coordinating between the `docker-control-service`, `inference-api`, and various model containers.
 
 The backend runs inside a Docker container, typically accessible on port `8000`. It utilizes a `python:3.12.8-slim-bookworm` base. Notably, the backend container does not mount `/var/run/docker.sock` directly; all Docker operations are proxied via HTTP with JWT authentication to ensure security.
@@ -120,6 +110,19 @@ This app aggregates logs from all services in the `tt_studio_network`. It provid
 The backend environment is strictly controlled. It includes specific workarounds for dependencies like `openwakeword` (v0.6.0), which is installed without dependencies to avoid Python 3.12 wheel conflicts with `tflite-runtime`, relying instead on `onnxruntime`,.
 
 For development, the project includes VS Code settings for consistent formatting via ESLint and Prettier,.
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.vscode/extensions.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/extensions.json)
+- [`.vscode/settings.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/settings.json)
+- [`app/backend/Dockerfile`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile)
+- [`app/backend/requirements.txt`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/requirements.txt)
+:::
 
 ```{toctree}
 :hidden:

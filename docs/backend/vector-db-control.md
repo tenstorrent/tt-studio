@@ -1,13 +1,5 @@
 # Vector DB Control (RAG Backend)
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/vector_db_control/data.py">app/backend/vector_db_control/data.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-</ul>
-</details>
-
 The `vector_db_control` system provides Retrieval-Augmented Generation (RAG) capabilities to TT-Studio. It manages the lifecycle of vector collections, document ingestion (chunking and embedding), and semantic search queries. The backend utilizes **ChromaDB** as the primary vector store and exposes a REST API for the frontend to manage knowledge sources and retrieve context during chat sessions.
 
 ## System Architecture & Data Flow
@@ -113,3 +105,13 @@ When `runInference` is triggered, it checks for a `ragDatasource`. If present, i
 * **Single Collection:** Returns raw strings or document objects from the specific collection.
 * **All Collections:** Returns strings prefixed with their source collection name.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/vector_db_control/data.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/vector_db_control/data.py)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+:::

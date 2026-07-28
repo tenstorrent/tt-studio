@@ -1,15 +1,5 @@
 # Frontend Application
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/LICENSE">LICENSE</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package-lock.json">app/frontend/package-lock.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json">app/frontend/package.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx">app/frontend/src/App.tsx</a></li>
-</ul>
-</details>
-
 The TT-Studio frontend is a modern, responsive single-page application (SPA) built with **React 18**, **TypeScript**, and **Vite**. It provides the primary interface for hardware discovery, model deployment orchestration, and multi-modal AI interaction. The application is designed to handle real-time data streaming via Server-Sent Events (SSE) for both deployment progress and model inference.
 
 ## Core Technology Stack
@@ -135,6 +125,19 @@ graph LR
 *   `src/layouts/`: Page structure templates (e.g., `MainLayout`).
 * `src/providers/`: React Context providers for global state.
 * `src/routes/`: Route definitions and path constants.
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`LICENSE`](https://github.com/tenstorrent/tt-studio/blob/c837b829/LICENSE)
+- [`app/frontend/package-lock.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package-lock.json)
+- [`app/frontend/package.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json)
+- [`app/frontend/src/App.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx)
+:::
 
 ```{toctree}
 :hidden:

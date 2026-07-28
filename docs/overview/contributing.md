@@ -1,22 +1,5 @@
 # Contributing & Development Workflow
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md">.claude/skills/feature-branch-pr/SKILL.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md">.claude/skills/license-attribution-compliance/SKILL.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/tt-studio-overview/SKILL.md">.claude/skills/tt-studio-overview/SKILL.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/CODEOWNERS">.github/CODEOWNERS</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/backend-license-checker.yml">.github/workflows/backend-license-checker.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/frontend-lint-license-checker.yml">.github/workflows/frontend-lint-license-checker.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/CODE_OF_CONDUCT.md">CODE_OF_CONDUCT.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md">CONTRIBUTING.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.tt-hardware.yml">app/docker-compose.tt-hardware.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ThemeProvider.tsx">app/frontend/src/providers/ThemeProvider.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/dev-tools/README.md">dev-tools/README.md</a></li>
-</ul>
-</details>
-
 This page details the standards, processes, and automated workflows required for contributing to the TT-Studio codebase. It covers branching strategies, versioning, pull request requirements, license compliance tools, and AI assistant configurations.
 
 ## Contribution Requirements
@@ -195,3 +178,22 @@ graph LR
     LCS -- "Checks_Drift" --> LINT
 ```
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.claude/skills/feature-branch-pr/SKILL.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/feature-branch-pr/SKILL.md)
+- [`.claude/skills/license-attribution-compliance/SKILL.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/license-attribution-compliance/SKILL.md)
+- [`.claude/skills/tt-studio-overview/SKILL.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.claude/skills/tt-studio-overview/SKILL.md)
+- [`.github/CODEOWNERS`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/CODEOWNERS)
+- [`.github/workflows/backend-license-checker.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/backend-license-checker.yml)
+- [`.github/workflows/frontend-lint-license-checker.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.github/workflows/frontend-lint-license-checker.yml)
+- [`CODE_OF_CONDUCT.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/CODE_OF_CONDUCT.md)
+- [`CONTRIBUTING.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/CONTRIBUTING.md)
+- [`app/docker-compose.tt-hardware.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.tt-hardware.yml)
+- [`app/frontend/src/providers/ThemeProvider.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ThemeProvider.tsx)
+- [`dev-tools/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/dev-tools/README.md)
+:::

@@ -1,17 +1,5 @@
 # Docker Control Service
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py">app/backend/docker_control/docker_control_client.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py">app/backend/docker_control/health_monitor.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.dev-mode.yml">app/docker-compose.dev-mode.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/README.md">docker-control-service/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py">docker-control-service/api.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py">docker-control-service/config.py</a></li>
-</ul>
-</details>
-
 The **Docker Control Service** is a standalone FastAPI application that serves as a secure proxy for Docker operations within the TT-Studio ecosystem. It runs on the host machine (typically port `8002`) rather than inside a container, allowing it to interact with the Docker socket (`docker.sock`) directly without exposing that socket to the broader containerized network.
 
 This service replaces direct Docker SDK usage in the backend with a controlled REST API, enforcing security policies such as image whitelisting, resource limits, and network restrictions.
@@ -101,6 +89,19 @@ The Inference API (port `8001`) uses the Docker Control Service to orchestrate t
 For details, see [Inference API (FastAPI Bridge)](inference-api.md).
 
 ---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/docker_control_client.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py)
+- [`app/backend/docker_control/health_monitor.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py)
+- [`app/docker-compose.dev-mode.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.dev-mode.yml)
+- [`docker-control-service/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/README.md)
+- [`docker-control-service/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py)
+- [`docker-control-service/config.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py)
+:::
 
 ```{toctree}
 :hidden:

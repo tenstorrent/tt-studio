@@ -1,14 +1,5 @@
 # Board Control & Hardware Monitoring
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/board_control/services.py">app/backend/board_control/services.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/Footer.tsx">app/frontend/src/components/Footer.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/StableDiffusionChat.tsx">app/frontend/src/components/imageGen/StableDiffusionChat.tsx</a></li>
-</ul>
-</details>
-
 The `board_control` app is responsible for hardware detection, system resource monitoring, and providing real-time telemetry for Tenstorrent devices. It serves as the bridge between the physical hardware and the UI, ensuring that users are informed of chip availability, thermal status, and system-level bottlenecks (CPU/RAM).
 
 ## System Architecture & Data Flow
@@ -141,3 +132,14 @@ When hardware is not detected correctly or a "BAD_STATE" is encountered, the `Fo
 ### Visualizing Occupancy
 The `ChipStatusDisplay` component visualizes the physical layout of the chips. If two adjacent chips are occupied and marked as `is_multi_chip`, it renders a "connector" line using the `hasConnector` function to indicate they are logically linked for a single model deployment.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/board_control/services.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/board_control/services.py)
+- [`app/frontend/src/components/Footer.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/Footer.tsx)
+- [`app/frontend/src/components/imageGen/StableDiffusionChat.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/StableDiffusionChat.tsx)
+:::

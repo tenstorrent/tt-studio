@@ -1,30 +1,5 @@
 # Chat UI
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/CustomToaster.tsx">app/frontend/src/components/CustomToaster.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatComponent.tsx">app/frontend/src/components/chatui/ChatComponent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatHistory.tsx">app/frontend/src/components/chatui/ChatHistory.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/FileDisplay.tsx">app/frontend/src/components/chatui/FileDisplay.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/Header.tsx">app/frontend/src/components/chatui/Header.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/HistoryPanel.tsx">app/frontend/src/components/chatui/HistoryPanel.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ImagePreview.tsx">app/frontend/src/components/chatui/ImagePreview.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/InferenceStats.tsx">app/frontend/src/components/chatui/InferenceStats.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/InputArea.tsx">app/frontend/src/components/chatui/InputArea.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx">app/frontend/src/components/chatui/MessageActions.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/StreamingMessage.tsx">app/frontend/src/components/chatui/StreamingMessage.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/fileUtils.tsx">app/frontend/src/components/chatui/fileUtils.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/processUploadedFiles.tsx">app/frontend/src/components/chatui/processUploadedFiles.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts">app/frontend/src/components/chatui/runInference.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts">app/frontend/src/components/chatui/types.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx">app/frontend/src/components/rag/RagManagement.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/index.ts">app/frontend/src/components/rag/index.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/ChatUIPage.tsx">app/frontend/src/pages/ChatUIPage.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/tsconfig.json">app/frontend/tsconfig.json</a></li>
-</ul>
-</details>
-
 The Chat UI is the primary interface for interacting with deployed models in TT-Studio. It provides a multi-modal, stateful chat experience supporting streaming responses, RAG (Retrieval-Augmented Generation) context injection, file handling, and real-time hardware performance metrics.
 
 ## Architecture & Data Flow
@@ -189,3 +164,31 @@ graph LR
     FET -->|X-Browser-ID Header| COL
     FET -->|X-Browser-ID Header| DOC
 ```
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/frontend/src/components/CustomToaster.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/CustomToaster.tsx)
+- [`app/frontend/src/components/chatui/ChatComponent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatComponent.tsx)
+- [`app/frontend/src/components/chatui/ChatHistory.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatHistory.tsx)
+- [`app/frontend/src/components/chatui/FileDisplay.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/FileDisplay.tsx)
+- [`app/frontend/src/components/chatui/Header.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/Header.tsx)
+- [`app/frontend/src/components/chatui/HistoryPanel.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/HistoryPanel.tsx)
+- [`app/frontend/src/components/chatui/ImagePreview.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ImagePreview.tsx)
+- [`app/frontend/src/components/chatui/InferenceStats.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/InferenceStats.tsx)
+- [`app/frontend/src/components/chatui/InputArea.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/InputArea.tsx)
+- [`app/frontend/src/components/chatui/MessageActions.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx)
+- [`app/frontend/src/components/chatui/StreamingMessage.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/StreamingMessage.tsx)
+- [`app/frontend/src/components/chatui/fileUtils.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/fileUtils.tsx)
+- [`app/frontend/src/components/chatui/processUploadedFiles.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/processUploadedFiles.tsx)
+- [`app/frontend/src/components/chatui/runInference.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts)
+- [`app/frontend/src/components/chatui/types.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts)
+- [`app/frontend/src/components/rag/RagManagement.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx)
+- [`app/frontend/src/components/rag/index.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/index.ts)
+- [`app/frontend/src/pages/ChatUIPage.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/ChatUIPage.tsx)
+- [`app/frontend/tsconfig.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/tsconfig.json)
+:::

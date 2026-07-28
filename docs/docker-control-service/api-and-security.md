@@ -1,17 +1,5 @@
 # Docker Control Service API & Security
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py">app/backend/docker_control/docker_control_client.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py">app/backend/docker_control/health_monitor.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.dev-mode.yml">app/docker-compose.dev-mode.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py">docker-control-service/api.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py">docker-control-service/config.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/routers/logs.py">docker-control-service/routers/logs.py</a></li>
-</ul>
-</details>
-
 The `docker-control-service` is a standalone FastAPI application running on port 8002 that acts as a secure proxy for Docker operations. In TT-Studio, backend services do not mount the Docker socket directly for security reasons; instead, they communicate with this service via a REST API protected by JWT authentication. This architecture ensures that container lifecycle management, image pulling, and network configurations are governed by strict security policies.
 
 ## Service Architecture and Data Flow
@@ -133,3 +121,17 @@ The service behavior is controlled via environment variables typically set in th
 
 The service logs its own operations and can also serve logs from other system components by reading the paths defined in `SERVICE_LOG_FILE`, `STARTUP_LOG_FILE`, and `MODEL_RUN_LOG_FILE`.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/docker_control_client.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_control_client.py)
+- [`app/backend/docker_control/health_monitor.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py)
+- [`app/docker-compose.dev-mode.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.dev-mode.yml)
+- [`docker-control-service/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py)
+- [`docker-control-service/config.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/config.py)
+- [`docker-control-service/routers/logs.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/routers/logs.py)
+:::

@@ -1,31 +1,5 @@
 # Specialized Model Interfaces
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.gitignore">.gitignore</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts">app/frontend/src/api/modelsDeployedApis.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/Footer.tsx">app/frontend/src/components/Footer.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/Header.tsx">app/frontend/src/components/imageGen/Header.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/ImageGenParentComponent.tsx">app/frontend/src/components/imageGen/ImageGenParentComponent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/ShowcaseGallery.tsx">app/frontend/src/components/imageGen/ShowcaseGallery.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/StableDiffusionChat.tsx">app/frontend/src/components/imageGen/StableDiffusionChat.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/types/chat.ts">app/frontend/src/components/imageGen/types/chat.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx">app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/speechToText/mainContent.tsx">app/frontend/src/components/speechToText/mainContent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/dialog.tsx">app/frontend/src/components/ui/dialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/focus-cards.tsx">app/frontend/src/components/ui/focus-cards.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoGenChat.tsx">app/frontend/src/components/videoGen/VideoGenChat.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoGenParentComponent.tsx">app/frontend/src/components/videoGen/VideoGenParentComponent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoInputArea.tsx">app/frontend/src/components/videoGen/VideoInputArea.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/api/videoGeneration.ts">app/frontend/src/components/videoGen/api/videoGeneration.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/hooks/useVideoChat.ts">app/frontend/src/components/videoGen/hooks/useVideoChat.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/types/chat.ts">app/frontend/src/components/videoGen/types/chat.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/CodingAgentsPage.tsx">app/frontend/src/pages/CodingAgentsPage.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/VideoGenPage.tsx">app/frontend/src/pages/VideoGenPage.tsx</a></li>
-</ul>
-</details>
-
 Specialized Model Interfaces provide tailored user experiences for non-chat model types, such as Object Detection, Image Generation, Video Generation, and Speech-to-Text. These components handle specific data modalities (video, audio, images) and visualize model-specific outputs like bounding boxes, generated media, or transcriptions.
 
 ## Object Detection Interface
@@ -148,3 +122,31 @@ The `CodingAgentsPage` provides a specialized interface for LLMs that are eligib
 - **Eligibility:** The backend identifies `coding_agent_eligible` models in the `CanonicalDeployment` payload.
 - **Integration:** These models are exposed via a dedicated gateway that allows the agent to execute code in a sandboxed environment (e.g., E2B) and interact with the local filesystem.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.gitignore`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.gitignore)
+- [`app/frontend/src/api/modelsDeployedApis.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts)
+- [`app/frontend/src/components/Footer.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/Footer.tsx)
+- [`app/frontend/src/components/imageGen/Header.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/Header.tsx)
+- [`app/frontend/src/components/imageGen/ImageGenParentComponent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/ImageGenParentComponent.tsx)
+- [`app/frontend/src/components/imageGen/ShowcaseGallery.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/ShowcaseGallery.tsx)
+- [`app/frontend/src/components/imageGen/StableDiffusionChat.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/StableDiffusionChat.tsx)
+- [`app/frontend/src/components/imageGen/types/chat.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/imageGen/types/chat.ts)
+- [`app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx)
+- [`app/frontend/src/components/speechToText/mainContent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/speechToText/mainContent.tsx)
+- [`app/frontend/src/components/ui/dialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/dialog.tsx)
+- [`app/frontend/src/components/ui/focus-cards.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/focus-cards.tsx)
+- [`app/frontend/src/components/videoGen/VideoGenChat.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoGenChat.tsx)
+- [`app/frontend/src/components/videoGen/VideoGenParentComponent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoGenParentComponent.tsx)
+- [`app/frontend/src/components/videoGen/VideoInputArea.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/VideoInputArea.tsx)
+- [`app/frontend/src/components/videoGen/api/videoGeneration.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/api/videoGeneration.ts)
+- [`app/frontend/src/components/videoGen/hooks/useVideoChat.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/hooks/useVideoChat.ts)
+- [`app/frontend/src/components/videoGen/types/chat.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/videoGen/types/chat.ts)
+- [`app/frontend/src/pages/CodingAgentsPage.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/CodingAgentsPage.tsx)
+- [`app/frontend/src/pages/VideoGenPage.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/pages/VideoGenPage.tsx)
+:::

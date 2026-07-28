@@ -1,30 +1,5 @@
 # Model Deployment UI
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts">app/frontend/src/api/modelsDeployedApis.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ChipConfigStep.tsx">app/frontend/src/components/ChipConfigStep.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/DeployModelStep.tsx">app/frontend/src/components/DeployModelStep.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/MultiCardResetDialog.tsx">app/frontend/src/components/MultiCardResetDialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ResetStepRow.tsx">app/frontend/src/components/ResetStepRow.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/SelectionSteps.tsx">app/frontend/src/components/SelectionSteps.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StepperFooter.tsx">app/frontend/src/components/StepperFooter.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StepperFormActions.tsx">app/frontend/src/components/StepperFormActions.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/magicui/AnimatedDeployButton.tsx">app/frontend/src/components/magicui/AnimatedDeployButton.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/DeleteModelDialog.tsx">app/frontend/src/components/models/DeleteModelDialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/ModelPreparingBanner.tsx">app/frontend/src/components/models/ModelPreparingBanner.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/ModelsDeployedCard.tsx">app/frontend/src/components/models/ModelsDeployedCard.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/row-cells/ManageCell.tsx">app/frontend/src/components/models/row-cells/ManageCell.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx">app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/stepper.tsx">app/frontend/src/components/ui/stepper.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/hooks/useDeploymentProgress.ts">app/frontend/src/hooks/useDeploymentProgress.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/hooks/useIsResetting.ts">app/frontend/src/hooks/useIsResetting.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/utils/deviceFit.ts">app/frontend/src/utils/deviceFit.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/utils/p300x2Placement.ts">app/frontend/src/utils/p300x2Placement.ts</a></li>
-</ul>
-</details>
-
 The Model Deployment UI provides a guided, multi-step workflow for configuring hardware resources and deploying AI models onto Tenstorrent hardware. It transitions from hardware detection and chip selection to model selection, and finally to real-time deployment monitoring and management.
 
 ## Deployment Wizard Architecture
@@ -125,3 +100,30 @@ sequenceDiagram
 * **Model Type Mapping:** The UI maps backend model types to frontend constants (e.g., `CHAT` to `ChatModel`) to drive conditional navigation to specialized interfaces like Object Detection or Image Generation.
 * **Destructive Actions:** The `ManageCell` component provides controls for deleting models and viewing logs, but disables these actions during board resets to prevent system instability.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/frontend/src/api/modelsDeployedApis.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/api/modelsDeployedApis.ts)
+- [`app/frontend/src/components/ChipConfigStep.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ChipConfigStep.tsx)
+- [`app/frontend/src/components/DeployModelStep.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/DeployModelStep.tsx)
+- [`app/frontend/src/components/MultiCardResetDialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/MultiCardResetDialog.tsx)
+- [`app/frontend/src/components/ResetStepRow.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ResetStepRow.tsx)
+- [`app/frontend/src/components/SelectionSteps.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/SelectionSteps.tsx)
+- [`app/frontend/src/components/StepperFooter.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StepperFooter.tsx)
+- [`app/frontend/src/components/StepperFormActions.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StepperFormActions.tsx)
+- [`app/frontend/src/components/magicui/AnimatedDeployButton.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/magicui/AnimatedDeployButton.tsx)
+- [`app/frontend/src/components/models/DeleteModelDialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/DeleteModelDialog.tsx)
+- [`app/frontend/src/components/models/ModelPreparingBanner.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/ModelPreparingBanner.tsx)
+- [`app/frontend/src/components/models/ModelsDeployedCard.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/ModelsDeployedCard.tsx)
+- [`app/frontend/src/components/models/row-cells/ManageCell.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/models/row-cells/ManageCell.tsx)
+- [`app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/object_detection/ObjectDetectionComponent.tsx)
+- [`app/frontend/src/components/ui/stepper.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/stepper.tsx)
+- [`app/frontend/src/hooks/useDeploymentProgress.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/hooks/useDeploymentProgress.ts)
+- [`app/frontend/src/hooks/useIsResetting.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/hooks/useIsResetting.ts)
+- [`app/frontend/src/utils/deviceFit.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/utils/deviceFit.ts)
+- [`app/frontend/src/utils/p300x2Placement.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/utils/p300x2Placement.ts)
+:::

@@ -1,25 +1,5 @@
 # Application Shell: Routing, Layout & Providers
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/LICENSE">LICENSE</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx">app/frontend/src/App.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ModelsDeployedTable.tsx">app/frontend/src/components/ModelsDeployedTable.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/NavBar.tsx">app/frontend/src/components/NavBar.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ResetIcon.tsx">app/frontend/src/components/ResetIcon.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/SideBar.tsx">app/frontend/src/components/SideBar.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatExamples.tsx">app/frontend/src/components/chatui/ChatExamples.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/contexts/ModelsContext.ts">app/frontend/src/contexts/ModelsContext.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/contexts/RefreshContext.ts">app/frontend/src/contexts/RefreshContext.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/DeviceStateContext.tsx">app/frontend/src/providers/DeviceStateContext.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ModelsContext.tsx">app/frontend/src/providers/ModelsContext.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/RefreshContext.tsx">app/frontend/src/providers/RefreshContext.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/routes/index.tsx">app/frontend/src/routes/index.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/routes/route-config.tsx">app/frontend/src/routes/route-config.tsx</a></li>
-</ul>
-</details>
-
 The application shell of TT-Studio is built using React 18, utilizing a provider-heavy architecture to manage global state across hardware monitoring, model deployments, and UI theming. It provides a consistent layout with a persistent navigation bar and footer, while handling dynamic routing based on the state of deployed AI models.
 
 ## Application Entry & Providers
@@ -136,3 +116,25 @@ graph LR
     SB -- "Reads Location" --> NB
 ```
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`LICENSE`](https://github.com/tenstorrent/tt-studio/blob/c837b829/LICENSE)
+- [`app/frontend/src/App.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/App.tsx)
+- [`app/frontend/src/components/ModelsDeployedTable.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ModelsDeployedTable.tsx)
+- [`app/frontend/src/components/NavBar.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/NavBar.tsx)
+- [`app/frontend/src/components/ResetIcon.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ResetIcon.tsx)
+- [`app/frontend/src/components/SideBar.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/SideBar.tsx)
+- [`app/frontend/src/components/chatui/ChatExamples.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/ChatExamples.tsx)
+- [`app/frontend/src/contexts/ModelsContext.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/contexts/ModelsContext.ts)
+- [`app/frontend/src/contexts/RefreshContext.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/contexts/RefreshContext.ts)
+- [`app/frontend/src/providers/DeviceStateContext.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/DeviceStateContext.tsx)
+- [`app/frontend/src/providers/ModelsContext.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/ModelsContext.tsx)
+- [`app/frontend/src/providers/RefreshContext.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/providers/RefreshContext.tsx)
+- [`app/frontend/src/routes/index.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/routes/index.tsx)
+- [`app/frontend/src/routes/route-config.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/routes/route-config.tsx)
+:::

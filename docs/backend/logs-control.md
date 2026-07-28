@@ -1,17 +1,5 @@
 # Logs Control & Bug Reporting
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py">app/backend/docker_control/deployment_sync.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py">app/backend/logs_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json">app/backend/shared_config/models_from_inference_server.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/bug-report/types.ts">app/frontend/src/components/bug-report/types.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/bug-report/useBugReport.ts">app/frontend/src/components/bug-report/useBugReport.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/routers/logs.py">docker-control-service/routers/logs.py</a></li>
-</ul>
-</details>
-
 The `logs_control` Django application is responsible for centralizing system diagnostics, providing log retrieval for system services, and orchestrating the generation of comprehensive bug reports. It aggregates data from the backend, the `docker-control-service`, the AI agent, and inference artifacts.
 
 ## Architecture & Data Flow
@@ -129,3 +117,17 @@ The app relies on two primary environment variables for log location:
 1. `INTERNAL_PERSISTENT_STORAGE_VOLUME`: The base path (aliased as `LOGS_ROOT`) for persistent backend logs.
 2. `TT_STUDIO_ROOT`: The root directory used to locate inference artifacts and internal logs.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/deployment_sync.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py)
+- [`app/backend/logs_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py)
+- [`app/backend/shared_config/models_from_inference_server.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json)
+- [`app/frontend/src/components/bug-report/types.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/bug-report/types.ts)
+- [`app/frontend/src/components/bug-report/useBugReport.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/bug-report/useBugReport.ts)
+- [`docker-control-service/routers/logs.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/routers/logs.py)
+:::

@@ -1,26 +1,5 @@
 # Docker Control & Container Lifecycle
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/apps.py">app/backend/docker_control/apps.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/chip_allocator.py">app/backend/docker_control/chip_allocator.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_store.py">app/backend/docker_control/deployment_store.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_utils.py">app/backend/docker_control/docker_utils.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py">app/backend/docker_control/health_monitor.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/serializers.py">app/backend/docker_control/serializers.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tests.py">app/backend/docker_control/tests.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py">app/backend/docker_control/tt_inference_client.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/urls.py">app/backend/docker_control/urls.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/views.py">app/backend/docker_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py">app/backend/model_control/model_utils.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/views.py">app/backend/model_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx">app/frontend/src/components/FirstStepForm.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py">docker-control-service/api.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py">inference-api/api.py</a></li>
-</ul>
-</details>
-
 The `docker_control` Django app is the core orchestration engine for managing AI model containers within TT-Studio. It manages the full lifecycle of inference containers—from hardware capability detection and chip slot allocation to deployment via the `inference-api` and continuous health monitoring.
 
 ## Architecture & Data Flow
@@ -133,3 +112,26 @@ classDiagram
 | `_run_direct_container` | `docker_utils.py` | Runs containers directly (bypassing Inference Server) for non-chat models like `FACE_RECOGNITION`. |
 | `resolve_deploy_image` | `tt_inference_client.py` | Asks the Inference Server which image it will actually deploy for a model to enable accurate pre-pulling. |
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/apps.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/apps.py)
+- [`app/backend/docker_control/chip_allocator.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/chip_allocator.py)
+- [`app/backend/docker_control/deployment_store.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_store.py)
+- [`app/backend/docker_control/docker_utils.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/docker_utils.py)
+- [`app/backend/docker_control/health_monitor.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/health_monitor.py)
+- [`app/backend/docker_control/serializers.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/serializers.py)
+- [`app/backend/docker_control/tests.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tests.py)
+- [`app/backend/docker_control/tt_inference_client.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py)
+- [`app/backend/docker_control/urls.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/urls.py)
+- [`app/backend/docker_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/views.py)
+- [`app/backend/model_control/model_utils.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py)
+- [`app/backend/model_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/views.py)
+- [`app/frontend/src/components/FirstStepForm.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx)
+- [`docker-control-service/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/docker-control-service/api.py)
+- [`inference-api/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py)
+:::

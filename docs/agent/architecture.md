@@ -1,15 +1,5 @@
 # Agent Architecture & LLM Discovery
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md">README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md">app/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html">app/frontend/index.html</a></li>
-</ul>
-</details>
-
 The AI Agent service (`tt_studio_agent`) is a specialized autonomous assistant designed to orchestrate complex tasks by leveraging local Tenstorrent-hosted LLMs. It utilizes a LangChain-based ReAct framework to interact with the system through tools while maintaining a resilient connection to inference containers via a dedicated discovery and health monitoring subsystem.
 
 ## Core Agent Architecture
@@ -121,3 +111,15 @@ The agent service is designed to be resilient. If the primary high-performance m
 * **Endpoint Resolution**: The API URL is determined dynamically at runtime based on the `BACKEND_API_HOSTNAME`.
 * **Polling Configuration**: Retry logic is governed by `AGENT_LLM_POLLING_MAX_ATTEMPTS` and `AGENT_LLM_POLLING_TIMEOUT`.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
+- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+:::

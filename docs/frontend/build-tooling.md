@@ -1,28 +1,5 @@
 # Frontend Build, Tooling & UI Component Library
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/nginx.conf">app/frontend/nginx.conf</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package-lock.json">app/frontend/package-lock.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json">app/frontend/package.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ConfirmDialog.tsx">app/frontend/src/components/ConfirmDialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/CopyableText.tsx">app/frontend/src/components/CopyableText.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/HealthBadge.tsx">app/frontend/src/components/HealthBadge.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StatusBadge.tsx">app/frontend/src/components/StatusBadge.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/speechToText/mainContent.tsx">app/frontend/src/components/speechToText/mainContent.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/alert-dialog.tsx">app/frontend/src/components/ui/alert-dialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/alert.tsx">app/frontend/src/components/ui/alert.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/badge.tsx">app/frontend/src/components/ui/badge.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/card.tsx">app/frontend/src/components/ui/card.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/dialog.tsx">app/frontend/src/components/ui/dialog.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/scroll-area.tsx">app/frontend/src/components/ui/scroll-area.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/tooltip.tsx">app/frontend/src/components/ui/tooltip.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/index.css">app/frontend/src/index.css</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/vite.config.ts">app/frontend/vite.config.ts</a></li>
-</ul>
-</details>
-
 This section covers the frontend infrastructure of TT-Studio, detailing the build pipeline, the architectural choices for styling and UI primitives, and the enforcement of development standards through linting and license header management.
 
 ## Build Pipeline & Development Environment
@@ -152,3 +129,28 @@ TT-Studio requires every source file to contain an SPDX license header. This is 
 ### License Auditing
 The project includes a script to generate a comprehensive third-party license file, ensuring compliance with open-source dependencies.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/frontend/nginx.conf`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/nginx.conf)
+- [`app/frontend/package-lock.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package-lock.json)
+- [`app/frontend/package.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/package.json)
+- [`app/frontend/src/components/ConfirmDialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ConfirmDialog.tsx)
+- [`app/frontend/src/components/CopyableText.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/CopyableText.tsx)
+- [`app/frontend/src/components/HealthBadge.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/HealthBadge.tsx)
+- [`app/frontend/src/components/StatusBadge.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/StatusBadge.tsx)
+- [`app/frontend/src/components/speechToText/mainContent.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/speechToText/mainContent.tsx)
+- [`app/frontend/src/components/ui/alert-dialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/alert-dialog.tsx)
+- [`app/frontend/src/components/ui/alert.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/alert.tsx)
+- [`app/frontend/src/components/ui/badge.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/badge.tsx)
+- [`app/frontend/src/components/ui/card.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/card.tsx)
+- [`app/frontend/src/components/ui/dialog.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/dialog.tsx)
+- [`app/frontend/src/components/ui/scroll-area.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/scroll-area.tsx)
+- [`app/frontend/src/components/ui/tooltip.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/ui/tooltip.tsx)
+- [`app/frontend/src/index.css`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/index.css)
+- [`app/frontend/vite.config.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/vite.config.ts)
+:::

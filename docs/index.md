@@ -1,17 +1,5 @@
 # TT-Studio Overview
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.cursor/rules/project-overview.mdc">.cursor/rules/project-overview.mdc</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md">CLAUDE.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md">README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md">app/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html">app/frontend/index.html</a></li>
-</ul>
-</details>
-
 TT-Studio is a comprehensive web-based platform designed to simplify the deployment and management of AI models on **Tenstorrent AI accelerators**. It integrates the model execution capabilities of [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) and the orchestration framework of [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) into a unified graphical user interface.
 
 The system automates technical setup, hardware detection, and containerization, allowing users to interact with large language models (LLMs), computer vision, and speech-to-text pipelines through an intuitive React-based frontend. For users without local hardware, the platform supports connecting to remote endpoints via "AI Playground" configurations.
@@ -109,6 +97,21 @@ The system relies on an `.env` file (managed via `run.py`) to handle critical pa
 * **JWT_SECRET**: Used for authenticating internal service communication.
 * **LITELLM_MASTER_KEY**: Authentication key for the LiteLLM gateway.
 * **HF_TOKEN**: Hugging Face token for downloading gated models.
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.cursor/rules/project-overview.mdc`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.cursor/rules/project-overview.mdc)
+- [`CLAUDE.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/CLAUDE.md)
+- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
+- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+:::
 
 ```{toctree}
 :hidden:

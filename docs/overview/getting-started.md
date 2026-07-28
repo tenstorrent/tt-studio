@@ -1,17 +1,5 @@
 # Getting Started & Setup
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.env.default">.env.default</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md">README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md">app/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html">app/frontend/index.html</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/run.py">run.py</a></li>
-</ul>
-</details>
-
 This page provides a technical guide for setting up and initializing the TT-Studio environment. It covers prerequisites, the execution flow of the primary setup script, environment configuration, and hardware detection mechanisms.
 
 ## Prerequisites
@@ -122,3 +110,17 @@ To maintain system hygiene or reset the environment, `run.py` provides cleanup o
     docker compose -f app/docker-compose.yml -f app/docker-compose.dev-mode.yml -f app/docker-compose.tt-hardware.yml down
     ```
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.env.default`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.env.default)
+- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
+- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+- [`run.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/run.py)
+:::

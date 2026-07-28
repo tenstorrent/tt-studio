@@ -1,16 +1,5 @@
 # Agent API & Tool Integration
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx">app/frontend/src/components/chatui/MessageActions.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts">app/frontend/src/components/chatui/runInference.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts">app/frontend/src/components/chatui/types.ts</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx">app/frontend/src/components/rag/RagManagement.tsx</a></li>
-</ul>
-</details>
-
 The AI Agent service (`tt_studio_agent`) provides an autonomous assistant capable of multi-step reasoning, tool execution, and real-time interaction. It exposes a FastAPI-based interface for the frontend to manage conversations and poll for agent updates.
 
 ## API Architecture & Endpoints
@@ -120,3 +109,16 @@ The agent's behavior and tool access are governed by environment variables defin
 | `AGENT_LLM_POLLING_TIMEOUT` | Max time allowed for a single polling request. | |
 | `USE_CLOUD_LLM` | Toggle to use cloud-based models for the agent reasoning. | |
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/src/components/chatui/MessageActions.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/MessageActions.tsx)
+- [`app/frontend/src/components/chatui/runInference.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/runInference.ts)
+- [`app/frontend/src/components/chatui/types.ts`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/chatui/types.ts)
+- [`app/frontend/src/components/rag/RagManagement.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/rag/RagManagement.tsx)
+:::

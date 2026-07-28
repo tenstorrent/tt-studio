@@ -1,16 +1,5 @@
 # Model Integration & Dummy Echo Model
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py">app/backend/docker_control/deployment_sync.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py">app/backend/logs_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json">app/backend/shared_config/models_from_inference_server.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile">models/dummy_echo_model/Dockerfile</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py">models/dummy_echo_model/src/inference_api_server.py</a></li>
-</ul>
-</details>
-
 This section provides an overview of how AI models are integrated into the TT-Studio ecosystem. Integration is driven by a standardized configuration schema that allows the TT-Studio backend to manage the lifecycle of containerized inference servers, handle hardware requirements for Tenstorrent chips, and provide a unified API for the frontend.
 
 ## Model Integration Overview
@@ -95,6 +84,20 @@ graph LR
 ```
 
 For a step-by-step breakdown of the reference implementation and how to use it as a template, see **[Dummy Echo Model Reference Implementation](dummy-echo-model.md)**.
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/deployment_sync.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py)
+- [`app/backend/logs_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py)
+- [`app/backend/shared_config/models_from_inference_server.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json)
+- [`models/dummy_echo_model/Dockerfile`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile)
+- [`models/dummy_echo_model/src/inference_api_server.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py)
+:::
 
 ```{toctree}
 :hidden:

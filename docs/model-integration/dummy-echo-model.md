@@ -1,16 +1,5 @@
 # Dummy Echo Model Reference Implementation
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile">models/dummy_echo_model/Dockerfile</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py">models/dummy_echo_model/src/dummy_echo_backend.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py">models/dummy_echo_model/src/inference_api_server.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_config.py">models/dummy_echo_model/src/inference_config.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/model_weights_handler.py">models/dummy_echo_model/src/model_weights_handler.py</a></li>
-</ul>
-</details>
-
 The `dummy_echo_model` serves as the reference implementation and template for integrating new AI models into TT-Studio. It provides a complete, containerized inference environment that simulates the behavior of a Large Language Model (LLM) while running on CPU. This allows developers to test the full deployment pipeline, streaming UI, and backend orchestration without requiring Tenstorrent hardware.
 
 ## System Architecture
@@ -103,3 +92,16 @@ The model is packaged using a multi-stage `Dockerfile`.
 
 A standalone test script `test_dummy_backend.py` is provided to verify the backend logic without starting the Flask server. It manually pushes prompts into the `prompt_q` and executes `run_backend` to ensure tokens are generated and the sequence completes.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`models/dummy_echo_model/Dockerfile`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/Dockerfile)
+- [`models/dummy_echo_model/src/dummy_echo_backend.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/dummy_echo_backend.py)
+- [`models/dummy_echo_model/src/inference_api_server.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_api_server.py)
+- [`models/dummy_echo_model/src/inference_config.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/inference_config.py)
+- [`models/dummy_echo_model/src/model_weights_handler.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/models/dummy_echo_model/src/model_weights_handler.py)
+:::

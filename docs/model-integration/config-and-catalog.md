@@ -1,17 +1,5 @@
 # Model Configuration & Catalog
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py">app/backend/docker_control/deployment_sync.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py">app/backend/logs_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/coding_agent_config.py">app/backend/shared_config/coding_agent_config.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json">app/backend/shared_config/models_from_inference_server.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/sync_models_from_inference_server.py">app/backend/shared_config/sync_models_from_inference_server.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/test_sync_models.py">app/backend/shared_config/test_sync_models.py</a></li>
-</ul>
-</details>
-
 This page details the configuration schema and cataloging system used by TT-Studio to define, discover, and deploy AI models. The system relies on a central dataclass for model metadata and a JSON-based catalog derived from the Tenstorrent inference server artifacts.
 
 ## ModelImpl Dataclass
@@ -118,3 +106,17 @@ Model implementations often require specific environment variables for tuning (e
  - Reasoning models like `Qwen3-32B` can be deployed with a specific reasoning parser (e.g., `qwen3`) to split reasoning into `reasoning_content`.
  - The system supports a `-thinking` suffix for requested gateway models to enable reasoning mode.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/deployment_sync.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py)
+- [`app/backend/logs_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py)
+- [`app/backend/shared_config/coding_agent_config.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/coding_agent_config.py)
+- [`app/backend/shared_config/models_from_inference_server.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json)
+- [`app/backend/shared_config/sync_models_from_inference_server.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/sync_models_from_inference_server.py)
+- [`app/backend/shared_config/test_sync_models.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/test_sync_models.py)
+:::

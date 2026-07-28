@@ -1,16 +1,5 @@
 # Inference API (FastAPI Bridge)
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py">app/backend/docker_control/tt_inference_client.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py">app/backend/model_control/model_utils.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx">app/frontend/src/components/FirstStepForm.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py">inference-api/api.py</a></li>
-</ul>
-</details>
-
 The **Inference API** is a standalone FastAPI service (running on port 8001) that acts as a bridge between the TT-Studio Backend and the `tt-inference-server` artifact. Its primary responsibility is to orchestrate the deployment of model containers, monitor weights downloading progress, and provide real-time status updates via Server-Sent Events (SSE).
 
 ## 1. Service Overview and Integration
@@ -105,3 +94,16 @@ The service dynamically locates the `tt-inference-server` code to allow for flex
 | `/models` | GET | Returns the list of supported models from `MODEL_SPECS`. |
 | `/resolve-image` | GET | Returns the specific Docker image tag for a model/device combo via `get_runtime_model_spec`. |
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/tt_inference_client.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py)
+- [`app/backend/model_control/model_utils.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/src/components/FirstStepForm.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx)
+- [`inference-api/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py)
+:::

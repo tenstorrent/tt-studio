@@ -1,21 +1,5 @@
 # Model Control & Inference Pipeline
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py">app/backend/docker_control/deployment_sync.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py">app/backend/docker_control/tt_inference_client.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py">app/backend/logs_control/views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/connection_warmer.py">app/backend/model_control/connection_warmer.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py">app/backend/model_control/model_utils.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/pipeline_views.py">app/backend/model_control/pipeline_views.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/urls.py">app/backend/model_control/urls.py</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json">app/backend/shared_config/models_from_inference_server.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx">app/frontend/src/components/FirstStepForm.tsx</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py">inference-api/api.py</a></li>
-</ul>
-</details>
-
 The `model_control` Django app is the central orchestrator for model metadata, inference request routing, and performance tracking. It manages the lifecycle of inference requests from the frontend to deployed model containers, handles Server-Sent Events (SSE) streaming, and implements a multi-stage voice pipeline.
 
 ## Model Configuration & Catalog
@@ -132,3 +116,21 @@ graph LR
     M4 -.-> C5
 ```
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`app/backend/docker_control/deployment_sync.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/deployment_sync.py)
+- [`app/backend/docker_control/tt_inference_client.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/docker_control/tt_inference_client.py)
+- [`app/backend/logs_control/views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/logs_control/views.py)
+- [`app/backend/model_control/connection_warmer.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/connection_warmer.py)
+- [`app/backend/model_control/model_utils.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/model_utils.py)
+- [`app/backend/model_control/pipeline_views.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/pipeline_views.py)
+- [`app/backend/model_control/urls.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/model_control/urls.py)
+- [`app/backend/shared_config/models_from_inference_server.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/shared_config/models_from_inference_server.json)
+- [`app/frontend/src/components/FirstStepForm.tsx`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/src/components/FirstStepForm.tsx)
+- [`inference-api/api.py`](https://github.com/tenstorrent/tt-studio/blob/c837b829/inference-api/api.py)
+:::

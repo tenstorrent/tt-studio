@@ -1,15 +1,5 @@
 # AI Agent Service
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md">README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md">app/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html">app/frontend/index.html</a></li>
-</ul>
-</details>
-
 The `tt_studio_agent` service (operating on port `8080`) is an autonomous AI assistant subsystem within TT-Studio. It provides a high-level reasoning interface that can discover locally deployed LLMs, monitor their health, and execute complex tasks using a suite of integrated tools, including web search and secure code execution.
 
 ## Overview
@@ -94,6 +84,19 @@ The agent exposes a FastAPI-based REST interface. Authentication is handled via 
 The service is configured via environment variables to communicate with the `tt_studio_backend` via `BACKEND_API_HOSTNAME` and manage specific container targets via `LLM_CONTAINER_NAME`.
 
 For details, see [Agent API & Tool Integration](api-and-tools.md).
+
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
+- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+:::
 
 ```{toctree}
 :hidden:

@@ -1,19 +1,5 @@
 # Architecture Overview
 
-<details>
-<summary>Relevant source files</summary>
-<ul>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/extensions.json">.vscode/extensions.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/settings.json">.vscode/settings.json</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md">README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md">app/README.md</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile">app/backend/Dockerfile</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml">app/docker-compose.yml</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html">app/frontend/index.html</a></li>
-<li><a href="https://github.com/tenstorrent/tt-studio/blob/c837b829/app/litellm/config.yaml">app/litellm/config.yaml</a></li>
-</ul>
-</details>
-
 TT-Studio is built as a distributed multi-service system orchestrated via Docker. It bridges high-level user interactions (web UI, AI agents) with low-level hardware execution on Tenstorrent AI accelerators. The architecture follows a microservices pattern where specific responsibilities—such as Docker lifecycle management, vector search, and model inference—are isolated into distinct containers.
 
 ## Multi-Service Topology
@@ -115,3 +101,19 @@ The system supports multiple execution modes through Docker Compose overlays:
 2. **Hardware Mode**: Uses `docker-compose.tt-hardware.yml` to mount `/dev/tenstorrent` devices. The backend container attempts to install `tt-smi` during build if not in Playground mode.
 3. **Network Security**: Services are isolated within `tt_studio_network`. The backend uses `extra_hosts` to resolve `host.docker.internal` for communicating with the host-side `docker-control-service`.
 
+---
+
+:::{admonition} Source files this page was written from
+:class: dropdown tt-sources
+
+Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/c837b829), so the linked line numbers match that revision.
+
+- [`.vscode/extensions.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/extensions.json)
+- [`.vscode/settings.json`](https://github.com/tenstorrent/tt-studio/blob/c837b829/.vscode/settings.json)
+- [`README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/README.md)
+- [`app/README.md`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/README.md)
+- [`app/backend/Dockerfile`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/backend/Dockerfile)
+- [`app/docker-compose.yml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/docker-compose.yml)
+- [`app/frontend/index.html`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/frontend/index.html)
+- [`app/litellm/config.yaml`](https://github.com/tenstorrent/tt-studio/blob/c837b829/app/litellm/config.yaml)
+:::
