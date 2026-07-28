@@ -37,6 +37,55 @@ logger.info(f"importing {__name__}")
 INTERNAL_KNOWLEDGE_COLLECTION = "tenstorrent_internal_knowledge"
 
 
+def _resolve_max_distance(request):
+    """Resolve the effective cosine-distance ceiling for a query.
+
+    A ``max_distance`` query param overrides the ``RAG_RELEVANCE_THRESHOLD`` setting;
+    when neither is provided the result is ``None`` (no filtering). Raises ``ValueError``
+    if the param is present but not a valid float.
+    """
+    raw = request.GET.get("max_distance")
+    if raw is not None and raw != "":
+        return float(raw)
+    return settings.RAG_RELEVANCE_THRESHOLD
+
+
+def _parse_where(request):
+    """Parse the optional ``where`` metadata filter from a query param.
+
+    Returns a dict (Chroma metadata filter) or ``None``. Raises ``ValueError`` if the
+    param is present but is not a JSON object.
+    """
+    raw = request.GET.get("where")
+    if not raw:
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("`where` must be a JSON object")
+    return parsed
+
+
+def _filter_results_by_distance(results, max_distance):
+    """Drop entries from a single-query Chroma result whose distance exceeds the ceiling."""
+    if max_distance is None or not results or not results.get("documents"):
+        return results
+    documents = results["documents"][0]
+    ids = results["ids"][0]
+    metadatas = results["metadatas"][0] if results.get("metadatas") else [None] * len(documents)
+    distances = results["distances"][0] if results.get("distances") else [None] * len(documents)
+    kept = [
+        i
+        for i in range(len(documents))
+        if distances[i] is not None and distances[i] <= max_distance
+    ]
+    return {
+        "ids": [[ids[i] for i in kept]],
+        "documents": [[documents[i] for i in kept]],
+        "metadatas": [[metadatas[i] for i in kept]],
+        "distances": [[distances[i] for i in kept]],
+    }
+
+
 def _merge_query_results(primary, secondary, limit):
     """Merge two Chroma query result dicts (single query), keeping the closest matches.
 
@@ -496,16 +545,28 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"error": "No query text provided"},
             )
+
+        try:
+            where = _parse_where(request)
+            max_distance = _resolve_max_distance(request)
+        except ValueError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": f"Invalid query filter: {str(e)}"},
+            )
+
         results = query_collection(
             collection_name=pk,
             query_texts=[query_text],
             n_results=self.query_results_limit,
             embedding_func_name=self.EMBED_MODEL,
+            where=where,
         )
 
         # Merge in the shared Tenstorrent knowledge so single-collection queries still
-        # surface documentation, without copying the corpus into every collection.
-        if pk != INTERNAL_KNOWLEDGE_COLLECTION:
+        # surface documentation, without copying the corpus into every collection. Skip
+        # the merge when a metadata filter is set — the caller is scoping to their own chunks.
+        if pk != INTERNAL_KNOWLEDGE_COLLECTION and not where:
             try:
                 internal_results = query_collection(
                     collection_name=INTERNAL_KNOWLEDGE_COLLECTION,
@@ -517,6 +578,8 @@ class VectorCollectionsAPIView(ViewSet):
             except Exception as e:
                 logger.error(f"Error merging internal knowledge into query for {pk}: {e}")
 
+        results = _filter_results_by_distance(results, max_distance)
+
         return Response(results)
 
     @action(methods=["GET"], detail=False, url_path="query-all")
@@ -527,6 +590,15 @@ class VectorCollectionsAPIView(ViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"error": "No query text provided"},
+            )
+
+        try:
+            where = _parse_where(request)
+            max_distance = _resolve_max_distance(request)
+        except ValueError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": f"Invalid query filter: {str(e)}"},
             )
 
         # Get all collections the user has access to
@@ -554,6 +626,7 @@ class VectorCollectionsAPIView(ViewSet):
                     query_texts=[query_text],
                     n_results=self.query_results_limit,
                     embedding_func_name=self.EMBED_MODEL,
+                    where=where,
                 )
                 if results and results.get("documents"):
                     # Add collection name to each result for context
@@ -570,6 +643,13 @@ class VectorCollectionsAPIView(ViewSet):
                 logger.error(f"Error querying collection {collection.name}: {e}")
                 # Optionally skip problematic collections
                 continue
+
+        # Drop results below the relevance threshold, if one is in effect.
+        if max_distance is not None:
+            all_results["results"] = [
+                r for r in all_results["results"]
+                if r["distance"] is not None and r["distance"] <= max_distance
+            ]
 
         # Sort all aggregated results by distance (ascending)
         all_results["results"].sort(key=lambda x: x["distance"] if x["distance"] is not None else float('inf'))

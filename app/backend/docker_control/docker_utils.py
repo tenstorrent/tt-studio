@@ -15,6 +15,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tavily_api_key
 from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
@@ -28,7 +29,7 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
-FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -419,8 +420,26 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Pass UI-managed secrets explicitly. The inference server runs on the host
+        # and cannot read user_config.env in the persistent volume when the backend
+        # container (root) wrote it, so the request payload is its reliable source.
+        # Mirrors start_chat_deployment in tt_inference_client.py; without this,
+        # media/forge deploys (e.g. FLUX) reach run.py with no JWT_SECRET and fall
+        # back to an interactive getpass prompt that EOFs in the non-TTY subprocess.
+        from shared_config.user_config import get_hf_token, get_jwt_secret
+        hf_token = get_hf_token()
+        if hf_token:
+            payload["hf_token"] = hf_token
+        jwt_secret = get_jwt_secret()
+        if jwt_secret:
+            payload["jwt_secret"] = jwt_secret
 
-        logger.info(f"API payload: {payload}")
+        # Redact secrets before logging the payload.
+        _redacted_payload = {
+            k: ("***" if k in ("jwt_secret", "hf_token") else v)
+            for k, v in payload.items()
+        }
+        logger.info(f"API payload: {_redacted_payload}")
 
         # Make POST request to TT Inference Server API
         api_url = f"{FASTAPI_BASE_URL}/run"
@@ -530,10 +549,17 @@ def run_agent_container(container_name, port_bindings, impl):
         network='tt_studio_network',
         ports={'8080/tcp': host_agent_port},
         environment={
-            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+            'TAVILY_API_KEY': get_tavily_api_key() or '',
             'LLM_CONTAINER_NAME': container_name,
             'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
+            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
+        },
+        volumes={
+            backend_config.host_peristent_storage_volume: {
+                "bind": backend_config.persistent_storage_volume,
+                "mode": "ro",
+            },
         },
         detach=True
     )
@@ -943,6 +969,10 @@ def _enrich_container_with_model_impl(con, con_id):
 _CANONICAL_STARTING_GRACE_SECONDS = 60        # chat/LLM: container appears within seconds
 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS = 3600  # media: weight download can take 60+ min on host
 
+# Grace window before a running deployment that briefly vanishes from the Docker listing is reconciled to stopped.
+_CANONICAL_RUNNING_GRACE_SECONDS = 30
+_running_missing_since: dict = {}
+
 
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
@@ -990,6 +1020,7 @@ def get_canonical_deployments():
 
         if match_data is not None:
             matched_live_ids.add(match_id)
+            _running_missing_since.pop(dep.id, None)
             entry = dict(match_data)  # shallow copy so we don't mutate the original
             enriched = _enrich_container_with_model_impl(entry, match_id)
             entry["source"] = "managed"
@@ -998,6 +1029,8 @@ def get_canonical_deployments():
             entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
+            entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
+            entry["jwt_secret"] = getattr(dep, "jwt_secret", None)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
@@ -1041,8 +1074,24 @@ def get_canonical_deployments():
                     "stopped_by_user": False,
                     "deployment_id": dep.id,
                     "deployment_model_name": dep.model_name,
+                    "tool_calling_enabled": getattr(dep, "tool_calling_enabled", False),
                 }
                 continue
+
+        # Running but absent from this listing — likely a transient/partial
+        # listing. Re-surface the last-known-good cached entry within the grace
+        # window instead of demoting it; only reconcile once the miss persists.
+        if dep.status == "running":
+            first_missed = _running_missing_since.setdefault(dep.id, now_utc)
+            if (now_utc - first_missed).total_seconds() < _CANONICAL_RUNNING_GRACE_SECONDS:
+                cache = caches[backend_config.django_deploy_cache_name]
+                for key in (full_id, short_id):
+                    cached = cache.get(key) if key else None
+                    if cached is not None:
+                        result[key] = cached
+                        break
+                continue
+            _running_missing_since.pop(dep.id, None)
 
         # Stale: reconcile to stopped so the slot frees up.
         try:
@@ -1080,7 +1129,7 @@ def serialize_canonical_entry_for_http(entry):
     object so callers like _resolve_model_identity can read attributes off
     it. For HTTP responses we serialize and strip env_vars /docker_config for security.
     """
-    out = {k: v for k, v in entry.items() if k != "env_vars"}
+    out = {k: v for k, v in entry.items() if k not in ("env_vars", "jwt_secret")}
 
     model_impl = entry.get("model_impl")
     # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)

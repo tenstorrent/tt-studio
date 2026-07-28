@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState, useEffect, useMemo } from "react";
-import axios from "axios";
 import { Cpu, Layers } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
 import {
@@ -11,54 +10,25 @@ import {
   cardGroupFor,
   fullBoardSlots,
 } from "../utils/deviceFit";
-
-interface ChipSlot {
-  slot_id: number;
-  status: "available" | "occupied";
-  model_name?: string;
-  deployment_id?: number;
-  is_multi_chip?: boolean;
-}
-
-interface ChipStatus {
-  board_type: string;
-  total_slots: number;
-  slots: ChipSlot[];
-}
+import type { ChipStatus } from "../types/chipStatus";
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
   onConfirm: (slotIds: number[]) => void;
   placement: ModelPlacement;
+  chipStatus: ChipStatus | null;
 }
 
-export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
+export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigStepProps) {
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
     null
   );
   const [selectedSlots, setSelectedSlots] = useState<number[]>([]);
-  const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
 
   const { allowsSingle, allowsFullBoard, cardGroups } = placement;
   const isGrouped = cardGroups.length > 0;
   // The "pick devices" card is offered for single-device and flexible (card-pair) models.
   const pickEnabled = allowsSingle || isGrouped;
-
-  // Fetch chip status on mount and poll every 7 minutes
-  useEffect(() => {
-    const fetchChipStatus = async () => {
-      try {
-        const response = await axios.get("/docker-api/chip-status/");
-        setChipStatus(response.data);
-      } catch (error) {
-        console.error("Error fetching chip status:", error);
-      }
-    };
-
-    fetchChipStatus();
-    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Whether the whole board is free (required to run full-board).
   const multiBoardFree = useMemo(
@@ -156,12 +126,11 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
           onClick={() => !singleDisabled && setSelectedMode("single")}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
-            ${
-              singleDisabled
-                ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
-                : selectedMode === "single"
-                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
-                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
+            ${singleDisabled
+              ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+              : selectedMode === "single"
+                ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
+                : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
             }
           `}
         >
@@ -194,12 +163,11 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
           onClick={() => !multiDisabled && setSelectedMode("multi")}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
-            ${
-              multiDisabled
-                ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
-                : selectedMode === "multi"
-                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
-                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
+            ${multiDisabled
+              ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+              : selectedMode === "multi"
+                ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
+                : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
             }
           `}
         >
@@ -252,12 +220,11 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
                   onClick={() => toggleSlot(slot.slot_id)}
                   className={`
                     flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200 min-w-[90px]
-                    ${
-                      isSelected
-                        ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
-                        : isAvailable
-                          ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
-                          : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                    ${isSelected
+                      ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
+                      : isAvailable
+                        ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
+                        : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
                     }
                   `}
                 >
@@ -271,13 +238,12 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
                     DEVICE {String(slot.slot_id).padStart(2, "0")}
                   </span>
                   <span
-                    className={`text-[10px] font-mono mt-0.5 ${
-                      isSelected
+                    className={`text-[10px] font-mono mt-0.5 ${isSelected
                         ? "text-TT-purple-accent"
                         : isAvailable
                           ? "text-gray-500"
                           : "text-gray-700"
-                    }`}
+                      }`}
                   >
                     {isAvailable ? "IDLE" : "IN USE"}
                   </span>
@@ -287,9 +253,9 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
           </div>
           {selectedSlots.length > 0 && (
             <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ {selectedSlots.length > 1 ? `Devices ${selectedSlots.slice().sort((a,b)=>a-b).join(", ")} selected` : `Device ${selectedSlots[0]} selected`}
+              ✓ {selectedSlots.length > 1 ? `Devices ${selectedSlots.slice().sort((a, b) => a - b).join(", ")} selected` : `Device ${selectedSlots[0]} selected`}
               {" — "}
-              {selectedSlots.slice().sort((a,b)=>a-b).map((s) => (
+              {selectedSlots.slice().sort((a, b) => a - b).map((s) => (
                 <code key={s} className="bg-gray-800 px-1 rounded mr-1">
                   /dev/tenstorrent/{s}
                 </code>
@@ -305,11 +271,7 @@ export function ChipConfigStep({ onConfirm, placement }: ChipConfigStepProps) {
           Current Device Status
         </h3>
         {chipStatus ? (
-          <ChipStatusDisplay
-            boardType={chipStatus.board_type}
-            totalSlots={chipStatus.total_slots}
-            slots={chipStatus.slots}
-          />
+          <ChipStatusDisplay chipStatus={chipStatus} />
         ) : (
           <div className="p-4 rounded-lg border border-gray-700 bg-[#0d1117] text-gray-500 text-sm font-mono animate-pulse">
             Fetching hardware status...

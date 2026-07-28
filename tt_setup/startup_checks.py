@@ -17,6 +17,8 @@ import subprocess
 import json
 import urllib.request
 
+from tt_setup.console import console, is_verbose
+
 
 # ── colour codes (same as run.py) ────────────────────────────────────────────
 C_RESET  = "\033[0m"
@@ -109,7 +111,6 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         "tt_studio_behind": False,
         "artifact_behind": False,
         "artifact_branch": None,
-        "qb2_mode": False,
         "tt_studio_branch_is_release": False,
     }
 
@@ -119,11 +120,17 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     _RELEASE_BRANCHES = {"main", "dev", "tt_qb2_launch_branch"}
     _RELEASE_PREFIXES = ("rc/", "release/")
 
-    print(f"\n{C_BLUE}🔍 Checking for updates...{C_RESET}")
+    verbose = is_verbose()
+    ok_items = []     # (short_label, "✓ …" line) — confirmed up to date (verbose-only)
+    notes = []        # muted offline/indeterminate notes (verbose-only)
+    actionable = []   # ALWAYS shown: there's something for the user to do
+    quiet = []        # informational (feature-branch-behind, SHA detail) — verbose-only
 
-    # Detect QB2 mode first — it affects both checks below.
-    # Triggered by TT_QB2_LAUNCH_BRANCH, or implicitly when
-    # TT_INFERENCE_ARTIFACT_BRANCH is set to the QB2 launch branch.
+    # Which inference-server artifact branch to check for freshness. Triggered by
+    # TT_QB2_LAUNCH_BRANCH, or implicitly when TT_INFERENCE_ARTIFACT_BRANCH is the
+    # QB2 launch branch. NOTE: this is purely artifact-branch selection — it does
+    # NOT imply the machine is a QB2. QB2 *hardware* is a separate flag (IS_QB2,
+    # read in cli/_run.py); the two are intentionally decoupled.
     qb2_branch = (
         get_env_var_fn("TT_QB2_LAUNCH_BRANCH")
         or os.getenv("TT_QB2_LAUNCH_BRANCH", "")
@@ -135,9 +142,6 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         )
         if artifact_env == "tt_qb2_launch_branch":
             qb2_branch = artifact_env
-    if qb2_branch:
-        result["qb2_mode"] = True
-        print(f"{C_BLUE}   Mode: QB2 (artifact branch: {qb2_branch}){C_RESET}")
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
     try:
@@ -166,20 +170,22 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     if local_sha and studio_check_branch and studio_check_branch not in ("HEAD", ""):
         remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", studio_check_branch)
         if remote_sha is None:
-            print(f"{C_YELLOW}   tt-studio: could not reach GitHub to check for updates{C_RESET}")
+            notes.append("[muted]tt-studio: couldn't reach GitHub to check for updates[/muted]")
         elif local_sha == remote_sha:
-            print(f"{C_GREEN}✓  tt-studio '{studio_check_branch}': up to date ({local_sha[:7]}){C_RESET}")
+            ok_items.append(("tt-studio",
+                f"[success]✓[/success] tt-studio '{studio_check_branch}': up to date [muted]({local_sha[:7]})[/muted]"))
         else:
-            print(f"{C_YELLOW}⚠️  tt-studio is behind origin/{studio_check_branch}{C_RESET}")
-            print(f"     local:  {local_sha[:7]}")
-            print(f"     remote: {remote_sha[:7]}")
-            if result["tt_studio_branch_is_release"]:
-                print(f"     → Run: git pull, then re-run python3 run.py   (release branch — cannot continue)")
-            else:
-                print(f"     → To update: git pull   (feature branch — continuing for now)")
             result["tt_studio_behind"] = True
+            if result["tt_studio_branch_is_release"]:
+                # Release branch behind → hard-stop follows; this is actionable.
+                actionable.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}[/warning]")
+                actionable.append("[warning]     → git pull, then re-run python run.py  (release branch — cannot continue)[/warning]")
+            else:
+                # Feature branch just behind-but-continuing → informational only.
+                quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")
+            quiet.append(f"[muted]     local {local_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
     else:
-        print(f"{C_YELLOW}   tt-studio: could not determine branch/SHA{C_RESET}")
+        notes.append("[muted]tt-studio: couldn't determine branch/SHA[/muted]")
 
     # ── 2. Artifact (tt-inference-server) freshness check ────────────────────
     if qb2_branch:
@@ -191,34 +197,49 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         )
     result["artifact_branch"] = artifact_branch or None
 
-    if not artifact_branch:
-        # Version-pinned artifact — no branch to check against
-        print()
-        return result
+    # A version-pinned artifact (no branch) simply skips the remote check.
+    if artifact_branch:
+        stored_sha = _read_artifact_commit_sha(tt_studio_root)
+        remote_sha = _fetch_github_sha("tenstorrent", "tt-inference-server", artifact_branch)
 
-    stored_sha = _read_artifact_commit_sha(tt_studio_root)
-    remote_sha = _fetch_github_sha("tenstorrent", "tt-inference-server", artifact_branch)
+        if remote_sha is None:
+            notes.append("[muted]artifact: couldn't reach GitHub to check for updates[/muted]")
+        elif not stored_sha:
+            # Artifact exists but no commit SHA was recorded (GitHub API was
+            # unreachable at download time). Backfill the current remote SHA and
+            # treat as up to date — branches rarely advance in the seconds between
+            # download and startup check, and forcing a re-download here is more
+            # disruptive than a tiny risk of staleness.
+            _backfill_artifact_commit_sha(tt_studio_root, remote_sha)
+            ok_items.append(("artifact",
+                f"[success]✓[/success] artifact '{artifact_branch}': up to date [muted]({remote_sha[:7]})[/muted]"))
+        elif stored_sha == remote_sha:
+            ok_items.append(("artifact",
+                f"[success]✓[/success] artifact '{artifact_branch}': up to date [muted]({stored_sha[:7]})[/muted]"))
+        else:
+            result["artifact_behind"] = True
+            # Behind → a re-download will run in Services; actionable heads-up.
+            actionable.append(f"[warning]⚠️  artifact {artifact_branch} is behind origin → fetching latest…[/warning]")
+            quiet.append(f"[muted]     local {stored_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
 
-    if remote_sha is None:
-        print(f"{C_YELLOW}   Artifact: could not reach GitHub to check for updates{C_RESET}")
-    elif not stored_sha:
-        # Artifact exists but no commit SHA was recorded (GitHub API was
-        # unreachable at download time). Backfill the current remote SHA and
-        # treat as up to date — branches rarely advance in the seconds between
-        # download and startup check, and forcing a re-download here is more
-        # disruptive than a tiny risk of staleness.
-        _backfill_artifact_commit_sha(tt_studio_root, remote_sha)
-        print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({remote_sha[:7]}){C_RESET}")
-    elif stored_sha == remote_sha:
-        print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({stored_sha[:7]}){C_RESET}")
+    # ── Render: quiet unless actionable. On a normal run print ONLY actionable
+    # lines (release-branch-must-pull, artifact-fetching); stay silent when up to
+    # date or a feature branch is merely behind-but-continuing. --verbose shows
+    # the full detail (✓ items, offline notes, SHAs, feature-branch note).
+    if verbose:
+        console.print("[info]🔍 Checking for updates…[/info]")
+        if qb2_branch:
+            console.print(f"[muted]   Mode: QB2 (artifact branch: {qb2_branch})[/muted]")
+        for _, line in ok_items:
+            console.print(line)
+        for line in notes:
+            console.print(line)
+        for line in actionable + quiet:
+            console.print(line)
     else:
-        print(f"{C_YELLOW}⚠️  Artifact {artifact_branch} is behind origin{C_RESET}")
-        print(f"     local:  {stored_sha[:7]}")
-        print(f"     remote: {remote_sha[:7]}")
-        print(f"     → Auto-fetching latest...")
-        result["artifact_behind"] = True
+        for line in actionable:
+            console.print(line)
 
-    print()
     return result
 
 

@@ -32,16 +32,79 @@ The script will guide you through all configuration options and set up everythin
 
 ## Command-Line Options
 
-| Option          | Description                                                                  |
-| --------------- | ---------------------------------------------------------------------------- |
-| `--help`        | Display help message with usage details.                                     |
-| `--dev`         | Run in development mode with suggested defaults.                             |
-| `--configure-env` | Interactively configure all environment variables (secrets, modes, cloud endpoints). |
-| `--cleanup`     | Stop and remove all Docker services.                                         |
-| `--cleanup-all` | Clean up everything including persistent data and .env file.                 |
-| `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
-| `--no-sudo`     | Skip sudo usage for FastAPI setup.                                           |
-| `--help-env`    | Show help for environment variables.                                         |
+The options below mirror `python run.py --help` exactly, grouped by the same help
+panels. Run with no flags for the default minimal setup; every flag is optional.
+
+### Setup & Configuration
+
+| Option | Description |
+| --- | --- |
+| `--help`, `-h` | Display the help message with all options grouped by panel. |
+| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. |
+| `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
+| `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
+| `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
+| `--switch REF` | Switch this checkout to a git branch or tag (e.g. `dev`, `v2.9.0-rc1`): fetches origin, checks the ref out (fast-forwarding branches), then exits — re-run to start on that version. Refuses if you have uncommitted changes. |
+
+### Model Deployment
+
+| Option | Description |
+| --- | --- |
+| `--auto-deploy MODEL_NAME` | Auto-deploy the given model once the stack is up. |
+| `--device-id CHIP_ID` | Chip slot index (0–7) to target with `--auto-deploy` (default `0`). |
+
+> **⚠️ Not yet available**: `--auto-deploy` (and its `--device-id`) is a
+> **work in progress and not fully developed**. The launcher currently only
+> forwards the request to the frontend as a URL parameter
+> (`?auto-deploy=<model>&device-id=<id>`); end-to-end automatic deployment is not
+> functional yet. Deploy models from the UI for now. This flag and note will be
+> updated once the feature lands.
+
+### Lifecycle
+
+| Option | Description |
+| --- | --- |
+| `--stop` | Stop TT Studio: tear down Docker containers and networks, keep the persistent volume. (Deprecated alias: `--cleanup`.) |
+| `--status` | Open the live monitor TUI for a running stack (health, ports, hardware). |
+| `--logs` | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
+| `--info` | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
+
+### Reset
+
+| Option | Description |
+| --- | --- |
+| `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
+| `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
+| `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
+
+### Advanced
+
+| Option | Description |
+| --- | --- |
+| `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
+| `--resync` | Force a resync of the model catalog. |
+| `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
+| `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
+| `--skip-docker-control` | Skip starting the Docker Control Service (port 8002). |
+| `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
+| `--no-browser` | Don't open the frontend in a browser automatically. |
+| `--wait-for-services` | Block until all services report healthy before returning. |
+| `--browser-timeout N` | Seconds to wait for the frontend before opening the browser (default `60`). |
+
+### Developer Tools
+
+| Option | Description |
+| --- | --- |
+| `--add-headers` | Add missing SPDX license headers (excludes frontend). |
+| `--check-headers` | Report files missing SPDX license headers (no changes). |
+
+### Troubleshooting & Info
+
+| Option | Description |
+| --- | --- |
+| `--help-env` | Show detailed help for environment variables. |
+| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
+| `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
@@ -52,6 +115,31 @@ To display the same help section in the terminal, run:
 ```bash
 python run.py --help
 ```
+
+### Verbose & calm output
+
+By default the launcher runs in **calm mode**: each setup phase (environment,
+inference artifact, Docker services, health checks) collapses to a single
+summary line with a ✓/⚠/⛔ status, so the terminal stays readable and you see the
+overall shape of the run at a glance. A sticky header keeps the current phase
+pinned while output scrolls.
+
+When something goes wrong — or you just want to watch every command — add
+`--verbose` (or `-v`):
+
+```bash
+python run.py --verbose
+```
+
+This streams the full per-phase output (Docker build logs, artifact download,
+sudo/FastAPI steps) instead of the collapsed summary. Reach for it first when a
+phase reports ⚠ or ⛔ and you want the underlying error. For a run that already
+finished, `--logs` and `--status` (below) are the equivalent live views, and
+`--report-bug` bundles the logs for you.
+
+> The design of the calm output (phase stepper, sticky header, status glyphs) is
+> documented in [Launcher terminal design](launcher-terminal-design.md) — read
+> that before changing anything the launcher prints.
 
 ---
 
@@ -177,7 +265,7 @@ If you started with the default setup and want to switch to a production-ready s
 
 1. **Stop TT-Studio** (if running):
    ```bash
-   python3 run.py --cleanup
+   python3 run.py --stop
    ```
 
 2. **Reconfigure with secure values**:
@@ -287,6 +375,10 @@ When you run `python run.py`, the script:
 | | VITE_ENABLE_DEPLOYED | Enable AI Playground mode | Yes |
 | | VITE_ENABLE_RAG_ADMIN | Enable RAG admin interface | Yes |
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
+| **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
+| **Inference Artifact** | TT_INFERENCE_ARTIFACT_VERSION | Pinned tt-inference-server release to download | Auto-configured |
+| | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |
+| | TT_QB2_LAUNCH_BRANCH | Artifact branch for the QB2 launch (branch selection only) | Optional |
 | **Cloud Models** | CLOUD_*_URL | Model endpoint URLs | If AI Playground enabled |
 | | CLOUD_*_AUTH_TOKEN | Model authentication tokens | If AI Playground enabled |
 
@@ -305,9 +397,34 @@ The startup script now automatically detects Tenstorrent hardware by checking fo
 2. Container access to hardware is configured
 3. A confirmation message is displayed during startup
 
-You can still use the `--tt-hardware` flag to explicitly enable hardware support if needed.
+Detection is fully automatic — there is no flag to toggle it. (Earlier versions
+had a `--tt-hardware` flag; it has been removed.)
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
+
+### QB2 hardware verification (`IS_QB2`)
+
+QB2 (Blackhole QuietBox, `P300x2`) verification is **opt-in and off by default**,
+so a dev laptop, cloud mode, or a different board is never held to the strict
+check. Set `IS_QB2=true` in `.env` **only on an actual QB2** to have startup
+verify the board with `tt-smi`. (The `tt_qb2_launch` release branch ships with it
+set — see [CONTRIBUTING.md](../CONTRIBUTING.md) → Release Process.)
+
+When `IS_QB2=true`, startup behaves as follows:
+
+| tt-smi state | Result |
+|---|---|
+| Confirms a QB2 (`P300x2`) | ✓ proceeds — ready panel shows `QuietBox (QB2)` |
+| Reports a **different** board | ⚠ non-fatal warning (likely misconfigured), proceeds |
+| **Installed but can't read the chips** (real TT tooling present) | ⛔ **stops** at Checks — fix your tooling, or set `IS_QB2=false` |
+| **Not installed** (`tt-smi` not on PATH) | ⚠ can't verify from the CLI — warns and **proceeds with caution** |
+| No TT tooling at all (no `tt-smi`, no `/dev/tenstorrent`) | check skipped; panel shows "No accelerator" |
+
+When `IS_QB2` is unset (the default), the whole verification path is skipped —
+startup is never blocked or warned on hardware grounds.
+
+`IS_QB2` is independent of `TT_INFERENCE_ARTIFACT_BRANCH` / `TT_QB2_LAUNCH_BRANCH`,
+which only select which inference-server build to download.
 
 ---
 
@@ -362,13 +479,59 @@ python run.py --dev
 
 ### Stopping and Cleaning Up
 ```bash
-python run.py --cleanup
+python run.py --stop
 ```
 
 ### Complete Cleanup (including data)
 ```bash
-python run.py --cleanup-all
+python run.py --purge-all
 ```
+
+### A Shorter Command (`tt-studio`)
+```bash
+python run.py --install-shortcut
+```
+Adds a `tt-studio` shell function to your `~/.zshrc` / `~/.bashrc` that runs the
+launcher from the repo no matter which directory you're in (it `cd`s in a
+subshell, so your current directory is untouched). Reopen your terminal (or
+`source` your rc), then use `tt-studio`, `tt-studio --dev`, `tt-studio --stop`,
+etc. The first time you launch without the shortcut installed, TT-Studio also
+offers to set it up for you (once). Bash/zsh are handled automatically; other
+shells get a snippet to paste.
+
+The shortcut bakes in the repo path it was installed from. If you move the repo
+or start launching from a different clone, the next normal startup re-points the
+shortcut to that checkout automatically (a one-line notice tells you when it
+does).
+
+### Switching Versions
+```bash
+python run.py --switch dev          # a branch
+python run.py --switch v2.9.0-rc1   # a release tag / RC
+```
+Fetches origin and checks out the given branch (fast-forwarded to origin) or tag
+(detached HEAD), then exits — re-run `python run.py` (or `tt-studio`) to start on
+that version. It refuses to run if your checkout has uncommitted changes, and if
+TT-Studio is currently running you should `--stop` and start again so the stack
+matches the new code.
+
+### Uninstalling
+```bash
+python run.py --uninstall
+```
+Runs the full `--purge-all` teardown (containers, volumes, `.env`, artifacts) and
+then removes the `tt-studio` shell function from your shell config. One
+confirmation covers both; answering no leaves everything in place.
+
+### Reporting a Bug
+```bash
+python run.py --report-bug
+```
+Collects the available host-side logs (startup, model-run, docker-control) plus a
+non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip` and opens a
+pre-filled GitHub issue in your browser — attach the ZIP to that issue. The
+bundle never includes your `.env` (only whether it exists). If `python run.py`
+itself errors, it offers the same flow interactively from the "Next steps" panel.
 
 ### Running on Remote Machine
 To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser:

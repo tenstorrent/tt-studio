@@ -21,7 +21,7 @@ services:
     ports:
       - "8000:8000"
     command: >
-      uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 1200
+      sh -c "python manage.py migrate --noinput && uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 1200"
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
@@ -32,15 +32,23 @@ services:
       # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
       # be extremely slow/hang here and stall the embedding-model download on boot.
       - HF_HUB_DISABLE_XET=1
+      # ./backend is bind-mounted from the host repo; keep root-owned
+      # __pycache__ out of the source tree
+      - PYTHONDONTWRITEBYTECODE=1
       - CHROMA_DB_HOST=tt_studio_chroma
       - CHROMA_DB_PORT=8111
+      - CHROMA_DB_EMBED_MODEL=${CHROMA_DB_EMBED_MODEL:-all-MiniLM-L6-v2}
+      - RAG_RELEVANCE_THRESHOLD=${RAG_RELEVANCE_THRESHOLD:-}
       - TT_STUDIO_ROOT
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
+      - HF_TOKEN
       - TTS_API_KEY
       - TAVILY_API_KEY
+      - TT_INFERENCE_ARTIFACT_BRANCH
+      - TT_INFERENCE_ARTIFACT_VERSION
       - CLOUD_CHAT_UI_URL
       - CLOUD_CHAT_UI_AUTH_TOKEN
       - CLOUD_YOLOV4_API_URL
@@ -61,6 +69,7 @@ services:
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
+      - TT_INFERENCE_API_URL
       # LiteLLM coding-agent gateway
       - LITELLM_MASTER_KEY
       - LITELLM_UPSTREAM_KEY
@@ -105,6 +114,7 @@ services:
 
   tt_studio_agent:
     hostname: tt-studio-agent
+    user: "1000:1000"  # run non-root; no host mounts, so no ownership impact
     # Container name and image are defined in mode-specific override files
     build: ./agent
     depends_on:
@@ -115,6 +125,8 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # dev mode bind-mounts ./agent; keep bytecode out of the source tree
+      - PYTHONDONTWRITEBYTECODE=1
       - JWT_SECRET
       - TAVILY_API_KEY
       - CLOUD_CHAT_UI_URL
@@ -140,6 +152,7 @@ services:
     # Pinned by digest for reproducibility; bump intentionally (current: main-stable)
     image: ghcr.io/berriai/litellm:main-stable@sha256:89ccaccfda9083f7693777597ca27f8ffca12045e4fa9277155fb7c5f06e68b2
     container_name: tt_studio_litellm
+    user: "1000:1000"  # run non-root; only reads a read-only config mount
     networks:
       - tt_studio_network
     ports:

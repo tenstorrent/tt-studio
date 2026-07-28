@@ -3,19 +3,10 @@
 
 import React from "react";
 import { Cpu } from "lucide-react";
-
-interface ChipSlot {
-  slot_id: number;
-  status: "available" | "occupied";
-  model_name?: string;
-  deployment_id?: number;
-  is_multi_chip?: boolean;
-}
+import type { ChipStatus, ChipStatusSlot } from "../types/chipStatus";
 
 interface ChipStatusDisplayProps {
-  boardType: string;
-  totalSlots: number;
-  slots: ChipSlot[];
+  chipStatus: ChipStatus;
   onStopModel?: (deploymentId: number) => void;
   className?: string;
 }
@@ -23,14 +14,15 @@ interface ChipStatusDisplayProps {
 // Boards where chips are grouped into physical cards (N chips per card)
 const CARD_GROUPINGS: Record<string, { chipsPerCard: number; cardLabel: string }> = {
   P300x2: { chipsPerCard: 2, cardLabel: "P300 Card" },
-  P300Cx4: { chipsPerCard: 2, cardLabel: "P300 Card" },
+  // P300C "compute" cards are single-chip (one chip per card).
+  P300Cx4: { chipsPerCard: 1, cardLabel: "P300C Card" },
 };
 
 function SlotCard({
   slot,
   onStopModel,
 }: {
-  slot: ChipSlot;
+  slot: ChipStatusSlot;
   onStopModel?: (id: number) => void;
 }) {
   const isOccupied = slot.status === "occupied";
@@ -95,12 +87,11 @@ function SlotCard({
 }
 
 export function ChipStatusDisplay({
-  boardType,
-  totalSlots,
-  slots,
+  chipStatus,
   onStopModel,
   className = "",
 }: ChipStatusDisplayProps) {
+  const { board_type: boardType, total_slots: totalSlots, slots } = chipStatus;
   const availableCount = slots.filter((s) => s.status === "available").length;
   const cardGrouping = CARD_GROUPINGS[boardType];
 

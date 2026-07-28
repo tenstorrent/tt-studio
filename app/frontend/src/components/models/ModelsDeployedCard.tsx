@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Plus, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
@@ -28,8 +28,9 @@ import { useColumnPrefs } from "../../hooks/useColumnPrefs";
 import {
   handleRedeploy,
   handleModelNavigationClick,
-  fetchModels,
-  fetchDeployedModelsInfo,
+  fetchDeployments,
+  canonicalToModel,
+  isVisibleDeployment,
   getModelTypeFromBackendType,
   ModelType,
   getModelTypeFromName,
@@ -44,13 +45,13 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
-import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import WorkflowLogDialog from "../deployment/WorkflowLogDialog";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
 import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
+import type { ChipStatus } from "../../types/chipStatus";
 
 const deviceIdsForRow = (
   row?: { device_ids?: number[]; device_id?: number | null },
@@ -63,7 +64,7 @@ const deviceIdsForRow = (
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh, resetAllNonce } =
+  const { refreshTrigger, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
   // True while any board/device reset is in progress (global, backend-sourced).
   const isResetting = useIsResetting();
@@ -73,16 +74,12 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Chip slot status for multi-chip boards
-  const [chipStatus, setChipStatus] = useState<{
-    board_type: string;
-    total_slots: number;
-    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
-  } | null>(null);
+  const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
 
   useEffect(() => {
     const fetchChipStatus = () => {
       axios
-        .get("/docker-api/chip-status/")
+        .get<ChipStatus>("/docker-api/chip-status/")
         .then((res) => setChipStatus(res.data))
         .catch(() => setChipStatus(null));
     };
@@ -106,19 +103,14 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const navigate = useNavigate();
   const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
-  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
-      const fetched = await fetchModels();
-      const deployedInfo = await fetchDeployedModelsInfo();
-      const typeById = Object.fromEntries(deployedInfo.map(d => [d.id, d.model_type]));
-      const enriched = fetched.map(m => ({ ...m, model_type: m.model_type ?? typeById[m.id] }));
-      setModels(enriched);
-      if (fetched.length === 0) {
-        triggerRefresh();
-      }
+      // Same canonical source and visibility filter the provider uses, so the
+      // two writers of the shared models list can never disagree.
+      const deployments = await fetchDeployments();
+      setModels(deployments.filter(isVisibleDeployment).map(canonicalToModel));
     } catch (error) {
       let errorMessage = "Failed to fetch models. Check network connection.";
       if (error instanceof Error) {
@@ -129,7 +121,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [setModels, triggerRefresh]);
+  }, [setModels]);
 
   // Density/refresh prefs
   const { prefs, setDensity, setAutoRefreshSec, setHealthRefreshSec } =
@@ -255,7 +247,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
-  // Set of container IDs currently returned by /docker-api/status/ via fetchModels.
+  // Set of container IDs currently in the deployed models list.
   const liveContainerIds = useMemo(
     () => new Set(models.map((m: { id: string }) => m.id)),
     [models],
@@ -349,11 +341,15 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
+    // A disconnected (off-network) managed model is a stray — show that
+    for (const m of models) {
+      if (m.disconnected) merged[m.id] = "disconnected";
+    }
     for (const id of Object.keys(failedMap)) {
       merged[id] = "failed";
     }
     return merged;
-  }, [healthMap, failedMap]);
+  }, [healthMap, failedMap, models]);
 
   // Workflow log dialog state (used when opening logs on a failed row)
   const [workflowDialogDeploymentId, setWorkflowDialogDeploymentId] = useState<number | null>(null);
@@ -612,16 +608,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           <div className="flex items-center justify-between gap-3">
             {/* Left */}
             <CardTitle className="text-xl">Models Deployed</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowRegisterDialog(true)}
-              disabled={isResetting}
-              title={isResetting ? "Disabled while the board is resetting" : undefined}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Register Model
-            </Button>
             {/* Center intentionally empty per redesign */}
             <div className="flex-1" />
             {/* Right */}
@@ -657,14 +643,14 @@ export default function ModelsDeployedCard(): JSX.Element {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex items-center gap-2">
-                          <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                          <PulsatingDot label="Speech-to-text" color="blue" size="md" delay={0} />
                           <PulsatingDot label="LLM" color="green" size="md" delay={400} />
-                          <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                          <PulsatingDot label="Text-to-speech" color="purple" size="md" delay={800} />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs">
                         <p className="text-sm">
-                          TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                          TT Studio automatically chains your deployed models: Speech-to-text → LLM → Text-to-speech for seamless voice conversations
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -721,11 +707,7 @@ export default function ModelsDeployedCard(): JSX.Element {
         {/* Chip slot visualization for multi-chip boards */}
         {isMultiChipBoard && chipStatus && (
           <div className="px-6 pb-4">
-            <ChipStatusDisplay
-              boardType={chipStatus.board_type}
-              totalSlots={chipStatus.total_slots}
-              slots={chipStatus.slots as any}
-            />
+            <ChipStatusDisplay chipStatus={chipStatus} />
           </div>
         )}
 
@@ -799,15 +781,6 @@ export default function ModelsDeployedCard(): JSX.Element {
           onClose={() => {
             setWorkflowDialogDeploymentId(null);
             setWorkflowDialogModelName(undefined);
-          }}
-        />
-
-        <RegisterModelDialog
-          open={showRegisterDialog}
-          onClose={() => setShowRegisterDialog(false)}
-          onSuccess={() => {
-            setShowRegisterDialog(false);
-            loadModels();
           }}
         />
       </ElevatedCard>

@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional, Union
 
 import requests
 
+from shared_config.backend_config import backend_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,11 +44,26 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     return None
 
 
+def tool_calling_launch_flags(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
+    """The vLLM flags a container must be launched with for coding-agent tool
+    calling, or None if the model family has no known tool-call parser."""
+    from shared_config.coding_agent_config import get_reasoning_parser
+
+    parser = tool_call_parser_for(model_name, hf_model_id)
+    if not parser:
+        return None
+    flags = f"--enable-auto-tool-choice --tool-call-parser {parser}"
+    reasoning = get_reasoning_parser(model_name)
+    if reasoning:
+        flags += f" --reasoning-parser {reasoning}"
+    return flags
+
+
 def resolve_deploy_image(
     model_name: str,
     device: Optional[str] = None,
     *,
-    fastapi_base_url: str = "http://172.18.0.1:8001",
+    fastapi_base_url: Optional[str] = None,
     timeout_seconds: int = 5,
 ) -> Optional[str]:
     """Ask the TT Inference Server which Docker image it will actually deploy for
@@ -57,6 +74,9 @@ def resolve_deploy_image(
     from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
     ref to produce a real cache hit; callers fall back to impl.image_version on None.
     """
+    fastapi_base_url = (
+        fastapi_base_url or backend_config.tt_inference_api_url
+    ).rstrip("/")
     try:
         params = {"model": model_name}
         if device:
@@ -87,12 +107,12 @@ def start_chat_deployment(
     device: str,
     device_id: Optional[Union[int, str]] = None,
     service_port: Optional[int] = None,
-    fastapi_run_url: str = "http://172.18.0.1:8001/run",
+    fastapi_run_url: Optional[str] = None,
     timeout_seconds: int = 30,
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
-    override_tt_config: Optional[str] = None,
     vllm_override_args: Optional[str] = None,
+    override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
@@ -100,6 +120,9 @@ def start_chat_deployment(
     This endpoint is expected to return quickly with a job_id so the UI can poll
     /run/progress/<job_id> and display explicit weights download progress.
     """
+    fastapi_run_url = (
+        fastapi_run_url or f"{backend_config.tt_inference_api_url}/run"
+    ).strip().rstrip("/")
     payload: Dict[str, Any] = {
         "model": model_name,
         "workflow": "server",
@@ -112,12 +135,23 @@ def start_chat_deployment(
         payload["service_port"] = str(service_port)
     if device_id is not None:
         payload["device_id"] = str(device_id)
-    if override_tt_config is not None:
-        payload["override_tt_config"] = override_tt_config
     if vllm_override_args is not None:
         payload["vllm_override_args"] = vllm_override_args
+    if override_tt_config is not None:
+        payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
+
+    # Pass UI-managed secrets explicitly. The inference server runs on the host
+    # and cannot read user_config.env in the persistent volume when the backend
+    # container (root) wrote it, so the request payload is its reliable source.
+    from shared_config.user_config import get_hf_token, get_jwt_secret
+    hf_token = get_hf_token()
+    if hf_token:
+        payload["hf_token"] = hf_token
+    jwt_secret = get_jwt_secret()
+    if jwt_secret:
+        payload["jwt_secret"] = jwt_secret
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)
@@ -164,4 +198,3 @@ def start_chat_deployment(
         message=api_result.get("message", "Deployment started"),
         api_response=api_result,
     )
-

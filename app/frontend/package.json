@@ -14,6 +14,8 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "generate-license": "npx generate-license-file --input package.json --output ./third-party-licenses.txt --overwrite",
     "audit": "npm audit",
     "header": "npm run header:check",
@@ -52,6 +54,7 @@
     "@tabler/icons-react": "^3.26.0",
     "@tailwindcss/vite": "^4.1.12",
     "@tanstack/react-query": "^5.28.4",
+    "@xyflow/react": "^12.4.0",
     "@types/uuid": "^10.0.0",
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.1",
@@ -77,10 +80,12 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
     "vaul": "^1.1.1",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.1.12",
     "@types/node": "^22.9.1",
     "@types/react": "^18.3.12",

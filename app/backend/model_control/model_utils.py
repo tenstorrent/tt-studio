@@ -27,6 +27,30 @@ json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
 AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 
+
+def token_for(jwt_secret: str = None) -> str:
+    """Bearer token to authenticate to a model's OpenAI API.
+
+    A registered (externally-launched) container may run with its own JWT_SECRET,
+    captured at register time. Sign the token with that secret so the backend
+    authenticates to it. Normal deployments share the backend secret, so they get
+    the default token (jwt_secret is None).
+    """
+    if jwt_secret:
+        try:
+            return jwt.encode(json_payload, jwt_secret, algorithm="HS256")
+        except Exception as e:
+            logger.warning(f"Could not sign per-model JWT, falling back to default: {e}")
+    return encoded_jwt
+
+
+def auth_headers(deploy: dict = None) -> dict:
+    """Authorization header for a deploy-cache entry, signed with the model's own
+    JWT_SECRET when it has one (a registered external container), else the backend
+    default token (normal deploys share the backend secret)."""
+    secret = deploy.get("jwt_secret") if isinstance(deploy, dict) else None
+    return {"Authorization": f"Bearer {token_for(secret)}"}
+
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
@@ -57,12 +81,12 @@ def messages_to_prompt(messages: list) -> str:
     return "\n\n".join(parts)
 
 
-def get_model_context_length(internal_url: str):
+def get_model_context_length(internal_url: str, auth_token: str = None):
     """Fetch max_model_len from vLLM /v1/models. Returns int or None if unavailable."""
     try:
         base = internal_url.split("/")[0]
         models_url = f"http://{base}/v1/models"
-        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
         response = requests.get(models_url, headers=headers, timeout=3)
         if response.status_code == 200:
             data = response.json().get("data", [])
@@ -73,12 +97,13 @@ def get_model_context_length(internal_url: str):
     return None
 
 
-def get_model_name_from_container(internal_url: str, fallback: str) -> str:
+def get_model_name_from_container(internal_url: str, fallback: str, auth_token: str = None) -> str:
     """Query vLLM /v1/models to get the exact model name loaded in the container.
 
     Args:
         internal_url: Raw internal URL from deploy cache (e.g. "container:7000/v1/chat/completions")
         fallback: Value to return if the query fails (typically hf_model_id)
+        auth_token: Bearer token to use (per-model for registered containers)
 
     Returns:
         The actual model name reported by vLLM, or fallback on any error.
@@ -88,7 +113,7 @@ def get_model_name_from_container(internal_url: str, fallback: str) -> str:
         # e.g. "container:7000/v1/chat/completions" -> "container:7000"
         base = internal_url.split("/")[0]
         models_url = f"http://{base}/v1/models"
-        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
         response = requests.get(models_url, headers=headers, timeout=3)
         if response.status_code == 200:
             model_id = response.json()["data"][0]["id"]
@@ -128,15 +153,16 @@ def get_deploy_cache():
     # Once fetched it is persisted back into the cache so subsequent calls are free.
     cache = caches[backend_config.django_deploy_cache_name]
     for con_id, entry in data.items():
+        tok = token_for(entry.get("jwt_secret"))
         if "max_model_len" not in entry and entry.get("internal_url"):
-            max_len = get_model_context_length(entry["internal_url"])
+            max_len = get_model_context_length(entry["internal_url"], auth_token=tok)
             if max_len is not None:
                 entry["max_model_len"] = max_len
                 cache.set(con_id, entry, timeout=None)
                 logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
         if "cached_model_name" not in entry and entry.get("internal_url"):
             name = get_model_name_from_container(
-                entry["internal_url"], fallback=entry["model_impl"].hf_model_id
+                entry["internal_url"], fallback=entry["model_impl"].hf_model_id, auth_token=tok
             )
             entry["cached_model_name"] = name
             cache.set(con_id, entry, timeout=None)
@@ -145,11 +171,11 @@ def get_deploy_cache():
     return data
 
 
-def health_check(url, json_data, timeout=5):
+def health_check(url, json_data, timeout=5, auth_token: str = None):
     logger.info(f"calling health_url:= {url}")
     try:
-        headers = {"Authorization": f"Bearer {encoded_jwt}"}
-        response = requests.get(url, json=json_data, headers=headers, timeout=5)
+        headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
+        response = requests.get(url, json=json_data, headers=headers, timeout=timeout)
     except requests.exceptions.ConnectionError as e:
         # Port not yet listening — container is still starting up
         logger.info(f"Health check: connection refused (starting): {e}")
@@ -218,8 +244,16 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
                 if chunk.strip() == "[DONE]":
                     yield f"data: [DONE]\n\n"
                 elif chunk.strip():
-                    json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
-                    yield "data: " + json.dumps(json_chunk) + "\n\n"
+                    stripped = chunk.strip()
+                    if stripped.startswith("[STATS]"):
+                        yield "data: " + stripped[len("[STATS]"):] + "\n\n"
+                    else:
+                        import re
+                        clean = re.sub(r'[\[<|]*python_tag[\]>|]*', '', chunk, flags=re.IGNORECASE)
+                        if not clean.strip():
+                            continue
+                        json_chunk = {"choices": [{"index": 0, "delta": {"content": clean}}]}
+                        yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")
     except httpx.HTTPStatusError as e:
         logger.error(f"Agent HTTPStatusError {e.response.status_code}: {e.response.text[:200]}")
@@ -349,7 +383,7 @@ async def stream_to_cloud_model(url: str, json_data: dict):
         logger.error(f"Cloud stream unexpected error: {e}\n{traceback.format_exc()}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-async def stream_response_from_external_api(url: str, json_data: dict):
+async def stream_response_from_external_api(url: str, json_data: dict, auth_token: str = None):
     """Async SSE streaming from vLLM — non-blocking, connection-pooled."""
     logger.info("=== Starting stream_response_from_external_api ===")
 
@@ -376,13 +410,22 @@ async def stream_response_from_external_api(url: str, json_data: dict):
 
     logger.info(f"stream_response_from_external_api params: temperature={json_data['temperature']} top_k={json_data['top_k']} top_p={json_data['top_p']} max_tokens={json_data['max_tokens']} seed={json_data.get('seed', 'random')}")
 
-    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
     tracker = InferenceMetricsTracker()
     logger.info(f"Starting stream request at time: {tracker.start_time}")
 
     try:
         async with _vllm_client.stream("POST", url, json=json_data, headers=headers) as response:
-            response.raise_for_status()
+            # Read the error body inside the stream context; a streaming response
+            # must be read before .text is accessible (else httpx.ResponseNotRead).
+            if response.status_code >= 400:
+                body = (await response.aread()).decode(errors="replace")
+                logger.error(
+                    f"stream_response_from_external_api upstream {response.status_code}: {body}"
+                )
+                yield f"data: {json.dumps({'error': {'message': body, 'code': response.status_code}})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             te = response.headers.get("transfer-encoding", "")
             if te != "chunked":
                 logger.warning(f"Unexpected transfer-encoding from vLLM: {te!r}")
@@ -430,16 +473,12 @@ async def stream_response_from_external_api(url: str, json_data: dict):
 
         logger.info("stream_response_from_external_api done")
 
-    except httpx.HTTPStatusError as e:
-        body = e.response.text if e.response is not None else "(no body)"
-        logger.error(f"HTTPError {e.response.status_code}: {body}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
-        logger.error(f"RequestError: {str(e)}")
+        logger.error(f"stream_response_from_external_api RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 
-async def stream_openai_passthrough(url: str, json_data: dict):
+async def stream_openai_passthrough(url: str, json_data: dict, auth_token: str = None):
     """Clean OpenAI SSE passthrough for the coding-agent gateway.
 
     Forwards the upstream vLLM stream verbatim — no injected
@@ -450,19 +489,24 @@ async def stream_openai_passthrough(url: str, json_data: dict):
     usage/stats chunks that `stream_response_from_external_api` emits for the
     in-app chat UI.
     """
-    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
     try:
         async with _vllm_client.stream(
             "POST", url, json=json_data, headers=headers
         ) as response:
-            response.raise_for_status()
+            # Read the error body inside the stream context; a streaming response
+            # must be read before .text is accessible (else httpx.ResponseNotRead).
+            if response.status_code >= 400:
+                body = (await response.aread()).decode(errors="replace")
+                logger.error(
+                    f"stream_openai_passthrough upstream {response.status_code}: {body}"
+                )
+                yield f"data: {json.dumps({'error': {'message': body, 'code': response.status_code}})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             async for chunk in response.aiter_text():
                 if chunk:
                     yield chunk
-    except httpx.HTTPStatusError as e:
-        body = e.response.text if e.response is not None else "(no body)"
-        logger.error(f"stream_openai_passthrough HTTPError {e.response.status_code}: {body}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
     except httpx.RequestError as e:
         logger.error(f"stream_openai_passthrough RequestError: {str(e)}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
