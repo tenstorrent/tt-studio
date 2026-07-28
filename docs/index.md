@@ -118,6 +118,10 @@ Captured at commit [`c837b829`](https://github.com/tenstorrent/tt-studio/commit/
 :caption: Start here
 :maxdepth: 2
 
+start/what-is-tt-studio
+start/use-cases
+start/will-it-run
+start/quickstart
 start/setup-reference
 ```
 
@@ -141,4 +145,12 @@ model-integration/index
 
 glossary
 contributing
+```
+
+```{toctree}
+:hidden:
+:caption: Examples
+:maxdepth: 2
+
+examples/index
 ```
