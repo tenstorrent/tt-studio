@@ -17,7 +17,15 @@
     if (!nav || !burger) return;
     burger.addEventListener("click", function (e) {
       e.preventDefault();
+      // The landing page hides the doc sidebar, so RTD's document-level
+      // wy-nav-top handler would slide in an element that isn't there.
+      if (document.querySelector(".hero")) e.stopPropagation();
       nav.classList.toggle("tt-mobile-open");
+    });
+    nav.querySelectorAll(".tt-nav-links a").forEach(function (a) {
+      a.addEventListener("click", function () {
+        nav.classList.remove("tt-mobile-open");
+      });
     });
   });
 })();

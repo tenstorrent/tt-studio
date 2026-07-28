@@ -1,0 +1,269 @@
+/* SPDX-License-Identifier: Apache-2.0
+   SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+   TT-Studio styling layered on top of the vendored house theme.
+
+   The three files loaded before this one (tt_theme.css, home.css,
+   mermaid-tweaks.css) are kept byte-identical to the shared docs assets so
+   they can be re-vendored with a copy, so everything specific to this site
+   lives here instead.
+
+   Landing-page layout is already handled by home.css, which keys off a
+   `.hero` element to hide the sidebar and let the content run full width.
+   This file supplies the visual treatment, using the :root tokens declared
+   in tt_theme.css rather than its own colours. */
+
+/* ── Landing page chrome ─────────────────────────────────────────────── */
+
+/* home.css hides `#tenstorrent > h1` for the same reason, but that id only
+   exists on the tenstorrent.github.io /core homepage. The page title is kept
+   in the source for the browser tab, breadcrumbs and the toctree label, and
+   hidden here in favour of the hero headline. */
+body:has(.hero) .rst-content .document > section > h1,
+body:has(.hero) .wy-breadcrumbs,
+body:has(.hero) .wy-breadcrumbs-aside,
+body:has(.hero) .rst-footer-buttons {
+  display: none !important;
+}
+
+/* home.css zeroes the content padding so the hero can bleed to the viewport
+   edge. Docutils wraps each `##` in its own section, so the sections below
+   the hero can have their gutter back without affecting the hero itself. */
+body:has(.hero) .rst-content .document > section > section {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 clamp(1.5rem, 6vw, 5rem);
+}
+
+body:has(.hero) .rst-content .document > section > section:first-of-type {
+  padding-top: 3.5rem;
+}
+
+body:has(.hero) .rst-content .document > section > section:last-of-type {
+  padding-bottom: 3rem;
+}
+
+body:has(.hero) footer {
+  padding: 2rem clamp(1.5rem, 6vw, 5rem);
+}
+
+/* ── Hero band ───────────────────────────────────────────────────────── */
+
+/* --background-inverse is the same value as --tt-navbar-bg, so the band sits
+   flush under the fixed top nav and the two read as one masthead. */
+.rst-content .hero {
+  background: var(--background-inverse);
+  color: var(--text-inverse);
+  padding: clamp(3.5rem, 8vw, 6rem) clamp(1.5rem, 6vw, 5rem)
+    clamp(3.5rem, 8vw, 5.5rem);
+  margin: 0;
+}
+
+.rst-content .hero > * {
+  max-width: 76rem;
+  margin-inline: auto;
+}
+
+.rst-content .hero .hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--widest);
+  text-transform: uppercase;
+  color: var(--color-teal);
+  margin: 0 0 1.25rem;
+}
+
+.rst-content .hero .hero-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.2rem, 5.5vw, 3.75rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  margin: 0 0 1.25rem;
+}
+
+/* --color-teal clears AA on the dark band; --text-accent and --color-accent
+   do not, so neither is used for text here. */
+.rst-content .hero .hero-title span {
+  color: var(--color-teal);
+}
+
+.rst-content .hero .hero-lede {
+  font-family: var(--font-main);
+  font-size: 1.15rem;
+  line-height: 1.6;
+  max-width: 44rem;
+  color: var(--text-inverse);
+  margin: 0 0 2.25rem;
+}
+
+/* ── Hero call to action ─────────────────────────────────────────────── */
+
+.rst-content .hero .hero-cta p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* tt_theme.css forces a border-bottom on every `.rst-content p a` with
+   !important, which would underline both buttons. */
+.rst-content .hero .hero-cta a,
+.rst-content .hero .hero-cta a:visited {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.7rem 1.75rem;
+  border-radius: 4rem;
+  border-bottom: none !important;
+  text-decoration: none !important;
+  font-family: var(--font-main);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: var(--wide);
+  background: var(--color-accent);
+  color: #ffffff !important;
+  transition: var(--transition-all);
+}
+
+.rst-content .hero .hero-cta a:hover {
+  background: var(--color-teal);
+  color: var(--color-foreground) !important;
+}
+
+.rst-content .hero .hero-cta a:nth-child(2),
+.rst-content .hero .hero-cta a:nth-child(2):visited {
+  background: transparent;
+  color: var(--text-inverse) !important;
+  box-shadow: inset 0 0 0 1px rgba(217, 232, 229, 0.35);
+}
+
+.rst-content .hero .hero-cta a:nth-child(2):hover {
+  background: rgba(217, 232, 229, 0.1);
+  color: #ffffff !important;
+}
+
+/* ── Feature cards ───────────────────────────────────────────────────────
+   Same shape as .tt-index-cards in tt_theme.css, for blurbs whose title is
+   not a link. The !important set mirrors that block: those are the exact
+   properties sphinx_rtd_theme forces onto table and td. */
+
+.rst-content table.tt-feature-cards,
+.rst-content table.tt-feature-cards.docutils {
+  border: none !important;
+  border-collapse: separate !important;
+  border-spacing: 20px 20px !important;
+  width: 100% !important;
+  margin: 16px 0 !important;
+  table-layout: fixed !important;
+  box-shadow: none !important;
+}
+
+.rst-content table.tt-feature-cards thead,
+.rst-content table.tt-feature-cards colgroup {
+  display: none !important;
+}
+
+.rst-content table.tt-feature-cards td {
+  background: var(--bckground-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 20px 24px !important;
+  vertical-align: top !important;
+  max-width: 0;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+}
+
+.rst-content table.tt-feature-cards td:empty {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.rst-content table.tt-feature-cards td > p:first-child {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--text-default) !important;
+  margin: 0 !important;
+}
+
+.rst-content table.tt-feature-cards td > p:not(:first-child) {
+  font-size: 13px !important;
+  color: var(--text-secondary) !important;
+  margin: 8px 0 0 !important;
+  line-height: 1.5 !important;
+  letter-spacing: var(--wide);
+}
+
+/* ── Source file dropdown ────────────────────────────────────────────────
+   The collapsible block at the foot of the generated reference pages. Muted,
+   so it reads as an appendix rather than as a callout. */
+
+.rst-content .admonition.tt-sources {
+  background: var(--background-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-top: 2.5rem;
+  box-shadow: none;
+}
+
+.rst-content .admonition.tt-sources > .admonition-title {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: var(--wide);
+}
+
+.rst-content .admonition.tt-sources > .admonition-title::before {
+  color: var(--text-secondary) !important;
+}
+
+.rst-content .admonition.tt-sources p,
+.rst-content .admonition.tt-sources li {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rst-content .admonition.tt-sources li code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ── Narrow viewports ────────────────────────────────────────────────── */
+
+@media screen and (max-width: 768px) {
+  .rst-content .hero {
+    padding-top: 2.5rem;
+    padding-bottom: 2.5rem;
+  }
+
+  .rst-content .hero .hero-cta p {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rst-content .hero .hero-cta a {
+    justify-content: center;
+  }
+
+  /* Stack both card grids to one column. */
+  .rst-content table.tt-index-cards,
+  .rst-content table.tt-index-cards tbody,
+  .rst-content table.tt-index-cards tr,
+  .rst-content table.tt-index-cards td,
+  .rst-content table.tt-feature-cards,
+  .rst-content table.tt-feature-cards tbody,
+  .rst-content table.tt-feature-cards tr,
+  .rst-content table.tt-feature-cards td {
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+
+  .rst-content table.tt-index-cards td,
+  .rst-content table.tt-feature-cards td {
+    margin-bottom: 16px !important;
+  }
+}

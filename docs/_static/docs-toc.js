@@ -97,24 +97,3 @@
     }
   }
 })();
-
-/* Mobile nav drawer for the hero/home page. The home page has no doc sidebar,
-   so RTD's wy-nav-top hamburger toggle reveals nothing. On the home page we
-   instead open the top-nav links as a drawer. (Doc pages keep RTD's sidebar.) */
-(function () {
-  'use strict';
-  document.addEventListener('DOMContentLoaded', function () {
-    if (!document.querySelector('.hero')) return;            // home page only
-    var burger = document.querySelector('.tt-nav-hamburger');
-    var nav = document.querySelector('.tt-top-nav');
-    if (!burger || !nav) return;
-    burger.addEventListener('click', function (e) {
-      e.stopPropagation();   // stop RTD's document-level wy-nav-top handler
-      e.preventDefault();
-      nav.classList.toggle('tt-mobile-open');
-    });
-    nav.querySelectorAll('.tt-nav-links a').forEach(function (a) {
-      a.addEventListener('click', function () { nav.classList.remove('tt-mobile-open'); });
-    });
-  });
-})();

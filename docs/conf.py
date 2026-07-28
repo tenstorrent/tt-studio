@@ -34,6 +34,11 @@ myst_enable_extensions = [
 myst_fence_as_directive = ["mermaid"]
 myst_heading_anchors = 3
 
+# Don't copy the shell prompt when a reader clicks the copy button on a
+# command block.
+copybutton_prompt_text = r"^\s*\$\s|^\s*>>> |^\s*\.\.\. "
+copybutton_prompt_is_regexp = True
+
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "assets"]
 
@@ -85,3 +90,6 @@ def setup(app):
     app.add_css_file("tt_theme.css")
     app.add_css_file("home.css")
     app.add_css_file("mermaid-tweaks.css")
+    # Loads last so it wins ties. The three above are kept byte-identical to
+    # the shared docs assets, so TT-Studio styling goes in its own file.
+    app.add_css_file("tt_studio.css")
