@@ -18,7 +18,8 @@ from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compos
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
 from tt_setup.bug_report import report_bug
-from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut
+from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
+from tt_setup.switch import switch_checkout
 from tt_setup.cleanup import cleanup_resources
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
@@ -189,6 +190,8 @@ def _run(args):
   {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
   {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + open a pre-filled GitHub issue
   {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
+  {C_CYAN}python run.py --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
+  {C_CYAN}python run.py --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
@@ -228,6 +231,17 @@ def _run(args):
             install_shortcut()
             return
 
+        if getattr(args, "switch", None):
+            sys.exit(switch_checkout(args.switch))
+
+        # Must dispatch before the generic cleanup branch: --uninstall implies
+        # cleanup_all. All-or-nothing — declining the purge prompt keeps the
+        # shell shortcut too.
+        if getattr(args, "uninstall", False):
+            if cleanup_resources(args):
+                uninstall_shortcut()
+            return
+
         if args.cleanup or args.cleanup_all:
             cleanup_resources(args)
             return
@@ -265,6 +279,10 @@ def _run(args):
         if detect_tt_hardware():
             mode_parts.append("TT Hardware")
         console.print(steps_panel(context=[f"Mode · {' + '.join(mode_parts)}"]))
+
+        # Repo moved (or a different clone launched)? Re-point the tt-studio
+        # shell shortcut at this checkout. Silent no-op otherwise.
+        maybe_repair_shortcut()
 
         # Get git hash for startup log
         try:

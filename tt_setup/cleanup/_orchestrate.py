@@ -54,7 +54,9 @@ def _print_preserved_summary(has_docker_access):
 
 
 def cleanup_resources(args):
-    """Clean up TT Studio Docker resources, and (with --purge-all) all persistent state."""
+    """Clean up TT Studio Docker resources, and (with --purge-all) all persistent
+    state. Returns True when the cleanup ran, False when the user aborted at the
+    confirmation prompt (so callers like --uninstall can skip their follow-up)."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
     assume_yes = bool(getattr(args, "yes", False))
 
@@ -67,7 +69,7 @@ def cleanup_resources(args):
         # left untouched: a plain --stop must not re-trigger first-run setup.
         # Only --purge-all resets it, by removing the persistent volume.
         _print_preserved_summary(has_access)
-        return
+        return True
 
     # --- --purge-all: build full inventory and ask once ---
     host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
@@ -142,13 +144,16 @@ def cleanup_resources(args):
     total_bytes = host_bytes + sum(docker_sizes.values())
 
     # --- Danger header ---
+    danger_lines = [
+        "Resets TT Studio to a fresh-clone state.",
+        "[bold]Everything below is permanently deleted — this cannot be undone.[/bold]",
+    ]
+    if getattr(args, "uninstall", False):
+        danger_lines.append("Also removes the `tt-studio` shell shortcut from your shell config.")
     console.print()
     console.print(notice_panel(
         "[bold]⚠  --purge-all · full reset[/bold]",
-        [
-            "Resets TT Studio to a fresh-clone state.",
-            "[bold]Everything below is permanently deleted — this cannot be undone.[/bold]",
-        ],
+        danger_lines,
         border_style="error",
     ))
 
@@ -199,12 +204,12 @@ def cleanup_resources(args):
                 confirm = console.input("\n[warning]Proceed with full reset?[/warning] [muted](y/yes or n/no)[/muted] ").strip().lower()
             except (KeyboardInterrupt, EOFError):
                 console.print("\n[warning]🛑 Aborted — nothing was deleted.[/warning]")
-                return
+                return False
             if confirm in ("y", "yes"):
                 break
             if confirm in ("n", "no", ""):
                 console.print("\n[info]🛑 Aborted — nothing was deleted.[/info]")
-                return
+                return False
             console.print("[muted]Please answer y/yes or n/no.[/muted]")
     else:
         console.print("\n[muted]--yes passed; proceeding without prompt.[/muted]")
@@ -258,3 +263,4 @@ def cleanup_resources(args):
     print(f"\n{C_CYAN}🌐 Browser data (chat history, theme, login) will auto-clear the")
     print(f"   next time you open http://localhost:3000.")
     print(f"   To clear immediately: DevTools → Application → Storage → Clear site data.{C_RESET}")
+    return True
