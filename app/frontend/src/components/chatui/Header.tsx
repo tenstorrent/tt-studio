@@ -46,6 +46,7 @@ import {
   Database,
   Search,
   FolderOpen,
+  BookOpen,
   // Settings as SettingsIcon,
   Sliders,
 } from "lucide-react";
@@ -60,7 +61,9 @@ interface HeaderProps {
   setModelID: (id: string) => void;
   setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
-  allCollectionsCount?: number;
+  // Seeded documentation collections, shown in their own group. Kept out of
+  // ragDataSources so "Your Collections" holds only what the user created.
+  systemCollections?: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
@@ -118,9 +121,9 @@ const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Select> & {
     ragDataSources?: any[];
-    allCollectionsCount?: number;
+    systemCollections?: RagDataSource[];
   }
->(({ ragDataSources, allCollectionsCount, value, onValueChange, ...selectProps }, ref) => (
+>(({ ragDataSources, systemCollections, value, onValueChange, ...selectProps }, ref) => (
   <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
@@ -140,35 +143,67 @@ const ForwardedSelect = React.forwardRef<
       </SelectValue>
     </SelectTrigger>
     <SelectContent
-      className="bg-white dark:bg-[#1E1E1E] border-gray-200 dark:border-[#7C68FA]/20 max-h-[300px] w-[300px]"
+      className="bg-white dark:bg-[#1E1E1E] border-gray-200 dark:border-[#7C68FA]/20 max-h-[420px] w-[300px]"
       align="start"
       position="popper"
       side="bottom"
     >
-      {/* Special All Collections Card */}
-      <div className="px-2 py-2">
+      {/* Special All Collections Card — kept to a single row so the groups below
+          stay visible without scrolling. */}
+      <div className="px-2 py-1">
         <SelectItem
           value="special-all"
           className="relative rounded-lg bg-gray-50 dark:bg-[#2A2A2A] hover:bg-gray-100 dark:hover:bg-[#3A3A3A] transition-all duration-200"
         >
-          <div className="p-3 flex flex-col gap-2">
+          <div className="py-1 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Search className="h-5 w-5 text-[#7C68FA]" />
+              <Search className="h-4 w-4 text-[#7C68FA]" />
               <span className="font-medium text-gray-900 dark:text-white">
                 Search All Collections
               </span>
             </div>
-            <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
-              <Database className="h-4 w-4" />
-              {/* Counts every collection this option spans, including the seeded
-                  documentation collection that "Your Collections" below hides. */}
-              <span>{allCollectionsCount ?? 0} Collections</span>
+            <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-0.5 rounded-full text-xs shrink-0">
+              <Database className="h-3.5 w-3.5" />
+              {/* Spans both groups below, so count both. */}
+              <span>
+                {(ragDataSources?.length || 0) +
+                  (systemCollections?.length || 0)}
+              </span>
             </div>
           </div>
         </SelectItem>
       </div>
 
-      <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
+      <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
+
+      {Array.isArray(systemCollections) && systemCollections.length > 0 && (
+        <>
+          <div className="px-2 py-1">
+            <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
+              <BookOpen className="h-4 w-4" />
+              <span>Built-in Documentation</span>
+            </div>
+
+            {systemCollections.map((c) => (
+              <SelectItem
+                key={c.id}
+                value={c.name}
+                className={`rounded-lg my-1 ${value === c.name
+                    ? "bg-gray-100 dark:bg-[#2A2A2A]"
+                    : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                  <span className="text-gray-900 dark:text-white">{c.name}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </div>
+
+          <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
+        </>
+      )}
 
       <div className="px-2 py-1">
         <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
@@ -196,7 +231,7 @@ const ForwardedSelect = React.forwardRef<
 
       {value && (
         <>
-          <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
+          <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
           <div className="px-2 pb-2">
             <SelectItem
               value="remove"
@@ -222,7 +257,7 @@ export default function Header({
   setModelID,
   setModelName,
   ragDataSources,
-  allCollectionsCount,
+  systemCollections,
   ragDatasource,
   setRagDatasource,
   isHistoryPanelOpen,
@@ -566,16 +601,17 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
-                    );
+                    const dataSource = [
+                      ...ragDataSources,
+                      ...(systemCollections ?? []),
+                    ].find((rds) => rds.name === v);
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
                   }
                 }}
                 ragDataSources={ragDataSources}
-                allCollectionsCount={allCollectionsCount}
+                systemCollections={systemCollections}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
@@ -679,16 +715,17 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v
-                      );
+                      const dataSource = [
+                        ...ragDataSources,
+                        ...(systemCollections ?? []),
+                      ].find((rds) => rds.name === v);
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
                     }
                   }}
                   ragDataSources={ragDataSources}
-                  allCollectionsCount={allCollectionsCount}
+                  systemCollections={systemCollections}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>

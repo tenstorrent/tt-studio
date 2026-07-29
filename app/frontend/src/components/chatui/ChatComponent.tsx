@@ -65,11 +65,14 @@ export default function ChatComponent() {
     queryFn: fetchCollections,
     initialData: [],
   });
-  // The backend's seeded documentation collection is reached through "All
-  // Collections" (and is merged into every single-collection query anyway), so
-  // it isn't listed under "Your Collections".
+  // The backend's seeded documentation collection isn't one the user made, so it
+  // gets its own group in the picker rather than sitting under "Your Collections".
   const ragDataSources = useMemo(
     () => (allCollections ?? []).filter((c) => !isSystemKnowledgeCollection(c)),
+    [allCollections]
+  );
+  const systemCollections = useMemo(
+    () => (allCollections ?? []).filter((c) => isSystemKnowledgeCollection(c)),
     [allCollections]
   );
   const { logoUrl } = useLogo();
@@ -1275,7 +1278,7 @@ export default function ChatComponent() {
               setModelID={setModelID}
               setModelName={setModelName}
               ragDataSources={ragDataSources}
-              allCollectionsCount={allCollections?.length ?? 0}
+              systemCollections={systemCollections}
               ragDatasource={ragDatasource}
               setRagDatasource={setRagDatasource}
               isHistoryPanelOpen={isHistoryPanelOpen}
