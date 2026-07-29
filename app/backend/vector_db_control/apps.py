@@ -19,6 +19,7 @@ class VectorDbConfig(AppConfig):
         from vector_db_control.chroma import (
             list_collections,
             create_collection,
+            get_collection,
             insert_to_chroma_collection,
         )
         from vector_db_control.data import INTERNAL_KNOWLEDGE, knowledge_corpus_revision
@@ -44,7 +45,7 @@ class VectorDbConfig(AppConfig):
             # An existing collection seeded from an older corpus is stale — documents
             # added to data.py since then would never be embedded, because seeding
             # only ever ran on first creation. Compare the stored corpus revision and
-            # rebuild when it has moved on.
+            # refresh when it has moved on.
             if existing_internal:
                 stored_revision = (existing_internal.metadata or {}).get("corpus_revision")
                 if stored_revision == revision:
@@ -55,27 +56,23 @@ class VectorDbConfig(AppConfig):
                     return
                 logger.info(
                     f"Internal knowledge corpus changed ({stored_revision} -> {revision}); "
-                    f"rebuilding {internal_collection_name}"
+                    f"refreshing {internal_collection_name} in place"
                 )
-                # Delete through the client directly: the chroma.delete_collection
-                # helper re-fetches the collection without its embedding function,
-                # which is an avoidable failure mode on a rebuild path.
-                ChromaClient().delete_collection(name=internal_collection_name)
-                existing_internal = None
+            else:
+                logger.info(f"Creating default internal knowledge collection: {internal_collection_name}")
 
-            logger.info(f"Creating default internal knowledge collection: {internal_collection_name}")
-
-            # Create collection with special metadata to mark it as internal
-            create_collection(
-                collection_name=internal_collection_name,
-                metadata={
-                    "type": "internal_knowledge",
-                    "description": "Tenstorrent internal documentation and knowledge base",
-                    "created_by": "system",
-                    "corpus_revision": revision,
-                },
-                embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
-            )
+                # corpus_revision is stamped only once the documents are in (below),
+                # so an interrupted seed is retried on the next start rather than
+                # being mistaken for a complete one.
+                create_collection(
+                    collection_name=internal_collection_name,
+                    metadata={
+                        "type": "internal_knowledge",
+                        "description": "Tenstorrent internal documentation and knowledge base",
+                        "created_by": "system",
+                    },
+                    embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
+                )
 
             # Chunk before loading: the embedding model truncates long inputs,
             # so the large documentation corpus must be split to be searchable.
@@ -92,16 +89,48 @@ class VectorDbConfig(AppConfig):
             logger.info(
                 f"Chunked {len(INTERNAL_KNOWLEDGE)} documents into {len(documents)} chunks"
             )
+            # Upsert rather than clear-then-load: the previous corpus stays
+            # searchable until each chunk is overwritten, so a failure part-way
+            # through leaves a usable collection instead of an empty one.
             insert_to_chroma_collection(
                 collection_name=internal_collection_name,
                 documents=documents,
                 ids=ids,
                 metadatas=[chunk.metadata for chunk in chunks],
                 embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
+                upsert=True,
             )
 
+            collection = get_collection(
+                collection_name=internal_collection_name,
+                embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
+            )
+
+            # Drop chunks left behind by a longer previous corpus. Only our own
+            # internal_* ids are considered, so uploaded documents are untouched.
+            new_ids = set(ids)
+            stale_ids = [
+                doc_id
+                for doc_id in collection.get(include=[])["ids"]
+                if doc_id.startswith("internal_") and doc_id not in new_ids
+            ]
+            if stale_ids:
+                logger.info(f"Removing {len(stale_ids)} chunks from the previous corpus")
+                collection.delete(ids=stale_ids)
+
+            # Stamp the revision last — while it differs, the next start retries.
+            # hnsw:* keys are dropped: Chroma rejects a modify that echoes them back
+            # as an attempt to change the distance function.
+            metadata = {
+                key: value
+                for key, value in (collection.metadata or {}).items()
+                if not key.startswith("hnsw:")
+            }
+            metadata["corpus_revision"] = revision
+            collection.modify(metadata=metadata)
+
             logger.info(
-                f"Successfully created internal knowledge collection: "
+                f"Successfully loaded internal knowledge collection: "
                 f"{internal_collection_name} (revision {revision})"
             )
 
