@@ -40,7 +40,15 @@ def comment_out_env_var(var_name):
 
 
 def get_env_var(var_name, default=""):
-    """Safely get a variable from app/.env (quotes handled by python-dotenv)."""
+    """Get a variable from os.environ, falling back to app/.env, then default.
+
+    Lookup order (first wins):
+      1. os.environ  – shell exports, CI variables, container env
+      2. app/.env    – repo-root dotenv file (parsed by python-dotenv)
+      3. *default*   – caller-supplied fallback
+    """
+    if var_name in os.environ:
+        return os.environ[var_name]
     if not os.path.exists(ENV_FILE_PATH):
         return default
     value = dotenv_values(ENV_FILE_PATH, interpolate=False).get(var_name)

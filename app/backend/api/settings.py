@@ -109,10 +109,12 @@ CHANNEL_LAYERS = {
 }
 
 # Database – SQLite for lightweight ORM models (workflow storage, etc.)
+# Lives in the persistent volume rather than the bind-mounted source tree, so
+# the file never lands root-owned in the repo and --purge-all removes it.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": Path(backend_config.backend_cache_root) / "db.sqlite3",
     }
 }
 
@@ -154,7 +156,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CHROMA_DB_PORT = int(os.environ.get("CHROMA_DB_PORT", 8111))
 CHROMA_DB_HOST = os.environ.get("CHROMA_DB_HOST", "tt_studio_chromadb")
-CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
+CHROMA_DB_EMBED_MODEL = os.environ.get("CHROMA_DB_EMBED_MODEL", "all-MiniLM-L6-v2")
+
+# Optional cosine-distance ceiling for RAG queries. When set, query results whose
+# distance exceeds this value are dropped as insufficiently relevant. Unset (None)
+# preserves the previous behavior of always returning the top-N matches.
+_rag_relevance_threshold = os.environ.get("RAG_RELEVANCE_THRESHOLD")
+RAG_RELEVANCE_THRESHOLD = (
+    float(_rag_relevance_threshold) if _rag_relevance_threshold else None
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],

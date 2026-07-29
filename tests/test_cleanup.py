@@ -50,8 +50,10 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(_cl_orch, "LEGACY_ENV_FILE_PATH", str(root / "app" / ".env")),
             patch.object(_cl_orch, "LEGACY_ENV_BACKUP_PATH", str(root / "app" / ".env-old")),
             patch.object(_cl_orch, "STARTUP_LOG_FILE", str(root / "startup.log")),
+            patch.object(_cl_orch, "TT_STUDIO_CONFIG_PATH", str(root / ".tt_studio_config.json")),
             patch.object(_cl_orch, "PREFS_FILE_PATH", str(root / ".tt_studio_preferences.json")),
             patch.object(_cl_orch, "SETUP_CONFIG_FILE_PATH", str(setup_config)),
+            patch.object(_cl_orch, "LEGACY_SETUP_CONFIG_FILE_PATH", str(root / ".tt_studio_easy_config.json")),
             patch.object(_cl_orch, "MODEL_RUN_LOG_FILE", str(root / "model_run.log")),
             patch.object(_cl_orch, "FASTAPI_PID_FILE", str(root / "fastapi.pid")),
             patch.object(_cl_orch, "DOCKER_CONTROL_LOG_FILE", str(docker_log)),
@@ -151,6 +153,8 @@ class CleanupAllTests(unittest.TestCase):
             startup_log.write_text("log")
             prefs = root / ".tt_studio_preferences.json"
             prefs.write_text("{}")
+            config_store_file = root / ".tt_studio_config.json"
+            config_store_file.write_text('{"version": 1, "preferences": {}}')
             workflow_venvs = root / ".workflow_venvs"
             workflow_generated = workflow_venvs / "generated_venv"
             workflow_generated.mkdir(parents=True)
@@ -183,10 +187,38 @@ class CleanupAllTests(unittest.TestCase):
             self.assertFalse(legacy_env_old.exists())
             self.assertFalse(startup_log.exists())
             self.assertFalse(prefs.exists())
+            self.assertFalse(config_store_file.exists())
             self.assertTrue(workflow_bootstrap.exists())
             self.assertFalse(workflow_generated.exists())
             self.assertTrue(sentinel.exists())
             self.assertTrue(sentinel.read_text().isdigit())
+
+    def test_plain_stop_preserves_welcome_setup_state(self):
+        # A plain --stop must leave user_config.env byte-identical — secrets AND
+        # the SETUP_COMPLETE flag — so the Welcome wizard doesn't re-run on the
+        # next bring-up. Only --purge-all resets first-run state.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backend_volume = root / "tt_studio_persistent_volume" / "backend_volume"
+            backend_volume.mkdir(parents=True)
+            user_config = backend_volume / "user_config.env"
+            original = "HF_TOKEN=hf_test\nSETUP_COMPLETE=true\n"
+            user_config.write_text(original)
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(_cl_orch, "TT_STUDIO_ROOT", str(root)))
+                stack.enter_context(patch.object(_cl_orch,
+                    "get_env_var",
+                    side_effect=lambda name, default="": default,
+                ))
+                stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
+                stack.enter_context(patch.object(_cl_orch, "_cleanup_runtime"))
+                stack.enter_context(patch.object(_cl_orch, "_docker_daemon_status", return_value="down"))
+                args = SimpleNamespace(cleanup_all=False, yes=False, no_sudo=True, dev=False)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    run.cleanup_resources(args)
+
+            self.assertEqual(user_config.read_text(), original)
 
 
 class CleanupDockerSurfaceTests(unittest.TestCase):
@@ -449,18 +481,22 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
 class TermsAcceptanceGateTests(unittest.TestCase):
     def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
+        from tt_setup import config_store
         with tempfile.TemporaryDirectory() as tmp:
-            prefs = Path(tmp) / ".tt_studio_preferences.json"
-            with patch.object(prefs_mod, "PREFS_FILE_PATH", str(prefs)):
-                # No prefs file → treated as first run (terms asked).
+            cfg = Path(tmp) / ".tt_studio_config.json"
+            # Point the config store at a throwaway file and stub the legacy
+            # migration so the repo's real dotfiles don't seed the test store.
+            with patch.dict("os.environ", {"TT_STUDIO_CONFIG_PATH": str(cfg)}), \
+                 patch.object(config_store, "_migrate_or_default", config_store._empty_config):
+                # No preferences recorded → treated as first run (terms asked).
                 self.assertTrue(prefs_mod.is_first_time_setup())
 
-                # Accepting terms writes the prefs file (the fix: in the default
-                # quick setup this was previously never created, so terms re-fired every run).
+                # Accepting terms records the preference (the fix: in the default
+                # quick setup this was previously never persisted, so terms re-fired every run).
                 prefs_mod.save_preference("terms_accepted", True)
-                self.assertTrue(prefs.exists())
+                self.assertTrue(config_store.get("preferences", "terms_accepted"))
 
-                # Prefs file now exists → no longer treated as first run.
+                # Preference now recorded → no longer treated as first run.
                 self.assertFalse(prefs_mod.is_first_time_setup())
 
 

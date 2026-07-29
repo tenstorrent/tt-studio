@@ -10,20 +10,7 @@ import {
   cardGroupFor,
   fullBoardSlots,
 } from "../utils/deviceFit";
-
-interface ChipSlot {
-  slot_id: number;
-  status: "available" | "occupied";
-  model_name?: string;
-  deployment_id?: number;
-  is_multi_chip?: boolean;
-}
-
-interface ChipStatus {
-  board_type: string;
-  total_slots: number;
-  slots: ChipSlot[];
-}
+import type { ChipStatus } from "../types/chipStatus";
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -284,11 +271,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           Current Device Status
         </h3>
         {chipStatus ? (
-          <ChipStatusDisplay
-            boardType={chipStatus.board_type}
-            totalSlots={chipStatus.total_slots}
-            slots={chipStatus.slots}
-          />
+          <ChipStatusDisplay chipStatus={chipStatus} />
         ) : (
           <div className="p-4 rounded-lg border border-gray-700 bg-[#0d1117] text-gray-500 text-sm font-mono animate-pulse">
             Fetching hardware status...

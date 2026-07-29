@@ -30,6 +30,7 @@ import {
   isLlama31_8BModel,
   isP300x2Board,
 } from "../utils/p300x2Placement";
+import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
 
@@ -273,7 +274,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     // Board slot count for the device pre-flight check.
     const loadSlotCount = fetch("/docker-api/chip-status/")
       .then((r) => r.json())
-      .then((d: { total_slots?: number }) =>
+      .then((d: Partial<Pick<ChipStatus, "total_slots">>) =>
         setTotalSlots(typeof d.total_slots === "number" ? d.total_slots : null)
       )
       .catch(() => { /* non-fatal */ });
@@ -491,7 +492,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
               <ModelCard
                 icon={<Mic className="w-5 h-5" />}
-                label="Whisper"
+                label="Speech-to-text"
                 deviceLabel={`Device ${whisperDeviceId}`}
                 deployState={whisperState}
                 accent="purple"
@@ -505,7 +506,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
               <ModelCard
                 icon={<Volume2 className="w-5 h-5" />}
-                label="SpeechT5 TTS"
+                label="Text-to-speech"
                 deviceLabel={`Device ${ttsDeviceId}`}
                 deployState={ttsState}
                 accent="green"

@@ -20,6 +20,7 @@ import { getBuildInfo } from "../api/githubApi";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
 import { cn } from "../lib/utils";
 import { useFooterVisibility } from "../hooks/useFooterVisibility";
+import { deviceIdsForRow } from "../utils/deviceIds";
 
 interface FooterProps {
   className?: string;
@@ -499,10 +500,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                               onClick={handleRefreshBoardDetection}
                               disabled={refreshing || isInCooldown}
                               className={`p-1 rounded-full border border-transparent transition-colors duration-150 ${refreshing
-                                  ? "opacity-70 cursor-wait"
-                                  : isInCooldown
-                                    ? "opacity-60 cursor-not-allowed"
-                                    : "hover:bg-TT-purple-accent/10 dark:hover:bg-TT-purple-accent/20"
+                                ? "opacity-70 cursor-wait"
+                                : isInCooldown
+                                  ? "opacity-60 cursor-not-allowed"
+                                  : "hover:bg-TT-purple-accent/10 dark:hover:bg-TT-purple-accent/20"
                                 }`}
                               aria-label="Retry board detection"
                             >
@@ -625,9 +626,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                               </div>
 
                               {/* Device ID badge */}
-                              {model.device_id != null && (
+                              {deviceIdsForRow(model) && (
                                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-TT-purple-accent/10 text-TT-purple/70 font-mono flex-shrink-0">
-                                  dev:{model.device_id}
+                                  dev:{deviceIdsForRow(model)?.join(",")}
                                 </span>
                               )}
                             </motion.div>

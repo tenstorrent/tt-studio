@@ -15,7 +15,7 @@ from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 
 from model_control.model_utils import (
-    encoded_jwt,
+    auth_headers,
     get_deploy_cache,
 )
 from shared_config.logger_config import get_logger
@@ -61,7 +61,6 @@ class VoicePipelineView(APIView):
             )
 
         def event_stream():
-            headers = {"Authorization": f"Bearer {encoded_jwt}"}
             deploy_cache = get_deploy_cache()
             pipeline_start = time.time()
             metrics = {}
@@ -73,11 +72,12 @@ class VoicePipelineView(APIView):
             try:
                 whisper_deploy = deploy_cache[whisper_deploy_id]
                 whisper_url = "http://" + whisper_deploy["internal_url"]
+                stt_headers = auth_headers(whisper_deploy)
                 file_payload = {
                     "file": (audio_file.name, audio_file, audio_file.content_type)
                 }
                 stt_resp = requests.post(
-                    whisper_url, files=file_payload, headers=headers, timeout=60
+                    whisper_url, files=file_payload, headers=stt_headers, timeout=60
                 )
                 stt_resp.raise_for_status()
                 transcript = stt_resp.json().get("text", "")
@@ -98,6 +98,7 @@ class VoicePipelineView(APIView):
             llm_deploy = deploy_cache[llm_deploy_id]
             llm_url = "http://" + llm_deploy["internal_url"]
             hf_model_id = llm_deploy["model_impl"].hf_model_id
+            llm_headers = auth_headers(llm_deploy)
 
             messages = []
             if system_prompt:
@@ -117,7 +118,7 @@ class VoicePipelineView(APIView):
             llm_chunk_count = 0
             try:
                 with requests.post(
-                    llm_url, json=llm_payload, headers=headers, stream=True, timeout=120
+                    llm_url, json=llm_payload, headers=llm_headers, stream=True, timeout=120
                 ) as llm_resp:
                     llm_resp.raise_for_status()
                     for line in llm_resp.iter_lines(decode_unicode=True):
@@ -159,6 +160,7 @@ class VoicePipelineView(APIView):
                 try:
                     tts_deploy = deploy_cache[tts_deploy_id]
                     tts_url = "http://" + tts_deploy["internal_url"]
+                    tts_headers = auth_headers(tts_deploy)
                     model_impl = tts_deploy.get("model_impl")
                     model_name = getattr(model_impl, "model_name", None) if model_impl else None
                     
@@ -168,7 +170,7 @@ class VoicePipelineView(APIView):
                     if is_openai_style:
                         # OpenAI-style: POST directly and get audio back
                         payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
-                        tts_resp = requests.post(tts_url, json=payload, headers=headers, timeout=120)
+                        tts_resp = requests.post(tts_url, json=payload, headers=tts_headers, timeout=120)
                         tts_resp.raise_for_status()
                         
                         audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
@@ -180,7 +182,7 @@ class VoicePipelineView(APIView):
                         tts_resp = requests.post(
                             tts_url,
                             json={"text": llm_full_text.strip()},
-                            headers=headers,
+                            headers=tts_headers,
                             timeout=30,
                         )
                         
@@ -189,7 +191,7 @@ class VoicePipelineView(APIView):
                             logger.info(f"Pipeline TTS 404 on {tts_url}, trying /v1/audio/speech")
                             fallback_url = tts_url.replace("/enqueue", "/v1/audio/speech")
                             payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
-                            tts_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+                            tts_resp = requests.post(fallback_url, json=payload, headers=tts_headers, timeout=120)
                             tts_resp.raise_for_status()
                             
                             audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
@@ -204,13 +206,13 @@ class VoicePipelineView(APIView):
 
                             # Poll for completion
                             for _ in range(120):
-                                st = requests.get(status_url, headers=headers, timeout=10)
+                                st = requests.get(status_url, headers=tts_headers, timeout=10)
                                 if st.status_code != 404 and st.json().get("status") == "Completed":
                                     break
                                 time.sleep(1)
 
                             audio_url = tts_url.replace("/enqueue", f"/fetch_audio/{task_id}")
-                            audio_resp = requests.get(audio_url, headers=headers, timeout=30)
+                            audio_resp = requests.get(audio_url, headers=tts_headers, timeout=30)
                             audio_resp.raise_for_status()
 
                             audio_b64 = base64.b64encode(audio_resp.content).decode("utf-8")

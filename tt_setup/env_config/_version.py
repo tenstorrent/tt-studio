@@ -3,8 +3,8 @@
 
 """Frontend version stamping + quick-setup config snapshot."""
 
-import json
 import subprocess
+from tt_setup import config_store
 from tt_setup.constants import *
 from tt_setup.console import console, is_verbose
 from tt_setup.env_config._dotenv import write_env_var
@@ -54,10 +54,28 @@ def set_app_version_env():
 
 
 def save_setup_config(config_dict):
-    """Save the quick-setup configuration snapshot to JSON file"""
+    """Persist the quick-setup snapshot into the config store.
+
+    The flat snapshot is split across namespaces: ``tt_studio_mode`` /
+    ``ai_playground_mode`` land in ``features``, ``vite_*`` keys in ``ui``, and
+    everything else in ``setup`` (same split as the one-time migration).
+    """
+    feature_keys = ("tt_studio_mode", "ai_playground_mode")
+    setup, features, ui = {}, {}, {}
+    for key, value in config_dict.items():
+        if key in feature_keys:
+            features[key] = value
+        elif key.startswith("vite_"):
+            ui[key] = value
+        else:
+            setup[key] = value
     try:
-        with open(SETUP_CONFIG_FILE_PATH, 'w') as f:
-            json.dump(config_dict, f, indent=2)
+        if setup:
+            config_store.update_ns("setup", setup)
+        if features:
+            config_store.update_ns("features", features)
+        if ui:
+            config_store.update_ns("ui", ui)
         # Silent — no need to show config file path to user
     except Exception as e:
         console.print(f"[warning]⚠️  Warning: Could not save setup configuration: {e}[/warning]")
