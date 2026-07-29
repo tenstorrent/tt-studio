@@ -43,9 +43,10 @@ _total_bytes_lock = threading.Lock()
 # then track the resolved one for the rest of every download of that repo.
 _media_path_cache: Dict[str, str] = {}
 
-# This list defines non-PyTorch file extensions (like Flax, TensorFlow, and ONNX) 
-# that are intentionally skipped because the media server only loads safetensors or .bin weights. 
-# Excluding these formats prevents "dead weight" files from falsely inflating the total size denominator on the download progress bar.
+# This list defines non-PyTorch file extensions (like Flax, TensorFlow, and ONNX)
+# that are intentionally skipped because the media server only loads safetensors or
+# .bin weights. Excluding these formats prevents "dead weight" files from falsely
+# inflating the total size denominator on the download progress bar.
 _NON_TORCH_WEIGHT_SUFFIXES = (
     ".msgpack",     # Flax
     ".h5",          # TensorFlow / Keras

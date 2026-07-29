@@ -237,7 +237,9 @@ def _local_dir_incomplete(host_weights_dir):
         return True
     index_file = host_weights_dir / "model.safetensors.index.json"
     if index_file.is_file():
-        weight_map = json.loads(index_file.read_text()).get("weight_map", {})
+        weight_map = json.loads(index_file.read_text(encoding="utf-8")).get(
+            "weight_map", {}
+        )
         missing = sorted(
             s for s in set(weight_map.values()) if not (host_weights_dir / s).is_file()
         )
