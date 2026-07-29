@@ -60,6 +60,7 @@ interface HeaderProps {
   setModelID: (id: string) => void;
   setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
+  allCollectionsCount?: number;
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
@@ -117,8 +118,9 @@ const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Select> & {
     ragDataSources?: any[];
+    allCollectionsCount?: number;
   }
->(({ ragDataSources, value, onValueChange, ...selectProps }, ref) => (
+>(({ ragDataSources, allCollectionsCount, value, onValueChange, ...selectProps }, ref) => (
   <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
@@ -158,7 +160,9 @@ const ForwardedSelect = React.forwardRef<
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
               <Database className="h-4 w-4" />
-              <span>{ragDataSources?.length || 0} Collections</span>
+              {/* Counts every collection this option spans, including the seeded
+                  documentation collection that "Your Collections" below hides. */}
+              <span>{allCollectionsCount ?? 0} Collections</span>
             </div>
           </div>
         </SelectItem>
@@ -178,8 +182,8 @@ const ForwardedSelect = React.forwardRef<
               key={c.id}
               value={c.name}
               className={`rounded-lg my-1 ${value === c.name
-                  ? "bg-gray-100 dark:bg-[#2A2A2A]"
-                  : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
+                ? "bg-gray-100 dark:bg-[#2A2A2A]"
+                : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
                 }`}
             >
               <div className="flex items-center gap-2">
@@ -218,6 +222,7 @@ export default function Header({
   setModelID,
   setModelName,
   ragDataSources,
+  allCollectionsCount,
   ragDatasource,
   setRagDatasource,
   isHistoryPanelOpen,
@@ -570,6 +575,7 @@ export default function Header({
                   }
                 }}
                 ragDataSources={ragDataSources}
+                allCollectionsCount={allCollectionsCount}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
@@ -595,9 +601,9 @@ export default function Header({
                           key={c.id}
                           value={c.name}
                           className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${ragDatasource?.name === c.name &&
-                              ragDatasource.id !== "special-all"
-                              ? "bg-[#7C68FA]/10"
-                              : ""
+                            ragDatasource.id !== "special-all"
+                            ? "bg-[#7C68FA]/10"
+                            : ""
                             }`}
                         >
                           <div className="flex items-center gap-2">
@@ -682,6 +688,7 @@ export default function Header({
                     }
                   }}
                   ragDataSources={ragDataSources}
+                  allCollectionsCount={allCollectionsCount}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>
@@ -707,9 +714,9 @@ export default function Header({
                             key={c.id}
                             value={c.name}
                             className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${ragDatasource?.name === c.name &&
-                                ragDatasource.id !== "special-all"
-                                ? "bg-[#7C68FA]/10"
-                                : ""
+                              ragDatasource.id !== "special-all"
+                              ? "bg-[#7C68FA]/10"
+                              : ""
                               }`}
                           >
                             <div className="flex items-center gap-2">

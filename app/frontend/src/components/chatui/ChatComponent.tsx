@@ -1275,6 +1275,7 @@ export default function ChatComponent() {
               setModelID={setModelID}
               setModelName={setModelName}
               ragDataSources={ragDataSources}
+              allCollectionsCount={allCollections?.length ?? 0}
               ragDatasource={ragDatasource}
               setRagDatasource={setRagDatasource}
               isHistoryPanelOpen={isHistoryPanelOpen}
