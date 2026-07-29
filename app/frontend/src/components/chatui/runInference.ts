@@ -36,6 +36,9 @@ export const runInference = async (
   // Reports the retrieval step's outcome as soon as it finishes, so callers can
   // show retrieval progress and timing without issuing a second Chroma query.
   onRagContext?: (info: { documents: string[]; latencyMs: number }) => void,
+  // The voice agent's reply is spoken aloud, which changes how retrieved context
+  // must be handled — see generatePrompt.
+  spokenOutput: boolean = false,
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -97,6 +100,7 @@ export const runInference = async (
           systemPrompt,
           hardwareContext,
           modelName,
+          spokenOutput,
         );
       } else if (file.image_url?.url || file) {
         console.log(
@@ -160,6 +164,7 @@ export const runInference = async (
         systemPrompt,
         hardwareContext,
         modelName,
+        spokenOutput,
       );
     }
 

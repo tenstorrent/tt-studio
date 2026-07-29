@@ -447,7 +447,9 @@ function TurnMetrics({
   );
 }
 
-// After the turn settles: which collection grounded it, and any web sources.
+// After the turn settles: any web sources the answer drew on. The grounding
+// collection is deliberately not repeated here — it is the same for every turn, so
+// it belongs in the header next to the pipeline status rather than under each reply.
 function SourceChips({
   message,
   theme,
@@ -455,8 +457,7 @@ function SourceChips({
   message: ConversationMessage;
   theme: string;
 }) {
-  const hasSources = Boolean(message.sources?.length);
-  if (!message.ragCollection && !hasSources) return null;
+  if (!message.sources?.length) return null;
 
   const chipClass = cn(
     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono max-w-[14rem]",
@@ -475,12 +476,6 @@ function SourceChips({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
-      {message.ragCollection && (
-        <motion.span className={chipClass} {...chipMotion(0)}>
-          <Database className="w-2.5 h-2.5 shrink-0" />
-          <span className="truncate">{message.ragCollection}</span>
-        </motion.span>
-      )}
       {message.sources?.map((source, i) => (
         <motion.a
           key={source.url}
@@ -489,7 +484,7 @@ function SourceChips({
           rel="noopener noreferrer"
           title={source.url}
           className={cn(chipClass, "hover:text-TT-purple-accent transition-colors")}
-          {...chipMotion(i + (message.ragCollection ? 1 : 0))}
+          {...chipMotion(i)}
         >
           <ExternalLink className="w-2.5 h-2.5 shrink-0" />
           <span className="truncate">{source.title || source.url}</span>

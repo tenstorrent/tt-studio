@@ -5,6 +5,8 @@
 // here (and editable at runtime via the settings sheet) means tuning it no
 // longer requires a code change and rebuild.
 
+import { buildVocabularyPromptSection } from "./ttVocabulary";
+
 export interface VoicePromptPreset {
   id: string;
   label: string;
@@ -23,10 +25,23 @@ export const VOICE_PROMPT_SAFETY_SUFFIX =
 // Added on top of the prompt for turns where retrieved documents or web search
 // results are in play. Grounding rules plus a reminder that citations and URLs
 // are unusable in speech.
+//
+// Note the deliberate absence of any "mention the source" allowance. An earlier
+// version permitted naming a source "if it genuinely helps", and the model used that
+// to answer "128 GB GDDR6, according to the TT-QuietBox 2 documentation" — which is
+// noise when heard rather than read. The matching CONTEXT INSTRUCTIONS block in
+// chatui/templateRenderer.ts has to agree with this, or whichever comes last wins.
 export const VOICE_PROMPT_GROUNDING_CLAUSE =
-  "Grounding: Answer from the provided context and search results. If the answer isn't in them, say so plainly instead of guessing. " +
-  "Never read out URLs, citation markers, or source lists — the user hears your reply, they don't see it. " +
-  "Mention a source only by its plain name if it genuinely helps.";
+  "Grounding: Answer from the provided context and search results. " +
+  "Lead with the specific fact the user asked for — the actual number, name, or value — never a vague characterization of it. " +
+  'If you know the figure, say the figure; do not answer "it has memory sized for production workloads" when the context states the size. ' +
+  "If the answer genuinely isn't in the context, say so plainly in one sentence instead of guessing. " +
+  "Never read out URLs, citation markers, file names, or source lists, and never say \"according to\" or \"based on the provided context\" — the user hears your reply, they don't see it, and they are not asking where you looked. " +
+  "Never apologize for or narrate a previous answer; just answer.";
+
+// Alias resolution for speech-mangled Tenstorrent names. Generated from the shared
+// vocabulary table so the prompt and the RAG query rewrite can't drift apart.
+export const VOICE_PROMPT_VOCABULARY_CLAUSE = buildVocabularyPromptSection();
 
 export const DEFAULT_VOICE_SYSTEM_PROMPT = `Role: You are a helpful, friendly voice assistant having a real spoken conversation with the user.
 Style: Talk like a person — warm, natural, and conversational. Use contractions, light filler ("sure", "got it", "hmm"), and vary your phrasing so you don't sound scripted.

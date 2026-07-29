@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import axios from "axios";
 import { InferenceRequest, RagDataSource } from "./types.ts";
+import { normalizeTranscriptForRetrieval } from "../voiceAgent/lib/ttVocabulary";
 
 export const getRagContext = async (
   request: InferenceRequest,
@@ -16,6 +17,15 @@ export const getRagContext = async (
 
   if (!ragDatasource) return ragContext;
 
+  // Widen the query with canonical Tenstorrent names before embedding it. Spoken
+  // input arrives as whatever Whisper heard ("quiet box two"), which does not embed
+  // near the docs that spell it "TT-QuietBox 2". Additive, so typed queries that
+  // were already correct are unaffected.
+  const queryText = normalizeTranscriptForRetrieval(request.text ?? "");
+  if (queryText !== request.text) {
+    console.log("RAG query widened with canonical terms:", queryText);
+  }
+
   try {
     // Get browser ID from localStorage
     const browserId = localStorage.getItem("tt_studio_browser_id");
@@ -26,7 +36,7 @@ export const getRagContext = async (
       console.log("Querying across all collections");
       try {
         const response = await axios.get(`/collections-api/query-all`, {
-          params: { query_text: request.text, limit: 5 },
+          params: { query_text: queryText, limit: 5 },
           headers: {
             "X-Browser-ID": browserId,
           },
@@ -61,7 +71,7 @@ export const getRagContext = async (
         const response = await axios.get(
           `/collections-api/${ragDatasource.name}/query`,
           {
-            params: { query_text: request.text },
+            params: { query_text: queryText },
             headers: {
               "X-Browser-ID": browserId,
             },

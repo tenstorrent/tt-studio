@@ -53,8 +53,6 @@ export interface ConversationMessage {
   sources?: SourceLink[];
   /** Search queries the agent ran while answering, shown live and after. */
   searchQueries?: string[];
-  /** Collection this turn was grounded in, when RAG was on. */
-  ragCollection?: string;
   /** Per-turn pipeline timings, shown under the answer. */
   metrics?: PipelineMetrics;
 }

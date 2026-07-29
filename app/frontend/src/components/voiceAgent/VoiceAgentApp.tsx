@@ -64,6 +64,7 @@ import {
   renderVoiceSystemPrompt,
   VOICE_PROMPT_GROUNDING_CLAUSE,
   VOICE_PROMPT_SAFETY_SUFFIX,
+  VOICE_PROMPT_VOCABULARY_CLAUSE,
 } from "./lib/prompts";
 import {
   cleanSpeechText,
@@ -85,6 +86,13 @@ const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; dotCol
 };
 
 const ALL_COLLECTIONS_ID = "special-all";
+
+// 25ms of true silence (8 kHz mono 16-bit, 200 real sample frames). Used only to
+// unlock the TTS audio element for autoplay on the first user gesture — see the
+// priming effect below. Needs real frames: a zero-length WAV can fail to decode, and
+// a play() that rejects is not an unlock.
+const SILENT_WAV_DATA_URI =
+  "data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YZABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 function collectionLabel(source: RagDataSource | undefined): string {
   if (!source) return "Knowledge";
@@ -284,6 +292,57 @@ export default function VoiceAgentApp() {
     discoverModels();
   }, []);
 
+  // Browsers refuse programmatic audio playback until the page has seen a real user
+  // gesture, and they only count it for a short window. TTS playback starts several
+  // awaits after the mic click (STT, then the LLM stream, then the TTS request) — and
+  // on the wake-word path there is no click at all — so by the time audio.play() runs
+  // the gesture has expired and it rejects with NotAllowedError. The reply then sits
+  // there silently with a play button the user has to press.
+  //
+  // Priming the element inside a genuine gesture marks it as user-initiated so later
+  // plays are permitted. Three details matter:
+  //   - Play *unmuted*. A muted play() is always allowed and grants nothing, so
+  //     unmuting afterwards leaves the element just as locked as before.
+  //   - Play a clip with real audio frames. A zero-length WAV can fail to decode, and
+  //     a failed play() is not an unlock. The clip is 25ms of silence, so unmuted
+  //     priming is inaudible.
+  //   - Keep listening until a play() actually resolves, since the first gesture can
+  //     land before this effect mounts (e.g. the click that navigated here).
+  // Must prime the same element the pipeline reuses: Safari tracks the unlock per
+  // media element, not per document.
+  useEffect(() => {
+    let unlocked = false;
+
+    const prime = () => {
+      if (unlocked) return;
+      if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
+      const audio = ttsAudioRef.current;
+      if (!audio.src) audio.src = SILENT_WAV_DATA_URI;
+      audio
+        .play()
+        .then(() => {
+          unlocked = true;
+          audio.pause();
+          audio.currentTime = 0;
+          detach();
+        })
+        .catch(() => {
+          /* Still locked — stay attached and retry on the next gesture. */
+        });
+    };
+
+    const detach = () => {
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+      window.removeEventListener("touchstart", prime);
+    };
+
+    window.addEventListener("pointerdown", prime);
+    window.addEventListener("keydown", prime);
+    window.addEventListener("touchstart", prime);
+    return detach;
+  }, []);
+
   // Auto-greet the recognized user via TTS once models are ready
   useEffect(() => {
     if (!recognizedUser || !models.tts || autoGreetedRef.current) return;
@@ -384,7 +443,6 @@ export default function VoiceAgentApp() {
         text: "",
         date: new Date(),
         isStreaming: true,
-        ragCollection: ragDatasource ? collectionLabel(ragDatasource) : undefined,
       };
       addMessageToConversation(conversationId, assistantMessage);
 
@@ -486,7 +544,7 @@ export default function VoiceAgentApp() {
           `${userContext}${memoryBlock}${renderVoiceSystemPrompt(systemPromptRef.current, {
             userName: recognizedUserRef.current,
             modelName: models.llm.modelName,
-          })}${groundingBlock}\n${VOICE_PROMPT_SAFETY_SUFFIX}`,
+          })}${groundingBlock}\n${VOICE_PROMPT_VOCABULARY_CLAUSE}\n${VOICE_PROMPT_SAFETY_SUFFIX}`,
           null,
           null,
           ({ documents, latencyMs }) => {
@@ -494,7 +552,9 @@ export default function VoiceAgentApp() {
             ragDocCount = documents.length;
             // Retrieval done — the model is the one working now.
             setStage("thinking");
-          }
+          },
+          // Every reply here goes through TTS.
+          true
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
@@ -553,6 +613,9 @@ export default function VoiceAgentApp() {
             handedOffToPlayback = true;
             audio.play().catch((e) => {
               console.warn("TTS autoplay blocked:", e);
+              customToast.error(
+                "The browser blocked audio playback. Click anywhere on the page, then ask again."
+              );
               handedOffToPlayback = false;
               setStage("done");
             });
@@ -729,6 +792,23 @@ export default function VoiceAgentApp() {
               {stageConfig.label}
             </span>
           </motion.div>
+
+          {/* The grounding collection is the same for every turn, so it is shown once
+              here rather than repeated as a chip under each reply. */}
+          {ragDatasource && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono max-w-[12rem]",
+                theme === "dark"
+                  ? "bg-white/[0.06] text-gray-400"
+                  : "bg-black/[0.04] text-gray-500"
+              )}
+              title={`Answering from ${collectionLabel(ragDatasource)}`}
+            >
+              <Database className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">{collectionLabel(ragDatasource)}</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1">

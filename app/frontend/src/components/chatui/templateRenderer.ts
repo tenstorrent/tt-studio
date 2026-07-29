@@ -25,6 +25,27 @@ const SIMPLE_GREETINGS = new Set([
   "yo",
 ]);
 
+// Instructions attached to retrieved context for on-screen chat, where citations
+// and "upload a document" hints are useful and clickable.
+const WRITTEN_CONTEXT_INSTRUCTIONS = `CONTEXT INSTRUCTIONS:
+• Use ONLY the provided context to inform your response
+• Always cite the source file name when using specific information
+• If context is insufficient, acknowledge this and suggest uploading relevant documents
+• Do not make assumptions beyond what's in the context
+• If multiple sources conflict, acknowledge the conflict and explain the different perspectives`;
+
+// The spoken variant. The written rules above actively harm a voice answer: asking
+// for a source citation makes the model narrate "according to the <X> documentation",
+// and the "acknowledge insufficient context" line invites hedging over a fact that
+// was actually retrieved. Neither is listenable.
+const SPOKEN_CONTEXT_INSTRUCTIONS = `CONTEXT INSTRUCTIONS:
+• Answer the question directly from the context above. Lead with the specific fact — the number, name, or value itself — not a summary or characterization of it
+• Never mention the context, the documents, the sources, or any file name. The user is listening, not reading, and cannot see them
+• Never say "according to", "based on the provided", "the documentation says", or similar. State the fact as your own answer
+• No apologies and no self-correction preambles. Just give the answer
+• If the context genuinely does not contain the answer, say so in one short sentence. Never suggest uploading documents
+• If sources conflict, give the most likely answer in one sentence and note briefly that accounts differ`;
+
 function isSimpleGreeting(message: string): boolean {
   const cleaned = message
     .toLowerCase()
@@ -77,6 +98,9 @@ export function generatePrompt(
   systemPrompt: string | null = null,
   hardwareContext: string | null = null,
   modelName: string | null = null,
+  // Set by the voice agent: the reply is read aloud by TTS, so context handling
+  // rules that assume a reader (citations, file names) have to be swapped out.
+  spokenOutput: boolean = false,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
@@ -187,12 +211,7 @@ RELEVANT CONTEXT:
 ${formattedDocuments}
 ----------------
 
-CONTEXT INSTRUCTIONS:
-• Use ONLY the provided context to inform your response
-• Always cite the source file name when using specific information
-• If context is insufficient, acknowledge this and suggest uploading relevant documents
-• Do not make assumptions beyond what's in the context
-• If multiple sources conflict, acknowledge the conflict and explain the different perspectives`;
+${spokenOutput ? SPOKEN_CONTEXT_INSTRUCTIONS : WRITTEN_CONTEXT_INSTRUCTIONS}`;
   }
 
   // Add chat history

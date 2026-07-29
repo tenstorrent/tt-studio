@@ -4,51 +4,68 @@
 
 import hashlib
 
+# Model-support docs are generated (from the tt-inference-server hardware matrix and
+# the local deploy catalog) rather than hand-written here, because the hand-written
+# tables below went stale and started answering "which models are supported?" wrongly.
+# Rebuild with: python app/backend/vector_db_control/build_data.py
+from vector_db_control.model_support_data import MODEL_SUPPORT_DOCS
+
 TT_INFERENCE_SERVER = """
 # TT-Inference-Server
 
-Tenstorrent Inference Server (`tt-inference-server`) is the repo of available model APIs for deploying on Tenstorrent hardware.
+The Tenstorrent Inference Server (`tt-inference-server`) is the service that actually runs
+AI models on Tenstorrent hardware. TT-Studio does not execute models itself: it packages,
+containerizes, and deploys them through tt-inference-server, then talks to the resulting
+endpoint. It is the fastest way to deploy and test models for serving inference on
+Tenstorrent accelerators.
 
-## Official Repository
+Official repository: https://github.com/tenstorrent/tt-inference-server
 
-[https://github.com/tenstorrent/tt-inference-server](https://github.com/tenstorrent/tt-inference-server/)
+## What it provides
 
+- **OpenAI-compatible HTTP APIs.** Chat and completion models are served on vLLM and speak
+  the OpenAI API, so existing OpenAI client code works by changing the base URL. Media
+  models expose matching routes for their modality, such as `/v1/audio/transcriptions`
+  for speech-to-text and image or video generation routes for diffusion models.
+- **Two serving engines.** LLMs and vision-language models run under vLLM on TT-Metal.
+  Image, video, audio, text-to-speech, embedding, and CNN models run on the media
+  inference server. TT-Studio picks the right one from the model catalog entry.
+- **Prebuilt Docker images.** Each supported model and hardware pairing has a published
+  image on ghcr.io, so no compilation from source is needed for a normal deployment.
+- **Model readiness workflows.** Automation for deployment, end-to-end performance
+  benchmarking, and accuracy evaluation, so a model's status can be measured rather than
+  asserted.
+- **Model specs.** A machine-readable description of every model, its supported device
+  configurations, its container image, and its service and health routes. TT-Studio syncs
+  this into its own catalog with `shared_config/sync_models_from_inference_server.py`.
 
-## Getting Started
-Please follow setup instructions for the model you want to serve, `Model Name` in tables below link to corresponding implementation.
+## Model categories
 
-Note: models with Status [🔍 preview] are under active development. If you encounter setup or stability problems please [file an issue](https://github.com/tenstorrent/tt-inference-server/issues/new?template=Blank+issue) and our team will address it.
+The server supports large language models (LLM), vision-language models (VLM), image
+generation, video generation, speech recognition (audio), text-to-speech (TTS), text
+embeddings, and convolutional neural networks (CNN).
 
-## LLMs
+## Readiness status
 
-For automated and pre-configured vLLM inference server using Docker please see the [Model Readiness Workflows User Guide](docs/workflows_user_guide.md).
+Every model and hardware pairing carries a status. **Complete** means validated end to
+end for performance and accuracy. **Functional** means it runs but is not fully
+validated. **Experimental** means under active development, and may be unstable.
 
-| Model Name | Model URL | Hardware | Status | tt-metal commit | vLLM commit | Docker Image |
-|------------|-----------|----------|--------|-----------------|-------------|--------------|
-| [QwQ-32B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/Qwen/QwQ-32B) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | 🔍 preview | [v0.56.0-rc51](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc51/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc51-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [DeepSeek-R1-Distill-Llama-70B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-70B) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | 🔍 preview | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Qwen2.5-72B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/Qwen/Qwen2.5-72B) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | 🔍 preview | [v0.56.0-rc33](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc33/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc33-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Qwen2.5-72B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/Qwen/Qwen2.5-72B-Instruct) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | 🔍 preview | [v0.56.0-rc33](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc33/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc33-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Qwen2.5-7B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/Qwen/Qwen2.5-7B) | [n150](https://tenstorrent.com/hardware/wormhole) | 🔍 preview | [v0.56.0-rc33](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc33/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc33-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Qwen2.5-7B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) | [n150](https://tenstorrent.com/hardware/wormhole) | 🔍 preview | [v0.56.0-rc33](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc33/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc33-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.3-70B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-11B-Vision](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-11B-Vision) | [n150](https://tenstorrent.com/hardware/wormhole) | 🔍 preview | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-11B-Vision-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct) | [n150](https://tenstorrent.com/hardware/wormhole) | 🔍 preview | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-1B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-1B) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-1B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-3B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-3B) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.2-3B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.1-70B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.1-70B) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.1-70B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct) | [TT-LoudBox/TT-QuietBox](https://tenstorrent.com/hardware/tt-quietbox) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.1-8B](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.1-8B) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
-| [Llama-3.1-8B-Instruct](vllm-tt-metal-llama3/README.md) | [HF Repo](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | [n150](https://tenstorrent.com/hardware/wormhole) | ✅ ready | [v0.56.0-rc47](https://github.com/tenstorrent/tt-metal/tree/v0.56.0-rc47/models/demos/llama3) | [e2e0002a](https://github.com/tenstorrent/vllm/tree/e2e0002ac7dc) | [0.0.4-v0.56.0-rc47-e2e0002ac7dc](https://ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64) |
+## Which models are supported
 
-# CNNs
+The authoritative lists live in two other documents in this knowledge base:
+"Supported Models by Tenstorrent Hardware" for upstream's per-platform matrix, and
+"Models TT-Studio Can Deploy" for the catalog this TT-Studio installation can actually
+launch. Both are regenerated from the pinned tt-inference-server artifact, so prefer
+them over any model table quoted elsewhere.
 
-| Model Name                    | Model URL                                                             | Hardware                                                                 | Status      | Minimum Release Version                                                          |
-| ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------- |
-| [YOLOv4](tt-metal-yolov4/README.md)                        | [GH Repo](https://github.com/AlexeyAB/darknet)                    | [n150](https://tenstorrent.com/hardware/wormhole)                        | 🔍 preview  | [v0.0.1](https://github.com/tenstorrent/tt-inference-server/releases/tag/v0.0.1) |
+## How TT-Studio uses it
 
+The version TT-Studio deploys against is pinned by `TT_INFERENCE_ARTIFACT_VERSION` in the
+repo `.env`. `run.py` fetches that artifact; there are no git submodules. Gated model
+weights, including the Llama family, require an `HF_TOKEN` with access granted on
+Hugging Face. The inference server runs on the host on port 8001 and the backend reaches
+it through `host.docker.internal`.
 """
 
 TT_STUDIO_INFO = """
@@ -535,6 +552,28 @@ SDKs. Data never leaves the machine.
 
 Documentation: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/index.html
 
+## Quick Facts (spoken answers)
+
+These are written as plain sentences on purpose: the specification table further down
+embeds poorly for search, so short factual sentences are what a question like "how much
+memory does the QB2 have" actually matches against.
+
+- The TT-QuietBox 2 has **256 GB of system memory** — that is the host RAM, 4x64 GB
+  DDR5-5600 UDIMM, CL46. When someone asks about the QB2's system memory or system RAM,
+  this is the number they mean.
+- Separately, it has **128 GB of GDDR6 accelerator memory**, which is the memory on the
+  Tenstorrent cards themselves — 64 GB per card across two cards. This is the figure to
+  give for accelerator memory, device memory, or VRAM. It is not the system memory.
+- It has **4 Blackhole ASICs** on 2 liquid-cooled p300 cards, 2 ASICs per card.
+- It has **480 Tensix cores** in total, 240 per card.
+- Its CPU is a **Ryzen 7 9700X**, 8 cores, 3.8 GHz, 65 W.
+- Its storage is a **4 TB WD Blue SN5000 NVMe SSD**, with 3 M.2 slots free.
+- It runs **Ubuntu 24.04.3 LTS** and the default password is `ttuser`.
+- Its power supply is **1600 W** and peak draw is about **1.5 kW**.
+- It measures 15.6 by 9.1 by 17.8 inches and weighs **20 kg (44 lbs)**.
+- Noise is **38 dBA** at maximum load, around 39.8 dBA under sustained full load.
+- TT-Studio reports the QB2 as board type **P300x2**.
+
 ## What's in the Box
 - 1x TT-QuietBox 2 (Blackhole) workstation
 - 1x Power supply cord (C19 to NEMA 5-15P)
@@ -613,9 +652,17 @@ User-supplied: keyboard, mouse, certified HDMI cable, and a monitor.
 - **Explore the Architecture**: Compile 100+ PyTorch/ONNX models with TT-Forge and visualize activity
   with TT-Toplike.
 
+## Supported Models
+
+The TT-QuietBox 2 reports as board type `P300x2` in TT-Studio. Models validated end to end
+on it: Llama-3.3-70B-Instruct, Llama-3.1-8B-Instruct, and Qwen3-32B for chat; FLUX.1-dev and
+FLUX.1-schnell for images; Wan2.2-T2V-A14B-Diffusers and mochi-1-preview for video;
+whisper-large-v3 and distil-large-v3 for speech-to-text; speecht5_tts for text-to-speech.
+Z-Image-Turbo is functional, and gpt-oss-120b, gemma-4-31B-it, and Qwen3.6-27B are
+experimental. See "Models TT-Studio Can Deploy" and "Supported Models by Tenstorrent
+Hardware" for the authoritative per-model list and status.
+
 ## FAQ and Troubleshooting
-- **Supported models**: Browse the Tenstorrent Developer Hub (https://tenstorrent.com/developers) and
-  filter by "TT-QuietBox 2".
 - **Maintenance**: Liquid cooling needs periodic coolant top-ups, roughly annually under typical
   workloads.
 - **Noise**: 39.8 dBA under maximum operating load — comparable to a washing machine.
@@ -86816,16 +86863,26 @@ INTERNAL_KNOWLEDGE = [
     TENSTORRENT_OVERVIEW,
     TT_METAL,
     TT_QUIETBOX_BH2,
-] + _SCRAPED_DOCS
+] + MODEL_SUPPORT_DOCS + _SCRAPED_DOCS
+
+
+# Bump when the way documents are split or annotated changes, not just their text.
+# The fingerprint below gates re-seeding, so a chunking change with identical source
+# text would otherwise leave the old chunks in Chroma forever.
+# v2: every chunk is stamped with its document title (see documents.py::_prepend_titles).
+CHUNKING_REVISION = "titled-chunks-v2"
 
 
 def knowledge_corpus_revision() -> str:
-    """Short fingerprint of the corpus above.
+    """Short fingerprint of the corpus above and of how it gets chunked.
 
     Stored on the seeded Chroma collection so startup can tell an up-to-date
-    collection from one built before documents were added to or edited here.
+    collection from one built before documents were added to or edited here — or
+    before the chunking strategy changed.
     """
     digest = hashlib.sha256()
+    digest.update(CHUNKING_REVISION.encode("utf-8"))
+    digest.update(b"\x00")
     for document in INTERNAL_KNOWLEDGE:
         digest.update(document.encode("utf-8"))
         digest.update(b"\x00")
