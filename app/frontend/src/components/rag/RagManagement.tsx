@@ -16,6 +16,7 @@ import {
   createCollection,
   uploadDocument,
   fetchDocuments,
+  isSystemKnowledgeCollection,
 } from "@/src/components/rag";
 import {
   FileType,
@@ -215,9 +216,7 @@ export default function RagManagement() {
             documentsCount: col.documents?.length || 0,
             hasMetadata: Boolean(col.metadata),
             lastUploadedDoc: col.metadata?.last_uploaded_document,
-            isInternalKnowledge:
-              col.documents?.length === 0 &&
-              !col.metadata?.last_uploaded_document,
+            isInternalKnowledge: isSystemKnowledgeCollection(col),
           }))
         );
 
@@ -245,14 +244,27 @@ export default function RagManagement() {
       // First create the collection
       await createCollection({ collectionName });
 
-      // Then upload the document
-      await uploadDocument({ file, collectionName });
+      // Then upload the document; if that fails, roll back the collection so
+      // we don't leave behind an empty datasource that can't be retried.
+      try {
+        await uploadDocument({ file, collectionName });
+      } catch (uploadError) {
+        try {
+          await deleteCollection({ collectionName });
+        } catch (rollbackError) {
+          console.error(
+            `Failed to roll back collection ${collectionName} after upload error:`,
+            rollbackError
+          );
+        }
+        throw uploadError;
+      }
 
       return { file, collectionName };
     },
     onMutate: ({ collectionName }) => {
       setCollectionsUploading([...collectionsUploading, collectionName]);
-      customToast.success(
+      customToast.info(
         `Creating datasource "${collectionName}" and uploading document...`
       );
     },
@@ -400,10 +412,15 @@ export default function RagManagement() {
     mutationFn: uploadDocument,
     onMutate: ({ collectionName }) => {
       setCollectionsUploading([...collectionsUploading, collectionName]);
-      customToast.success("Uploading document...");
+      customToast.info("Uploading document...");
     },
-    onError: (_error, { file, collectionName }) => {
-      customToast.error(`Error uploading ${file.name} to ${collectionName}`);
+    onError: (error: Error, { file, collectionName }) => {
+      setCollectionsUploading((prev) =>
+        prev.filter((e) => e !== collectionName)
+      );
+      customToast.error(
+        `Error uploading ${file.name} to ${collectionName}: ${error.message}`
+      );
     },
     onSuccess: async (response, { file, collectionName }) => {
       setCollectionsUploading(
@@ -535,13 +552,12 @@ export default function RagManagement() {
       .toLowerCase();
   };
 
-  // Handle file drop
+  // Handle file drop. GentleFileUpload's dropzone already handles the dropped
+  // files and calls handleFileUpload via onChange; the event then bubbles up
+  // here, so only reset the drag styling — uploading again would duplicate it.
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    handleFileUpload(files);
   };
 
   // Handle file selection
@@ -611,47 +627,12 @@ export default function RagManagement() {
     );
   }
 
-  // Helper function to check if a collection contains only internal knowledge
-  const isInternalKnowledgeCollection = (item: RagDataSource): boolean => {
-    // Check if collection has no user-uploaded documents AND exists (indicating it contains internal knowledge)
-    const hasNoUserDocs = !item.documents || item.documents.length === 0;
-    const hasValidId = Boolean(item.id);
-    const hasValidName = Boolean(item.name);
-
-    // Additional check: if metadata doesn't contain last_uploaded_document, it's likely internal only
-    const hasNoUploadedDocumentMetadata =
-      !item.metadata?.last_uploaded_document;
-
-    // Check if this is the system-created internal knowledge collection
-    const isSystemInternalCollection =
-      item.metadata?.type === "internal_knowledge" ||
-      item.metadata?.created_by === "system" ||
-      item.name === "tenstorrent_internal_knowledge";
-
-    // A collection is internal knowledge if:
-    // 1. It's the system-created internal knowledge collection OR
-    // 2. It has no user documents AND valid ID/name AND no uploaded document metadata
-    const isInternal =
-      isSystemInternalCollection ||
-      (hasNoUserDocs &&
-        hasValidId &&
-        hasValidName &&
-        hasNoUploadedDocumentMetadata);
-
-    // Debug logging
-    console.log(`[isInternalKnowledgeCollection] ${item.name}:`, {
-      hasNoUserDocs,
-      hasValidId,
-      hasValidName,
-      hasNoUploadedDocumentMetadata,
-      isSystemInternalCollection,
-      isInternal,
-      metadata: item.metadata,
-      documents: item.documents,
-    });
-
-    return isInternal;
-  };
+  // Helper function to check if a collection is the system-seeded internal
+  // knowledge collection. Only explicit system signals count — an empty user
+  // collection (e.g. one whose upload failed) must keep its Delete/Upload
+  // buttons so the user can retry or clean it up.
+  const isInternalKnowledgeCollection = (item: RagDataSource): boolean =>
+    isSystemKnowledgeCollection(item);
 
   // Action buttons component for reuse
   const ActionButtons = ({
@@ -715,7 +696,7 @@ export default function RagManagement() {
               dialogDescription={
                 item.documents && item.documents.length > 0
                   ? `This collection already has ${item.documents.length} document${item.documents.length > 1 ? "s" : ""}. Adding a new document will append it to the collection. Are you sure?`
-                  : "Select a document to upload to this collection. Supported types: PDF, TXT, DOCX, MD, HTML, and source code files."
+                  : "Select a document to upload to this collection. Supported types: PDF, TXT, LOG, DOCX, MD, HTML, and source code files."
               }
               dialogTitle={
                 item.documents && item.documents.length > 0
@@ -951,7 +932,7 @@ export default function RagManagement() {
         <input
           type="file"
           onChange={handleFileInput}
-          accept=".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv"
+          accept=".pdf,.txt,.log,.docx,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/html,application/json,text/xml,text/csv"
           multiple
           ref={inputFile}
           style={{ display: "none" }}
@@ -1041,7 +1022,7 @@ export default function RagManagement() {
                         input.type = "file";
                         input.multiple = false;
                         input.accept =
-                          ".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv";
+                          ".pdf,.txt,.log,.docx,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/html,application/json,text/xml,text/csv";
                         input.onchange = (e) => {
                           const target = e.target as HTMLInputElement;
                           if (target.files && target.files[0]) {
