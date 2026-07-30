@@ -17,6 +17,7 @@ from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardwar
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.image_source import DEFAULT_IMAGE_REGISTRY, decide_image_source, frontend_config_is_stock, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
@@ -150,6 +151,19 @@ def _run(args):
   {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
                                       (branch selection only — hardware is
                                       governed by IS_QB2, not this)
+
+{C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}TT_STUDIO_IMAGE_TAG{C_RESET}                 Image tag pinned to this checkout. Written
+                                      automatically on every start (release tag,
+                                      else sha-<12>, else latest) — no need to
+                                      set it by hand.
+  {C_YELLOW}TT_STUDIO_IMAGE_REGISTRY{C_RESET}            Registry prefix for the prebuilt images
+                                      (default ghcr.io/tenstorrent/tt-studio).
+                                      Override for mirrors, air-gapped setups,
+                                      or a local test registry. When a pull
+                                      fails, run.py builds locally; force that
+                                      with --build-images.
 
 {C_CYAN}{C_BOLD}QB2 hardware verification (only when IS_QB2=true):{C_RESET}
 {'=' * 80}
@@ -694,7 +708,6 @@ def _run(args):
         # Start Docker services with streaming output and comprehensive error reporting
         ph = begin_phase(4, 5, "Build")
         startup_log.step("docker_compose_up", "START")
-        ph.set("building containers")
 
         # Check Docker access to determine if sudo is needed
         has_docker_access = check_docker_access()
@@ -703,13 +716,60 @@ def _run(args):
         # Set up the Docker Compose command (quiet — build progress folds into
         # the checklist's Build row, not a separate display).
         docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, quiet=True)
-        docker_compose_cmd.extend(["up", "--build", "-d"])
+        app_dir = os.path.join(TT_STUDIO_ROOT, "app")
+
+        # Prefer the prebuilt images CI published for this exact checkout; any
+        # pull that can't succeed (unpublished sha, offline, custom config)
+        # falls back to the compose build: contexts — never a hard failure.
+        image_tag = get_env_var("TT_STUDIO_IMAGE_TAG", "latest")
+        image_registry = get_env_var("TT_STUDIO_IMAGE_REGISTRY", DEFAULT_IMAGE_REGISTRY)
+        image_src, build_reason = decide_image_source(
+            build_images=args.build_images,
+            worktree_dirty=is_worktree_dirty(),
+            dev_mode=args.dev,
+            frontend_stock=frontend_config_is_stock(get_env_var),
+        )
+        use_pulled = False
+        if image_src == "pull":
+            ph.set(f"pulling prebuilt images ({image_tag})")
+            startup_log.step("image_pull", "START", image_tag)
+            pull_cmd = docker_compose_cmd + ["pull"]
+            pull_cmd = (["sudo"] + pull_cmd) if use_sudo else pull_cmd
+            pull_rc, _pull_output = run_docker_compose_with_progress(
+                pull_cmd, cwd=app_dir, dev_mode=args.dev,
+            )
+            if pull_rc == 0:
+                use_pulled = True
+                startup_log.step("image_pull", "OK", image_tag)
+            elif images_present_locally(
+                required_image_refs(args.dev, image_registry, image_tag), use_sudo=use_sudo
+            ):
+                # Registry unreachable but a previous run left the right images
+                # behind — start from those instead of a pointless rebuild.
+                use_pulled = True
+                startup_log.step("image_pull", "CACHED", image_tag)
+                console.print("[muted]Registry unreachable — using locally cached images[/muted]")
+            else:
+                startup_log.step("image_pull", "FALLBACK", f"exit={pull_rc}")
+                console.print(
+                    f"[muted]Prebuilt images aren't available for this checkout ({image_tag}) — "
+                    f"building locally instead[/muted]"
+                )
+        else:
+            startup_log.step("image_pull", "SKIP", build_reason)
+            if show_detail():
+                console.print(f"[muted]Building images locally: {build_reason}[/muted]")
+
+        ph.set("starting containers" if use_pulled else "building containers")
+        docker_compose_cmd.extend(
+            ["up", "-d", "--no-build"] if use_pulled else ["up", "--build", "-d"]
+        )
 
         # Stream the build; per-service events fold into the active Build row.
         compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
-            cwd=os.path.join(TT_STUDIO_ROOT, "app"),
+            cwd=app_dir,
             dev_mode=args.dev,
         )
 

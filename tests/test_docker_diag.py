@@ -59,6 +59,23 @@ class TestParseBuildLine(unittest.TestCase):
             ("built", "tt_studio_chroma"),
         )
 
+    def test_pulled_line_service_name(self):
+        # `docker compose pull` completion, rendered as "✓ backend pulled".
+        self.assertEqual(
+            M.parse_build_line(" ✔ tt_studio_backend  Pulled"),
+            ("pulled", "tt_studio_backend"),
+        )
+
+    def test_pulled_line_image_ref(self):
+        # Non-TTY compose prints image refs instead of service names.
+        line = " Image ghcr.io/tenstorrent/tt-studio/backend:sha-3f6cccd191d2 Pulled "
+        self.assertEqual(M.parse_build_line(line), ("pulled", "backend"))
+
+    def test_pulling_line_is_ignored(self):
+        self.assertIsNone(
+            M.parse_build_line(" Image ghcr.io/tenstorrent/tt-studio/backend:sha-3f6cccd191d2 Pulling ")
+        )
+
     def test_internal_stage_is_ignored(self):
         # "[svc internal]" has no X/Y -> not a step we render.
         self.assertIsNone(M.parse_build_line("#3 [tt_studio_backend internal] load build definition"))

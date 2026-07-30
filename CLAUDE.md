@@ -55,6 +55,7 @@ python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/
 python run.py --switch REF    # fetch + check out a tt-studio branch/tag (e.g. an RC), then re-run
 python run.py --uninstall     # --purge-all teardown + remove the `tt-studio` shell shortcut
 python run.py --check-headers # report files missing SPDX headers
+python run.py --build-images  # build images locally instead of pulling prebuilt ones from GHCR
 ```
 
 Frontend (in `app/frontend/`): `npm run dev`, `npm run build`,
