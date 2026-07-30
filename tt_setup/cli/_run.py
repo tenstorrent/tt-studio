@@ -303,14 +303,15 @@ def _run(args):
 
         # Update freshness is itself a check — fold it into this phase.
         ph.set("checking for updates")
-        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var, dev_mode=args.dev)
         # QB2 verification is opt-in: IS_QB2 defaults to false, so the strict
         # tt-smi check below only runs when a QB2 machine (or the tt_qb2_launch
         # release branch) sets IS_QB2=true. (Independent of the artifact branch.)
         is_qb2 = _qb2_configured()
-        # Hard-stop only on release branches behind origin (feature branches just
-        # continue). The actionable warning is printed by startup_checks.
-        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+        # Hard-stop only on release branches behind origin (feature branches, and
+        # anything under --dev, just continue). The actionable warning is printed
+        # by startup_checks, which decides this via blocks_startup().
+        if freshness.get("tt_studio_blocks_startup"):
             print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
             stop_active_phase()
             startup_log.summary(exit_code=1)

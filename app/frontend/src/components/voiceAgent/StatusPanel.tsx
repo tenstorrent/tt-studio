@@ -17,6 +17,8 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
   idle: "Idle",
   recording: "Recording",
   transcribing: "Transcribing",
+  retrieving: "Retrieving",
+  searching: "Searching",
   thinking: "Thinking",
   speaking: "Speaking",
   done: "Done",
@@ -26,6 +28,8 @@ const STAGE_COLORS: Record<PipelineStage, string> = {
   idle: "text-TT-purple-accent",
   recording: "text-TT-red-accent",
   transcribing: "text-TT-yellow",
+  retrieving: "text-TT-yellow",
+  searching: "text-TT-yellow",
   thinking: "text-TT-yellow",
   speaking: "text-TT-green",
   done: "text-TT-purple-accent",
@@ -53,7 +57,7 @@ export function StatusPanel({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 p-3 overflow-y-auto text-sm",
+        "flex flex-col gap-3 p-3 overflow-y-auto text-sm text-left",
         theme === "dark" ? "text-gray-300" : "text-gray-700"
       )}
     >
