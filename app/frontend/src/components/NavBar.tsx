@@ -8,6 +8,7 @@ import {
   Home,
   Boxes,
   BotMessageSquare,
+  Download,
   Notebook,
   Image,
   Eye,
@@ -635,6 +636,13 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    {
+      type: "link",
+      to: "/forge-loader",
+      icon: Download,
+      label: "Forge Loader",
+      tooltip: "Load a model from a Hugging Face model card",
+    },
     ...(hasStray
       ? [
         {
@@ -790,9 +798,10 @@ export default function NavBar() {
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
 
   // Group the flat nav items into submenus for the horizontal desktop navbar.
-  // Home stays top-level; anything not claimed by Model Lifecycle/Tools (the
-  // deployed model pages: Chat UI, Speech to Text, etc.) lands in Model
-  // Interaction. The vertical and mobile navbars keep the flat icon list.
+  // Home and Forge Loader stay top-level; anything not claimed by Model
+  // Lifecycle/Tools (the deployed model pages: Chat UI, Speech to Text, etc.)
+  // lands in Model Interaction. The vertical and mobile navbars keep the flat
+  // icon list.
   const modelsGroupLabels = [
     "Models Deployed",
     "Deployment History",
@@ -806,6 +815,9 @@ export default function NavBar() {
     "Voice Agent",
   ];
   const homeNavItem = navItems.find((item) => item.label === "Home");
+  const forgeLoaderNavItem = navItems.find(
+    (item) => item.label === "Forge Loader"
+  );
   const navGroups = [
     {
       label: "Model Lifecycle",
@@ -823,6 +835,7 @@ export default function NavBar() {
       items: navItems.filter(
         (item) =>
           item.label !== "Home" &&
+          item.label !== "Forge Loader" &&
           !modelsGroupLabels.includes(item.label) &&
           !toolsGroupLabels.includes(item.label)
       ),
@@ -1194,6 +1207,26 @@ export default function NavBar() {
                   )}
                 </div>
               ))}
+              {forgeLoaderNavItem && forgeLoaderNavItem.type === "link" && (
+                <div className="flex items-center">
+                  {navGroups.length > 0 && (
+                    <Separator
+                      className="h-6 w-px bg-zinc-400 mx-1"
+                      orientation="vertical"
+                    />
+                  )}
+                  <NavItem
+                    to={forgeLoaderNavItem.to}
+                    icon={forgeLoaderNavItem.icon}
+                    label={forgeLoaderNavItem.label}
+                    tooltip={forgeLoaderNavItem.tooltip}
+                    isChatUI={false}
+                    iconColor={iconColor}
+                    getNavLinkClass={getNavLinkClass}
+                    isMobile={isMobile}
+                  />
+                </div>
+              )}
             </NavigationMenuList>
           </NavigationMenu>
 

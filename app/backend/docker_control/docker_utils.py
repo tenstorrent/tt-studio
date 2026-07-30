@@ -1006,6 +1006,20 @@ def get_canonical_deployments():
     now_utc = _dt.now(_dt_timezone.utc)
 
     for dep in active_deployments:
+        # URL-backed deployments (e.g. a bare-metal Forge server) have no container to
+        # match, so build their entry directly. Without this they fall through to the
+        # ghost-reconciliation below and get marked stopped.
+        if getattr(dep, "base_url", None):
+            try:
+                from docker_control.url_registration import canonical_entry_for
+
+                result[dep.container_id or f"url-{dep.id}"] = canonical_entry_for(dep)
+            except Exception as e:  # noqa: BLE001 - never let one bad record break the view
+                logger.warning(
+                    f"get_canonical_deployments: skipping URL deployment {dep.id}: {e}"
+                )
+            continue
+
         full_id = dep.container_id or ""
         short_id = full_id[:12]
 

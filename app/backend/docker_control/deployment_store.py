@@ -199,6 +199,9 @@ class _Manager:
                 "workflow_log_path": kwargs.get("workflow_log_path", None),
                 "tool_calling_enabled": kwargs.get("tool_calling_enabled", False),
                 "jwt_secret": kwargs.get("jwt_secret", None),
+                "base_url": kwargs.get("base_url", None),
+                "hf_model_id": kwargs.get("hf_model_id", None),
+                "model_type": kwargs.get("model_type", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -240,6 +243,12 @@ class ModelDeployment:
         self.failure_reason: Optional[str] = None
         self.failure_message: Optional[str] = None
         self.tool_calling_enabled: bool = False
+        # Set for models served from a URL rather than a container we manage
+        # (e.g. a bare-metal Forge server). When present, get_canonical_deployments()
+        # builds the entry from these instead of looking for a live container.
+        self.base_url: Optional[str] = None
+        self.hf_model_id: Optional[str] = None
+        self.model_type: Optional[str] = None
         self.jwt_secret: Optional[str] = None   # Set for externally-registered containers only
 
     @classmethod
@@ -266,6 +275,9 @@ class ModelDeployment:
         obj.failure_message = d.get("failure_message")
         obj.tool_calling_enabled = d.get("tool_calling_enabled", False)
         obj.jwt_secret = d.get("jwt_secret")
+        obj.base_url = d.get("base_url")
+        obj.hf_model_id = d.get("hf_model_id")
+        obj.model_type = d.get("model_type")
         return obj
 
     def _to_dict(self) -> dict:
@@ -287,6 +299,9 @@ class ModelDeployment:
             "failure_message": self.failure_message,
             "tool_calling_enabled": self.tool_calling_enabled,
             "jwt_secret": self.jwt_secret,
+            "base_url": self.base_url,
+            "hf_model_id": self.hf_model_id,
+            "model_type": self.model_type,
         }
 
     def save(self) -> None:

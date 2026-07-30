@@ -3260,3 +3260,275 @@ class DetectModelFromLogsView(APIView):
             _detect_model_info(get_docker_client(), container_id),
             status=status.HTTP_200_OK,
         )
+
+
+# Forge Loader: stand up an arbitrary Hugging Face model through Forge.
+#
+# Forge (tt-xla -> tt-mlir) compiles a model's PyTorch math, so it can serve models that
+# were never hand-ported to tt-metal and appear in no catalog. That is the whole point of
+# this feature.
+#
+# It runs bare metal, not in a container. This backend is itself containerised (see
+# app/docker-compose.yml) and has no host process namespace, so it cannot spawn a
+# genuinely host-level process directly -- anything it launches would still be inside
+# this container. inference-api, in contrast, already runs directly on the host (started
+# by run.py outside Docker; see tt_inference_client.py for the existing pattern of the
+# backend delegating host-side work to it), so the actual launch happens there via
+# /forge-loader/launch, and this view just asks for it and waits for the result.
+
+
+class ForgeLoaderPreflightView(APIView):
+    """Check whether a Hugging Face model can be served, without launching anything."""
+
+    def post(self, request, *args, **kwargs):
+        from docker_control.forge_loader import (
+            PreflightError,
+            parse_model_card_url,
+            preflight_model,
+        )
+
+        try:
+            repo_id = parse_model_card_url(request.data.get("model_card_url"))
+            try:
+                from docker_control.chip_allocator import ChipSlotAllocator
+
+                total_slots = ChipSlotAllocator().get_chip_status().get("total_slots", 1)
+            except Exception:  # noqa: BLE001 - fall back to a single chip
+                total_slots = 1
+            info = preflight_model(repo_id, available_chips=1)
+        except PreflightError as e:
+            return Response(
+                {"status": "unsupported", "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"forge-loader preflight failed: {e}", exc_info=True)
+            return Response(
+                {"status": "error", "message": f"Preflight failed: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        info["total_chips"] = total_slots
+        return Response({"status": "ok", "model": info}, status=status.HTTP_200_OK)
+
+
+class ForgeLoaderDeployView(APIView):
+    """Launch a Forge-compiled OpenAI server for an arbitrary Hugging Face model.
+
+    Delegates the actual process spawn to inference-api (host-resident; see the module
+    comment above), then polls the result in a background thread and registers it the
+    same way RegisterUrlModelView does -- so by the time it finishes compiling, it is
+    already in the deploy cache and selectable in the chat UI with no further action.
+    """
+
+    def post(self, request, *args, **kwargs):
+        from docker_control.forge_loader import (
+            PreflightError,
+            parse_model_card_url,
+            preflight_model,
+        )
+        from docker_control.url_registration import normalise_base_url
+
+        try:
+            repo_id = parse_model_card_url(request.data.get("model_card_url"))
+            info = preflight_model(repo_id, available_chips=1)
+        except PreflightError as e:
+            return Response(
+                {"status": "unsupported", "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            launch_resp = requests.post(
+                f"{backend_config.tt_inference_api_url}/forge-loader/launch",
+                json={"model": repo_id},
+                timeout=15,
+            )
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"Could not reach the host launcher (inference-api): {e}",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if launch_resp.status_code == 409:
+            # Only one bare-metal slot exists (see the module comment on api.py's
+            # forge-loader endpoints for why), and it's taken.
+            detail = "That slot is already taken."
+            try:
+                detail = launch_resp.json().get("detail", detail)
+            except ValueError:
+                pass
+            return Response(
+                {"status": "unsupported", "message": detail},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if launch_resp.status_code != 200:
+            return Response(
+                {"status": "error", "message": f"Launch failed: {launch_resp.text[:300]}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        launch = launch_resp.json()
+        port = launch["port"]
+        # inference-api answers from the host's own point of view ("localhost"); this
+        # process is in a container, so it needs the container-reachable form to poll it.
+        reachable_base_url, _, _ = normalise_base_url(f"http://localhost:{port}")
+
+        logger.info(
+            f"forge-loader launched {repo_id} bare-metal on port {port} "
+            f"(pid={launch.get('pid')}); polling {reachable_base_url} for readiness"
+        )
+
+        def _poll_and_register():
+            import time as _time
+
+            from docker_control.url_registration import (
+                UrlRegistrationError,
+                register_url_deployment,
+            )
+
+            deadline = _time.time() + 20 * 60  # first-run compile takes several minutes
+            while _time.time() < deadline:
+                try:
+                    register_url_deployment(
+                        reachable_base_url, model_type="chat", model_name=repo_id
+                    )
+                    logger.info(f"forge-loader: {repo_id} registered at {reachable_base_url}")
+                    return
+                except UrlRegistrationError:
+                    _time.sleep(15)  # not up yet -- normal while it's compiling
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"forge-loader: registration attempt failed: {e}")
+                    _time.sleep(15)
+            logger.error(
+                f"forge-loader: {repo_id} never answered at {reachable_base_url} "
+                "within 20 minutes"
+            )
+
+        threading.Thread(target=_poll_and_register, daemon=True).start()
+
+        return Response(
+            {
+                "status": "launched",
+                "model": info,
+                "service_port": port,
+                "base_url": f"http://localhost:{port}",
+                "note": (
+                    "Compiling on bare metal. It appears in the chat UI once it finishes "
+                    "warming up -- no further action needed."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RegisterUrlModelView(APIView):
+    """Register a model served from a URL, with no container involved.
+
+    This is the path for a bare-metal Forge server: a host process has no container id and
+    no Docker DNS name, so RegisterExternalModelView cannot accept it. Here we probe the
+    endpoint, persist a URL-backed deployment record, and let get_canonical_deployments()
+    surface it like any other model so the chat UI can use it.
+    """
+
+    def post(self, request, *args, **kwargs):
+        from docker_control.url_registration import (
+            UrlRegistrationError,
+            register_url_deployment,
+        )
+
+        data = request.data
+        model_type = (data.get("model_type") or "chat").lower()
+        if model_type not in ("chat", "vlm"):
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"model_type '{model_type}' is not supported here yet; "
+                    "use chat.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result = register_url_deployment(
+                data.get("base_url"), model_type=model_type, model_name=data.get("model_name")
+            )
+        except UrlRegistrationError as e:
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"register-url: could not persist deployment: {e}", exc_info=True)
+            return Response(
+                {"status": "error", "message": f"Could not save deployment: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        logger.info(
+            f"register-url: {result['served_model']} at {result['base_url']} registered "
+            f"as deploy_id={result['deploy_id']}"
+        )
+        return Response({"status": "success", **result}, status=status.HTTP_200_OK)
+
+
+class ForgeLoaderStatusView(APIView):
+    """Report whether a bare-metal Forge server is currently running.
+
+    Thin proxy for inference-api's /forge-loader/status -- see the module comment on
+    ForgeLoaderDeployView for why the backend cannot check this itself.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            resp = requests.get(
+                f"{backend_config.tt_inference_api_url}/forge-loader/status", timeout=10
+            )
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {"status": "error", "message": f"Could not reach inference-api: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(resp.json(), status=status.HTTP_200_OK)
+
+
+class ForgeLoaderStopView(APIView):
+    """Stop the running bare-metal Forge server and free its device slot.
+
+    Kills the host process via inference-api, then marks any deploy-cache record for it
+    stopped by the user -- otherwise it would sit there forever: health_monitor.py
+    deliberately skips URL-backed deployments (there is no container to poll), so nothing
+    else ever notices this one is gone.
+    """
+
+    def post(self, request, *args, **kwargs):
+        try:
+            resp = requests.post(
+                f"{backend_config.tt_inference_api_url}/forge-loader/stop", timeout=15
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {"status": "error", "message": f"Could not reach inference-api: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            from docker_control.models import ModelDeployment
+
+            for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+                if getattr(dep, "base_url", None):
+                    dep.status = "stopped"
+                    dep.stopped_by_user = True
+                    dep.save()
+            update_deploy_cache()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"forge-loader stop: deploy cache cleanup failed: {e}")
+
+        logger.info(f"forge-loader: stop requested, inference-api reported {result}")
+        return Response(result, status=status.HTTP_200_OK)

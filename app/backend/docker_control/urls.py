@@ -58,4 +58,9 @@ urlpatterns = [
     path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
     path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
     path("detect-model/<str:container_id>/", views.DetectModelFromLogsView.as_view(), name="detect-model"),
+    path("register-url/", views.RegisterUrlModelView.as_view(), name="register-url"),
+    path("forge-loader/preflight/", views.ForgeLoaderPreflightView.as_view(), name="forge-loader-preflight"),
+    path("forge-loader/deploy/", views.ForgeLoaderDeployView.as_view(), name="forge-loader-deploy"),
+    path("forge-loader/status/", views.ForgeLoaderStatusView.as_view(), name="forge-loader-status"),
+    path("forge-loader/stop/", views.ForgeLoaderStopView.as_view(), name="forge-loader-stop"),
 ]

@@ -2486,4 +2486,191 @@ async def get_available_workflows():
 @app.get("/devices")
 async def get_available_devices():
     """Get list of available devices"""
-    return {"devices": [d.name.lower() for d in DeviceTypes]} 
+    return {"devices": [d.name.lower() for d in DeviceTypes]}
+
+
+# ---------------------------------------------------------------------------
+# Forge Loader: bare-metal launcher
+#
+# The Django backend (app/backend) is itself containerised, so it has no host process
+# namespace and cannot spawn a genuinely bare-metal process -- anything it launched would
+# still be inside that container. This process, in contrast, already runs directly on the
+# host (started by run.py outside Docker), which is exactly why it exists: the backend
+# talks to it over HTTP whenever something needs to happen on the host rather than in a
+# container. These three endpoints are that bridge for Forge Loader.
+#
+# Single-slot limitation: TT_VISIBLE_DEVICES only works reliably as "0" on this host.
+# Any other value hits a real bug -- UMD remaps the chosen PCIe device to logical chip 0,
+# then a second validation layer re-checks the *original* value against the now-remapped
+# cluster and rejects it ("Invalid chip ID in TT_VISIBLE_DEVICES: N"). Containers never hit
+# this because they only ever see one device, pre-remapped to 0 by Docker's device
+# passthrough. Until that bug is fixed, at most one bare-metal Forge model can run at a
+# time, which is what the state file below enforces.
+# ---------------------------------------------------------------------------
+
+_FORGE_BAREMETAL_VENV = Path(
+    os.environ.get(
+        "FORGE_BAREMETAL_VENV",
+        "/home/stisi/tt-inference-server/tt-media-server/venv-worker",
+    )
+)
+_FORGE_LOADER_STATE_PATH = _tt_studio_root / "logs" / "forge_loader_baremetal.json"
+_FORGE_LOADER_SCRIPT = (
+    _tt_studio_root / "app" / "backend" / "docker_control" / "forge_serve" / "serve_forge_model.py"
+)
+
+
+class ForgeLoaderLaunchRequest(BaseModel):
+    model: str
+    max_model_len: int = 2048
+    max_num_seqs: int = 1
+    gpu_memory_utilization: float = 0.35
+
+
+def _forge_loader_read_state() -> Optional[dict]:
+    if not _FORGE_LOADER_STATE_PATH.exists():
+        return None
+    try:
+        return json.loads(_FORGE_LOADER_STATE_PATH.read_text())
+    except Exception:  # noqa: BLE001 - a corrupt state file is the same as no state
+        return None
+
+
+def _forge_loader_write_state(state: Optional[dict]) -> None:
+    _FORGE_LOADER_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if state is None:
+        _FORGE_LOADER_STATE_PATH.unlink(missing_ok=True)
+    else:
+        _FORGE_LOADER_STATE_PATH.write_text(json.dumps(state))
+
+
+def _forge_loader_is_alive(state: dict) -> bool:
+    """True if the pid in `state` is still running our server, not a reused pid."""
+    pid = state.get("pid")
+    if not pid:
+        return False
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read()
+    except FileNotFoundError:
+        return False
+    return b"serve_forge_model.py" in cmdline
+
+
+def _forge_loader_free_port(start: int = 8010, end: int = 8040) -> int:
+    import socket
+
+    for candidate in range(start, end):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(("0.0.0.0", candidate))
+                return candidate
+            except OSError:
+                continue
+    raise RuntimeError(f"No free port in {start}-{end}")
+
+
+@app.get("/forge-loader/status")
+async def forge_loader_status():
+    state = _forge_loader_read_state()
+    if state and _forge_loader_is_alive(state):
+        return {"running": True, **state}
+    if state:
+        _forge_loader_write_state(None)  # stale record from a process that died
+    return {"running": False}
+
+
+@app.post("/forge-loader/launch")
+async def forge_loader_launch(req: ForgeLoaderLaunchRequest):
+    state = _forge_loader_read_state()
+    if state and _forge_loader_is_alive(state):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A bare-metal Forge server is already running "
+                f"({state.get('model')} on port {state.get('port')}). Only one can run "
+                "at a time -- see the module comment above these endpoints for why. "
+                "Stop it first with POST /forge-loader/stop."
+            ),
+        )
+    if state:
+        _forge_loader_write_state(None)  # stale
+
+    venv_python = _FORGE_BAREMETAL_VENV / "bin" / "python"
+    if not venv_python.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"No Forge worker venv at {_FORGE_BAREMETAL_VENV}. Build it once on the "
+                "host (python3.12 -m venv venv-worker; pip install the tt-media-server "
+                "and forge_runners requirements; tt-forge-install) before using Forge "
+                "Loader, or point FORGE_BAREMETAL_VENV at one that already exists."
+            ),
+        )
+
+    # The venv's interpreter is a uv-managed standalone CPython whose libpython isn't
+    # registered with ldconfig, so torch_xla's native extension can't load without this.
+    real_python = os.path.realpath(venv_python)
+    lib_dir = os.path.join(os.path.dirname(os.path.dirname(real_python)), "lib")
+
+    port = _forge_loader_free_port()
+    log_dir = _tt_studio_root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"forge_loader_{port}.log"
+
+    env = dict(os.environ)
+    existing_ld_path = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = f"{lib_dir}:{existing_ld_path}" if existing_ld_path else lib_dir
+    env["TT_VISIBLE_DEVICES"] = "0"  # the only value that avoids the chip-remap bug above
+    env["FORGE_MODEL"] = req.model
+    env["FORGE_PORT"] = str(port)
+    env["FORGE_MAX_MODEL_LEN"] = str(req.max_model_len)
+    env["FORGE_MAX_NUM_SEQS"] = str(req.max_num_seqs)
+    env["FORGE_GPU_MEMORY_UTILIZATION"] = str(req.gpu_memory_utilization)
+
+    log_file = open(log_path, "ab")
+    # start_new_session so this survives if run.py restarts this uvicorn process (--dev
+    # re-entry etc.) -- the same reasoning as the docker Popen isolation just above.
+    proc = _subprocess.Popen(
+        [str(venv_python), str(_FORGE_LOADER_SCRIPT)],
+        cwd=str(_FORGE_BAREMETAL_VENV.parent),
+        env=env,
+        stdout=log_file,
+        stderr=_subprocess.STDOUT,
+        start_new_session=True,
+    )
+    _forge_loader_write_state(
+        {
+            "pid": proc.pid,
+            "port": port,
+            "model": req.model,
+            "log_path": str(log_path),
+            "started_at": time.time(),
+        }
+    )
+    logger.info(f"forge-loader: launched {req.model} bare-metal, pid={proc.pid}, port={port}")
+    return {
+        "status": "launching",
+        "pid": proc.pid,
+        "port": port,
+        "base_url": f"http://localhost:{port}",
+        "log_path": str(log_path),
+    }
+
+
+@app.post("/forge-loader/stop")
+async def forge_loader_stop():
+    import signal
+
+    state = _forge_loader_read_state()
+    if not state or not _forge_loader_is_alive(state):
+        _forge_loader_write_state(None)
+        return {"status": "not_running"}
+    pid = state["pid"]
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    _forge_loader_write_state(None)
+    return {"status": "stopped", "pid": pid}

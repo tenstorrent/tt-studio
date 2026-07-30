@@ -62,6 +62,7 @@ import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
 import CodingAgentsPage from "../pages/CodingAgentsPage";
+import ForgeLoaderPage from "../pages/ForgeLoaderPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -148,6 +149,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/deployment-history",
       element: <DeploymentHistoryPage />,
+      condition: true,
+    },
+    {
+      path: "/forge-loader",
+      element: <ForgeLoaderPage />,
       condition: true,
     },
     {
