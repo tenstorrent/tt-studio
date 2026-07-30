@@ -40,8 +40,18 @@ export default function ForgeLoaderPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [running, setRunning] = useState<RunningStatus | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [readyAnnounced, setReadyAnnounced] = useState(false);
 
   const busy = phase === "checking" || phase === "launching";
+
+  // The launch endpoint returns as soon as the process is spawned, well before it has
+  // actually compiled and started serving -- there is no push notification for that, only
+  // this same status check repeated. Once it matches what we just launched, the model is
+  // truly up, not just requested.
+  const isConfirmedReady =
+    phase === "launched" &&
+    running?.running === true &&
+    running.model === model?.repo_id;
 
   // Only one bare-metal Forge model can run at a time (a device-masking bug means any
   // chip but 0 fails outright), so show what's already running instead of the input --
@@ -61,6 +71,22 @@ export default function ForgeLoaderPage() {
     refreshRunningStatus();
   }, []);
 
+  // Keep re-checking while we're waiting on a just-launched model to finish compiling, so
+  // the "Compiling..." card can actually clear once it's done instead of freezing forever.
+  useEffect(() => {
+    if (phase !== "launched" || isConfirmedReady) return;
+    const interval = setInterval(refreshRunningStatus, 5000);
+    return () => clearInterval(interval);
+  }, [phase, isConfirmedReady]);
+
+  // Announce readiness once, the moment polling confirms it -- not on every poll tick.
+  useEffect(() => {
+    if (isConfirmedReady && !readyAnnounced) {
+      customToast.success(`${model?.repo_id} is ready.`);
+      setReadyAnnounced(true);
+    }
+  }, [isConfirmedReady, readyAnnounced, model?.repo_id]);
+
   const handleStop = async () => {
     setStopping(true);
     try {
@@ -69,6 +95,7 @@ export default function ForgeLoaderPage() {
       setRunning(null);
       setPhase("idle");
       setModel(null);
+      setReadyAnnounced(false);
     } catch (error) {
       const detail = axios.isAxiosError(error)
         ? error.response?.data?.message ?? error.message
@@ -108,6 +135,7 @@ export default function ForgeLoaderPage() {
     if (!model) return;
     setPhase("launching");
     setMessage(null);
+    setReadyAnnounced(false);
     try {
       // The backend launches this bare metal (no container) and registers it itself
       // once it starts answering, so there is nothing further to call here.
@@ -148,7 +176,7 @@ export default function ForgeLoaderPage() {
               {/* Only one bare-metal Forge model can run at a time. Show it (with a way to
                   free the slot) instead of an input that would just 409. */}
               {running?.running && (
-                <div className="mb-6 flex items-center justify-between gap-4 rounded-lg border-2 border-stone-200 bg-white p-4 text-sm dark:border-stone-800 dark:bg-stone-950">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border-2 border-stone-200 bg-white p-4 text-sm dark:border-stone-800 dark:bg-stone-950">
                   <div>
                     <span className="font-semibold text-gray-800 dark:text-white">
                       Running on bare metal:{" "}
@@ -161,17 +189,25 @@ export default function ForgeLoaderPage() {
                       </span>
                     )}
                   </div>
-                  <Button variant="outline" onClick={handleStop} disabled={stopping}>
-                    {stopping ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Stopping
-                      </>
-                    ) : (
-                      <>
-                        <Square className="mr-2 h-3.5 w-3.5" /> Stop
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => navigate("/models-deployed")}>
+                      View deployed models
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate("/chat")}>
+                      Open chat
+                    </Button>
+                    <Button variant="outline" onClick={handleStop} disabled={stopping}>
+                      {stopping ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Stopping
+                        </>
+                      ) : (
+                        <>
+                          <Square className="mr-2 h-3.5 w-3.5" /> Stop
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -244,8 +280,10 @@ export default function ForgeLoaderPage() {
                 </div>
               )}
 
-              {/* Launched: compiling in the background */}
-              {phase === "launched" && model && (
+              {/* Launched: compiling in the background. Disappears on its own once polling
+                  confirms the model is actually serving -- the banner above is the single
+                  source of truth for "is it running" from that point on. */}
+              {phase === "launched" && model && !isConfirmedReady && (
                 <div className="mt-6 rounded-lg border-2 border-stone-200 bg-white p-4 text-sm dark:border-stone-800 dark:bg-stone-950">
                   <div className="flex items-center gap-2 mb-2 font-semibold">
                     <Loader2 className="h-4 w-4 animate-spin text-TT-purple" />
@@ -253,15 +291,9 @@ export default function ForgeLoaderPage() {
                   </div>
                   <p className="text-gray-600 dark:text-gray-300">
                     Weights are downloading and the graph is being compiled and traced.
-                    This takes several minutes on a first run; the model becomes available
+                    This takes several minutes on a first run; this card clears on its own
                     once it finishes warming up.
                   </p>
-                  <div className="mt-4 flex gap-3">
-                    <Button variant="outline" onClick={() => navigate("/models-deployed")}>
-                      View deployed models
-                    </Button>
-                    <Button onClick={() => navigate("/chat")}>Open chat</Button>
-                  </div>
                 </div>
               )}
             </CardContent>
