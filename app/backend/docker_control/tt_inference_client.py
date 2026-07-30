@@ -120,6 +120,7 @@ def start_chat_deployment(
     vllm_override_args: Optional[str] = None,
     override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
+    host_weights_dir: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -147,6 +148,10 @@ def start_chat_deployment(
         payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
+    # Merged LoRA checkpoint: load these pre-merged HF weights instead of
+    # downloading the base model from HuggingFace (--host-weights-dir).
+    if host_weights_dir:
+        payload["host_weights_dir"] = host_weights_dir
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend

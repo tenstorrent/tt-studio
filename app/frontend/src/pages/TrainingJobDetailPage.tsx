@@ -13,6 +13,7 @@ import {
   Clock,
   Ban,
   RefreshCw,
+  Rocket,
 } from "lucide-react";
 import {
   LineChart,
@@ -39,6 +40,7 @@ import {
   fetchTrainingJobLogs,
   fetchTrainingJobCheckpoints,
   cancelTrainingJob,
+  promoteCheckpoint,
   getCheckpointDownloadUrl,
   formatTrainingTimestamp,
   getJobDataset,
@@ -166,6 +168,8 @@ export default function TrainingJobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
+  const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -253,6 +257,24 @@ export default function TrainingJobDetailPage() {
     } catch {
       setCancelRequested(false);
       customToast.error("Failed to cancel job");
+    }
+  };
+
+  // Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint
+  // that can be served for inference. The merge runs as a job on the training
+  // container; the result is discovered later by the deploy-step picker.
+  const handlePromote = async (ckptId: string) => {
+    if (!jobId) return;
+    setPromotingCkptId(ckptId);
+    try {
+      await promoteCheckpoint(jobId, ckptId);
+      customToast.success(
+        "Promoting checkpoint for inference — the merged model will appear in the deploy step once ready.",
+      );
+    } catch {
+      customToast.error("Failed to start checkpoint promotion");
+    } finally {
+      setPromotingCkptId(null);
     }
   };
 
@@ -662,22 +684,38 @@ export default function TrainingJobDetailPage() {
                               {formatTrainingTimestamp(ckpt.created_at)}
                             </td>
                             <td className="py-3 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                asChild
-                              >
-                                <a
-                                  href={getCheckpointDownloadUrl(
-                                    jobId!,
-                                    ckpt.id,
-                                  )}
-                                  download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handlePromote(ckpt.id)}
+                                  disabled={promotingCkptId !== null}
+                                  title="Merge this adapter into its base model so it can be deployed for inference"
                                 >
-                                  <Download className="mr-1 h-3 w-3" />
-                                  Download
-                                </a>
-                              </Button>
+                                  {promotingCkptId === ckpt.id ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Rocket className="mr-1 h-3 w-3" />
+                                  )}
+                                  Promote for inference
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                >
+                                  <a
+                                    href={getCheckpointDownloadUrl(
+                                      jobId!,
+                                      ckpt.id,
+                                    )}
+                                    download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                                  >
+                                    <Download className="mr-1 h-3 w-3" />
+                                    Download
+                                  </a>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
