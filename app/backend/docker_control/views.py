@@ -2701,11 +2701,72 @@ class _StopFailed(Exception):
     """Raised when a container cannot be stopped; the stream aborts with an error."""
 
 
+async def _astream_stop_bare_metal(deployment, truncated):
+    """Stop a bare-metal Forge server (see ForgeLoaderStopView) and free its chip.
+
+    Without this, the generic per-model Stop/Delete button would call Docker on a
+    synthetic container id, get a 404, and report success while the real host
+    process -- and the chip it holds -- kept running. The chip reset itself still
+    happens via StopStreamView's normal device_ids reset step below: an empty
+    device_ids on a bare-metal record normalizes to [0] (see
+    _normalize_device_ids's fallback in deployment_store.py), the only chip a
+    bare-metal Forge server can use.
+    """
+    from django.utils import timezone
+
+    yield f"Sending stop signal to bare-metal Forge server {truncated}…"
+    try:
+        resp = await asyncio.to_thread(
+            requests.post, f"{backend_config.tt_inference_api_url}/forge-loader/stop", timeout=15
+        )
+        resp.raise_for_status()
+        yield f"inference-api: {resp.json()}"
+    except requests.exceptions.RequestException as e:
+        yield f"Warning: could not reach inference-api to stop it: {e}"
+
+    def _mark_stopped():
+        deployment.status = "stopped"
+        deployment.stopped_by_user = True
+        if not deployment.stopped_at:
+            deployment.stopped_at = timezone.now()
+        deployment.save()
+
+    try:
+        await asyncio.to_thread(_mark_stopped)
+        yield f"Marked deployment {truncated} as stopped in database"
+    except Exception as e:
+        yield f"Warning: failed to update deployment record: {e}"
+
+    try:
+        await asyncio.to_thread(update_deploy_cache)
+    except Exception:
+        pass
+
+    yield f"Bare-metal Forge server {truncated} stopped"
+
+
 async def _astream_stop_remove_container(container_id, truncated):
     """Stop and remove a model's container, yielding progress lines.
 
     Raises _StopFailed if the container could not be stopped.
     """
+    def _find_live_bare_metal_deployment():
+        from docker_control.models import ModelDeployment
+        # Bare-metal container_ids are derived from host:port (see register_url_deployment),
+        # so relaunching the same model reuses the same id -- old stopped records for it
+        # stick around, and an unfiltered lookup could return one of those instead of the
+        # live one. status__in scopes this to the one that's actually still running.
+        dep = ModelDeployment.objects.filter(
+            container_id=container_id, status__in=["starting", "running"]
+        ).first()
+        return dep if dep and dep.base_url else None
+
+    deployment = await asyncio.to_thread(_find_live_bare_metal_deployment)
+    if deployment is not None:
+        async for msg in _astream_stop_bare_metal(deployment, truncated):
+            yield msg
+        return
+
     def _mark_stopped():
         from docker_control.models import ModelDeployment
         from django.utils import timezone
