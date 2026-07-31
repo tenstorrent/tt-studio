@@ -7,6 +7,7 @@ from . import views
 
 urlpatterns = [
     path("catalog/", views.TrainingCatalogView.as_view(), name="training-catalog"),
+    path("datasets/custom/", views.CustomDatasetsView.as_view(), name="training-custom-datasets"),
     path("merged-checkpoints/", views.MergedCheckpointsView.as_view(), name="training-merged-checkpoints"),
     path("jobs/", views.TrainingJobsListView.as_view(), name="training-jobs-list"),
     path("jobs/<str:job_id>/", views.TrainingJobDetailView.as_view(), name="training-job-detail"),

@@ -20,6 +20,16 @@ logger = get_logger(__name__)
 
 PROXY_TIMEOUT = 120
 
+# Custom datasets uploaded from the UI live under the shared training host volume
+# so they persist across container/board restarts and are visible to the training
+# container (same volume it bind-mounts). Kept alongside the per-model
+# `volume_id_*` dirs the training deploys write.
+CUSTOM_DATASETS_SUBDIR = os.path.join("training_volume", "custom_datasets")
+
+# Cap uploaded dataset size to guard against filling the persistent volume. 100 MB
+# is generous for a JSON fine-tuning dataset.
+MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
+
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
 # Not the JWT used for vLLM/LLM inference endpoints.
 TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
@@ -138,9 +148,143 @@ def _proxy_post(url, body=None):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+def _custom_datasets_dir():
+    """Container-internal path to the custom-datasets directory (created if absent).
+
+    Mirrors the world-writable sticky permissions used elsewhere on the training
+    host volume so the non-root training container (uid 1000) and the host user
+    running run.py can both read/write it.
+    """
+    internal_dir = os.path.join(
+        backend_config.persistent_storage_volume, CUSTOM_DATASETS_SUBDIR
+    )
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create custom-datasets dir %s: %s", internal_dir, e
+            )
+    return internal_dir
+
+
+def _safe_dataset_filename(name):
+    """Return a sanitized ``.json`` filename, or ``None`` if invalid.
+
+    Strips any directory components to prevent path traversal and requires a
+    ``.json`` extension (the only format the preview/loader understands).
+    """
+    if not name:
+        return None
+    base = os.path.basename(name.replace("\\", "/")).strip()
+    # Reject hidden/relative names that survive basename (e.g. "." or "..").
+    if not base or base in (".", "..") or base.startswith("."):
+        return None
+    if not base.lower().endswith(".json"):
+        return None
+    return base
+
+
 # ---------------------------------------------------------------------------
 # Views
 # ---------------------------------------------------------------------------
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class CustomDatasetsView(View):
+    """Manage user-uploaded custom datasets on the shared training volume.
+
+    GET  /training/datasets/custom/  → list uploaded datasets
+    POST /training/datasets/custom/  → upload a dataset JSON file (multipart)
+
+    These datasets are offered as choices in the New Training Job dialog. The
+    inference/training server does not yet accept arbitrary datasets, so a job
+    that selects one still trains on the default (sst2) recipe — the custom file
+    is stored for preview/selection purposes only.
+    """
+
+    def get(self, request, *args, **kwargs):
+        directory = _custom_datasets_dir()
+        datasets = []
+        try:
+            for entry in sorted(os.listdir(directory)):
+                path = os.path.join(directory, entry)
+                if not os.path.isfile(path) or not entry.lower().endswith(".json"):
+                    continue
+                try:
+                    stat = os.stat(path)
+                except OSError:
+                    continue
+                datasets.append(
+                    {
+                        "id": entry,
+                        "name": entry,
+                        "size_bytes": stat.st_size,
+                        "modified_at": int(stat.st_mtime),
+                    }
+                )
+        except OSError as e:
+            logger.exception("Could not list custom datasets in %s", directory)
+            return JsonResponse({"error": str(e)}, status=500)
+        return JsonResponse({"datasets": datasets}, status=200)
+
+    def post(self, request, *args, **kwargs):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return JsonResponse(
+                {"error": "No file provided. Send a multipart 'file' field."},
+                status=400,
+            )
+
+        filename = _safe_dataset_filename(upload.name)
+        if filename is None:
+            return JsonResponse(
+                {"error": "Invalid filename. Only .json dataset files are accepted."},
+                status=400,
+            )
+
+        if upload.size and upload.size > MAX_DATASET_UPLOAD_BYTES:
+            limit_mb = MAX_DATASET_UPLOAD_BYTES // (1024 * 1024)
+            return JsonResponse(
+                {"error": f"File is too large. The limit is {limit_mb} MB."},
+                status=400,
+            )
+
+        raw = upload.read()
+        try:
+            json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return JsonResponse(
+                {"error": "File is not valid JSON."}, status=400
+            )
+
+        directory = _custom_datasets_dir()
+        dest = os.path.join(directory, filename)
+        try:
+            with open(dest, "wb") as f:
+                f.write(raw)
+        except OSError as e:
+            logger.exception("Could not save custom dataset to %s", dest)
+            return JsonResponse({"error": str(e)}, status=500)
+
+        try:
+            stat = os.stat(dest)
+            size_bytes = stat.st_size
+            modified_at = int(stat.st_mtime)
+        except OSError:
+            size_bytes = len(raw)
+            modified_at = None
+
+        return JsonResponse(
+            {
+                "id": filename,
+                "name": filename,
+                "size_bytes": size_bytes,
+                "modified_at": modified_at,
+            },
+            status=201,
+        )
 
 
 @method_decorator(csrf_exempt, name="dispatch")

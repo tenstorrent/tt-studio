@@ -128,6 +128,48 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
   return extractModels(data);
 }
 
+// ---------------------------------------------------------------------------
+// Custom (user-uploaded) datasets
+// ---------------------------------------------------------------------------
+
+// A dataset JSON file the user uploaded, stored under the shared training volume
+// at training_volume/custom_datasets/. These are offered as choices in the New
+// Training Job dialog. The training server does not yet accept arbitrary
+// datasets, so selecting one still trains on the default (sst2) recipe — see
+// DEFAULT_DATASET_LOADER.
+export interface CustomDataset {
+  id: string;
+  name: string;
+  size_bytes?: number;
+  modified_at?: number | null;
+}
+
+// Dataset the training server actually uses when a custom dataset is selected.
+// Custom datasets aren't supported by the inference/training server yet, so jobs
+// fall back to this built-in recipe while still showing the user's choice. Value
+// matches the dataset `id` exposed by the training container's /v1/catalog.
+export const DEFAULT_DATASET_LOADER = "SST2";
+
+export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
+  const { data } = await axios.get(`${TRAINING_API}/datasets/custom/`);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.datasets)) return data.datasets;
+  return [];
+}
+
+export async function uploadCustomDataset(
+  file: File,
+): Promise<CustomDataset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await axios.post(
+    `${TRAINING_API}/datasets/custom/`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
 export interface TrainingCatalog {
   models: CatalogEntry[];
   datasets: CatalogEntry[];
