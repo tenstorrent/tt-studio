@@ -29,3 +29,10 @@ sentence-transformers==2.7.0
 chroma-hnswlib==0.7.3
 --no-binary=chroma-hnswlib
 pysqlite3==0.5.3
+
+# RAG retrieval pipeline (hybrid BM25 + ONNX cross-encoder rerank; torch-free).
+# tokenizers/huggingface_hub are pinned to the versions already resolved
+# transitively today so they stay when sentence-transformers is removed.
+rank_bm25==0.2.2
+tokenizers==0.22.2
+huggingface_hub==0.36.2
