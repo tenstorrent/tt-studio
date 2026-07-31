@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useRef, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, UploadCloud, CheckCircle2 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
+import { Button } from "../ui/button";
 import { DatasetUploadField } from "./DatasetUploadField";
 import { DatasetPreview } from "./DatasetPreview";
 import {
@@ -13,6 +14,8 @@ import {
   DatasetParseError,
   type DatasetPreview as DatasetPreviewData,
 } from "./datasetPreview";
+import { uploadCustomDataset } from "../../api/trainingApi";
+import { customToast } from "../CustomToaster";
 
 // Guard against reading arbitrarily large files into memory for a client-side
 // preview. 25 MB is generous for a JSON dataset sample.
@@ -20,12 +23,20 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 type Phase = "idle" | "reading" | "parsing" | "ready" | "error";
 
-export function DatasetPreviewPanel() {
+interface DatasetPreviewPanelProps {
+  // Notified after a dataset is successfully uploaded to the server so parents
+  // (e.g. the training dialog) can refresh their custom-dataset list.
+  onUploaded?: () => void;
+}
+
+export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<DatasetPreviewData | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
   const readerRef = useRef<FileReader | null>(null);
 
   const reset = useCallback(() => {
@@ -36,7 +47,27 @@ export function DatasetPreviewPanel() {
     setProgress(0);
     setError(null);
     setPreview(null);
+    setUploading(false);
+    setUploaded(false);
   }, []);
+
+  const handleUpload = useCallback(async () => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadCustomDataset(file);
+      setUploaded(true);
+      customToast.success(`Uploaded "${file.name}" for training`);
+      onUploaded?.();
+    } catch (err) {
+      const message =
+        (err as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Failed to upload dataset";
+      customToast.error(message);
+    } finally {
+      setUploading(false);
+    }
+  }, [file, onUploaded]);
 
   const handleFileSelected = useCallback((selected: File) => {
     readerRef.current?.abort();
@@ -44,6 +75,7 @@ export function DatasetPreviewPanel() {
     setPreview(null);
     setError(null);
     setProgress(0);
+    setUploaded(false);
 
     if (selected.size > MAX_FILE_BYTES) {
       setPhase("error");
@@ -133,6 +165,25 @@ export function DatasetPreviewPanel() {
         )}
 
         {phase === "ready" && preview && <DatasetPreview preview={preview} />}
+
+        {phase === "ready" && preview && (
+          <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+            {uploaded && (
+              <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4" />
+                Available for training
+              </span>
+            )}
+            <Button onClick={handleUpload} disabled={uploading || uploaded}>
+              {uploading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <UploadCloud className="mr-2 h-4 w-4" />
+              )}
+              {uploaded ? "Uploaded" : "Save for Training"}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
