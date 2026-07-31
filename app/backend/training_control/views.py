@@ -309,6 +309,12 @@ class MergedCheckpointsView(View):
                 {"error": f"Unknown model_id={model_id}."}, status=404
             )
 
+        # Merged checkpoints are for deploying an inference model with fine-tuned
+        # weights. A training deploy would match its own base model's checkpoints,
+        # so exclude TRAINING model types — the picker is only for inference deploys.
+        if impl is not None and getattr(impl, "model_type", None) == ModelTypes.TRAINING:
+            return JsonResponse({"merged_checkpoints": []}, status=200)
+
         # Reuse the same shared host-volume root that training deploys bind-mount.
         from docker_control.docker_utils import get_training_host_volume
 

@@ -170,6 +170,10 @@ export default function TrainingJobDetailPage() {
   const [cancelRequested, setCancelRequested] = useState(false);
   // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
   const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
+  // Per-checkpoint merge outcome, surfaced inline next to the Promote button.
+  const [mergeStatus, setMergeStatus] = useState<
+    Record<string, { status: string; message?: string }>
+  >({});
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -262,16 +266,71 @@ export default function TrainingJobDetailPage() {
 
   // Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint
   // that can be served for inference. The merge runs as a job on the training
-  // container; the result is discovered later by the deploy-step picker.
+  // container; we poll that job so its real outcome (completed / failed + error)
+  // is surfaced inline instead of a fire-and-forget toast. The result is then
+  // discovered by the deploy-step picker.
   const handlePromote = async (ckptId: string) => {
     if (!jobId) return;
     setPromotingCkptId(ckptId);
+    setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "in_progress" } }));
     try {
-      await promoteCheckpoint(jobId, ckptId);
-      customToast.success(
-        "Promoting checkpoint for inference — the merged model will appear in the deploy step once ready.",
+      const mergeJob = await promoteCheckpoint(jobId, ckptId);
+      const mergeJobId = typeof mergeJob?.id === "string" ? mergeJob.id : undefined;
+      if (!mergeJobId) {
+        customToast.info("Promotion started.");
+        return;
+      }
+      customToast.info(
+        "Promoting checkpoint — merging adapter into base model (this can take a few minutes)…",
       );
+
+      // Merging loads the full base model on CPU, so poll for a while. The
+      // training container serializes merges, so only one runs at a time.
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let finalStatus: string | null = null;
+      let finalMessage: string | undefined;
+      while (Date.now() < deadline) {
+        await sleep(4000);
+        let mj: TrainingJob;
+        try {
+          mj = await fetchTrainingJob(mergeJobId);
+        } catch {
+          continue; // transient; keep polling
+        }
+        if (["completed", "failed", "cancelled"].includes(mj.status)) {
+          finalStatus = mj.status;
+          finalMessage = getJobErrorMessage(mj.error);
+          break;
+        }
+      }
+
+      if (finalStatus === "completed") {
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
+        customToast.success(
+          "Checkpoint promoted — it will appear in the deploy step for this model.",
+        );
+      } else if (finalStatus === "failed") {
+        setMergeStatus((prev) => ({
+          ...prev,
+          [ckptId]: { status: "failed", message: finalMessage },
+        }));
+        customToast.error(`Promotion failed: ${finalMessage || "unknown error"}`);
+      } else if (finalStatus === "cancelled") {
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "cancelled" } }));
+        customToast.error("Promotion was cancelled.");
+      } else {
+        // Timed out waiting — the merge may still finish in the background.
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "pending" } }));
+        customToast.info(
+          "Promotion is still running — check the deploy step again shortly.",
+        );
+      }
     } catch {
+      setMergeStatus((prev) => ({
+        ...prev,
+        [ckptId]: { status: "failed", message: "Failed to start promotion" },
+      }));
       customToast.error("Failed to start checkpoint promotion");
     } finally {
       setPromotingCkptId(null);
@@ -685,6 +744,47 @@ export default function TrainingJobDetailPage() {
                             </td>
                             <td className="py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
+                                {(() => {
+                                  const ms = mergeStatus[ckpt.id];
+                                  if (!ms) return null;
+                                  if (
+                                    ms.status === "in_progress" ||
+                                    ms.status === "pending"
+                                  ) {
+                                    return (
+                                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                                        {ms.status === "pending"
+                                          ? "Still merging…"
+                                          : "Merging…"}
+                                      </span>
+                                    );
+                                  }
+                                  if (ms.status === "completed") {
+                                    return (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    );
+                                  }
+                                  if (
+                                    ms.status === "failed" ||
+                                    ms.status === "cancelled"
+                                  ) {
+                                    return (
+                                      <span
+                                        className="flex items-center text-xs text-red-600 dark:text-red-400"
+                                        title={ms.message}
+                                      >
+                                        <AlertTriangle className="mr-1 h-3 w-3" />
+                                        {ms.status === "cancelled"
+                                          ? "Cancelled"
+                                          : "Merge failed"}
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                                 <Button
                                   variant="outline"
                                   size="sm"

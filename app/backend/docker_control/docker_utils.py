@@ -49,10 +49,22 @@ def get_training_host_volume() -> str:
     internal_dir = os.path.join(
         backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
     )
-    try:
-        os.makedirs(internal_dir, exist_ok=True)
-    except OSError as e:
-        logger.warning("Could not create training host-volume dir %s: %s", internal_dir, e)
+    # Only set permissions when we actually create the directory, so we don't
+    # clobber tighter permissions an operator may have applied on later calls.
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            # The backend runs as root, so the dir is created root-owned, but the
+            # host user running run.py (which creates the per-model `volume_id_*`
+            # subdir) and the container (uid 1000, which writes merged_models/) are
+            # non-root. Grant them write via the sticky world-writable mode 01777 —
+            # the sticky bit prevents cross-user deletion/renames, matching the
+            # convention tt-inference-server uses for shared caches.
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create training host-volume dir %s: %s", internal_dir, e
+            )
     return os.path.join(
         backend_config.host_peristent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
     )
