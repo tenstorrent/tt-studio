@@ -3350,12 +3350,9 @@ class ForgeLoaderPreflightView(APIView):
 
         try:
             repo_id = parse_model_card_url(request.data.get("model_card_url"))
-            try:
-                from docker_control.chip_allocator import ChipSlotAllocator
-
-                total_slots = ChipSlotAllocator().get_chip_status().get("total_slots", 1)
-            except Exception:  # noqa: BLE001 - fall back to a single chip
-                total_slots = 1
+            # Bare-metal launches only ever use one chip (see ForgeLoaderDeployView's
+            # module comment on the single-slot limitation), so the size gate is always
+            # judged against a single chip's budget, not however many the host has.
             info = preflight_model(repo_id, available_chips=1)
         except PreflightError as e:
             return Response(
@@ -3369,7 +3366,6 @@ class ForgeLoaderPreflightView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        info["total_chips"] = total_slots
         return Response({"status": "ok", "model": info}, status=status.HTTP_200_OK)
 
 
@@ -3583,7 +3579,7 @@ class ForgeLoaderStopView(APIView):
             from docker_control.models import ModelDeployment
 
             for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
-                if getattr(dep, "base_url", None):
+                if dep.base_url:
                     dep.status = "stopped"
                     dep.stopped_by_user = True
                     dep.save()

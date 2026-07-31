@@ -21,7 +21,6 @@ interface ModelInfo {
   estimated_gb: number | null;
   max_position_embeddings: number | null;
   has_chat_template: boolean;
-  total_chips?: number;
 }
 
 type Phase = "idle" | "checking" | "checked" | "launching" | "launched" | "rejected";

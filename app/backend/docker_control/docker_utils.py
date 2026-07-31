@@ -1009,7 +1009,7 @@ def get_canonical_deployments():
         # URL-backed deployments (e.g. a bare-metal Forge server) have no container to
         # match, so build their entry directly. Without this they fall through to the
         # ghost-reconciliation below and get marked stopped.
-        if getattr(dep, "base_url", None):
+        if dep.base_url:
             try:
                 from docker_control.url_registration import canonical_entry_for
 

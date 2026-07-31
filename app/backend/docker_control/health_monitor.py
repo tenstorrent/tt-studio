@@ -94,7 +94,7 @@ def check_container_health():
             # URL-backed deployments (e.g. a bare-metal Forge server) have no container, so
             # get_container() would 404 and the handler below would mark them dead. Their
             # liveness is the HTTP endpoint, which the normal health checks already poll.
-            if getattr(deployment, "base_url", None):
+            if deployment.base_url:
                 continue
             try:
                 # Get container info from docker-control-service

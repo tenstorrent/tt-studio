@@ -147,11 +147,11 @@ def register_url_deployment(
     served_model = probe_model(base_url)
     display_name = (model_name or served_model).strip()
 
-    existing = [
-        d
-        for d in ModelDeployment.objects.filter(status__in=["starting", "running"])
-        if getattr(d, "base_url", None) == base_url
-    ]
+    existing = list(
+        ModelDeployment.objects.filter(
+            status__in=["starting", "running"], base_url=base_url
+        )
+    )
     deploy_id = f"{URL_DEPLOYMENT_PREFIX}{host}-{port}"
     if existing:
         dep = existing[0]
