@@ -81,6 +81,39 @@ def messages_to_prompt(messages: list) -> str:
     return "\n\n".join(parts)
 
 
+def _content_to_text(content) -> str:
+    """Flatten a message ``content`` (str or OpenAI multimodal list) to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return "" if content is None else str(content)
+
+
+def raw_prompt_from_messages(messages: list) -> str:
+    """Return the latest user message verbatim, with no chat framing.
+
+    Used for base/completion models so the prompt is sent exactly as the user
+    entered it — no system preamble, no ``User:``/``Assistant:`` wrapping, and
+    no conversation history. Falls back to the last message of any role, then
+    to an empty string.
+    """
+    user_texts = [
+        _content_to_text(m.get("content", ""))
+        for m in messages
+        if m.get("role") == "user"
+    ]
+    if user_texts:
+        return user_texts[-1]
+    if messages:
+        return _content_to_text(messages[-1].get("content", ""))
+    return ""
+
+
 def get_model_context_length(internal_url: str, auth_token: str = None):
     """Fetch max_model_len from vLLM /v1/models. Returns int or None if unavailable."""
     try:

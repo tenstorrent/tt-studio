@@ -125,6 +125,7 @@ from model_control.model_utils import (
     get_model_name_from_container,
     get_max_tokens_limit,
     messages_to_prompt,
+    raw_prompt_from_messages,
     stream_response_from_external_api,
     stream_openai_passthrough,
     stream_response_from_agent_api,
@@ -195,12 +196,14 @@ class InferenceView(View):
         if data.get("max_tokens"):
             data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
 
-        # Route base/completion models to /v1/completions with a plain prompt
+        # Route base/completion models to /v1/completions. Send the user's text
+        # exactly as entered — no system preamble, chat framing, or history — so
+        # the base model performs a raw text completion on the prompt itself.
         service_route = deploy["model_impl"].service_route
         logger.info(f"service_route:= {service_route}")
         if service_route == "/v1/completions":
             messages = data.pop("messages", [])
-            data["prompt"] = messages_to_prompt(messages)
+            data["prompt"] = raw_prompt_from_messages(messages)
             data.pop("stream_options", None)
 
         async def generate():
