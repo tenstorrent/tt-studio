@@ -73,6 +73,10 @@ export interface RagDataSource {
     created_at?: string;
     embedding_func_name?: string;
     last_uploaded_document?: string;
+    // Set by the backend on collections it seeds itself, rather than ones the
+    // user created (see vector_db_control/apps.py).
+    type?: string;
+    created_by?: string;
   };
 }
 

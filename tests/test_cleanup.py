@@ -478,6 +478,34 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         order = self._record_runtime_order(args)
         self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
 
+    def test_host_service_cleanup_steps_never_hide_sudo_prompts(self):
+        """Host cleanup may discover sudo is needed after the preflight probe.
+
+        Keep both service-cleanup steps non-animated so a late sudo prompt is
+        always visible, even when lsof cannot identify the owning process or a
+        stale PID file points at a root-owned process.
+        """
+        args = SimpleNamespace(dev=False, no_sudo=False, cleanup_all=False)
+        step_calls = []
+
+        @contextlib.contextmanager
+        def fake_step(label, spinner=True):
+            step_calls.append((label, spinner))
+            yield SimpleNamespace()
+
+        with patch.object(_cl_runt, "_docker_daemon_status", return_value="down"), \
+             patch.object(_cl_runt, "_port_owned_by_root", return_value=False), \
+             patch.object(_cl_runt, "step", side_effect=fake_step), \
+             patch.object(_cl_runt, "cleanup_fastapi_server"), \
+             patch.object(_cl_runt, "cleanup_docker_control_service"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            run._cleanup_runtime(args, has_docker_access=True)
+
+        self.assertEqual(step_calls, [
+            ("Stopping inference API", False),
+            ("Stopping Docker control", False),
+        ])
+
 
 class TermsAcceptanceGateTests(unittest.TestCase):
     def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
