@@ -24,7 +24,9 @@ def _entry(
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults).", rich_help_panel="Setup & Configuration"),
     reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", "--reconfig-inf", help="Reconfigure the TT Inference Server artifact (short alias: --reconfig-inf).", rich_help_panel="Setup & Configuration"),
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables.", rich_help_panel="Setup & Configuration"),
+    accept_terms: bool = typer.Option(False, "--accept-terms", help="Accept the OS Model Terms non-interactively (for CI/automation).", rich_help_panel="Setup & Configuration"),
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
+    switch: str = typer.Option(None, "--switch", metavar="REF", help="Switch this checkout to a git branch or tag (e.g. dev, v2.9.0-rc1), then exit; re-run to start.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
     auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup.", rich_help_panel="Model Deployment"),
     device_id: int = typer.Option(0, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for --auto-deploy.", rich_help_panel="Model Deployment"),
@@ -36,6 +38,7 @@ def _entry(
     # ── Reset (--purge-all) ──────────────────────────────────────────────────
     purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env.", rich_help_panel="Reset (--purge-all)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all confirmation prompt.", rich_help_panel="Reset (--purge-all)"),
+    uninstall: bool = typer.Option(False, "--uninstall", help="Full uninstall: run the --purge-all teardown and remove the `tt-studio` shell shortcut.", rich_help_panel="Reset (--purge-all)"),
     # ── Advanced (less-common setup/runtime knobs) ───────────────────────────
     reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Advanced"),
     resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog.", rich_help_panel="Advanced"),
@@ -68,7 +71,8 @@ def _entry(
         legacy = "--cleanup-all" if cleanup_all else "--cleanup"
         replacement = "--purge-all" if cleanup_all else "--stop"
         console.print(f"[warning]⚠  {legacy} is deprecated; use {replacement} instead.[/warning]")
-    full_teardown = purge_all or cleanup_all
+    # --uninstall is the full purge plus shell-shortcut removal.
+    full_teardown = purge_all or cleanup_all or uninstall
     stop_requested = stop or cleanup or full_teardown
 
     args = SimpleNamespace(
@@ -80,7 +84,8 @@ def _entry(
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
         status=status, logs=logs, info=info, report_bug=report_bug,
-        install_shortcut=install_shortcut,
+        install_shortcut=install_shortcut, accept_terms=accept_terms,
+        switch=switch, uninstall=uninstall,
     )
     _run(args)
 
