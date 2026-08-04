@@ -37,10 +37,10 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
   const failedCount = shown.filter((d) => d.status === "failed").length;
   const summary =
     activeCount > 0
-      ? `${activeCount} deploying`
+      ? `${activeCount} downloading`
       : failedCount > 0
         ? `${failedCount} failed`
-        : "Deployments done";
+        : "Downloads done";
 
   // bottom-20 keeps the banner (especially the minimized pill) clear of the fixed
   // site footer instead of colliding with it.
@@ -78,7 +78,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
             <div className="flex items-center justify-between border-b bg-muted/40 px-3.5 py-2.5">
               <div className="flex items-center gap-2">
                 <Rocket className="h-4 w-4 text-TT-purple-accent" />
-                <span className="text-sm font-semibold">Deployments</span>
+                <span className="text-sm font-semibold">Downloads</span>
                 {activeCount > 0 && (
                   <span className="rounded-full bg-TT-purple/10 px-1.5 py-0.5 text-[10px] font-medium text-TT-purple-accent">
                     {activeCount} active
