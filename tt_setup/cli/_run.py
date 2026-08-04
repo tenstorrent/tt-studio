@@ -407,7 +407,7 @@ def _run(args):
         # No outer pause(): HF-access output prints above the pinned stepper
         # (so it stays visible through the long Configure phase), and the
         # individual prompts (ask/confirm/secret) suspend the stepper themselves.
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, quick_setup=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server, accept_terms=args.accept_terms)
         startup_log.step("configure_environment", "OK")
 
         # Save quick-setup configuration snapshot to the config store if not in
