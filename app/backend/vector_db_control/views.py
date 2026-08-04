@@ -430,7 +430,8 @@ class VectorCollectionsAPIView(ViewSet):
                     collection_name=pk, embedding_func_name=self.EMBED_MODEL
                 )
                 existing = collection.get(where={"source": filename}, include=[])
-                stale = [i for i in existing.get("ids", []) if i not in set(ids)]
+                ids_set = set(ids)
+                stale = [i for i in existing.get("ids", []) if i not in ids_set]
                 if stale:
                     collection.delete(ids=stale)
                     logger.info(
