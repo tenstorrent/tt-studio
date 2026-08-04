@@ -67,7 +67,8 @@ def get_index(collection_name: str, embedding_func_name: str):
             )
         return None
 
-    entry = _cache.get(collection_name)
+    with _lock:
+        entry = _cache.get(collection_name)
     now = time.monotonic()
     if entry and entry.doc_count == count and now - entry.built_at < _CACHE_TTL_SECONDS:
         return entry
