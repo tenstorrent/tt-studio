@@ -2,44 +2,42 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
-CI smoke test: deploy a model (default Qwen3-32B) through the TT-Studio
-backend API and assert it reaches HEALTHY status.
+Deploy healthcheck: deploy one or more models through the TT-Studio backend API
+and assert each reaches HEALTHY status. Used by CI (the Deploy Healthcheck
+workflow) and by hand for manual / overnight testing. Dependency-free (stdlib
+urllib only), so it runs on a bare runner without the backend venv.
 
-This is the *flow* script — the thing CI actually runs against a live TT-Studio
-backend (which needs a Tenstorrent card). A GitHub Actions workflow only has to
-boot the app and shell out to this. Kept dependency-free (stdlib urllib only) so
-it runs on a bare runner without the backend venv.
+Before the first deploy it runs a whole-board reset (stop models + tt-smi -r),
+and it mirrors the frontend's deploy request (e.g. force_full_board for
+Llama-3.1-8B on P300x2) so a deploy behaves like a real UI deploy. When run
+inside GitHub Actions it also writes a step summary + `::error::` annotations.
 
-Phases:
+Phases per model:
   0. preflight  — resolve the target model_id from the catalog
-  1. deploy     — POST /docker/deploy/ -> job_id
+  1. deploy     — POST /docker/deploy/ -> job_id (frontend-style body)
   2. progress   — poll /docker/deploy/progress/<job_id>/ until "completed"
   3. resolve    — find the deploy_id in /models/deployed/
   4. health     — poll /models/health/?deploy_id=... until "Healthy" (HTTP 200)
-  5. cleanup    — (optional) stop the container so the chip slot frees for reruns
+  5. cleanup    — stop the container to free the board (default; --no-cleanup keeps it)
 
-Exit code 0 iff the model reached healthy. Any failure/timeout exits non-zero.
-
-The script auto-names its log + JSON report under ./ci-runs/ (override with
---output-dir), tees output to the terminal, and cleans up after itself. No shell
-redirection needed.
+Exit code 0 iff every requested model reached healthy; any failure/timeout exits
+non-zero (so the CI step fails). A .log and a .json report are written under
+./ci-runs/ for artifact upload.
 
 Examples:
-  # Full run against a local backend (hardware present):
-  python3 ci/deploy_healthcheck.py
+  # Single model (default Qwen3-32B), up to 2h to go healthy:
+  python3 ci/deploy_healthcheck.py --models "Qwen3-32B" --timeout 2h
 
-  # Deploy a specific model and give it up to 4 hours to go healthy:
-  python3 ci/deploy_healthcheck.py --model-name Wan2.2-T2V-A14B-Diffusers --timeout 4h
+  # Leave the model up after the check (local debugging):
+  python3 ci/deploy_healthcheck.py --model-name Qwen3-32B --no-cleanup
 
-  # Fire-and-forget: prints where the log/report live, then runs in the
-  # background so it survives losing your SSH session.
-  python3 ci/deploy_healthcheck.py --detach
+  # Fire-and-forget over SSH: prints where the log/report live, then backgrounds.
+  python3 ci/deploy_healthcheck.py --model-name Llama-3.1-8B-Instruct --detach
 
-  # Batch: deploy several models back-to-back (cleanup between each is forced).
-  # Ideal for an overnight sweep — check the summary / JSON report in the morning.
-  python3 ci/deploy_healthcheck.py --models Qwen3-32B Llama-3.1-8B-Instruct FLUX.1-dev --detach
+  # Overnight batch (cleanup between each frees the board):
+  python3 ci/deploy_healthcheck.py --models Qwen3-32B FLUX.1-dev --detach
 
-  # Dry run — check connectivity + resolve the model id, deploy nothing.
+  # Dry run — verify connectivity + resolve ids, deploy nothing.
   python3 ci/deploy_healthcheck.py --dry-run
 """
 
@@ -65,6 +63,10 @@ PATHS_DIRECT = {
     "health": "models/health/",
     "logs": "docker/deploy/logs/{job_id}/",
     "stop": "docker/stop/stream/{container_id}/",
+    "chip_status": "docker/chip-status/",
+    "reset_all": "docker/reset_all/",
+    "reset_all_status": "docker/reset_all/status/",
+    "containers": "docker/get_containers/",
 }
 PATHS_PROXY = {
     "catalog": "docker-api/catalog/",
@@ -74,6 +76,10 @@ PATHS_PROXY = {
     "health": "models-api/health/",
     "logs": "docker-api/deploy/logs/{job_id}/",
     "stop": "docker-api/stop/stream/{container_id}/",
+    "chip_status": "docker-api/chip-status/",
+    "reset_all": "docker-api/reset_all/",
+    "reset_all_status": "docker-api/reset_all/status/",
+    "containers": "docker-api/get_containers/",
 }
 
 # Progress statuses that mean "stop polling".
@@ -249,8 +255,105 @@ def resolve_model_id(client, model_name, explicit_id):
     raise SmokeTestError(f"no catalog model matches {model_name!r}. Available: {available}")
 
 
-def deploy(client, model_id):
-    st, data = client.post("deploy", {"model_id": model_id}, timeout=120)
+def list_compatible_models(client):
+    """Return the model names the frontend shows as compatible for the runner's
+    board — get_containers/ entries with is_compatible == True. This is the exact
+    source + filter the deploy dropdown uses (the backend computes is_compatible
+    per model against the detected board), so CI deploys precisely the dropdown's
+    options rather than re-deriving hardware compatibility here."""
+    st, data = client.get("containers", timeout=30)
+    if st != 200 or not isinstance(data, list):
+        raise SmokeTestError(f"get_containers failed (HTTP {st}): {data}")
+    names = sorted({
+        m["name"] for m in data
+        if isinstance(m, dict) and m.get("is_compatible") is True and m.get("name")
+    })
+    if not names:
+        board = next((m.get("current_board") for m in data if isinstance(m, dict)), "unknown")
+        raise SmokeTestError(
+            f"no compatible models for this board ({board}). "
+            "The backend reported is_compatible=False for every catalog model."
+        )
+    return names
+
+
+def _norm(name):
+    return re.sub(r"[\s_]", "", (name or "").lower())
+
+
+def _is_llama31_8b(name):
+    t = _norm(name)
+    return "llama-3.1-8b" in t or "llama3.18b" in t
+
+
+def fe_deploy_overrides(client, model_name):
+    """Build the same deploy body the frontend sends, so CI is a faithful
+    representation of a real UI deploy (not a bare API call).
+
+    The one case where the backend's bare auto-allocation diverges from the UI:
+    a flexible model on a P300x2 board. A single P300 chip is a tt-metal
+    "CUSTOM cluster type" that fails to init, so the UI deploys full-board via
+    `force_full_board`. The backend only honors that flag for CHAT + P300x2 +
+    Llama-3.1-8B (see should_force_full_board_llama / getModelPlacement); it's
+    ignored elsewhere, and other models already auto-allocate correctly.
+    """
+    overrides = {"weights_id": "", "use_image_override": True}
+    try:
+        st, cs = client.get("chip_status", timeout=15)
+    except SmokeTestError:
+        st, cs = 0, {}
+    board = cs.get("board_type") if st == 200 and isinstance(cs, dict) else None
+    if board == "P300x2" and _is_llama31_8b(model_name):
+        overrides["force_full_board"] = True
+        log(f"placement: {model_name} on {board} → force_full_board (full mesh), mirroring the UI")
+    return overrides
+
+
+def reset_all_board(client, timeout=600, interval=5):
+    """Whole-board reset before the first deploy: stop every deployed model, then
+    reset all devices (tt-smi -r) — mirrors the UI's 'Reset all'. Ensures a clean
+    mesh so a prior crashed run can't wedge this deploy (on p300x2 a dirty mesh
+    makes ttnn.get_num_devices() raise IndexError). Best-effort: warns and
+    continues if it can't confirm completion. Deploys are blocked (409) while a
+    reset is in flight, so this waits for `done` before returning.
+    """
+    log("reset: whole-board reset (stop models + tt-smi -r)…")
+    try:
+        st, data = client.post("reset_all", {}, timeout=60)
+    except SmokeTestError as e:
+        log(f"reset: WARNING could not start reset ({e}) — continuing")
+        return
+    if st not in (200, 202):
+        log(f"reset: WARNING start returned HTTP {st}: {data} — continuing")
+        return
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        try:
+            st, state = client.get("reset_all_status", timeout=15)
+        except SmokeTestError:
+            time.sleep(interval)
+            continue
+        if st == 200 and isinstance(state, dict):
+            step = state.get("step")
+            if step != last:
+                log(f"reset: step={step}")
+                last = step
+            if state.get("done"):
+                if state.get("ok"):
+                    log("reset: board clean ✓")
+                else:
+                    log(f"reset: WARNING finished not-ok: {state.get('error')}")
+                return
+        time.sleep(interval)
+    log(f"reset: WARNING not confirmed done within {timeout}s — continuing")
+
+
+def deploy(client, model_id, extra=None):
+    body = {"model_id": model_id}
+    if extra:
+        body.update(extra)
+    st, data = client.post("deploy", body, timeout=120)
     if st not in (200, 201) or data.get("status") != "success":
         raise SmokeTestError(f"deploy failed (HTTP {st}): {data}")
     job_id = data.get("job_id")
@@ -389,8 +492,44 @@ def write_report(path, report):
         log(f"WARNING could not write report to {path}: {e}")
 
 
+def emit_github_outputs(combined):
+    """When running inside GitHub Actions, emit `::error::` annotations for any
+    failed model and append a Markdown result table to $GITHUB_STEP_SUMMARY.
+    No-ops (annotations aside) when not under Actions."""
+    ok_results = ("healthy", "dry_run_ok")
+    for m in combined.get("models", []):
+        if m.get("result") not in ok_results:
+            reason = (m.get("reason") or m.get("result") or "failed").splitlines()[0]
+            print(f"::error title=deploy healthcheck::{m.get('model_name')}: {reason}", flush=True)
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    models = combined.get("models", [])
+    healthy = sum(1 for m in models if m.get("result") in ok_results)
+    icon = {"healthy": "✅", "dry_run_ok": "✅"}
+    lines = [
+        f"## Deploy healthcheck — {combined.get('result', 'unknown')}",
+        "",
+        f"`{healthy}/{len(models)}` healthy · `{combined.get('base_url', '')}`",
+        "",
+        "| Result | Model | Duration | Note |",
+        "| --- | --- | --- | --- |",
+    ]
+    for m in models:
+        dur = m.get("duration_seconds")
+        dur_s = f"{dur:.0f}s" if isinstance(dur, (int, float)) else ""
+        note = (m.get("reason") or "").splitlines()[0].replace("|", r"\|") if m.get("reason") else ""
+        lines.append(f"| {icon.get(m.get('result'), '❌')} {m.get('result')} | {m.get('model_name')} | {dur_s} | {note} |")
+    try:
+        with open(summary_path, "a") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError as e:
+        log(f"WARNING could not write GITHUB_STEP_SUMMARY: {e}")
+
+
 def run_model(client, model_name, model_id_override, do_cleanup,
-              deploy_timeout, health_timeout, poll_interval):
+              total_timeout, poll_interval):
     """Deploy one model and drive it to healthy. Returns a result dict; never
     raises SmokeTestError (it's caught and recorded) so a caller running a batch
     can continue to the next model."""
@@ -411,15 +550,21 @@ def run_model(client, model_name, model_id_override, do_cleanup,
         model_id = resolve_model_id(client, model_name, model_id_override)
         report["model_id"] = model_id
 
-        job_id = deploy(client, model_id)
+        job_id = deploy(client, model_id, fe_deploy_overrides(client, model_name))
         report["job_id"] = job_id
+
+        # One overall budget for the whole deploy->healthy process
+        deadline = started + total_timeout
+
+        def remaining():
+            return max(0, deadline - time.time())
 
         deploy_id = None
         try:
-            poll_progress(client, job_id, deploy_timeout, poll_interval)
-            deploy_id = resolve_deploy_id(client, model_id, timeout=120, interval=poll_interval)
+            poll_progress(client, job_id, remaining(), poll_interval)
+            deploy_id = resolve_deploy_id(client, model_id, timeout=min(120, remaining()), interval=poll_interval)
             report["deploy_id"] = deploy_id
-            poll_health(client, deploy_id, job_id, health_timeout, poll_interval)
+            poll_health(client, deploy_id, job_id, remaining(), poll_interval)
             log(f"SUCCESS: {model_name} reached HEALTHY status.")
             report["result"] = "healthy"
         finally:
@@ -449,49 +594,53 @@ def main():
                    help="Deploy several models one after another (space-separated). Cleanup is forced "
                         "between them so each frees the board for the next — ideal for overnight runs. "
                         "Ignored if --model-name is passed.")
+    p.add_argument("--all-compatible", action="store_true",
+                   help="Deploy every model the frontend shows as compatible with this board "
+                        "(get_containers/ is_compatible==True), one after another with cleanup "
+                        "between each. Overrides --model-name/--models. Long — the --timeout is "
+                        "per model, so budget accordingly (ideal for an overnight sweep).")
     p.add_argument("--model-id", default=os.environ.get("TTSTUDIO_MODEL_ID"),
                    help="Exact catalog model_id; overrides --model-name (single-model mode only)")
-    p.add_argument("--timeout", type=parse_duration, default=None,
-                   help="Max time to wait, applied to BOTH the deploy and health phases. "
-                        "Accepts 4h / 90m / 3600s / plain seconds. Simple knob for 'give it up to N'.")
-    p.add_argument("--deploy-timeout", type=parse_duration,
-                   default=os.environ.get("TTSTUDIO_DEPLOY_TIMEOUT", "3600"),
-                   help="Advanced: seconds/duration to wait for deployment to complete (default: 1h). Overridden by --timeout.")
-    p.add_argument("--health-timeout", type=parse_duration,
-                   default=os.environ.get("TTSTUDIO_HEALTH_TIMEOUT", "1800"),
-                   help="Advanced: seconds/duration to wait for the model to become healthy (default: 30m). Overridden by --timeout.")
+    p.add_argument("--timeout", type=parse_duration,
+                   default=os.environ.get("TTSTUDIO_TIMEOUT", "2h"),
+                   help="Total wall-clock budget for the WHOLE per-model run (deploy + resolve + "
+                        "health), NOT per phase — each phase uses whatever time is left. "
+                        "Accepts 4h / 90m / 3600s / plain seconds (default: 2h).")
     p.add_argument("--poll-interval", type=parse_duration, default=os.environ.get("TTSTUDIO_POLL_INTERVAL", "10"),
                    help="Seconds between polls (default: 10)")
     p.add_argument("--output-dir", default=os.environ.get("TTSTUDIO_OUTPUT_DIR", "ci-runs"),
                    help="Directory for the auto-named .log and .json report (default: ./ci-runs)")
-    p.add_argument("--detach", action="store_true",
-                   help="Run in the background (survives SSH loss). Prints where the log/report live, then returns.")
     p.add_argument("--dry-run", action="store_true",
                    help="Preflight only: verify connectivity + resolve the model id, then exit. Deploys nothing.")
-    p.add_argument("--cleanup", action="store_true",
-                   help="Stop the deployed container after the check (frees the chip slot for reruns)")
+    p.add_argument("--detach", action="store_true",
+                   help="Run in the background (survives SSH loss). Prints where the log/report live, then returns. For manual use; CI never passes it.")
+    p.add_argument("--no-cleanup", action="store_true",
+                   help="Leave the model deployed after the check (default: clean up to free the board)")
+    p.add_argument("--no-reset", action="store_true",
+                   help="Skip the whole-board reset (stop models + tt-smi -r) before the first deploy")
     args = p.parse_args()
 
-    # --timeout is the simple knob: it sets both phase timeouts at once.
-    if args.timeout is not None:
-        args.deploy_timeout = args.timeout
-        args.health_timeout = args.timeout
-
-    # Resolve the run mode. --model-name (single) has priority over --models;
-    # then a batch via --models; then $TTSTUDIO_MODEL_NAME; then the default.
-    if args.model_name:
+    # Resolve the run mode. --all-compatible (every FE-compatible model) wins;
+    # then --model-name (single); then a batch via --models; then
+    # $TTSTUDIO_MODEL_NAME; then the default.
+    if args.all_compatible:
+        models, batch = None, True   # actual list fetched once the client is up
+    elif args.model_name:
         models, batch = [args.model_name], False
     elif args.models:
         models, batch = args.models, True
     else:
         models, batch = [os.environ.get("TTSTUDIO_MODEL_NAME", "Qwen3-32B")], False
 
-    # Batch mode always cleans up between models so each frees the board.
-    do_cleanup = args.cleanup or batch
+    # Cleanup defaults ON so CI always frees the board; --no-cleanup opts out.
+    # Batch mode always cleans up between models regardless.
+    do_cleanup = (not args.no_cleanup) or batch
 
     # Auto-name the log + report under --output-dir. Single: <model>_<ts>;
     # batch: batch_<ts>.
-    if batch:
+    if args.all_compatible:
+        slug = "all-compatible"
+    elif batch:
         slug = "batch"
     else:
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", models[0]).strip("-") or "model"
@@ -501,11 +650,13 @@ def main():
     args.report = base + ".json"
     os.makedirs(args.output_dir, exist_ok=True)
 
-    label = f"{len(models)} models {models}" if batch else repr(models[0])
-
-    # Detach BEFORE any work so the run survives losing SSH — no nohup/&/redirect
-    # needed. The foreground process prints the paths and exits; the daemon child
-    # writes everything to the log file.
+    if args.all_compatible:
+        label = "all compatible models"
+    else:
+        label = f"{len(models)} models {models}" if batch else repr(models[0])
+    # --detach forks into the background so a run survives losing SSH (manual use;
+    # CI never passes it). The foreground process prints where the log/report live
+    # and exits; the daemon child writes everything to the log file.
     if args.detach and not args.dry_run:
         print(f"Deploying {label} in the background.")
         print(f"  live log : {logpath}")
@@ -513,12 +664,24 @@ def main():
         print(f"  watch    : tail -f {logpath}")
         _daemonize(logpath)  # only the detached child returns from this
     else:
-        # Foreground: mirror all output to the log file as well as the terminal.
         sys.stdout = sys.stderr = _Tee(sys.__stdout__, open(logpath, "a"))
         print(f"logging to {logpath}")
 
     client = Client(args.base_url, args.proxy)
-    log(f"target base_url={client.base} proxy={args.proxy} models={models} cleanup={do_cleanup}")
+    log(f"target base_url={client.base} proxy={args.proxy} cleanup={do_cleanup}")
+
+    # --all-compatible defers the model list until here so it can query the live
+    # board via get_containers/ (the same set the deploy dropdown shows).
+    if args.all_compatible:
+        try:
+            models = list_compatible_models(client)
+        except SmokeTestError as e:
+            log(f"FAILURE: {e}")
+            print(f"::error title=deploy healthcheck::{e}", flush=True)
+            return 1
+        log(f"--all-compatible: {len(models)} compatible model(s): {models}")
+    else:
+        log(f"models={models}")
 
     run_started = time.time()
     combined = {
@@ -545,14 +708,18 @@ def main():
             combined["result"] = "dry_run_ok" if ok else "some_failed"
             return 0 if ok else 1
 
+        # Clean slate before the first deploy: stop any leftover models + reset
+        # all devices, so a prior crashed run can't wedge the mesh.
+        if not args.no_reset:
+            reset_all_board(client)
+
         # Deploy each model in succession.
         for name in models:
             result = run_model(
                 client, name,
                 model_id_override=(args.model_id if not batch else None),
                 do_cleanup=do_cleanup,
-                deploy_timeout=args.deploy_timeout,
-                health_timeout=args.health_timeout,
+                total_timeout=args.timeout,
                 poll_interval=args.poll_interval,
             )
             combined["models"].append(result)
@@ -571,6 +738,7 @@ def main():
         combined["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         combined["duration_seconds"] = round(time.time() - run_started, 1)
         write_report(args.report, combined)
+        emit_github_outputs(combined)
 
 
 if __name__ == "__main__":

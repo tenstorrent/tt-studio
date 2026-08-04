@@ -75,6 +75,8 @@ Pick a short, descriptive kebab-case feature name (`reset-view-fix`,
 
 - Touch only the files required for the stated task. No drive-by refactors,
   no reformatting, no unrelated renames, no dependency bumps "while we're here."
+- If two approaches would both work, take the more minimal one — fewer files,
+  fewer lines, less new machinery.
 - New code files (`.py` / `.ts` / `.tsx` / `.js`) **must** carry the SPDX
   headers required by `.cursor/rules/general.mdc`:
   ```
@@ -155,8 +157,17 @@ gh pr create --base dev \
   --body "<what changed, why, and how it was verified>"
 ```
 
-PR description guidance: summarize the problem, the change, and the
-verification (endpoints hit / tests run). Plain, human prose — no AI mention.
+PR description guidance: keep it short and human — a few plain sentences on
+what changed and why, then a simple to-do list of the changes (and how they
+were verified). No walls of text, no section headers, no AI mention. Example:
+
+```
+Board reset button was clickable mid-deploy and could wedge the chip.
+
+- [x] Hide reset button while a model is deployed
+- [x] Verified against /up/ and the deploy flow
+```
+
 The repo squash-merges into `dev`; **leave the merge to a human reviewer unless
 the user explicitly tells you to merge.**
 
