@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
@@ -9,7 +9,7 @@ import { useLogo } from "../../utils/logo";
 import { fetchModels, fetchDeployedModelsInfo } from "../../api/modelsDeployedApis";
 import { getTokenLimitsForModel } from "./tokenLimits";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCollections } from "@/src/components/rag";
+import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
@@ -25,6 +25,7 @@ import type {
 import { runInference } from "./runInference";
 import { buildDefaultSystemPrompt } from "./templateRenderer";
 import { useDeviceState } from "../../hooks/useDeviceState";
+import { useAgentAvailability } from "../../hooks/useAgentAvailability";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
@@ -59,11 +60,21 @@ export default function ChatComponent() {
   // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
   // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
   //   useState(false);
-  const { data: ragDataSources } = useQuery<RagDataSource[]>({
+  const { data: allCollections } = useQuery<RagDataSource[]>({
     queryKey: ["collectionsList"],
     queryFn: fetchCollections,
     initialData: [],
   });
+  // The backend's seeded documentation collection isn't one the user made, so it
+  // gets its own group in the picker rather than sitting under "Your Collections".
+  const ragDataSources = useMemo(
+    () => (allCollections ?? []).filter((c) => !isSystemKnowledgeCollection(c)),
+    [allCollections]
+  );
+  const systemCollections = useMemo(
+    () => (allCollections ?? []).filter((c) => isSystemKnowledgeCollection(c)),
+    [allCollections]
+  );
   const { logoUrl } = useLogo();
 
   // Create a default thread to start with
@@ -94,7 +105,8 @@ export default function ChatComponent() {
     "isAgentSelected",
     false
   );
-  const [isAgentAvailable, setIsAgentAvailable] = useState<boolean>(false);
+  const { isAgentAvailable, hasChecked: agentCheckDone } =
+    useAgentAvailability(modelID);
   const [screenSize, setScreenSize] = useState({
     isMobileView: false,
     isLargeScreen: false,
@@ -144,70 +156,14 @@ export default function ChatComponent() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Dynamically detect whether the selected model supports tool calling and
-  // whether the agent service is available with web search tools configured.
-  // The deployed model's tool_calling_enabled flag is the primary signal;
-  // agent service readiness is checked as a supplementary signal.
+  // Keep the agent off whenever it stops being available (model swapped for one
+  // without tool calling, agent service went away, Tavily key removed). Waits for
+  // the first probe so a persisted selection isn't cleared before it resolves.
   useEffect(() => {
-    let cancelled = false;
-
-    const checkToolCallingAvailability = async () => {
-      let modelHasToolCalling = false;
-      let agentHasWebSearch = false;
-
-      // 1. Check the selected model's tool_calling_enabled flag
-      if (modelID) {
-        try {
-          const deployedModels = await fetchDeployedModelsInfo();
-          const match = deployedModels.find((m) => m.id === modelID);
-          modelHasToolCalling = match?.tool_calling_enabled === true;
-        } catch {
-          // If deployed info fails, model flag stays false
-        }
-      } else {
-        // No model selected — tool calling unavailable
-        modelHasToolCalling = false;
-      }
-
-      // 2. Check whether Tavily is configured (backend always includes this,
-      //    even when the agent container is unreachable).
-      let tavilyConfigured = false;
-      try {
-        const res = await fetch("/models-api/agent/status/", { signal: AbortSignal.timeout(5000) });
-        const data = await res.json();
-        if (res.ok) {
-          const agent = data?.agent;
-          agentHasWebSearch = agent?.status === "ready" && agent?.capabilities?.web_search === true;
-        }
-        tavilyConfigured = data?.backend?.tavily_configured === true;
-      } catch {
-        // Backend not reachable
-      }
-
-      if (cancelled) return;
-
-      const available = modelHasToolCalling && (agentHasWebSearch || tavilyConfigured);
-      setIsAgentAvailable(available);
-      if (!available) {
-        setIsAgentSelected(false);
-      }
-
-      if (modelHasToolCalling && !tavilyConfigured) {
-        console.warn(
-          "[TT Studio] Search Agent is disabled — TAVILY_API_KEY is not configured.\n" +
-          "To enable the Search Agent, set a valid TAVILY_API_KEY in your .env file.\n" +
-          "Get your API key from: https://app.tavily.com"
-        );
-      }
-    };
-
-    checkToolCallingAvailability();
-    const interval = setInterval(checkToolCallingAvailability, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [modelID]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (agentCheckDone && !isAgentAvailable) {
+      setIsAgentSelected(false);
+    }
+  }, [agentCheckDone, isAgentAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // We've removed the loading state initialization to prevent getting stuck
 
@@ -1322,6 +1278,7 @@ export default function ChatComponent() {
               setModelID={setModelID}
               setModelName={setModelName}
               ragDataSources={ragDataSources}
+              systemCollections={systemCollections}
               ragDatasource={ragDatasource}
               setRagDatasource={setRagDatasource}
               isHistoryPanelOpen={isHistoryPanelOpen}

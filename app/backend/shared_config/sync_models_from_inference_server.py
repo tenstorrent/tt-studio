@@ -110,6 +110,8 @@ def map_model_type(raw_model_type: str, inference_engine: str) -> str:
     # CNN + forge = computer vision / object detection (resnet, vit, etc.)
     if raw_model_type == "CNN" and inference_engine == "forge":
         return "CNN"
+    if raw_model_type == "TRAINING":
+        return "TRAINING"
     return "CHAT"
 
 
@@ -153,6 +155,8 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # Other media models (embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
+        if raw_model_type == "TRAINING":
+            return "/v1/jobs"
         return "/v1/chat/completions"
     return "/v1/chat/completions"
 
@@ -235,6 +239,10 @@ def _iter_v1_entries(model_specs: dict):
             for _engine, by_impl in by_engine.items():
                 for _impl_name, entry in by_impl.items():
                     if isinstance(entry, dict):
+                        # The impl name is the nesting key, not always a field on
+                        # the leaf. Carry it so the catalog can disambiguate models
+                        # whose name+device match multiple engine specs.
+                        entry.setdefault("impl", _impl_name)
                         yield entry
 
 
@@ -293,6 +301,7 @@ def normalize(source_path: Path) -> list[dict]:
             "device_configurations": device_configurations,
             "hf_model_id": first.get("hf_model_repo"),
             "inference_engine": inference_engine,
+            "impl": first.get("impl"),
             "status": status,
             "version": canonical.get("version", "0.0.0"),
             "docker_image": canonical.get("docker_image"),
