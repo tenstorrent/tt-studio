@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "workflow_control.apps.WorkflowControlConfig",
     "channels",
     "wakeword_control",
+    "training_control",
 ]
 
 MIDDLEWARE = [

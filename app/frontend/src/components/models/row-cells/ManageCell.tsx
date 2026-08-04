@@ -14,6 +14,7 @@ import {
   Mic,
   Volume2,
   ScanFace,
+  BrainCog,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
@@ -93,7 +94,9 @@ export default React.memo(function ManageCell({
             ? "Face Rec"
             : modelType === ModelType.TTS
               ? "TTS"
-              : "Chat";
+              : modelType === ModelType.Training
+                ? "Training Dashboard"
+                : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration
       ? ImageIcon
@@ -105,7 +108,9 @@ export default React.memo(function ManageCell({
             ? ScanFace
             : modelType === ModelType.TTS
               ? Volume2
-              : MessageSquareText;
+              : modelType === ModelType.Training
+                ? BrainCog
+                : MessageSquareText;
 
   if (isFailed) {
     return (
