@@ -134,11 +134,12 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const formatBytes = (bytes?: number | null) => {
     if (bytes === undefined || bytes === null || bytes < 0) return '—';
     if (bytes === 0) return '0 B';
+    // Decimal (1000-based) units to match HuggingFace's reported sizes
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     let value = bytes;
     let u = 0;
-    while (value >= 1024 && u < units.length - 1) {
-      value /= 1024;
+    while (value >= 1000 && u < units.length - 1) {
+      value /= 1000;
       u += 1;
     }
     const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;

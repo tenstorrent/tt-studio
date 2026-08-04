@@ -948,6 +948,11 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
             try:
                 if entry.get("type") != "file":
                     continue
+                # Mirror `hf download --exclude original/**` in setup_host: those
+                # consolidated .pth weights are never fetched, so counting them would
+                # roughly double the reported total vs. what actually lands on disk.
+                if str(entry.get("path") or "").startswith("original/"):
+                    continue
                 lfs = entry.get("lfs")
                 size: Optional[int] = None
                 if isinstance(lfs, dict):

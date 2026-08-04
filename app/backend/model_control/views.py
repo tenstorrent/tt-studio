@@ -102,12 +102,18 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
             phase_dict["weights_cached"] = True
         if prev.get("weights_repo") and not phase_dict.get("weights_repo"):
             phase_dict["weights_repo"] = prev["weights_repo"]
+        # Sticky once we've seen a real in-container download (docker-volume path).
+        if prev.get("download_in_container") and not phase_dict.get("download_in_container"):
+            phase_dict["download_in_container"] = True
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
             "max_progress": new_max_progress,
             "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
+            "download_in_container": bool(
+                phase_dict.get("download_in_container") or prev.get("download_in_container")
+            ),
         }
     return phase_dict
 
