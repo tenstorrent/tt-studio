@@ -64,6 +64,10 @@ class ModelImpl:
     health_route: str = "/health"
     display_model_type: str = "LLM"
     inference_engine: str = "vllm"
+    # tt-inference-server impl name (e.g. "training_lora", "tt_transformers").
+    # Disambiguates models whose name+device match multiple engine specs so the
+    # server deploys the intended one instead of defaulting to another engine.
+    inference_impl: Optional[str] = None
     param_count: Optional[int] = None
 
     def __post_init__(self):
@@ -86,6 +90,18 @@ class ModelImpl:
             self.docker_config["environment"]["WH_ARCH_YAML"] = (
                 "wormhole_b0_80_arch_eth_dispatch.yaml"
             )
+
+        # Training containers: keep long-running jobs alive across restarts and enable persistence.
+        # setdefault lets catalog `env_vars` or a model env file override these.
+        if self.model_type == ModelTypes.TRAINING:
+            training_job_env = {
+                "JOB_CLEANUP_INTERVAL_SECONDS": "10000",
+                "JOB_MAX_STUCK_TIME_SECONDS": "100000",
+                "REQUEST_PROCESSING_TIMEOUT_SECONDS": "100000",
+                "ENABLE_JOB_PERSISTENCE": "true",
+            }
+            for _key, _value in training_job_env.items():
+                self.docker_config["environment"].setdefault(_key, _value)
 
         # model env file must be interpreted here
         if not self.env_file:
@@ -306,6 +322,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             shm_size=entry.get("shm_size", "32G"),
             display_model_type=entry.get("display_model_type", "LLM"),
             inference_engine=entry.get("inference_engine", "vllm"),
+            inference_impl=entry.get("impl"),
             param_count=entry.get("param_count"),
         )
         impls.append(impl)
