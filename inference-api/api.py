@@ -839,21 +839,12 @@ def _resolve_weights_location(
                 host_path=expected_weights_dir,
             )
 
-    # Default path: Docker named volume.
-    try:
-        model_spec, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
-    except Exception as exc:
-        logger.warning(
-            "weights-monitor: could not resolve model spec for %s/%s/%s: %s",
-            model_name, device, impl, exc,
-        )
-        return None
-    volume_name = f"volume_id_{model_spec.impl.impl_id}-{model_spec.model_name}"
-    # setup_host.setup_weights_huggingface writes to {host_model_volume_root}/weights/{model_name}/
+    # Default path: weights download to the host HuggingFace cache via
+    # --host-hf-cache (setup_host.setup_weights_huggingface), so read byte growth
+    # from the HF hub layout under HF_HOME.
     return WeightsLocation(
-        read_mode="docker_volume",
-        volume_name=volume_name,
-        volume_subpath=f"weights/{model_spec.model_name}",
+        read_mode="hf_cache",
+        host_path=_default_hf_home(),
     )
 
 
@@ -911,6 +902,8 @@ def _downloaded_bytes_for_location(
     if location is not None:
         if location.read_mode == "host_fs" and location.host_path:
             return _dir_size_bytes_recursive(location.host_path)
+        if location.read_mode == "hf_cache" and location.host_path and repo_id:
+            return _get_downloaded_bytes_from_hf_cache(location.host_path, repo_id)
         if location.read_mode == "docker_volume" and location.volume_name and location.volume_subpath:
             return _du_bytes_in_volume(location.volume_name, location.volume_subpath)
     # Legacy fallback (hf_home discovered via log scrape).
