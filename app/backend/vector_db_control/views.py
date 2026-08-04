@@ -722,10 +722,23 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"error": f"Invalid parameter: {e}"},
             )
-        disable_stages = tuple(
-            s for s in (data.get("disable_stages") or []) if isinstance(s, str)
+        disable_raw = data.get("disable_stages")
+        if disable_raw is None:
+            disable_stages = ()
+        elif isinstance(disable_raw, list):
+            disable_stages = tuple(s for s in disable_raw if isinstance(s, str))
+        else:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "`disable_stages` must be a JSON array of strings"},
+            )
+
+        rerank_raw = data.get("rerank", settings.RAG_RERANK_ENABLED)
+        use_rerank = (
+            rerank_raw
+            if isinstance(rerank_raw, bool)
+            else str(rerank_raw).strip().lower() not in ("0", "false", "no", "")
         )
-        use_rerank = bool(data.get("rerank", settings.RAG_RERANK_ENABLED))
 
         user_id = self.get_user_identifier(request)
         if collection_name:
