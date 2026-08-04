@@ -74,6 +74,7 @@
     "react-markdown": "^9.0.1",
     "react-resizable-panels": "^2.1.7",
     "react-router-dom": "^6.28.0",
+    "recharts": "^3.9.0",
     "remark-gfm": "^4.0.0",
     "shiki": "^1.23.1",
     "tailwind-merge": "^2.2.1",
