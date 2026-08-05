@@ -188,10 +188,6 @@ class _Manager:
                 "container_id": kwargs.get("container_id", ""),
                 "container_name": kwargs.get("container_name", ""),
                 "model_name": kwargs.get("model_name", ""),
-                # Unique catalog impl id (model_implmentations key). Disambiguates
-                # deployments whose model_name collides across impls (e.g. the CHAT
-                # and TRAINING "Llama-3.1-8B" specs) so the container resolves back
-                # to the exact impl that was deployed.
                 "model_id": kwargs.get("model_id", ""),
                 "device": kwargs.get("device", ""),
                 "deployed_at": _now().isoformat(),

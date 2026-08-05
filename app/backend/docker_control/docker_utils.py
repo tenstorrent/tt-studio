@@ -32,34 +32,23 @@ DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 
 # Shared host-volume subdirectory (under the TT-Studio persistent volume) that
-# training deploys bind-mount via --host-volume. run.py nests each model's data
-# under `<training_volume>/volume_id_<impl>-<model>-v<ver>/`, and adapter merges
-# land at `.../merged_models/<merge_id>/`, so this is the root the inference-api
-# merged-checkpoint scanner walks. Kept on the persistent volume so merged
-# checkpoints survive container/board restarts.
+# training deploys bind-mount via --host-volume. 
 TRAINING_HOST_VOLUME_SUBDIR = "training_volume"
 
 
 def get_training_host_volume() -> str:
-    """Host path passed to run.py as --host-volume for training deploys.
-
-    Also ensures the directory exists (via the container-internal mount path) so
-    the Docker bind mount source is present before run.py launches the container.
+    """
+    Host path passed to run.py as --host-volume for training deploys.
     """
     internal_dir = os.path.join(
         backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
     )
-    # Only set permissions when we actually create the directory, so we don't
-    # clobber tighter permissions an operator may have applied on later calls.
     if not os.path.isdir(internal_dir):
         try:
             os.makedirs(internal_dir, exist_ok=True)
-            # The backend runs as root, so the dir is created root-owned, but the
-            # host user running run.py (which creates the per-model `volume_id_*`
-            # subdir) and the container (uid 1000, which writes merged_models/) are
-            # non-root. Grant them write via the sticky world-writable mode 01777 —
-            # the sticky bit prevents cross-user deletion/renames, matching the
-            # convention tt-inference-server uses for shared caches.
+            # Dir is created root-owned, but the host user (run.py) and container
+            # (uid 1000) also write here. Sticky world-writable 01777 lets both
+            # write while blocking cross-user deletes.
             os.chmod(internal_dir, 0o1777)
         except OSError as e:
             logger.warning(
@@ -467,16 +456,8 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if inference_impl:
             payload["impl"] = inference_impl
 
-        # Training deploys bind-mount a shared host volume so LoRA adapters and any
-        # merged checkpoints they produce land on the host filesystem (where the
-        # inference-api scanner and a later --host-weights-dir inference deploy can
-        # reach them). Without --host-volume the container would use an anonymous
-        # Docker named volume that is invisible on the host.
         if impl.model_type == ModelTypes.TRAINING:
             payload["host_volume"] = get_training_host_volume()
-        # Merged LoRA checkpoint: load pre-merged HF weights instead of downloading
-        # the base model (--host-weights-dir). Mutually exclusive with host_volume,
-        # so a training deploy's host_volume always takes precedence.
         elif host_weights_dir:
             payload["host_weights_dir"] = host_weights_dir
 
@@ -928,10 +909,8 @@ def _enrich_container_with_model_impl(con, con_id):
                 deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                 if deployment:
-                    # Prefer the unique impl id: model_name alone is ambiguous when
-                    # two specs share a name (e.g. the CHAT and TRAINING "Llama-3.1-8B"),
-                    # which would otherwise resolve to the wrong model_type and route
-                    # the user to the wrong page (chat vs training).
+                    # model_name alone is ambiguous when two model specs share a name
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B")
                     stored_model_id = getattr(deployment, "model_id", "") or ""
                     if stored_model_id and stored_model_id in model_implmentations:
                         model_impl = model_implmentations[stored_model_id]

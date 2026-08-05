@@ -19,9 +19,6 @@ class DeploymentSerializer(serializers.Serializer):
     device_id = serializers.CharField(required=False, default="0", allow_blank=True)
     host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
     force_full_board = serializers.BooleanField(required=False, default=False)
-    # Host path of a merged LoRA checkpoint (from the merged-checkpoints picker).
-    # When set, it is passed to run.py as --host-weights-dir so the inference
-    # container loads those weights instead of downloading the base model.
     host_weights_dir = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_device_id(self, value):

@@ -20,14 +20,7 @@ logger = get_logger(__name__)
 
 PROXY_TIMEOUT = 120
 
-# Custom datasets uploaded from the UI live under the shared training host volume
-# so they persist across container/board restarts and are visible to the training
-# container (same volume it bind-mounts). Kept alongside the per-model
-# `volume_id_*` dirs the training deploys write.
 CUSTOM_DATASETS_SUBDIR = os.path.join("training_volume", "custom_datasets")
-
-# Cap uploaded dataset size to guard against filling the persistent volume. 100 MB
-# is generous for a JSON fine-tuning dataset.
 MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
 
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
@@ -170,15 +163,13 @@ def _custom_datasets_dir():
 
 
 def _safe_dataset_filename(name):
-    """Return a sanitized ``.json`` filename, or ``None`` if invalid.
-
+    """
     Strips any directory components to prevent path traversal and requires a
     ``.json`` extension (the only format the preview/loader understands).
     """
     if not name:
         return None
     base = os.path.basename(name.replace("\\", "/")).strip()
-    # Reject hidden/relative names that survive basename (e.g. "." or "..").
     if not base or base in (".", "..") or base.startswith("."):
         return None
     if not base.lower().endswith(".json"):
@@ -197,11 +188,6 @@ class CustomDatasetsView(View):
 
     GET  /training/datasets/custom/  → list uploaded datasets
     POST /training/datasets/custom/  → upload a dataset JSON file (multipart)
-
-    These datasets are offered as choices in the New Training Job dialog. The
-    inference/training server does not yet accept arbitrary datasets, so a job
-    that selects one still trains on the default (sst2) recipe — the custom file
-    is stored for preview/selection purposes only.
     """
 
     def get(self, request, *args, **kwargs):
@@ -416,9 +402,7 @@ class TrainingCheckpointMergeView(View):
     """POST /training/jobs/<job_id>/checkpoints/<ckpt_id>/merge/ → Container merge.
 
     Promotes a LoRA adapter checkpoint into a full HF checkpoint the inference
-    container can serve. The training container writes the result under its
-    host-mounted CACHE_ROOT (merged_models/<merge_id>/), which the merged-checkpoint
-    scanner later discovers on disk.
+    container can serve. 
     """
 
     def post(self, request, job_id, ckpt_id, *args, **kwargs):
@@ -439,10 +423,7 @@ class MergedCheckpointsView(View):
     """GET /training/merged-checkpoints/?model_id=<id> → inference-api scan.
 
     Discovers merged LoRA checkpoints by scanning the shared training host volume
-    on disk (via the host-side inference-api), rather than querying a training
-    container — so it works even after the producing container is gone. Filters to
-    checkpoints merged from the selected model's base weights (matched on
-    ``hf_model_id``).
+    on disk 
     """
 
     def get(self, request, *args, **kwargs):
@@ -453,13 +434,9 @@ class MergedCheckpointsView(View):
                 {"error": f"Unknown model_id={model_id}."}, status=404
             )
 
-        # Merged checkpoints are for deploying an inference model with fine-tuned
-        # weights. A training deploy would match its own base model's checkpoints,
-        # so exclude TRAINING model types — the picker is only for inference deploys.
         if impl is not None and getattr(impl, "model_type", None) == ModelTypes.TRAINING:
             return JsonResponse({"merged_checkpoints": []}, status=200)
 
-        # Reuse the same shared host-volume root that training deploys bind-mount.
         from docker_control.docker_utils import get_training_host_volume
 
         params = {"host_volume": get_training_host_volume()}

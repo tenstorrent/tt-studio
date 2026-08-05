@@ -701,18 +701,13 @@ def _model_uses_host_hf_cache(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HF_CACHE_MODEL_ALLOWLIST
 
 
-# Sidecar file the tt-media-server training container writes into each merged-model
-# directory once an adapter merge completes; its presence marks the checkpoint as
-# ready to serve. Kept in sync with tt-media-server's MERGE_INFO_FILE_NAME.
+# Kept in sync with tt-media-server's MERGE_INFO_FILE_NAME.
 _MERGE_INFO_FILE_NAME = "merge_info.json"
 
 
 def _is_hf_weights_dir(path: Path) -> bool:
-    """True if *path* looks like a loadable HF checkpoint.
-
-    Mirrors tt-inference-server's setup_host.check_model_weights_dir: an HF-format
-    directory needs a config (config.json or params.json), a tokenizer, and at
-    least one safetensors shard. Used to flag incomplete/partial merges.
+    """
+    True if *path* looks like a loadable HF checkpoint.
     """
     try:
         if not path.is_dir():
@@ -1601,13 +1596,6 @@ class RunRequest(BaseModel):
     # Internal flag to track if this is already a retry (to prevent infinite loops)
     is_retry: Optional[bool] = False
     skip_system_sw_validation: Optional[bool] = False
-    # Explicit host-mount flags (LoRA merge workflow). When set, these take
-    # precedence over the model-name-based auto host-volume / host-hf-cache logic
-    # and disable it (only one host mount may be set per run.py invocation):
-    #   - host_volume: read-write persistent storage root (training deploys use
-    #     this so merged checkpoints land on the host filesystem).
-    #   - host_weights_dir: read-only pre-merged HF checkpoint an inference
-    #     container should load instead of downloading base weights from HF.
     host_volume: Optional[str] = None
     host_weights_dir: Optional[str] = None
 
@@ -2043,8 +2031,7 @@ async def run_inference(request: RunRequest):
 
         # Explicit host-mount flags from the deploy request (LoRA merge workflow)
         # take precedence over the model-name-based auto host-volume / host-hf-cache
-        # logic below. Only one host mount may be set per run.py invocation, so an
-        # explicit flag disables the auto-injection entirely.
+        # logic below.
         explicit_host_mount = False
         if request.host_weights_dir:
             base_argv.extend(["--host-weights-dir", request.host_weights_dir])

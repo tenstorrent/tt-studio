@@ -344,7 +344,6 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
             force_full_board_requested = serializer.validated_data.get("force_full_board", False)
-            # Optional merged LoRA checkpoint (host path) to load via --host-weights-dir.
             host_weights_dir = serializer.validated_data.get("host_weights_dir") or None
 
             # Get manual override if in advanced mode (optional).

@@ -148,8 +148,6 @@ def start_chat_deployment(
         payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
-    # Merged LoRA checkpoint: load these pre-merged HF weights instead of
-    # downloading the base model from HuggingFace (--host-weights-dir).
     if host_weights_dir:
         payload["host_weights_dir"] = host_weights_dir
 
