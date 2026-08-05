@@ -136,7 +136,8 @@ function compactPercent(
     "image_ready", "container_setup", "container_started", "network_setup", "finalizing", "complete",
   ]);
   if (isPull) return Math.round(lerp(pullLo, pullHi, frac));
-  if (p.stage === "model_preparation") return Math.round(lerp(dlLo, dlHi, frac));
+  if (p.stage === "model_preparation")
+    return Math.round(lerp(dlLo, dlHi, p.weights_cached ? 1 : frac));
   if (containerStartStages.has(p.stage))
     return Math.round(lerp(startLo, startHi, (p.progress ?? 0) / 100));
   return Math.round(hasPull ? pullLo : dlLo);

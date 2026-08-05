@@ -57,9 +57,13 @@ def _hf_cache_hub_dir():
     """HuggingFace hub cache dir TT Studio downloads model weights into — mirrors
     inference-api's _default_hf_home: HOST_HF_HOME → HF_HOME → ~/.cache/huggingface."""
     from tt_setup.env_config import get_env_var
-    base = (get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME")
-            or os.path.expanduser("~/.cache/huggingface"))
-    return os.path.join(base, "hub")
+    base = os.path.normpath(
+        get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME")
+        or os.path.expanduser("~/.cache/huggingface")
+    )
+    # HF_HOME points at the cache root (hub lives under it); tolerate it already
+    # pointing at the hub dir so we don't append a second /hub.
+    return base if os.path.basename(base) == "hub" else os.path.join(base, "hub")
 
 
 def _tt_studio_hf_repo_ids():

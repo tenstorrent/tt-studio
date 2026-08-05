@@ -253,9 +253,10 @@ def _worker(
                     break
                 time.sleep(_POLL_INTERVAL_SECONDS)
 
-        # Cancelled during the pull: don't start the deploy at all.
+        # Cancelled during the pull: don't start the deploy at all. Use a distinct
+        # "cancelled" status so the UI shows a user cancellation, not a pull failure.
         if _is_pull_cancelled(pull_id):
-            _update(pull_id, status="error", error="cancelled",
+            _update(pull_id, status="cancelled",
                     message="Deployment cancelled by user")
             logger.info(f"[image_pull] {pull_id} cancelled before deploy")
             return

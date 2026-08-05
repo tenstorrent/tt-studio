@@ -1011,6 +1011,10 @@ class CancelDeploymentView(APIView):
                 targets.add(real)
 
         for target in targets:
+            # The pre-pull id isn't an inference job — request_pull_cancel() above
+            # handles it; only forward the real inference job id to inference-api.
+            if pull_job is not None and target == job_id:
+                continue
             try:
                 requests.post(_build_fastapi_url(f"run/cancel/{target}"), timeout=5)
             except Exception as e:
@@ -1048,13 +1052,15 @@ class DeploymentProgressView(APIView):
                 if real_job_id:
                     # Pull finished and /run dispatched — track the real job from here on.
                     job_id = real_job_id
-                elif pull_job.get("status") == "error":
+                elif pull_job.get("status") in ("error", "cancelled"):
+                    is_cancelled = pull_job.get("status") == "cancelled"
                     return Response(
                         {
-                            "status": "error",
-                            "stage": "error",
+                            "status": "cancelled" if is_cancelled else "error",
+                            "stage": "cancelled" if is_cancelled else "error",
                             "progress": 0,
-                            "message": pull_job.get("message") or "Image pull failed",
+                            "message": pull_job.get("message")
+                            or ("Deployment cancelled by user" if is_cancelled else "Image pull failed"),
                         },
                         status=status.HTTP_200_OK,
                     )

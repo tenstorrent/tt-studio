@@ -904,7 +904,7 @@ def _model_downloads_in_container(model_name: str, device: str, impl: Optional[s
         return False
     model_type = getattr(ms, "model_type", None)
     name = getattr(model_type, "name", str(model_type))
-    return name in ("AUDIO", "TEXT_TO_SPEECH")
+    return name in ("AUDIO", "SPEECH_RECOGNITION", "TEXT_TO_SPEECH")
 
 
 def _resolve_weights_location(
@@ -1711,6 +1711,10 @@ async def cancel_run(job_id: str):
     """Cancel an in-flight deploy job: kill its download (if running) and mark it
     cancelled so the background thread bails out instead of retrying. Partial weight
     files are left on disk so a later deploy resumes."""
+    # Pre-pull ids never run through run_main() here, so nothing would ever clear them
+    # from _cancelled_jobs — don't record them. The pull is cancelled backend-side.
+    if job_id.startswith("imgpull_"):
+        return {"job_id": job_id, "status": "cancelled", "killed_processes": 0}
     with _cancel_lock:
         _cancelled_jobs.add(job_id)
         is_active = _active_run_job_id == job_id
