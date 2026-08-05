@@ -216,11 +216,13 @@ except ImportError as e:
     ) from e
 
 # Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
-# HF cache snapshots. The original method globs for any *.safetensors and returns True
-# if found, but a prior interrupted download can leave some shards complete (as symlinks
-# in the snapshot dir) while earlier shards are still in-progress .incomplete blobs two
-# levels up in blobs/. Without this patch, setup skips the download and launches the
-# container with missing shards → FileNotFoundError crash.
+#
+# Two on-disk layouts must be handled:
+#   - HF cache (host-hf-cache mode): hub/models--<org>--<repo>/snapshots/<sha>/, with
+#     in-progress files as blobs/*.incomplete two levels up.
+#   - local-dir (host-volume mode): a flat dir written by `hf download --local-dir`, with
+#     in-progress files under .cache/huggingface/download/*.incomplete and, for sharded
+#     models, shards enumerated in model.safetensors.index.json.
 #
 # Only overrides True → False (never the reverse). Fails open on any exception so a
 # permission error or unexpected path layout never blocks a valid deploy.
@@ -228,34 +230,55 @@ import workflows.setup_host as _setup_host_module  # noqa: E402
 _orig_check_model_weights_dir = _setup_host_module.HostSetupManager.check_model_weights_dir
 
 
+def _local_dir_incomplete(host_weights_dir):
+    """True if a `hf download --local-dir` copy is partial: any .incomplete marker,
+    or a shard listed in model.safetensors.index.json missing from disk."""
+    if list((host_weights_dir / ".cache" / "huggingface" / "download").glob("*.incomplete")):
+        return True
+    index_file = host_weights_dir / "model.safetensors.index.json"
+    if index_file.is_file():
+        weight_map = json.loads(index_file.read_text(encoding="utf-8")).get(
+            "weight_map", {}
+        )
+        missing = sorted(
+            s for s in set(weight_map.values()) if not (host_weights_dir / s).is_file()
+        )
+        if missing:
+            logging.getLogger(__name__).warning(
+                "check_model_weights_dir: %d shard(s) missing from %s — "
+                "re-download required. Files: %s",
+                len(missing), host_weights_dir, missing,
+            )
+            return True
+    return False
+
+
 def _patched_check_model_weights_dir(self, host_weights_dir):
     result = _orig_check_model_weights_dir(self, host_weights_dir)
     if not result or host_weights_dir is None:
         return result
-    # Navigate to the HF cache blobs/ dir (two levels above the snapshot dir).
-    # Layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
     try:
+        # HF cache layout: hub/models--<org>--<repo>/snapshots/<sha>/ → ../../blobs/
         blobs_dir = host_weights_dir.parent.parent / "blobs"
-    except Exception:
-        return result
-    if not blobs_dir.is_dir():
-        return result  # not an HF cache layout (host-volume, local dir, etc.)
-    try:
-        incomplete = list(blobs_dir.glob("*.incomplete"))
+        if blobs_dir.is_dir():
+            incomplete = [f.name for f in blobs_dir.glob("*.incomplete")]
+            if incomplete:
+                logging.getLogger(__name__).warning(
+                    "check_model_weights_dir: %d incomplete blob(s) in %s — "
+                    "re-download required. Files: %s",
+                    len(incomplete), blobs_dir, incomplete,
+                )
+                return False
+            return True
+        # local-dir layout (host-volume mode)
+        if _local_dir_incomplete(host_weights_dir):
+            return False
     except Exception as exc:
-        _patched_check_model_weights_dir_logger = logging.getLogger(__name__)
-        _patched_check_model_weights_dir_logger.warning(
-            "check_model_weights_dir: cannot scan blobs dir %s: %s", blobs_dir, exc
-        )
-        return result
-    if incomplete:
         logging.getLogger(__name__).warning(
-            "check_model_weights_dir: %d incomplete blob(s) in %s — "
-            "re-download required. Files: %s",
-            len(incomplete), blobs_dir, [f.name for f in incomplete],
+            "check_model_weights_dir: completeness scan of %s failed: %s",
+            host_weights_dir, exc,
         )
-        return False
-    return True
+    return result
 
 
 _setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
