@@ -6,7 +6,12 @@ import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
-import { fetchModels, fetchDeployedModelsInfo } from "../../api/modelsDeployedApis";
+import {
+  fetchModels,
+  fetchDeployedModelsInfo,
+  getModelTypeFromBackendType,
+  ModelType,
+} from "../../api/modelsDeployedApis";
 import { getTokenLimitsForModel } from "./tokenLimits";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
@@ -234,6 +239,20 @@ export default function ChatComponent() {
 
     loadModels();
   }, [location.state]);
+
+  // Voice input transcribes through a deployed speech recognition model, or the
+  // cloud endpoint in deployed mode. Without either, the mic button is hidden.
+  const sttDeployId = useMemo(() => {
+    const sttModel = modelsDeployed.find(
+      (model) =>
+        model.model_type &&
+        getModelTypeFromBackendType(model.model_type) ===
+          ModelType.SpeechRecognitionModel
+    );
+    return sttModel?.id ?? null;
+  }, [modelsDeployed]);
+  const voiceInputAvailable =
+    sttDeployId !== null || import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
   // Set dynamic token defaults when the selected model changes
   useEffect(() => {
@@ -1377,8 +1396,8 @@ export default function ChatComponent() {
               isStreaming={isStreaming}
               isListening={isListening}
               setIsListening={setIsListening}
-              files={files}
-              setFiles={setFiles}
+              voiceInputAvailable={voiceInputAvailable}
+              sttDeployId={sttDeployId}
               isMobileView={screenSize.isMobileView}
               onCreateNewConversation={createNewConversation}
               onStopInference={handleStopInference}
