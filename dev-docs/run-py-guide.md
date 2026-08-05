@@ -40,7 +40,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | Option | Description |
 | --- | --- |
 | `--help`, `-h` | Display the help message with all options grouped by panel. |
-| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. |
+| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. Also skips the release-branch sync requirement (see below), so a checkout behind `origin/main`/`origin/dev` still starts. |
 | `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
 | `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
 | `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
@@ -425,6 +425,23 @@ startup is never blocked or warned on hardware grounds.
 
 `IS_QB2` is independent of `TT_INFERENCE_ARTIFACT_BRANCH` / `TT_QB2_LAUNCH_BRANCH`,
 which only select which inference-server build to download.
+
+### Release-branch sync check
+
+At the Checks phase, startup compares your checkout against the same branch on
+GitHub. What happens when you're behind depends on the branch:
+
+| Checked-out branch | Behind `origin` | Result |
+|---|---|---|
+| Release (`main`, `dev`, `tt_qb2_launch_branch`, `rc/*`, `release/*`) | yes | ⛔ **stops** — `git pull` and re-run, **or** use `--dev` |
+| Any of the above, with `--dev` | yes | proceeds; note shown under `--verbose` |
+| Feature branch (e.g. `you/your-feature`) | yes | proceeds; note shown under `--verbose` |
+| Any branch | no | proceeds silently (✓ under `--verbose`) |
+
+`--dev` opts out because dev mode exists for iterating on local work — refusing
+to start there would block exactly the people who need the stack running while
+their branch is behind. Offline or unreachable GitHub is never a failure; the
+check is skipped with a muted note.
 
 ---
 

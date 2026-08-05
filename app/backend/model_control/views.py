@@ -339,6 +339,9 @@ class ModelHealthView(APIView):
                 # the container's stdout. Best-effort: if anything fails we still
                 # return the basic 202 so the badge logic is unaffected.
                 content["phase"] = _get_startup_phase(deploy_id)
+                # Bound the per-deploy progress state to currently-tracked deploys so it can't accumulate.
+                from .download_progress import prune_state
+                prune_state(set(get_deploy_cache().keys()))
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}

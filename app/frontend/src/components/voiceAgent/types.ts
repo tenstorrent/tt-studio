@@ -5,6 +5,8 @@ export type PipelineStage =
   | "idle"
   | "recording"
   | "transcribing"
+  | "retrieving"
+  | "searching"
   | "thinking"
   | "speaking"
   | "done";
@@ -28,6 +30,16 @@ export interface PipelineMetrics {
   llm_tokens?: number;
   tts_latency_ms?: number;
   total_ms?: number;
+  rag_latency_ms?: number;
+  rag_doc_count?: number;
+  rag_used?: boolean;
+  rag_collection?: string;
+  web_search_used?: boolean;
+}
+
+export interface SourceLink {
+  title: string;
+  url: string;
 }
 
 export interface ConversationMessage {
@@ -37,6 +49,14 @@ export interface ConversationMessage {
   date: Date;
   audioBlob?: Blob;
   isStreaming?: boolean;
+  /** Web sources the Search Agent cited for this turn. */
+  sources?: SourceLink[];
+  /** Search queries the agent ran while answering, shown live and after. */
+  searchQueries?: string[];
+  /** Collection this turn was grounded in, when RAG was on. */
+  ragCollection?: string;
+  /** Per-turn pipeline timings, shown under the answer. */
+  metrics?: PipelineMetrics;
 }
 
 export interface Conversation {
@@ -44,4 +64,6 @@ export interface Conversation {
   title: string;
   date: Date;
   messages: ConversationMessage[];
+  /** Stable id for the agent service's per-conversation memory. */
+  threadId: number;
 }

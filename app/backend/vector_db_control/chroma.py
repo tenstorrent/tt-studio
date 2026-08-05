@@ -88,6 +88,7 @@ def insert_to_chroma_collection(
     ids: list[str],
     documents: list[str],
     metadatas: list[dict],
+    upsert: bool = False,
 ):
     embedding_func = get_embedding_function(model_name=embedding_func_name)
 
@@ -95,6 +96,10 @@ def insert_to_chroma_collection(
         name=collection_name,
         embedding_function=embedding_func,
     )
+
+    # Upsert overwrites documents that already carry the same id, which lets a
+    # caller refresh a collection in place instead of clearing it first.
+    write_batch = target_collection.upsert if upsert else target_collection.add
 
     document_indices = list(range(len(documents)))
 
@@ -104,7 +109,7 @@ def insert_to_chroma_collection(
         batch_metadatas = (
             metadatas[start_idx:end_idx] if metadatas and len(metadatas) else None
         )
-        target_collection.add(
+        write_batch(
             ids=ids[start_idx:end_idx],
             documents=documents[start_idx:end_idx],
             metadatas=batch_metadatas,
