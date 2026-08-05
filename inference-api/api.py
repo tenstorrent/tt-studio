@@ -2461,10 +2461,6 @@ async def run_inference(request: RunRequest):
                         "last_updated": time.time()
                     })
         
-        # Restore working directory in case of exception
-        if 'original_cwd' in locals() and 'script_dir' in locals() and original_cwd != script_dir:
-            os.chdir(original_cwd)
-        
         # Return JSONResponse instead of raising HTTPException to include job_id
         if 'job_id' in locals():
             return JSONResponse(

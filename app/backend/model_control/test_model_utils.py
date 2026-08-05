@@ -6,6 +6,7 @@ import json
 import time
 import os
 
+import pytest
 import requests
 import jwt
 
@@ -21,6 +22,8 @@ from model_control.model_utils import (
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+pytestmark = pytest.mark.live_stack
 
 # for test script set up Django using settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "api.settings")

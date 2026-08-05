@@ -1,0 +1,340 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Backend CI — gates every PR on the Python side of TT-Studio:
+#   - lint gate for the real-bug rule classes (undefined names, syntax errors)
+#     plus a non-blocking full lint/format report on the run summary
+#   - dependency installability (pip install + pip check) for all four
+#     Python services, each in its own venv (their pins conflict on purpose)
+#   - Django sanity: system checks, migration drift, migrate, ASGI import
+#   - the hardware-free unit-test suite with a coverage summary
+#   - boot-time budgets for a bare uvicorn boot and for the real Docker image
+#   - docker compose validation for every overlay combination run.py assembles
+#
+# Live-stack and Tenstorrent-hardware testing is owned by deploy-healthcheck.yml
+# (workflow_dispatch on self-hosted runners) — deliberately not duplicated here.
+
+name: Backend CI
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [dev, main]
+    paths:
+      - "app/backend/**"
+      - "app/agent/**"
+      - "inference-api/**"
+      - "docker-control-service/**"
+      - "app/docker-compose*.yml"
+      - ".env.default"
+      - "ruff.toml"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    branches: [dev, main, staging]
+    types: [opened, reopened, synchronize]
+    paths:
+      - "app/backend/**"
+      - "app/agent/**"
+      - "inference-api/**"
+      - "docker-control-service/**"
+      - "app/docker-compose*.yml"
+      - ".env.default"
+      - "ruff.toml"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-gate:
+    name: ruff gate (undefined names, syntax errors)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        # version pinned to match dev-tools/requirements-dev.txt and the pre-commit hook
+        run: pip install ruff==0.7.0
+      - name: Undefined names and syntax errors are hard failures
+        run: ruff check --select F821,E9 app/backend app/agent inference-api docker-control-service
+
+  lint-report:
+    name: ruff full report (advisory)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.7.0
+      - name: Full lint + format drift (never fails; see the run Summary)
+        run: |
+          DIRS="app/backend app/agent inference-api docker-control-service"
+          {
+            echo "### Ruff advisory report (default rules, ruff 0.7.0)"
+            echo ""
+            echo "Full-tree lint and format drift. Informational until the"
+            echo "existing debt is cleared and the hard gate widens beyond F821/E9."
+            echo ""
+            echo '```'
+            ruff check --exit-zero --statistics $DIRS
+            echo '```'
+            UNFORMATTED=$(ruff format --check $DIRS 2>/dev/null | grep -c "^Would reformat" || true)
+            echo ""
+            echo "**Files needing \`ruff format\`:** $UNFORMATTED"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  backend:
+    name: backend deps, django sanity, unit tests, boot timing
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    # vector_db_control.apps.ready() connects to ChromaDB during django.setup(),
+    # so every Django entrypoint below (checks, tests, uvicorn) needs a live
+    # chroma. The image's default command listens on 8000 internally.
+    services:
+      chroma:
+        image: chromadb/chroma:0.5.3
+        ports:
+          - 8111:8000
+    defaults:
+      run:
+        working-directory: app/backend
+    env:
+      TT_STUDIO_ROOT: ${{ github.workspace }}
+      HOST_PERSISTENT_STORAGE_VOLUME: ${{ runner.temp }}/tt_studio_volume
+      INTERNAL_PERSISTENT_STORAGE_VOLUME: ${{ runner.temp }}/tt_studio_volume
+      BACKEND_API_HOSTNAME: localhost
+      CHROMA_DB_HOST: localhost
+      CHROMA_DB_PORT: "8111"
+      # Set explicitly so settings import doesn't auto-generate a secret and
+      # persist user_config.env (shared_config/user_config.py does that when unset).
+      JWT_SECRET: ci-test-jwt-secret
+      DJANGO_SECRET_KEY: django-insecure-ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/backend/requirements.txt
+      - name: Cache the embedding model
+        # ready() also preloads all-MiniLM-L6-v2 via sentence-transformers;
+        # cache it so boots don't re-download it from Hugging Face every run.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-cache-all-MiniLM-L6-v2
+      - name: System build deps
+        # chroma-hnswlib is pinned --no-binary (C++ build) and pysqlite3 is a
+        # source-only distribution that needs the sqlite3 headers.
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libsqlite3-dev
+      - name: Install backend requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip check
+          # Mirrors app/backend/Dockerfile: openwakeword hard-pins tflite-runtime,
+          # which has no py3.12 wheel; we run inference_framework="onnx" and
+          # onnxruntime is already pinned in requirements.txt. Installed after
+          # `pip check` because its unsatisfiable tflite-runtime pin would
+          # otherwise fail the check by design.
+          pip install --no-deps openwakeword==0.6.0
+      - name: Wait for chroma
+        run: |
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8111/api/v1/heartbeat >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "::error::ChromaDB service container never became healthy"
+          exit 1
+      - name: Django sanity
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python -c "import api.asgi; print('ASGI app imports cleanly')"
+      - name: Unit tests + coverage
+        run: |
+          pip install coverage==7.15.1  # pinned in dev-tools/requirements-dev.txt
+          coverage run --source=api,board_control,docker_control,logs_control,model_control,shared_config,training_control,vector_db_control,wakeword_control,workflow_control \
+            -m pytest
+          coverage report -m
+          {
+            echo "### Backend unit-test coverage"
+            echo ""
+            coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Boot-time budget (bare uvicorn)
+        # Boots in single-digit seconds warm; the budget leaves headroom for a
+        # cold Hugging Face download of the embedding model on cache misses.
+        run: |
+          set -euo pipefail
+          BUDGET=120
+          START=$(date +%s)
+          uvicorn api.asgi:application --host 127.0.0.1 --port 8000 &
+          UVICORN_PID=$!
+          BOOTED=""
+          for _ in $(seq 1 "$BUDGET"); do
+            if curl -fsS http://127.0.0.1:8000/up/ >/dev/null 2>&1; then BOOTED=1; break; fi
+            sleep 1
+          done
+          ELAPSED=$(( $(date +%s) - START ))
+          kill "$UVICORN_PID" 2>/dev/null || true
+          if [ -z "$BOOTED" ]; then
+            echo "::error::Backend did not answer /up/ within ${BUDGET}s"
+            exit 1
+          fi
+          echo "Backend booted in ${ELAPSED}s (budget ${BUDGET}s)"
+          echo "### Boot timing (bare uvicorn): **${ELAPSED}s** (budget ${BUDGET}s)" >> "$GITHUB_STEP_SUMMARY"
+
+  deps:
+    name: deps — ${{ matrix.service }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each service gets its own venv on purpose: the agent's langchain
+          # pins conflict with the backend's, and inference-api is pydantic v1.
+          - service: agent
+            python: "3.11" # app/agent/Dockerfile: python:3.11-slim-bookworm
+            workdir: app/agent
+            requirements: requirements.txt
+          - service: inference-api
+            python: "3.12"
+            workdir: inference-api
+            requirements: requirements.txt
+          - service: docker-control-service
+            python: "3.12"
+            workdir: docker-control-service
+            requirements: requirements-api.txt
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: ${{ matrix.workdir }}/${{ matrix.requirements }}
+      - name: Install + pip check
+        working-directory: ${{ matrix.workdir }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ${{ matrix.requirements }}
+          pip check
+      - name: Byte-compile sources
+        working-directory: ${{ matrix.workdir }}
+        run: python -m compileall -q -x '(\.venv|__pycache__)' .
+      - name: Import FastAPI app
+        # Only docker-control-service imports cleanly on a bare runner:
+        # inference-api imports the tt-inference-server artifact at module level.
+        if: matrix.service == 'docker-control-service'
+        working-directory: ${{ matrix.workdir }}
+        run: python -c "import api; print('docker-control-service app imports cleanly')"
+
+  compose-validate:
+    name: compose config (run.py overlay combos)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Materialize .env from the template
+        # Only TT_STUDIO_ROOT is a placeholder; everything else in .env.default
+        # is usable as-is for interpolation.
+        run: sed "s|<PATH_TO_ROOT_OF_REPO>|$GITHUB_WORKSPACE|" .env.default > "$RUNNER_TEMP/ci.env"
+      - name: Validate every overlay combination run.py can assemble
+        # Mirrors build_docker_compose_command() in tt_setup/docker.py:
+        # base + (dev-mode | prod) [+ tt-hardware when a card is detected].
+        run: |
+          set -euo pipefail
+          compose() {
+            docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml "$@" config -q
+          }
+          compose -f app/docker-compose.dev-mode.yml
+          compose -f app/docker-compose.prod.yml
+          compose -f app/docker-compose.dev-mode.yml -f app/docker-compose.tt-hardware.yml
+          compose -f app/docker-compose.prod.yml -f app/docker-compose.tt-hardware.yml
+          echo "All compose overlay combinations are valid"
+
+  docker-boot-smoke:
+    name: docker image build + boot smoke
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        # VITE_ENABLE_DEPLOYED=true skips the Rust/tt-smi layer (no TT hardware
+        # on hosted runners). The tag must match app/docker-compose.yml so
+        # `up --no-build` picks this image up.
+        uses: docker/build-push-action@v6
+        with:
+          context: app/backend
+          load: true
+          tags: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
+          build-args: |
+            VITE_ENABLE_DEPLOYED=true
+          cache-from: type=gha,scope=backend-image
+          cache-to: type=gha,scope=backend-image,mode=max
+      - name: Prepare environment
+        run: |
+          sed "s|<PATH_TO_ROOT_OF_REPO>|$GITHUB_WORKSPACE|" .env.default > "$RUNNER_TEMP/ci.env"
+          # Host directories referenced by the compose bind mounts.
+          mkdir -p .artifacts/tt-inference-server/workflow_logs \
+                   logs/model_run_logs \
+                   tt_studio_persistent_volume/chroma
+          # The compose network is external (run.py creates it at startup).
+          docker network create tt_studio_network
+          # Pre-pull chroma so the boot timer measures the backend, not the pull.
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml pull -q tt_studio_chroma
+      - name: Boot backend + chroma and enforce the boot budget
+        run: |
+          set -euo pipefail
+          BUDGET=180
+          START=$(date +%s)
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml \
+            up -d --no-build tt_studio_backend
+          BOOTED=""
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/up/ >/dev/null 2>&1; then BOOTED=1; break; fi
+            sleep 5
+          done
+          ELAPSED=$(( $(date +%s) - START ))
+          if [ -z "$BOOTED" ]; then
+            echo "::error::Backend container did not answer /up/ within 300s"
+            exit 1
+          fi
+          if [ "$ELAPSED" -gt "$BUDGET" ]; then
+            echo "::error::Backend boot took ${ELAPSED}s — over the ${BUDGET}s budget"
+            exit 1
+          fi
+          echo "Backend container booted in ${ELAPSED}s (budget ${BUDGET}s)"
+          echo "### Boot timing (docker, migrate + 4 uvicorn workers): **${ELAPSED}s** (budget ${BUDGET}s)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect container logs
+        if: failure()
+        run: |
+          mkdir -p /tmp/compose-logs
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml logs --no-color > /tmp/compose-logs/compose.log 2>&1 || true
+          docker ps -a > /tmp/compose-logs/docker-ps.txt || true
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-smoke-logs
+          path: /tmp/compose-logs/
+          retention-days: 7
+      - name: Teardown
+        if: always()
+        run: |
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml down -v --remove-orphans || true
+          docker network rm tt_studio_network || true

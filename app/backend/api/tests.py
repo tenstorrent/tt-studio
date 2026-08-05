@@ -10,6 +10,14 @@ from rest_framework.test import APIClient
 from api.views import _mask
 
 
+class UpStatusTests(SimpleTestCase):
+    def test_up_returns_200(self):
+        # Doubles as an import smoke test: resolving /up/ loads ROOT_URLCONF,
+        # which imports every installed app's urls and views.
+        response = APIClient().get("/up/")
+        self.assertEqual(response.status_code, 200)
+
+
 class MaskTests(SimpleTestCase):
     def test_none_and_empty(self):
         self.assertIsNone(_mask(None))

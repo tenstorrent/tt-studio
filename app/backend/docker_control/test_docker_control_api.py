@@ -5,6 +5,7 @@
 import json
 import time
 
+import pytest
 import requests
 import jwt
 
@@ -18,12 +19,14 @@ from .test_docker_utils import (
     valid_vllm_api_call,
 )
 
-from django.test import APITestCase
+from rest_framework.test import APITestCase
 from django.urls import reverse
 from rest_framework import status
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+pytestmark = pytest.mark.live_stack
 
 
 def create_auth_token():

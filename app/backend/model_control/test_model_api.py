@@ -5,6 +5,7 @@
 import json
 import time
 
+import pytest
 import requests
 from requests.exceptions import RequestException
 import jwt
@@ -14,6 +15,8 @@ from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+pytestmark = pytest.mark.live_stack
 
 
 on_bridge_network = False
@@ -89,6 +92,7 @@ def test_model_life_cycle():
     )
     logger.info(f'response.headers={response.headers.get("transfer-encoding")}')
     assert response.headers.get("transfer-encoding") == "chunked"
+    all_chunks = ""
     for chunk_idx, chunk in enumerate(
         response.iter_content(chunk_size=None, decode_unicode=True)
     ):
