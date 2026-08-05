@@ -8,6 +8,8 @@ import { StepperFormActions } from "./StepperFormActions";
 import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
+import { cancelDeployment } from "../api/modelsDeployedApis";
+import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
 import { Button } from "./ui/button";
@@ -60,6 +62,7 @@ export function DeployModelStep({
 }) {
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
+  const { removeDeployment } = useActiveDeploymentsContext();
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
@@ -213,6 +216,10 @@ export function DeployModelStep({
               }
               startTime={activeDeployment.startedAt}
               imagePulled={activeDeployment.hadImagePull}
+              onCancel={() => {
+                void cancelDeployment(activeDeployment.jobId);
+                removeDeployment(activeDeployment.jobId);
+              }}
             />
             <p className="mt-3 text-xs text-muted-foreground text-center">
               This model is already deploying. Go back to deploy another model in parallel,

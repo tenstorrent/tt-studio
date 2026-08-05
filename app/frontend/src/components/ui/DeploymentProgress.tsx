@@ -31,6 +31,7 @@ interface DeploymentProgressProps {
     total_bytes?: number | null;
     eta_seconds?: number | null;
     speed_bps?: number | null;
+    weights_cached?: boolean;
   } | null;
   className?: string;
   onRetry?: () => void;
@@ -275,6 +276,14 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
               ? 'Downloading model weights'
               : stageDisplayNames[stage] || stage}
           </span>
+          {progress.weights_cached && (
+            <span
+              className="ml-2 inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-300"
+              title="Weights are already in the HuggingFace cache — no download needed."
+            >
+              <span aria-hidden="true">✓</span> Cached
+            </span>
+          )}
         </div>
         <div className="flex items-center space-x-2">
           {startTime && (

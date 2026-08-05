@@ -458,6 +458,18 @@ export const deployModel = async (
   return response.json();
 };
 
+// Cancel an in-flight deployment (during image pull or weight download). Stops the
+// download and frees the reserved board; partial weight files are kept for resume.
+export const cancelDeployment = async (
+  jobId: string,
+): Promise<{ status?: string; job_id?: string; stopped_records?: number }> => {
+  const response = await fetch(`/docker-api/deploy/cancel/${jobId}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  return response.json();
+};
+
 // ----- TTS Inference -----
 export const runTTSInference = async (
   deployId: string,

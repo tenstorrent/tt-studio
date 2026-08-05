@@ -15,6 +15,7 @@ interface DeploymentTrayProps {
   deployments: ActiveDeployment[];
   progressByJob: Record<string, DeploymentProgressData>;
   onDismiss: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
 }
 
 /**
@@ -22,7 +23,7 @@ interface DeploymentTrayProps {
  * just-finished deployment. Stays mounted across Prev/Next. This subtle list shows
  * all deploys — including the one whose detailed bar is also open in the deploy step.
  */
-export function DeploymentTray({ deployments, progressByJob, onDismiss }: DeploymentTrayProps) {
+export function DeploymentTray({ deployments, progressByJob, onDismiss, onCancel }: DeploymentTrayProps) {
   const navigate = useNavigate();
   const [minimized, setMinimized] = useState(false);
   const shown = deployments;
@@ -100,6 +101,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
                   deployment={d}
                   progress={progressByJob[d.jobId] ?? null}
                   onDismiss={onDismiss}
+                  onCancel={onCancel}
                   onOpen={openDeployment}
                 />
               ))}
@@ -144,11 +146,13 @@ function DeploymentTrayItem({
   deployment,
   progress,
   onDismiss,
+  onCancel,
   onOpen,
 }: {
   deployment: ActiveDeployment;
   progress: DeploymentProgressData | null;
   onDismiss: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
   onOpen: (deployment: ActiveDeployment) => void;
 }) {
   const [showLogs, setShowLogs] = useState(false);
@@ -221,7 +225,7 @@ function DeploymentTrayItem({
         >
           {statusLabel}
         </span>
-        {(isFailed || isCompleted) && (
+        {isFailed || isCompleted ? (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -229,6 +233,18 @@ function DeploymentTrayItem({
             }}
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(deployment.jobId);
+            }}
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+            aria-label="Cancel deployment"
+            title="Cancel deployment"
           >
             <X className="h-3.5 w-3.5" />
           </button>

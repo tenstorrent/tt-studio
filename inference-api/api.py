@@ -11,6 +11,7 @@ import inspect
 import logging
 import time
 import docker
+import psutil
 import threading
 import uuid
 import re
@@ -362,6 +363,81 @@ log_store: Dict[str, deque] = {}
 progress_lock = threading.Lock()
 _run_main_lock = threading.Lock()
 
+# Cooperative cancellation for in-flight deploy jobs. run_main() is serialized by
+# _run_main_lock, so at most one job runs (and downloads) at a time; _active_run_job_id
+# tracks it so a cancel only kills the download of the job that is actually running.
+_cancel_lock = threading.Lock()
+_cancelled_jobs: set[str] = set()
+_active_run_job_id: Optional[str] = None
+
+
+def _is_job_cancelled(job_id: str) -> bool:
+    with _cancel_lock:
+        return job_id in _cancelled_jobs
+
+
+def _clear_job_cancel(job_id: str) -> None:
+    with _cancel_lock:
+        _cancelled_jobs.discard(job_id)
+
+
+def _is_hf_download_process(proc: psutil.Process) -> bool:
+    """True if `proc` is a `hf download` invocation. setup_host runs the CLI as
+    `python .../hf download <repo> ...`, so match an `hf`/`huggingface-cli` token
+    immediately followed by `download` anywhere in the command line."""
+    try:
+        argv = proc.cmdline()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+    return any(
+        os.path.basename(token) in ("hf", "huggingface-cli")
+        and argv[i + 1 : i + 2] == ["download"]
+        for i, token in enumerate(argv)
+    )
+
+
+def _kill_hf_download_children(grace_seconds: float = 3.0) -> int:
+    """Stop any in-flight `hf download` subprocess spawned by this process.
+
+    Each matching process is stopped together with its descendants — SIGTERM first,
+    then SIGKILL for anything still alive after `grace_seconds`. Partial
+    `.incomplete` files are intentionally left on disk so a later deploy resumes
+    them. Returns the number of processes signalled.
+    """
+    try:
+        descendants = psutil.Process().children(recursive=True)
+    except psutil.Error as exc:  # never let cancellation itself raise
+        logger.warning("cancel: could not enumerate child processes: %s", exc)
+        return 0
+
+    # Collect each hf-download process and its own subtree (deduped by pid).
+    victims: Dict[int, psutil.Process] = {}
+    for proc in descendants:
+        if _is_hf_download_process(proc):
+            victims[proc.pid] = proc
+            try:
+                for child in proc.children(recursive=True):
+                    victims[child.pid] = child
+            except psutil.Error:
+                pass
+
+    procs = list(victims.values())
+    if not procs:
+        return 0
+
+    for proc in procs:
+        try:
+            proc.terminate()
+        except psutil.Error:
+            pass
+    _, alive = psutil.wait_procs(procs, timeout=grace_seconds)
+    for proc in alive:
+        try:
+            proc.kill()
+        except psutil.Error:
+            pass
+    return len(procs)
+
 # Store per-deployment log handlers for cleanup
 deployment_log_handlers: Dict[str, logging.FileHandler] = {}
 
@@ -681,9 +757,10 @@ def _job_has_host_volume_weights_warning(job_id: str) -> bool:
 def _format_bytes(num_bytes: Optional[float]) -> str:
     if not num_bytes or num_bytes <= 0:
         return "0 B"
+    # Decimal (1000-based) units to match HuggingFace's reported sizes.
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    idx = min(int(math.log(num_bytes, 1024)), len(units) - 1)
-    scaled = num_bytes / (1024 ** idx)
+    idx = min(int(math.log(num_bytes, 1000)), len(units) - 1)
+    scaled = num_bytes / (1000 ** idx)
     # Keep it compact for UI messages
     if scaled >= 100 or idx == 0:
         return f"{scaled:.0f} {units[idx]}"
@@ -812,6 +889,22 @@ class WeightsLocation:
     host_path: Optional[Path] = None
     volume_name: Optional[str] = None
     volume_subpath: Optional[str] = None  # path inside the mounted volume to scan
+
+
+def _model_downloads_in_container(model_name: str, device: str, impl: Optional[str]) -> bool:
+    """True for runners that load weights via from_pretrained(repo_id) into the
+    container's own HF cache (audio: whisper / TTS). For these, --host-hf-cache only
+    triggers a wasteful whole-repo host download the container ignores, so they keep
+    the in-container/volume download. Diffusion media (IMAGE_GENERATION/VIDEO) is
+    unaffected and still uses --host-hf-cache.
+    """
+    try:
+        ms, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
+    except Exception:
+        return False
+    model_type = getattr(ms, "model_type", None)
+    name = getattr(model_type, "name", str(model_type))
+    return name in ("AUDIO", "TEXT_TO_SPEECH")
 
 
 def _resolve_weights_location(
@@ -1005,6 +1098,8 @@ def _weights_progress_monitor(
     total_bytes_attempted = False
     cached_announced_at: Optional[float] = None
     CACHED_LINGER_SECONDS = 1.8
+    weights_already_cached = False
+    first_size_check = True
 
     weights_location: Optional[WeightsLocation] = None
     if model_name and device:
@@ -1067,6 +1162,17 @@ def _weights_progress_monitor(
                 total_bytes_attempted = True
                 total_bytes = _fetch_hf_total_bytes(repo_id, os.getenv("HF_TOKEN") or "")
             downloaded = _downloaded_bytes_for_location(hf_home, repo_id, weights_location)
+            # A resumed download can transiently over-count: stale `.incomplete` partials
+            # from the cancelled attempt are summed alongside the freshly written data.
+            # Cap at the known total so we never report more than 100% downloaded.
+            if total_bytes and total_bytes > 0 and downloaded > total_bytes:
+                downloaded = total_bytes
+            # Detect a pre-existing full cache on the first real size check: if the
+            # weights are already ~complete before any download happened, flag as cached.
+            if first_size_check and total_bytes and total_bytes > 0:
+                first_size_check = False
+                if downloaded >= total_bytes:
+                    weights_already_cached = True
             now = time.time()
             dt = max(1e-3, now - last_t)
             delta = downloaded - last_bytes
@@ -1151,6 +1257,7 @@ def _weights_progress_monitor(
                             "total_bytes": int(total_bytes) if total_bytes is not None else None,
                             "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
                             "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
+                            "weights_cached": weights_already_cached,
                         }
                     )
 
@@ -1599,6 +1706,30 @@ async def get_run_logs(job_id: str, limit: int = 50):
         "total_messages": len(log_list)
     }
 
+@app.post("/run/cancel/{job_id}")
+async def cancel_run(job_id: str):
+    """Cancel an in-flight deploy job: kill its download (if running) and mark it
+    cancelled so the background thread bails out instead of retrying. Partial weight
+    files are left on disk so a later deploy resumes."""
+    with _cancel_lock:
+        _cancelled_jobs.add(job_id)
+        is_active = _active_run_job_id == job_id
+    killed = _kill_hf_download_children() if is_active else 0
+    with progress_lock:
+        if job_id in progress_store:
+            progress_store[job_id].update(
+                {
+                    "status": "cancelled",
+                    "stage": "cancelled",
+                    "progress": 0,
+                    "message": "Deployment cancelled by user",
+                    "last_updated": time.time(),
+                }
+            )
+    logger.info("Job %s: cancel requested (active=%s, killed=%d)", job_id, is_active, killed)
+    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed}
+
+
 @app.get("/run/stream/{job_id}")
 async def stream_run_progress(job_id: str):
     """Stream real-time progress updates via Server-Sent Events"""
@@ -1940,7 +2071,11 @@ async def run_inference(request: RunRequest):
             )
         # Default download path: reuse the host's HuggingFace cache via --host-hf-cache (weights download to ~/.cache/huggingface)
         # The preloaded --host-volume path takes precedence and is mutually exclusive with this.
-        if "--host-volume" not in initial_argv:
+        # Audio/whisper/TTS runners load via from_pretrained into the container's own HF
+        # cache, so --host-hf-cache would only cause a wasteful whole-repo host download —
+        # keep them on the in-container/volume download.
+        _in_container_dl = _model_downloads_in_container(request.model, normalized_device, request.impl)
+        if "--host-volume" not in initial_argv and not _in_container_dl:
             host_hf_cache_path = str(_default_hf_home())
             # Ensure the HF cache dir exists. tt-inference-server's
             # validate_bind_mount_permissions() ValueErrors on a non-existent
@@ -1965,9 +2100,12 @@ async def run_inference(request: RunRequest):
                 host_hf_cache_path,
             )
         else:
-            logger.info(
-                "Job %s: using --host-volume; skipping --host-hf-cache", job_id
+            reason = (
+                "audio/TTS model downloads in-container"
+                if _in_container_dl
+                else "using --host-volume"
             )
+            logger.info("Job %s: skipping --host-hf-cache (%s)", job_id, reason)
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
@@ -1988,6 +2126,10 @@ async def run_inference(request: RunRequest):
                 # run_main() relies on process globals (sys.argv, os.environ, cwd), so
                 # serialize this setup/execution phase across concurrent /run requests.
                 with _run_main_lock:
+                    global _active_run_job_id
+                    if _is_job_cancelled(job_id):
+                        raise RuntimeError("cancelled")
+                    _active_run_job_id = job_id
                     prev_argv = list(sys.argv)
                     prev_cwd = Path.cwd()
                     prev_env = os.environ.copy()
@@ -2063,6 +2205,9 @@ async def run_inference(request: RunRequest):
                                     script_dir,
                                 )
                                 raise
+                            # Cancelled mid-run (download killed): don't retry, surface as cancelled.
+                            if _is_job_cancelled(job_id):
+                                raise
                             retry_argv, retry_reason = _build_retry_argv_and_reason()
                             if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
                                 logger.warning(
@@ -2091,8 +2236,8 @@ async def run_inference(request: RunRequest):
                                     )
                             return_code, container_info = _execute_run(retry_argv)
 
-                        # Retry once when the initial run fails.
-                        if return_code != 0:
+                        # Retry once when the initial run fails (but not if cancelled).
+                        if return_code != 0 and not _is_job_cancelled(job_id):
                             retry_argv, retry_reason = _build_retry_argv_and_reason()
                             if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
                                 logger.warning(
@@ -2121,6 +2266,7 @@ async def run_inference(request: RunRequest):
                                     )
                             return_code, container_info = _execute_run(retry_argv)
                     finally:
+                        _active_run_job_id = None
                         # Restore globals while still holding lock so the next run
                         # starts from a consistent process state.
                         try:
@@ -2301,19 +2447,25 @@ async def run_inference(request: RunRequest):
                                 }
                             )
             except Exception as e:
-                logger.error(f"Job {job_id}: error: {e}", exc_info=True)
+                cancelled = _is_job_cancelled(job_id)
+                if cancelled:
+                    logger.info(f"Job {job_id}: cancelled by user")
+                else:
+                    logger.error(f"Job {job_id}: error: {e}", exc_info=True)
                 with progress_lock:
                     if job_id in progress_store:
                         progress_store[job_id].update(
                             {
-                                "status": "error",
-                                "stage": "error",
+                                "status": "cancelled" if cancelled else "error",
+                                "stage": "cancelled" if cancelled else "error",
                                 "progress": 0,
-                                "message": f"Deployment error: {str(e)[:200]}",
+                                "message": "Deployment cancelled by user" if cancelled
+                                else f"Deployment error: {str(e)[:200]}",
                                 "last_updated": time.time(),
                             }
                         )
             finally:
+                _clear_job_cancel(job_id)
                 # Stop weights monitor
                 try:
                     weights_stop_event.set()

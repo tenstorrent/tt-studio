@@ -473,11 +473,12 @@ def _format_bytes(n: int | float | None) -> str:
         return "—"
     if n == 0:
         return "0 B"
+    # Decimal (1000-based) units to match HuggingFace's reported sizes.
     units = ("B", "KB", "MB", "GB", "TB", "PB")
     v = float(n)
     u = 0
-    while v >= 1024 and u < len(units) - 1:
-        v /= 1024
+    while v >= 1000 and u < len(units) - 1:
+        v /= 1000
         u += 1
     if v >= 100 or u == 0:
         return f"{int(v)} {units[u]}"

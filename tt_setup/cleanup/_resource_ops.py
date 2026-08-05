@@ -53,6 +53,56 @@ def _path_size(path):
         return 0
 
 
+def _hf_cache_hub_dir():
+    """HuggingFace hub cache dir TT Studio downloads model weights into — mirrors
+    inference-api's _default_hf_home: HOST_HF_HOME → HF_HOME → ~/.cache/huggingface."""
+    from tt_setup.env_config import get_env_var
+    base = (get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME")
+            or os.path.expanduser("~/.cache/huggingface"))
+    return os.path.join(base, "hub")
+
+
+def _tt_studio_hf_repo_ids():
+    """HF repo ids TT Studio can deploy, read from the backend model catalog."""
+    catalog = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config",
+        "models_from_inference_server.json",
+    )
+    try:
+        with open(catalog) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    ids, stack = set(), [data]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            hid = node.get("hf_model_id")
+            if isinstance(hid, str) and "/" in hid:
+                ids.add(hid)
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return sorted(ids)
+
+
+def _hf_cache_model_dirs():
+    """(repo_id, path, size) for each catalog model present in the HF hub cache.
+
+    Scoped to TT Studio's catalog so --purge-all clears the models it downloaded
+    without touching the user's other HuggingFace-cached models (the same way it
+    only removes `volume_id_*` volumes, not every Docker volume)."""
+    hub = _hf_cache_hub_dir()
+    if not os.path.isdir(hub):
+        return []
+    out = []
+    for repo_id in _tt_studio_hf_repo_ids():
+        path = os.path.join(hub, "models--" + repo_id.replace("/", "--"))
+        if os.path.isdir(path):
+            out.append((repo_id, path, _path_size(path)))
+    return out
+
+
 def _remove_path_with_docker(path):
     """Remove a path via an ephemeral root container, using the user's Docker
     access instead of host sudo. Handles files left owned by container users
