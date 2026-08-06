@@ -209,23 +209,40 @@ const buildDifyGuide = ({
 
   return {
     intro:
-      "Dify runs as its own Docker Compose stack, so it is started from its compose file rather than launched here. Bring it up, join it to the TT-Studio network, then add your model.",
+      "Dify runs as its own Docker Compose stack, so it is started from its compose file rather than launched here. Two changes are needed before it works against TT-Studio: reaching our network, and turning collaboration mode off.",
     snippets: [
       {
-        label: "Start Dify",
+        label: "Set up and start Dify",
         language: "bash",
+        // The network is added through an override file rather than
+        // `docker network connect`, which is lost whenever containers are
+        // recreated. plugin_daemon matters most of the three: Dify 1.x runs model
+        // providers as plugins there, so model calls originate from it, not api.
         code: `git clone https://github.com/langgenius/dify.git
 cd dify/docker
 cp .env.example .env
+
+# Collaboration mode's Redis subscriber drops out repeatedly, which leaves the
+# workflow editor stuck on "Syncing data…" with the canvas unclickable.
+sed -i 's/^ENABLE_COLLABORATION_MODE=.*/ENABLE_COLLABORATION_MODE=false/' .env
+sed -i 's/,collaboration//' .env
+
+# Let the services that call models reach the gateway, across restarts.
+cat > docker-compose.override.yaml <<'YAML'
+services:
+  api:
+    networks: [default, ssrf_proxy_network, tt_studio_network]
+  worker:
+    networks: [default, ssrf_proxy_network, tt_studio_network]
+  plugin_daemon:
+    networks: [default, ssrf_proxy_network, tt_studio_network]
+networks:
+  tt_studio_network:
+    external: true
+YAML
+
 docker compose up -d   # Dify's UI is then on http://localhost:80`,
-        note: "Pulls roughly a dozen service images the first time.",
-      },
-      {
-        label: "Give Dify access to the gateway",
-        language: "bash",
-        code: `docker network connect tt_studio_network docker-api-1
-docker network connect tt_studio_network docker-worker-1`,
-        note: `Dify's compose network is separate from TT-Studio's and has no host.docker.internal mapping, so its containers cannot resolve the gateway by default. Joining them lets you use ${GATEWAY_INTERNAL_BASE} below. If you would rather not, use ${hostBase} instead — never localhost, which inside Dify's containers means Dify itself.`,
+        note: `Pulls roughly a dozen service images the first time; on macOS use sed -i '' rather than sed -i. Without the network override, saving credentials fails with "Failed to resolve tt-studio-litellm". If you would rather not join the network at all, use ${hostBase} in place of ${GATEWAY_INTERNAL_BASE} below — never localhost, which inside Dify's containers means Dify itself.`,
       },
       {
         label: "Add the model",
@@ -241,12 +258,19 @@ Completion mode             Chat
 Model context size          ${contextSize}
 Upper bound for max tokens  ${maxTokens}
 Function Call Type          Tool Call
-Vision Support              No Support${
-          isThinking(activeModel)
+Vision Support              No Support${isThinking(activeModel)
             ? "\nThinking Mode Support       Supported"
             : ""
-        }`,
+          }`,
         note: "Dify defaults the two size fields to 4096 and Function Call Type to No Call — leaving them would truncate long prompts and stop agents from using tools. Repeat for each model you want, using the model's own name.",
+      },
+      {
+        label: "In each new app, pick the model",
+        language: "text",
+        // A new node's model is empty, and Dify's editor falls back to a
+        // gpt-* model on the langgenius/openai plugin, which isn't installed.
+        code: `Open the app -> click the LLM node -> choose ${activeModel} from the dropdown`,
+        note: 'A freshly created node has no model set, and Dify falls back to a GPT model from its OpenAI plugin rather than your workspace default. Since that plugin is not installed, the editor sits on "Syncing data…" and its network calls return 400 until you select the model yourself. Same for any Agent, Question Classifier or Parameter Extractor node.',
       },
     ],
   };
