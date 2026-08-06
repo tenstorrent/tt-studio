@@ -69,6 +69,10 @@ class ModelImpl:
     # server deploys the intended one instead of defaulting to another engine.
     inference_impl: Optional[str] = None
     param_count: Optional[int] = None
+    # Model exists only in tt-inference-server's dev-tier catalog (not yet
+    # promoted to prod), so its deploy must set MODEL_SPECS_ENV=dev or run.py
+    # won't recognize --model.
+    requires_dev_catalog: bool = False
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -324,6 +328,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             inference_engine=entry.get("inference_engine", "vllm"),
             inference_impl=entry.get("impl"),
             param_count=entry.get("param_count"),
+            requires_dev_catalog=entry.get("requires_dev_catalog", False),
         )
         impls.append(impl)
     return impls
