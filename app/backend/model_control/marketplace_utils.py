@@ -199,6 +199,15 @@ def upstream_key(app: MarketplaceApp) -> str:
     )
 
 
+def upstream_key_name(app: MarketplaceApp) -> str:
+    """The env var upstream_key comes from, for error messages worth acting on."""
+    return (
+        "LITELLM_UPSTREAM_KEY"
+        if app.upstream is Upstream.BACKEND
+        else "LITELLM_MASTER_KEY"
+    )
+
+
 def upstream_base_url(app: MarketplaceApp) -> str:
     """The OpenAI-compatible base URL the app reaches over tt_studio_network."""
     return (

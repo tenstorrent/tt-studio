@@ -32,7 +32,6 @@ class Settings:
         "ghcr.io/open-webui/",
         "mintplexlabs/",
         "itzcrazykns1337/",
-        "docker.n8n.io/n8nio/",
     ]
 
     ALLOWED_NETWORKS: List[str] = [

@@ -103,13 +103,13 @@ export default function AppsPage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
-    const [marketplace, agents] = await Promise.all([
+    const [marketplace, gatewayInfo] = await Promise.all([
       fetchMarketplaceApps(),
-      fetchCodingAgentsInfo(),
+      fetchCodingAgentsInfo().catch(() => null),
     ]);
     setApps(marketplace.apps);
     setGatewayConfigured(marketplace.gateway_configured);
-    setGateway(agents);
+    if (gatewayInfo) setGateway(gatewayInfo);
   }, []);
 
   useEffect(() => {

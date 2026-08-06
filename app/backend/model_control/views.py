@@ -2090,8 +2090,9 @@ class MarketplaceLaunchView(APIView):
         if not marketplace.upstream_key(app):
             return Response(
                 {
-                    "error": "The model gateway is not configured, so apps cannot be "
-                    "wired to your models."
+                    "error": f"{marketplace.upstream_key_name(app)} is not set in your "
+                    f".env, so {app.name} cannot be wired to your models. Set it and "
+                    "restart TT-Studio."
                 },
                 status=status.HTTP_409_CONFLICT,
             )
