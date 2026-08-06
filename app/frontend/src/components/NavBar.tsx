@@ -27,6 +27,7 @@ import {
   PanelLeft,
   Terminal,
   Plus,
+  LayoutGrid,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -639,6 +640,13 @@ export default function NavBar() {
       icon: History,
       label: "Deployment History",
       tooltip: "View deployment history and container status",
+    },
+    {
+      type: "link",
+      to: "/apps",
+      icon: LayoutGrid,
+      label: "Apps",
+      tooltip: "Launch apps that use your deployed models",
     },
     ...(hasStray
       ? [

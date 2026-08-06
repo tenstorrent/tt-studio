@@ -64,6 +64,7 @@ import VideoGenPage from "../pages/VideoGenPage";
 import CodingAgentsPage from "../pages/CodingAgentsPage";
 import TrainingPage from "../pages/TrainingPage";
 import TrainingJobDetailPage from "../pages/TrainingJobDetailPage";
+import AppsPage from "../pages/AppsPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -185,6 +186,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/training/:jobId",
       element: <TrainingJobDetailPage />,
+      condition: true,
+    },
+    {
+      path: "/apps",
+      element: <AppsPage />,
       condition: true,
     },
     {
