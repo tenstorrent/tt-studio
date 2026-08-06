@@ -295,6 +295,9 @@ jobs:
       - name: Prepare environment
         run: |
           sed "s|<PATH_TO_ROOT_OF_REPO>|$GITHUB_WORKSPACE|" .env.default > "$RUNNER_TEMP/ci.env"
+          # Containers on hosted runners have no reliable egress; the caches
+          # the backend needs at boot are pre-seeded host-side below.
+          echo "HF_HUB_OFFLINE=1" >> "$RUNNER_TEMP/ci.env"
           # Host directories referenced by the compose bind mounts.
           mkdir -p .artifacts/tt-inference-server/workflow_logs \
                    logs/model_run_logs \
@@ -303,6 +306,25 @@ jobs:
           docker network create tt_studio_network
           # Pre-pull chroma so the boot timer measures the backend, not the pull.
           docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml pull -q tt_studio_chroma
+      - name: Seed model caches host-side (containers have no egress)
+        # django.setup() preloads the all-MiniLM-L6-v2 embedding model and the
+        # openwakeword preprocessing models. Hosted-runner bridge networks
+        # cannot reach the internet, so download both through the host network
+        # into the volume/bind-mount the backend will read them from.
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml \
+            create --no-build tt_studio_backend
+          HF_VOL=$(docker volume ls -q | grep '_hf_cache$' | head -1)
+          echo "seeding hf cache volume: $HF_VOL"
+          docker run --rm --network host -v "$HF_VOL":/root/.cache/huggingface \
+            ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.1 \
+            python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+          # Wake-word preprocessing models (the wake-word model itself is bundled
+          # in-repo); mirrors wakeword_control/apps.py so ready() has nothing to fetch.
+          docker run --rm --network host -v "$GITHUB_WORKSPACE/tt_studio_persistent_volume":/tt_studio_persistent_volume \
+            ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.1 \
+            python -c "import openwakeword; from openwakeword.utils import download_file; from pathlib import Path; t = Path('/tt_studio_persistent_volume/openwakeword_models'); t.mkdir(parents=True, exist_ok=True); [download_file(m['download_url'].replace('.tflite', '.onnx'), str(t)) for m in openwakeword.FEATURE_MODELS.values()]"
       - name: Boot backend + chroma and enforce the boot budget
         run: |
           set -euo pipefail
