@@ -91,6 +91,9 @@ _CLEANUP_IMAGE_REFS = (
     "chromadb/chroma",
 )
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
+# Sentinel injected by the CLI when --purge-model is passed with no model name,
+# meaning "open the interactive picker" (typer can't express optional values).
+_PURGE_MODEL_PICKER = "__picker__"
 
 BROWSER_CLEANUP_SENTINEL = os.path.join(
     TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"
