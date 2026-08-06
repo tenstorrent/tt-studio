@@ -61,7 +61,6 @@ import WelcomePage from "../pages/WelcomePage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
-import CodingAgentsPage from "../pages/CodingAgentsPage";
 import TrainingPage from "../pages/TrainingPage";
 import TrainingJobDetailPage from "../pages/TrainingJobDetailPage";
 import AppsPage from "../pages/AppsPage";
@@ -171,11 +170,6 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/video-generation",
       element: <VideoGenPage />,
-      condition: true,
-    },
-    {
-      path: "/coding-agents",
-      element: <CodingAgentsPage />,
       condition: true,
     },
     {
