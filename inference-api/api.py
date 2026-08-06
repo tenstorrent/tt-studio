@@ -829,9 +829,21 @@ def _execute_dev_mode_subprocess(
     # import time). api.py's in-process path never hits this because it patches
     # get_repo_root_path in memory; a subprocess can't inherit that patch, so
     # ensure the marker the artifact's own code expects actually exists instead.
+    #
+    # A bare empty file satisfies that ".exists()" check but breaks run.py's own
+    # `git -C script_dir rev-parse HEAD` (get_current_commit_sha(), called
+    # unconditionally early in main()): real git treats a ".git" *file* as a
+    # "gitfile" pointer (the linked-worktree/submodule format) and demands valid
+    # "gitdir: <path>" contents, so an empty file crashes it with "invalid
+    # gitfile format" instead of just failing repo discovery. Write a real
+    # gitfile pointer at TT-Studio's own .git instead -- satisfies both
+    # consumers: the existence check still passes, and real git commands follow
+    # the pointer to a legitimate repo (so rev-parse HEAD succeeds, just
+    # reporting TT-Studio's own commit rather than the artifact's true SHA --
+    # cosmetic, since this value is only used for a version summary display).
     git_marker = script_dir / ".git"
     if not git_marker.exists():
-        git_marker.touch()
+        git_marker.write_text(f"gitdir: {_tt_studio_root / '.git'}\n")
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
