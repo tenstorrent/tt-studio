@@ -7,12 +7,15 @@ import time
 import os
 import logging
 
+import pytest
 import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 logger.info(f"importing {__file__}")
+
+pytestmark = pytest.mark.live_stack
 
 
 def test_e2e():

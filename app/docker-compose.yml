@@ -32,6 +32,9 @@ services:
       # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
       # be extremely slow/hang here and stall the embedding-model download on boot.
       - HF_HUB_DISABLE_XET=1
+      # Pass-through (unset in normal runs). CI sets it to 1 after pre-seeding
+      # the hf_cache volume, because containers on CI runners have no egress.
+      - HF_HUB_OFFLINE
       # ./backend is bind-mounted from the host repo; keep root-owned
       # __pycache__ out of the source tree
       - PYTHONDONTWRITEBYTECODE=1

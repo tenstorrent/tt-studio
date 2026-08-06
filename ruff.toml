@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Shared ruff config for the whole repo.
+#
+# Rules deliberately stay at ruff 0.7.0 DEFAULTS: the pre-commit hook
+# (dev-tools/.pre-commit-config.yaml, ruff-pre-commit v0.7.0) runs with no
+# explicit config and silently picks this file up, so selecting extra rules
+# here would change what the hook enforces on every developer's machine.
+target-version = "py312"
+
+extend-exclude = [
+    "**/.venv",
+    "tt_studio_persistent_volume",
+    "**/node_modules",
+    "**/migrations",
+]

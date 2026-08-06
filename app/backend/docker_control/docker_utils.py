@@ -546,7 +546,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs
     run_kwargs = copy.deepcopy(impl.docker_config)
-    host_agent_port = get_host_agent_port()
+    host_agent_port = get_host_port(impl)
     llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
 
     docker_client = get_docker_client()

@@ -6,7 +6,7 @@ Tests for sync_models_from_inference_server.py route derivation logic.
 """
 
 import pytest
-from sync_models_from_inference_server import map_service_route
+from shared_config.sync_models_from_inference_server import map_service_route
 
 
 class TestServiceRouteMapping:

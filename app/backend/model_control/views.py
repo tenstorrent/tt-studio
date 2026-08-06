@@ -1486,11 +1486,14 @@ class ContainerLogsView(View):
 
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
+            # Capture the message now: `e` is unbound once the except block
+            # exits, but the generator below runs later, inside the response.
+            error_message = str(e)
 
             async def error_stream():
                 error_data = {
                     "type": "service_unavailable",
-                    "message": f"Failed to initialize log stream: {str(e)}",
+                    "message": f"Failed to initialize log stream: {error_message}",
                     "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
                 yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')

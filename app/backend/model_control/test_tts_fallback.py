@@ -16,21 +16,26 @@ from model_control.views import TtsInferenceView, OpenAIAudioSpeechView
 class TestTtsInferenceFallback:
     """Test TTS inference view with fallback to /v1/audio/speech on 404."""
     
+    # InferenceSerializer.validate() resolves get_deploy_cache through
+    # model_control.serializers, so it needs its own patch — without it the
+    # real deploy cache hits the docker-control-service.
+    @patch('model_control.serializers.get_deploy_cache')
     @patch('model_control.views.get_deploy_cache')
     @patch('model_control.views.requests.post')
-    def test_tts_fallback_on_404_from_enqueue(self, mock_post, mock_cache):
+    def test_tts_fallback_on_404_from_enqueue(self, mock_post, mock_cache, mock_serializer_cache):
         """When /enqueue returns 404 for TTS media model, should retry with /v1/audio/speech."""
         # Setup mock deploy cache
         mock_impl = Mock()
         mock_impl.model_name = "speecht5_tts"
         mock_impl.inference_engine = "media"
-        
+
         mock_cache.return_value = {
             "test_deploy_id": {
                 "internal_url": "speecht5_tts:7000/enqueue",
                 "model_impl": mock_impl
             }
         }
+        mock_serializer_cache.return_value = mock_cache.return_value
         
         # First call returns 404, second call succeeds
         mock_resp_404 = Mock()
@@ -63,21 +68,23 @@ class TestTtsInferenceFallback:
         assert "/v1/audio/speech" in second_call_url
         assert response.status_code == 200
     
+    @patch('model_control.serializers.get_deploy_cache')
     @patch('model_control.views.get_deploy_cache')
     @patch('model_control.views.requests.post')
-    def test_tts_success_without_fallback(self, mock_post, mock_cache):
+    def test_tts_success_without_fallback(self, mock_post, mock_cache, mock_serializer_cache):
         """When initial request succeeds, should not retry."""
         # Setup mock deploy cache
         mock_impl = Mock()
         mock_impl.model_name = "speecht5_tts"
         mock_impl.inference_engine = "media"
-        
+
         mock_cache.return_value = {
             "test_deploy_id": {
                 "internal_url": "speecht5_tts:7000/v1/audio/speech",
                 "model_impl": mock_impl
             }
         }
+        mock_serializer_cache.return_value = mock_cache.return_value
         
         # First call succeeds
         mock_resp_success = Mock()

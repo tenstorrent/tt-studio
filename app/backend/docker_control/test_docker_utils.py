@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 from unittest.mock import patch
 
+import pytest
 import requests
 from requests.exceptions import RequestException
 import jwt
@@ -19,6 +20,8 @@ from .docker_utils import run_container, stop_container
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+pytestmark = pytest.mark.live_stack
 
 
 # Simple dict-based cache mock
@@ -56,13 +59,15 @@ def test_deploy_mock_model():
         assert valid_vllm_api_call(api_url, headers, vllm_model=impl.model_name)
     except Exception as e:
         logger.error(f"Error: {e}")
-        has_error = True
+        caught_exc = e
+    else:
+        caught_exc = None
     # 3. stop container
     logger.info(f"stop deployed container: container_id={container_id}")
     stop_status = stop_container(container_id)
     logger.info(f"status:={stop_status}")
-    if has_error:
-        raise e
+    if caught_exc is not None:
+        raise caught_exc
     assert stop_status["status"] == "success"
 
 
