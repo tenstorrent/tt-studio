@@ -841,9 +841,13 @@ def _execute_dev_mode_subprocess(
     # the pointer to a legitimate repo (so rev-parse HEAD succeeds, just
     # reporting TT-Studio's own commit rather than the artifact's true SHA --
     # cosmetic, since this value is only used for a version summary display).
+    #
+    # Always (re)write it rather than gating on ".exists()": an artifact fetched
+    # before this fix (or one that hit the old empty-touch() bug) already has a
+    # ".git" file on disk, and an exists-only guard would leave that stale,
+    # invalid marker in place forever instead of repairing it.
     git_marker = script_dir / ".git"
-    if not git_marker.exists():
-        git_marker.write_text(f"gitdir: {_tt_studio_root / '.git'}\n")
+    git_marker.write_text(f"gitdir: {_tt_studio_root / '.git'}\n")
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
