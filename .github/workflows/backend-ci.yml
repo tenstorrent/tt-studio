@@ -278,13 +278,16 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Build backend image
         # VITE_ENABLE_DEPLOYED=true skips the Rust/tt-smi layer (no TT hardware
-        # on hosted runners). The tag must match app/docker-compose.yml so
-        # `up --no-build` picks this image up.
+        # on hosted runners). The tag must match the prod overlay's backend
+        # image so `up --no-build` picks this image up. The prod overlay is
+        # required throughout: the base compose file alone is not a valid
+        # project (tt_studio_frontend has no image/build without an overlay),
+        # and base+prod is what run.py assembles by default.
         uses: docker/build-push-action@v6
         with:
           context: app/backend
           load: true
-          tags: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
+          tags: ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.1
           build-args: |
             VITE_ENABLE_DEPLOYED=true
           cache-from: type=gha,scope=backend-image
@@ -299,14 +302,14 @@ jobs:
           # The compose network is external (run.py creates it at startup).
           docker network create tt_studio_network
           # Pre-pull chroma so the boot timer measures the backend, not the pull.
-          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml pull -q tt_studio_chroma
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml pull -q tt_studio_chroma
       - name: Boot backend + chroma and enforce the boot budget
         run: |
           set -euo pipefail
           BUDGET=180
           SLEEP=5
           START=$(date +%s)
-          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml \
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml \
             up -d --no-build tt_studio_backend
           BOOTED=""
           for _ in $(seq 1 $((BUDGET / SLEEP))); do
@@ -328,7 +331,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p /tmp/compose-logs
-          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml logs --no-color > /tmp/compose-logs/compose.log 2>&1 || true
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml logs --no-color > /tmp/compose-logs/compose.log 2>&1 || true
           docker ps -a > /tmp/compose-logs/docker-ps.txt || true
       - name: Upload logs on failure
         if: failure()
@@ -340,5 +343,5 @@ jobs:
       - name: Teardown
         if: always()
         run: |
-          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml down -v --remove-orphans || true
+          docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml -f app/docker-compose.prod.yml down -v --remove-orphans || true
           docker network rm tt_studio_network || true
