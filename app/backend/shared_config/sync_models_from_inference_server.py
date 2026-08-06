@@ -3,8 +3,9 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
-Sync script: reads ../../tt-inference-server/model_specs_output.json and
-normalizes it into models_from_inference_server.json (co-located with this script).
+Sync script: reads ../../tt-inference-server/release_model_spec.json (or the
+legacy model_specs_output.json / model_spec.json names) and normalizes it into
+models_from_inference_server.json (co-located with this script).
 
 Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
@@ -26,17 +27,18 @@ OUTPUT_JSON = SCRIPT_DIR / "models_from_inference_server.json"
 #   2. TT_INFERENCE_ARTIFACT_PATH env var (set by run.py after artifact download)
 #   3. .artifacts/tt-inference-server/ next to repo root (artifact default location)
 #   4. tt-inference-server/ next to repo root (manual local dev checkout)
+# Filenames tried per directory, newest release layout first:
+_SOURCE_FILENAMES = ["release_model_spec.json", "model_specs_output.json", "model_spec.json"]
 _REPO_ROOT = SCRIPT_DIR / "../../.."
 _CANDIDATE_SOURCES = [
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_spec.json",
-    _REPO_ROOT / "tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / "tt-inference-server/model_spec.json",
+    _REPO_ROOT / f".artifacts/tt-inference-server/{name}" for name in _SOURCE_FILENAMES
+] + [
+    _REPO_ROOT / f"tt-inference-server/{name}" for name in _SOURCE_FILENAMES
 ]
 
 
 def resolve_source_json(override: str | None = None) -> Path:
-    """Return the path to model_specs_output.json, trying candidates in order."""
+    """Return the path to the model spec JSON, trying candidates in order."""
     if override:
         p = Path(override)
         if not p.exists():
@@ -46,9 +48,10 @@ def resolve_source_json(override: str | None = None) -> Path:
     # Check env var set by run.py
     artifact_path = os.environ.get("TT_INFERENCE_ARTIFACT_PATH")
     if artifact_path:
-        p = Path(artifact_path) / "model_specs_output.json"
-        if p.exists():
-            return p.resolve()
+        for name in _SOURCE_FILENAMES:
+            p = Path(artifact_path) / name
+            if p.exists():
+                return p.resolve()
 
     # Try static candidates
     for candidate in _CANDIDATE_SOURCES:
@@ -56,7 +59,7 @@ def resolve_source_json(override: str | None = None) -> Path:
             return candidate.resolve()
 
     raise FileNotFoundError(
-        "Cannot find model_specs_output.json. Tried:\n"
+        "Cannot find a model spec JSON. Tried:\n"
         + "\n".join(f"  {c.resolve()}" for c in _CANDIDATE_SOURCES)
     )
 
