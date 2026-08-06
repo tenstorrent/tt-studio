@@ -17,6 +17,7 @@ import subprocess
 import signal
 import os
 from pathlib import Path
+from typing import Optional
 
 import re
 import os
@@ -109,6 +110,25 @@ _LLAMA_V014_MODELS = {
     "Llama-3.1-70B-Instruct",
     "Llama-3.3-70B-Instruct",
 }
+
+
+def _resolve_override_docker_image(impl) -> Optional[str]:
+    """Pin an explicit docker image where the inference server can't infer one.
+
+    Two independent reasons a model needs this:
+    - _LLAMA_V014_MODELS: the inference server's own model_spec default is an
+      older image that's rejected on P300x2 (PR #815) -- unrelated to catalog tier.
+    - requires_dev_catalog: "dev" tier catalog entries don't pin a docker_image
+      (unlike "prod"), so run.py refuses to guess one and requires
+      --override-docker-image whenever --dev-mode is combined with
+      --docker-server. The catalog's own image_version is exactly what's needed.
+    """
+    if impl.model_name in _LLAMA_V014_MODELS:
+        return _LLAMA_V014_IMAGE
+    if impl.requires_dev_catalog:
+        return impl.image_version
+    return None
+
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
@@ -589,11 +609,7 @@ class DeployView(APIView):
                         overrides["reasoning-parser"] = reasoning_parser
                     if overrides:
                         vllm_override_args = json.dumps(overrides)
-                # Some Llama models need a newer image than the inference server's model_spec default
-                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
-                override_docker_image = (
-                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
-                )
+                override_docker_image = _resolve_override_docker_image(impl)
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
