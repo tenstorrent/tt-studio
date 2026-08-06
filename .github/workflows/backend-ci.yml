@@ -111,8 +111,6 @@ jobs:
         working-directory: app/backend
     env:
       TT_STUDIO_ROOT: ${{ github.workspace }}
-      HOST_PERSISTENT_STORAGE_VOLUME: ${{ runner.temp }}/tt_studio_volume
-      INTERNAL_PERSISTENT_STORAGE_VOLUME: ${{ runner.temp }}/tt_studio_volume
       BACKEND_API_HOSTNAME: localhost
       CHROMA_DB_HOST: localhost
       CHROMA_DB_PORT: "8111"
@@ -122,6 +120,11 @@ jobs:
       DJANGO_SECRET_KEY: django-insecure-ci
     steps:
       - uses: actions/checkout@v5
+      - name: Point the persistent volume at the runner temp dir
+        # runner.temp is not available in job-level env, so export it here.
+        run: |
+          echo "HOST_PERSISTENT_STORAGE_VOLUME=$RUNNER_TEMP/tt_studio_volume" >> "$GITHUB_ENV"
+          echo "INTERNAL_PERSISTENT_STORAGE_VOLUME=$RUNNER_TEMP/tt_studio_volume" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
