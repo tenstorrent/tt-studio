@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from docker_control.chip_allocator import ChipSlotAllocator
 from docker_control.deployment_sync import _classify_failure
+from docker_control.views import _resolve_override_docker_image, _LLAMA_V014_IMAGE
 from shared_config.model_config import model_implmentations
 
 
@@ -152,3 +153,24 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
         # First probe config.json (default), then fall back to model_index.json.
         self.assertEqual(repo_mock.call_count, 2)
         self.assertEqual(repo_mock.call_args_list[1].args[2], "model_index.json")
+
+
+@dataclass
+class _FakeModelImpl:
+    model_name: str = "SomeModel"
+    requires_dev_catalog: bool = False
+    image_version: str = "ghcr.io/example/img:v1"
+
+
+class OverrideDockerImageResolutionTests(SimpleTestCase):
+    def test_llama_v014_pin_takes_priority(self):
+        impl = _FakeModelImpl(model_name="Llama-3.1-8B", requires_dev_catalog=True)
+        self.assertEqual(_resolve_override_docker_image(impl), _LLAMA_V014_IMAGE)
+
+    def test_dev_catalog_model_forwards_its_own_catalog_image(self):
+        impl = _FakeModelImpl(requires_dev_catalog=True, image_version="ghcr.io/x/dev:0.19.0")
+        self.assertEqual(_resolve_override_docker_image(impl), "ghcr.io/x/dev:0.19.0")
+
+    def test_ordinary_model_gets_no_override(self):
+        impl = _FakeModelImpl()
+        self.assertIsNone(_resolve_override_docker_image(impl))
