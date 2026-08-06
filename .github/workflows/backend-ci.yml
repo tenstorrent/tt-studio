@@ -301,17 +301,18 @@ jobs:
         run: |
           set -euo pipefail
           BUDGET=180
+          SLEEP=5
           START=$(date +%s)
           docker compose --env-file "$RUNNER_TEMP/ci.env" -f app/docker-compose.yml \
             up -d --no-build tt_studio_backend
           BOOTED=""
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 $((BUDGET / SLEEP))); do
             if curl -fsS http://localhost:8000/up/ >/dev/null 2>&1; then BOOTED=1; break; fi
-            sleep 5
+            sleep "$SLEEP"
           done
           ELAPSED=$(( $(date +%s) - START ))
           if [ -z "$BOOTED" ]; then
-            echo "::error::Backend container did not answer /up/ within 300s"
+            echo "::error::Backend container did not answer /up/ within ${BUDGET}s"
             exit 1
           fi
           if [ "$ELAPSED" -gt "$BUDGET" ]; then
