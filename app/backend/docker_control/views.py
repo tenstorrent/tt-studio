@@ -604,7 +604,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
-                    dev_mode=False,
+                    dev_mode=impl.requires_dev_catalog,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
