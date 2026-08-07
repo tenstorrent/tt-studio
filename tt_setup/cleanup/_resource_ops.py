@@ -376,6 +376,112 @@ def _deployed_model_names(has_docker_access):
         return None
 
 
+def _docker_volume_names(has_docker_access):
+    """Names of the docker named volumes that hold model weights (volume_id_*).
+    Read-only counterpart of `_remove_tt_studio_model_volumes` — same listing
+    and prefix re-check, no removal. Returns [] on any error."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "--filter",
+                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        return [n for n in (line.strip() for line in result.stdout.splitlines())
+                if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+    except Exception:
+        return []
+
+
+def _docker_object_sizes(has_docker_access):
+    """Per-object sizes from `docker system df -v`: ({volume_name: bytes},
+    {"repo:tag": bytes}). Best-effort — empty dicts if docker is unavailable."""
+    volumes, images = {}, {}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return volumes, images
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name:
+            volumes[name] = _parse_size_to_bytes(vol.get("Size", ""))
+    for img in data.get("Images") or []:
+        repo, tag = img.get("Repository", ""), img.get("Tag", "")
+        if repo and tag:
+            images[f"{repo}:{tag}"] = _parse_size_to_bytes(img.get("Size", ""))
+    return volumes, images
+
+
+def _remove_docker_containers(ids, has_docker_access):
+    """Force-remove specific containers (+ their anonymous volumes). Accepts
+    names or ids; already-gone containers are harmless. Returns count requested."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return 0
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        subprocess.run(
+            sudo_prefix + ["docker", "rm", "-fv", *ids],
+            capture_output=True, check=False,
+        )
+        return len(ids)
+    except Exception:
+        return 0
+
+
+def _remove_docker_volumes(names, has_docker_access):
+    """Force-remove specific named volumes. Returns (removed_names, in_use_names):
+    a volume still attached to a running container fails with "in use" and is
+    reported so callers can tell the user to stop the deployment first."""
+    names = [n for n in names if n]
+    removed, in_use = [], []
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    for name in names:
+        try:
+            result = subprocess.run(
+                sudo_prefix + ["docker", "volume", "rm", "-f", name],
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                removed.append(name)
+            elif "in use" in (result.stderr or "").lower():
+                in_use.append(name)
+        except Exception:
+            continue
+    return removed, in_use
+
+
+def _remove_image_ref(repo_tag, has_docker_access):
+    """Remove the image matching one exact repo:tag reference. Unlike
+    `_remove_local_tt_studio_images` this never uses the `_CLEANUP_IMAGE_REFS`
+    globs — model images are shared across models, so purge-model callers must
+    reference-count first and pass only tags no kept model still needs.
+    Returns True if an image was removed."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "image", "ls", "--filter",
+                           f"reference={repo_tag}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = list(dict.fromkeys(
+            line.strip() for line in result.stdout.splitlines() if line.strip()))
+        if not ids:
+            return False
+        subprocess.run(
+            sudo_prefix + ["docker", "image", "rm", "-f", *ids],
+            capture_output=True, check=False,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def _port_owned_by_root(port):
     """Best-effort: True if the process LISTENing on `port` is owned by root (so
     stopping it will need sudo). Returns False on any error — never raises."""

@@ -20,7 +20,7 @@ from tt_setup.env_config import configure_environment_sequentially, get_env_var,
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
-from tt_setup.cleanup import cleanup_resources
+from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
@@ -185,6 +185,7 @@ def _run(args):
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
   {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
+  {C_CYAN}python run.py --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
   {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
   {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
   {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
@@ -233,6 +234,11 @@ def _run(args):
 
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
+
+        # Must dispatch before the cleanup branches: purging one model must
+        # never fall through to the full-stack teardown.
+        if getattr(args, "purge_model", None):
+            sys.exit(purge_models(args))
 
         # Must dispatch before the generic cleanup branch: --uninstall implies
         # cleanup_all. All-or-nothing — declining the purge prompt keeps the
