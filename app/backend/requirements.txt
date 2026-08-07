@@ -15,17 +15,26 @@ psutil==5.9.0
 python-docx==1.1.0
 markdown==3.5.2
 beautifulsoup4==4.12.3
+# Resizes and re-encodes frames in model_control/views.py.
+Pillow==12.3.0
+# The Dockerfile installs openwakeword with --no-deps (it pins a tflite-runtime
+# with no Python 3.12 wheel), so its module-level imports must be declared here.
+scipy==1.17.1
+scikit-learn==1.9.0
 
 # dev
 pytest==8.2.2
 
 # Chroma loader dependencies
+#
+# Do not add sentence-transformers here. Embeddings come from ChromaDB's
+# ONNXMiniLM_L6_V2 (see vector_db_control/singletons.py), which runs the same
+# all-MiniLM-L6-v2 weights on onnxruntime. sentence-transformers requires torch,
+# whose Linux wheel hard-depends on ~4.5 GB of CUDA wheels that are dead weight
+# here — the backend only ever talks to /dev/tenstorrent, never a GPU.
 chromadb==0.5.3
-langchain==0.3.27
 langchain-core==0.3.81
 langchain-text-splitters==0.3.11
-langchain-chroma==0.2.0
-sentence-transformers==2.7.0
 chroma-hnswlib==0.7.3
 --no-binary=chroma-hnswlib
 pysqlite3==0.5.3

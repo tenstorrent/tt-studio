@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "../ui/button";
-import { Mic, MicOff } from "lucide-react";
-import type {
-  SpeechRecognition,
-  SpeechRecognitionEvent,
-  SpeechRecognitionErrorEvent,
-  VoiceInputProps,
-} from "./types";
+import { Mic, MicOff, Loader2 } from "lucide-react";
+import { sendAudioRecording } from "../speechToText/lib/apiClient";
+import type { VoiceInputProps } from "./types";
 
 interface WindowWithWebkit extends Window {
   webkitAudioContext?: typeof AudioContext;
@@ -18,9 +14,12 @@ export function VoiceInput({
   onTranscript,
   isListening,
   setIsListening,
+  deployId,
 }: VoiceInputProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
@@ -28,19 +27,6 @@ export function VoiceInput({
   const rafIdRef = useRef<number | null>(null);
   const barsRef = useRef<(HTMLDivElement | null)[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-
-  const cleanTranscript: (text: string) => string = useCallback(
-    (text: string): string => {
-      const cleaned = text.replace(/\s+/g, " ").trim();
-      const words = cleaned.split(" ");
-      const uniqueWords = words.filter((word, index) => {
-        const prevWord = words[index - 1];
-        return word !== prevWord;
-      });
-      return uniqueWords.join(" ");
-    },
-    []
-  );
 
   const stopAudioAnalysis = useCallback(() => {
     if (rafIdRef.current) {
@@ -85,44 +71,43 @@ export function VoiceInput({
     rafIdRef.current = requestAnimationFrame(updateBars);
   }, []);
 
-  const startAudioAnalysis = useCallback(async () => {
-    try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      const AudioContextConstructor =
-        window.AudioContext || (window as WindowWithWebkit).webkitAudioContext;
-      if (!AudioContextConstructor) {
-        throw new Error("AudioContext is not supported in this browser.");
+  const startAudioAnalysis = useCallback(
+    (stream: MediaStream) => {
+      try {
+        const AudioContextConstructor =
+          window.AudioContext ||
+          (window as WindowWithWebkit).webkitAudioContext;
+        if (!AudioContextConstructor) {
+          throw new Error("AudioContext is not supported in this browser.");
+        }
+        audioContextRef.current = new AudioContextConstructor();
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        sourceRef.current =
+          audioContextRef.current.createMediaStreamSource(stream);
+        sourceRef.current.connect(analyserRef.current);
+        analyserRef.current.fftSize = 32;
+        const bufferLength = analyserRef.current.frequencyBinCount;
+        dataArrayRef.current = new Uint8Array(
+          bufferLength
+        ) as Uint8Array<ArrayBuffer>;
+        updateBars();
+      } catch (error) {
+        console.error("Error starting audio analysis:", error);
       }
-      audioContextRef.current = new AudioContextConstructor();
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      sourceRef.current = audioContextRef.current.createMediaStreamSource(
-        streamRef.current
-      );
-      sourceRef.current.connect(analyserRef.current);
-      analyserRef.current.fftSize = 32;
-      const bufferLength = analyserRef.current.frequencyBinCount;
-      dataArrayRef.current = new Uint8Array(
-        bufferLength
-      ) as Uint8Array<ArrayBuffer>;
-      updateBars();
-    } catch (error) {
-      console.error("Error starting audio analysis:", error);
-    }
-  }, [updateBars]);
+    },
+    [updateBars]
+  );
 
   const cleanupResources = useCallback(() => {
-    // Stop speech recognition
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current = null;
+    // Stop the recorder without triggering a transcription
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
     }
 
-    // Stop audio analysis and clean up resources
     stopAudioAnalysis();
 
     // Release all media tracks
@@ -131,92 +116,97 @@ export function VoiceInput({
       streamRef.current = null;
     }
 
-    // Reset state
     setIsListening(false);
-    setErrorMessage(null);
-  }, [setIsListening, stopAudioAnalysis, setErrorMessage]);
+  }, [setIsListening, stopAudioAnalysis]);
 
-  const startListening = useCallback(() => {
-    if (!recognitionRef.current) {
+  const transcribe = useCallback(
+    async (audioBlob: Blob) => {
+      setIsProcessing(true);
       try {
-        const SpeechRecognitionConstructor =
-          window.SpeechRecognition ||
-          (window as WindowWithWebkit).webkitSpeechRecognition;
-
-        if (!SpeechRecognitionConstructor) {
-          throw new Error(
-            "SpeechRecognition is not supported in this browser."
-          );
+        const data = await sendAudioRecording(
+          audioBlob,
+          deployId ? { modelID: deployId } : undefined
+        );
+        const text = typeof data?.text === "string" ? data.text.trim() : "";
+        if (text) {
+          onTranscript(text);
+        } else {
+          setErrorMessage("No speech detected. Please try again.");
         }
-
-        recognitionRef.current = new SpeechRecognitionConstructor();
-        recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
-        recognitionRef.current.lang = "en-US";
-
-        recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
-          let finalTranscript = "";
-
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript;
-            }
-          }
-
-          if (finalTranscript) {
-            const cleanedContent = cleanTranscript(finalTranscript.trim());
-            onTranscript(cleanedContent);
-          }
-        };
-
-        recognitionRef.current.onerror = (
-          event: SpeechRecognitionErrorEvent
-        ) => {
-          console.error("Speech recognition error", event.error);
-          setErrorMessage(`Error: ${event.error}`);
-          setIsListening(false);
-          cleanupResources();
-        };
-
-        recognitionRef.current.onend = () => {
-          setIsListening(false);
-          cleanupResources();
-        };
       } catch (error) {
-        console.error("Speech recognition not supported", error);
-        setErrorMessage("Speech recognition is not supported in this browser.");
-        return;
+        console.error("Transcription failed:", error);
+        setErrorMessage("Transcription failed. Please try again.");
+      } finally {
+        setIsProcessing(false);
       }
-    }
+    },
+    [deployId, onTranscript]
+  );
 
+  const startListening = useCallback(async () => {
     try {
-      recognitionRef.current?.start();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      streamRef.current = stream;
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        chunksRef.current = [];
+        mediaRecorderRef.current = null;
+        cleanupResources();
+        if (blob.size > 0) {
+          transcribe(blob);
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
       setIsListening(true);
       setErrorMessage(null);
-      startAudioAnalysis();
+      startAudioAnalysis(stream);
     } catch (error) {
-      console.error("Error starting speech recognition", error);
-      setErrorMessage("Error starting speech recognition. Please try again.");
+      console.error("Error starting voice recording:", error);
+      setErrorMessage("Microphone unavailable. Check browser permissions.");
+      cleanupResources();
     }
-  }, [
-    onTranscript,
-    setIsListening,
-    cleanTranscript,
-    startAudioAnalysis,
-    cleanupResources,
-  ]);
+  }, [setIsListening, startAudioAnalysis, cleanupResources, transcribe]);
 
   const stopListening = useCallback(() => {
-    cleanupResources();
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === "recording"
+    ) {
+      // onstop cleans up and sends the audio for transcription
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupResources();
+    }
   }, [cleanupResources]);
 
   const toggleListening = useCallback(() => {
+    if (isProcessing) return;
     if (isListening) {
       stopListening();
     } else {
       startListening();
     }
-  }, [isListening, startListening, stopListening]);
+  }, [isProcessing, isListening, startListening, stopListening]);
 
   useEffect(() => {
     return () => {
@@ -228,12 +218,22 @@ export function VoiceInput({
     <div className="relative inline-flex items-center">
       <Button
         onClick={toggleListening}
+        disabled={isProcessing}
         variant="ghost"
         className={`relative text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300 ${
           isListening ? "bg-[#7C68FA]/20" : ""
         }`}
+        aria-label={
+          isProcessing
+            ? "Transcribing"
+            : isListening
+              ? "Stop recording"
+              : "Start voice input"
+        }
       >
-        {isListening ? (
+        {isProcessing ? (
+          <Loader2 className="h-5 w-5 animate-spin" />
+        ) : isListening ? (
           <Mic className="h-5 w-5" />
         ) : (
           <MicOff className="h-5 w-5" />

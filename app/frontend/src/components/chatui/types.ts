@@ -264,6 +264,8 @@ export interface VoiceInputProps {
   onTranscript: (transcript: string) => void;
   isListening: boolean;
   setIsListening: (isListening: boolean) => void;
+  /** Deploy ID of the speech recognition model; null routes to the cloud endpoint. */
+  deployId?: string | null;
 }
 
 // Model Types
@@ -276,6 +278,7 @@ export interface Model {
   baseModel?: string;
   task?: string;
   status?: string;
+  model_type?: string;
 }
 
 // Global Type Declarations
