@@ -45,6 +45,19 @@ _CANDIDATE_SOURCES = [
 HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref")
 
 
+def _impl_id(value):
+    """Reduce tt-inference-server's impl object to its impl_id string. The
+    server's /run and /resolve-image endpoints expect a string, not the whole
+    {impl_id, impl_name, repo_url, code_path} object. Stdlib-only, kept local:
+    this script runs standalone on the host interpreter, so it can't import the
+    Django-bound copy in model_config."""
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return value.get("impl_id") or None
+    return None
+
+
 def load_existing_catalog(path: Path) -> dict:
     """Return {model_name: entry} for the catalog already on disk, or {} if none.
 
@@ -302,10 +315,11 @@ def _iter_v1_entries(model_specs: dict):
             for _engine, by_impl in by_engine.items():
                 for _impl_name, entry in by_impl.items():
                     if isinstance(entry, dict):
-                        # The impl name is the nesting key, not always a field on
-                        # the leaf. Carry it so the catalog can disambiguate models
-                        # whose name+device match multiple engine specs.
-                        entry.setdefault("impl", _impl_name)
+                        # Store the impl_id STRING so the catalog can disambiguate
+                        # models whose name+device match multiple engine specs.
+                        # The leaf's "impl" is the whole impl object; reduce it to
+                        # its impl_id, falling back to the nesting key when absent.
+                        entry["impl"] = _impl_id(entry.get("impl")) or _impl_name
                         yield entry
 
 
@@ -398,6 +412,13 @@ def main():
     # discards anything the source can't express (issue #977).
     existing = load_existing_catalog(OUTPUT_JSON.resolve())
     models, preserved, retained = merge_hand_owned(models, existing)
+
+    # Hand-retained entries bypass normalize() entirely and may carry a stale
+    # impl object from an older catalog; reduce every impl to its impl_id string.
+    for _m in models:
+        if "impl" in _m:
+            _m["impl"] = _impl_id(_m.get("impl"))
+
     if preserved:
         print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
     if retained:

@@ -10,6 +10,8 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
+    _impl_id,
+    _iter_v1_entries,
     load_existing_catalog,
     map_service_route,
     merge_hand_owned,
@@ -127,6 +129,86 @@ class TestHandOwnedFieldPreservation:
 
         for key in HAND_OWNED_KEYS:
             assert merged[0][key] == "sentinel", f"{key} was not preserved"
+
+
+class TestImplNormalization:
+    """The inference server's /run and /resolve-image expect a string impl_id;
+    the artifact leaves carry the whole impl object, so the catalog must store
+    only the impl_id string (issue: media/non-chat deploy HTTP 422)."""
+
+    def test_impl_id_reduces_object_to_string(self):
+        obj = {
+            "impl_id": "whisper",
+            "impl_name": "whisper",
+            "repo_url": "https://github.com/tenstorrent/tt-metal",
+            "code_path": "models/demos/whisper",
+        }
+        assert _impl_id(obj) == "whisper"
+
+    def test_impl_id_passes_through_string(self):
+        assert _impl_id("tt_transformers") == "tt_transformers"
+
+    def test_impl_id_handles_none_and_missing_id(self):
+        assert _impl_id(None) is None
+        assert _impl_id({}) is None
+        assert _impl_id("") is None
+
+    def test_v1_entries_yield_impl_id_string(self):
+        """A leaf whose impl is the full object should surface as its impl_id."""
+        model_specs = {
+            "org/distil-large-v3": {
+                "P150": {
+                    "media": {
+                        "whisper": {
+                            "model_name": "distil-large-v3",
+                            "impl": {"impl_id": "whisper", "impl_name": "whisper"},
+                        }
+                    }
+                }
+            }
+        }
+        entries = list(_iter_v1_entries(model_specs))
+        assert [e["impl"] for e in entries] == ["whisper"]
+
+    def test_v1_entries_fall_back_to_nesting_key(self):
+        """A leaf with no impl object should fall back to the nesting key so the
+        catalog can still disambiguate engine specs."""
+        model_specs = {
+            "org/some-model": {
+                "P150": {
+                    "vLLM": {
+                        "tt_transformers": {
+                            "model_name": "some-model",
+                        }
+                    }
+                }
+            }
+        }
+        entries = list(_iter_v1_entries(model_specs))
+        assert [e["impl"] for e in entries] == ["tt_transformers"]
+
+    def test_retained_entry_dict_impl_is_normalized(self):
+        """A hand-retained model bypasses normalize() and can carry a stale impl
+        object; the main() normalization loop reduces it to its impl_id string."""
+        models = [{"model_name": "Synced", "status": "COMPLETE", "impl": "whisper"}]
+        existing = {
+            "Retained": {
+                "model_name": "Retained",
+                "requires_dev_catalog": True,
+                "impl": {"impl_id": "qwen36_blackhole", "impl_name": "qwen36"},
+            }
+        }
+
+        merged, _, retained = merge_hand_owned(models, existing)
+        # Mirror main(): normalize impl across every merged entry.
+        for m in merged:
+            if "impl" in m:
+                m["impl"] = _impl_id(m.get("impl"))
+
+        assert retained == ["Retained"]
+        by_name = {m["model_name"]: m for m in merged}
+        assert by_name["Retained"]["impl"] == "qwen36_blackhole"
+        assert by_name["Synced"]["impl"] == "whisper"
 
 
 class TestLoadExistingCatalog:

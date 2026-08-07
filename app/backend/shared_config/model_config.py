@@ -40,6 +40,16 @@ def load_dotenv_dict(env_path: Union[str, Path]) -> Dict[str, str]:
     return env_dict
 
 
+def _impl_id(value) -> Optional[str]:
+    """The catalog stores tt-inference-server's whole impl object; the server's
+    /run and /resolve-image endpoints want only its impl_id string."""
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return value.get("impl_id") or None
+    return None
+
+
 @dataclass(frozen=True)
 class ModelImpl:
     """
@@ -64,9 +74,10 @@ class ModelImpl:
     health_route: str = "/health"
     display_model_type: str = "LLM"
     inference_engine: str = "vllm"
-    # tt-inference-server impl name (e.g. "training_lora", "tt_transformers").
-    # Disambiguates models whose name+device match multiple engine specs so the
-    # server deploys the intended one instead of defaulting to another engine.
+    # tt-inference-server impl_id (e.g. "training_lora", "tt_transformers"),
+    # extracted from the catalog's impl object by _impl_id(). Disambiguates
+    # models whose name+device match multiple engine specs so the server deploys
+    # the intended one instead of defaulting to another engine.
     inference_impl: Optional[str] = None
     param_count: Optional[int] = None
     # Model exists only in tt-inference-server's dev-tier catalog (not yet
@@ -334,7 +345,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             shm_size=entry.get("shm_size", "32G"),
             display_model_type=entry.get("display_model_type", "LLM"),
             inference_engine=entry.get("inference_engine", "vllm"),
-            inference_impl=entry.get("impl"),
+            inference_impl=_impl_id(entry.get("impl")),
             param_count=entry.get("param_count"),
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
