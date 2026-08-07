@@ -27,6 +27,13 @@ class DocumentProcessor:
         '.ts': 'application/typescript',
         '.tsx': 'application/typescript',
         '.jsx': 'application/javascript',
+        # Plain-text formats routed through process_text
+        '.log': 'text/plain',
+        '.json': 'text/plain',
+        '.csv': 'text/plain',
+        '.xml': 'text/plain',
+        '.yaml': 'text/plain',
+        '.yml': 'text/plain',
     }
 
     @staticmethod

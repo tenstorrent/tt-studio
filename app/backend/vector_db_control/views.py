@@ -369,7 +369,7 @@ class VectorCollectionsAPIView(ViewSet):
             elif file_extension in ['.doc', '.docx']:
                 folder_type = "docs"
                 folder_path = f"docs/{filename}"
-            elif file_extension in ['.txt']:
+            elif file_extension in ['.txt', '.log']:
                 folder_type = "text"
                 folder_path = f"text/{filename}"
             elif file_extension in ['.ppt', '.pptx']:
