@@ -44,7 +44,7 @@ interface SettingsProps {
 
 // Parameter validation ranges
 const PARAM_RANGES = {
-  temperature: { min: 0.1, max: 1.0, step: 0.1 },
+  temperature: { min: 0, max: 1.0, step: 0.1 },
   maxLength: { min: 1, max: 131072, step: 1 },
   topP: { min: 0.1, max: 1.0, step: 0.1 },
   topK: { min: 1, max: 50, step: 1 },
@@ -78,8 +78,8 @@ const validateParam = (key: string, value: number): number => {
     return typeof defaultValue === "number" ? defaultValue : 1;
   }
 
-  // If value is zero or less than minimum, use default
-  if (value <= 0) {
+  // If value is less than zero, use default
+  if (value < 0) {
     const defaultValue = DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
     const numericDefault = typeof defaultValue === "number" ? defaultValue : 1;
     console.warn(
@@ -238,7 +238,7 @@ export default function Settings({
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
-    if (!value || isNaN(numValue) || numValue <= 0) {
+    if (!value || isNaN(numValue) || numValue < 0) {
       onSettingsChange(key, DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES]);
       return;
     }
@@ -340,11 +340,10 @@ export default function Settings({
                           isActive ? "" : preset.prompt
                         )
                       }
-                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                        isActive
-                          ? "bg-[#7C68FA] text-white border-[#7C68FA]"
-                          : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
-                      }`}
+                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${isActive
+                        ? "bg-[#7C68FA] text-white border-[#7C68FA]"
+                        : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
+                        }`}
                     >
                       {preset.label}
                     </button>
@@ -358,18 +357,18 @@ export default function Settings({
 
             <Parameter
               label="Temperature"
-              value={settings.temperature || DEFAULT_VALUES.temperature}
+              value={settings.temperature ?? DEFAULT_VALUES.temperature}
               icon={<Thermometer className="h-4 w-4" />}
               onChange={(value) => handleInputChange("temperature", value)}
               onBlur={() => {
-                if (!settings.temperature || settings.temperature <= 0) {
+                if (settings.temperature == null || settings.temperature < 0) {
                   onSettingsChange("temperature", DEFAULT_VALUES.temperature);
                 }
               }}
               min={PARAM_RANGES.temperature.min}
               max={PARAM_RANGES.temperature.max}
               step={PARAM_RANGES.temperature.step}
-              tooltip="Controls the randomness of the model's output"
+              tooltip="Controls the randomness of the model's output (0 = greedy/deterministic)"
               description="Lower values are more focused, higher values more creative"
             />
 
