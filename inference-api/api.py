@@ -794,7 +794,7 @@ def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
             if not line:
                 continue
             run_logger.log(levelno, line)
-            _process_run_output_line(job_id, line, levelno, levelname, pull_state)
+            _process_run_output_line(job_id, line, levelname, pull_state)
 
 
 def _execute_dev_mode_subprocess(
@@ -1488,7 +1488,6 @@ def _extract_from_job_logs(job_id: str) -> Dict[str, Optional[str]]:
 def _process_run_output_line(
     job_id: str,
     message: str,
-    levelno: int,
     levelname: str,
     pull_state: Dict[str, int],
     timestamp: Optional[float] = None,
@@ -1514,44 +1513,47 @@ def _process_run_output_line(
                 "message": message
             })
 
-    # 1) Structured DEBUG path - prefer this when available
+    # 1) Structured progress path - prefer this when available. Deliberately not
+    # gated on log level: the dev-mode subprocess reader threads label a line
+    # INFO or WARNING purely by which pipe it arrived on
+    # (_stream_subprocess_to_job), so a TT_PROGRESS line from a subprocess can
+    # never look like DEBUG. The regex match is the only reliable signal.
     structured_parsed = False
-    if levelno <= logging.DEBUG:
-        m = PROG_RE.search(message)
-        if m:
-            stage, pct, text = m.group(1), int(m.group(2)), m.group(3)
-            status = "running"
-            if stage == "complete":
-                status = "completed"
-            elif stage == "error":
-                status = "error"
+    m = PROG_RE.search(message)
+    if m:
+        stage, pct, text = m.group(1), int(m.group(2)), m.group(3)
+        status = "running"
+        if stage == "complete":
+            status = "completed"
+        elif stage == "error":
+            status = "error"
 
-            with progress_lock:
-                if job_id in progress_store:
-                    cur = progress_store[job_id]
-                    cur_status = cur.get("status", "running")
-                    if cur_status in ("completed", "failed", "cancelled"):
-                        pass
-                    else:
-                        prev = cur.get("progress", 0)
-                        pct = max(prev, pct)  # monotonic clamp
-                        progress_store[job_id].update({
-                            "status": status,
-                            "stage": stage,
-                            "progress": pct,
-                            "message": text[:200],
-                            "last_updated": time.time(),
-                        })
+        with progress_lock:
+            if job_id in progress_store:
+                cur = progress_store[job_id]
+                cur_status = cur.get("status", "running")
+                if cur_status in ("completed", "failed", "cancelled"):
+                    pass
                 else:
-                    # Initialize if not exists
-                    progress_store[job_id] = {
+                    prev = cur.get("progress", 0)
+                    pct = max(prev, pct)  # monotonic clamp
+                    progress_store[job_id].update({
                         "status": status,
                         "stage": stage,
                         "progress": pct,
                         "message": text[:200],
                         "last_updated": time.time(),
-                    }
-            structured_parsed = True
+                    })
+            else:
+                # Initialize if not exists
+                progress_store[job_id] = {
+                    "status": status,
+                    "stage": stage,
+                    "progress": pct,
+                    "message": text[:200],
+                    "last_updated": time.time(),
+                }
+        structured_parsed = True
 
     # 2) Fallback: existing INFO-based heuristics (only if structured parsing didn't work)
     if not structured_parsed:
@@ -1708,7 +1710,7 @@ class ProgressHandler(logging.Handler):
         if record.thread != self._owner_thread:
             return
         _process_run_output_line(
-            self.job_id, record.getMessage(), record.levelno, record.levelname,
+            self.job_id, record.getMessage(), record.levelname,
             self._pull_state, timestamp=record.created,
         )
 
