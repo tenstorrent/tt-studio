@@ -6,7 +6,10 @@ services:
   tt_studio_backend:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
+    # Prebuilt image published by .github/workflows/publish-images.yml; run.py
+    # writes TT_STUDIO_IMAGE_TAG to .env each start (release tag, else sha-<12>).
+    # Falls back to a local build via the build: context when the pull fails.
+    image: ${TT_STUDIO_IMAGE_REGISTRY:-ghcr.io/tenstorrent/tt-studio}/backend:${TT_STUDIO_IMAGE_TAG:-latest}
     build: 
       context: ./backend
       args:
@@ -109,7 +112,8 @@ services:
   tt_studio_agent:
     hostname: tt-studio-agent
     user: "1000:1000"  # run non-root; no host mounts, so no ownership impact
-    # Container name and image are defined in mode-specific override files
+    # Container name is defined in mode-specific override files
+    image: ${TT_STUDIO_IMAGE_REGISTRY:-ghcr.io/tenstorrent/tt-studio}/agent:${TT_STUDIO_IMAGE_TAG:-latest}
     build: ./agent
     depends_on:
       tt_studio_backend:

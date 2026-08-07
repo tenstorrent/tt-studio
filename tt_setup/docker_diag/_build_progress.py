@@ -13,6 +13,10 @@ _BUILD_STEP_RE = re.compile(r'^#(?P<n>\d+)\s+\[(?P<svc>\S+)\s+(?P<x>\d+)/(?P<y>\
 _CACHED_RE = re.compile(r'^#(?P<n>\d+)\s+CACHED\b')
 # Compose completion, e.g. " ✔ tt_studio_backend  Built" / "... tt_studio_frontend  Started"
 _BUILT_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\b(?:Built|Started)\b')
+# Compose pull completion. Non-TTY compose prints image refs ("Image
+# ghcr.io/.../backend:sha-… Pulled"); older/TTY variants print service names
+# ("✔ tt_studio_backend Pulled") — accept both.
+_PULLED_RE = re.compile(r'(?:^Image\s+(?P<ref>\S+)|(?P<svc>tt_studio_\w+))\s+Pulled\b')
 
 
 def friendly_build_label(desc):
@@ -57,6 +61,7 @@ def parse_build_line(line):
       ('step', n, svc, x, y, desc) -- a BuildKit step header (n = step number)
       ('cached', n)                -- step number n was served from cache
       ('built', svc)               -- a service finished building/starting
+      ('pulled', svc)              -- a service's image finished pulling
       None                         -- not a line we render
     """
     stripped = line.strip()
@@ -69,6 +74,12 @@ def parse_build_line(line):
     m = _BUILT_RE.search(stripped)
     if m:
         return ('built', m.group('svc'))
+    m = _PULLED_RE.search(stripped)
+    if m:
+        if m.group('svc'):
+            return ('pulled', m.group('svc'))
+        # Image ref -> short name: ".../backend:sha-abc" -> "backend"
+        return ('pulled', m.group('ref').rsplit('/', 1)[-1].split(':')[0])
     return None
 
 
@@ -112,7 +123,8 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
 
     start_pulse()   # animate the active node for the whole build (both modes)
     # Generic apt-style bottom-line label; refined to the live step in dev/-v below.
-    build_activity("Building & starting containers…")
+    is_pull = cmd[-1] == "pull"
+    build_activity("Pulling prebuilt images…" if is_pull else "Building & starting containers…")
     try:
         for line in process.stdout:
             output_lines.append(line)
@@ -133,8 +145,8 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
                 short = step_svc.get(parsed[1])
                 if short and verbose_build:
                     build_event('cached', svc=short)
-            elif parsed[0] == 'built':
-                build_event('built', svc=_short_service(parsed[1]))   # ✓ line: both modes
+            elif parsed[0] in ('built', 'pulled'):
+                build_event(parsed[0], svc=_short_service(parsed[1]))   # ✓ line: both modes
     finally:
         stop_pulse()
 

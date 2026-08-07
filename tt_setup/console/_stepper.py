@@ -41,7 +41,7 @@ SETUP_PHASES = [
     ("Checks",    "system, hardware, Docker & update freshness"),
     ("Configure", "environment, secrets, network & ports"),
     ("Services",  "Docker-control & the inference-server artifact"),
-    ("Build",     "build & start the containers"),
+    ("Build",     "pull or build & start the containers"),
     ("Launch",    "inference-server env & process start"),
 ]
 
@@ -330,9 +330,9 @@ class _ChecklistController:
                 self._build_last[svc] = label
                 with self._paint_lock:
                     console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
-        elif kind == "built" and svc:
+        elif kind in ("built", "pulled") and svc:
             with self._paint_lock:
-                console.print(f"  [success]✓ {svc} built[/success]")
+                console.print(f"  [success]✓ {svc} {kind}[/success]")
 
     def build_log(self, line):
         """Show only meaningful compose status transitions (Started/Healthy/errors)
