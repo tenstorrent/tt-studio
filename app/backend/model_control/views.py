@@ -119,6 +119,7 @@ def _drop_phase_latch(deploy_id: str) -> None:
 from model_control.model_utils import (
     encoded_jwt,
     token_for,
+    token_for_deploy,
     auth_headers,
     _vllm_client,
     get_deploy_cache,
@@ -180,7 +181,7 @@ class InferenceView(View):
         deploy_id = data.pop("deploy_id")
         deploy = get_deploy_cache()[deploy_id]
         internal_url = "http://" + deploy["internal_url"]
-        auth_token = token_for(deploy.get("jwt_secret"))
+        auth_token = token_for_deploy(deploy)
         logger.info(f"internal_url:= {internal_url}")
         logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
         data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
@@ -232,7 +233,7 @@ class AgentView(View):
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
             data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
                 deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id,
-                auth_token=token_for(deploy.get("jwt_secret"))
+                auth_token=token_for_deploy(deploy)
             )
         else:
             logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
@@ -323,7 +324,7 @@ class ModelHealthView(APIView):
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
             health_url = "http://" + deploy["health_url"]
-            check_passed, health_content = health_check(health_url, json_data=None, auth_token=token_for(deploy.get('jwt_secret')))
+            check_passed, health_content = health_check(health_url, json_data=None, auth_token=token_for_deploy(deploy))
             if check_passed is True:
                 ret_status = status.HTTP_200_OK
                 content = {"message": "Healthy", "details": health_content}
@@ -1898,7 +1899,7 @@ class OpenAIChatCompletionsView(View):
             data["chat_template_kwargs"] = ctk
 
         internal_url = "http://" + deploy["internal_url"]
-        auth_token = token_for(deploy.get("jwt_secret"))
+        auth_token = token_for_deploy(deploy)
         data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
             deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id, auth_token=auth_token
         )

@@ -17,6 +17,7 @@ from django.core.cache import caches
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
+from shared_config.user_config import get_tts_api_key
 from docker_control.docker_utils import update_deploy_cache
 from model_control.metrics_tracker import InferenceMetricsTracker
 
@@ -44,12 +45,33 @@ def token_for(jwt_secret: str = None) -> str:
     return encoded_jwt
 
 
-def auth_headers(deploy: dict = None) -> dict:
-    """Authorization header for a deploy-cache entry, signed with the model's own
-    JWT_SECRET when it has one (a registered external container), else the backend
-    default token (normal deploys share the backend secret)."""
+def _engine_of(deploy: dict = None) -> str:
+    """inference_engine for a deploy-cache entry ("vllm" | "media" | "forge")."""
+    model_impl = deploy.get("model_impl") if isinstance(deploy, dict) else None
+    engine = getattr(model_impl, "inference_engine", None)
+    if engine is None and isinstance(model_impl, dict):
+        engine = model_impl.get("inference_engine")
+    return (engine or "").lower()
+
+
+def token_for_deploy(deploy: dict = None) -> str:
+    """Bearer token for a deploy-cache entry.
+
+    media/forge models run the tt-media-server, which compares the header against
+    a static API_KEY string and never decodes a JWT — sending one gets a 401. They
+    get that api key (the same one the media branches in views.py already use).
+    Everything else gets a JWT, signed with the model's own JWT_SECRET when it has
+    one (a registered external container), else the backend default token.
+    """
+    if _engine_of(deploy) in ("media", "forge"):
+        return get_tts_api_key()
     secret = deploy.get("jwt_secret") if isinstance(deploy, dict) else None
-    return {"Authorization": f"Bearer {token_for(secret)}"}
+    return token_for(secret)
+
+
+def auth_headers(deploy: dict = None) -> dict:
+    """Authorization header for a deploy-cache entry (see token_for_deploy)."""
+    return {"Authorization": f"Bearer {token_for_deploy(deploy)}"}
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(

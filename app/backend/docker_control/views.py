@@ -110,6 +110,19 @@ _LLAMA_V014_MODELS = {
     "Llama-3.3-70B-Instruct",
 }
 
+# TEMPORARY: Forge models need a build that sets TT_MESH_GRAPH_DESC_PATH, or they abort at
+# device init on Blackhole with "Custom fabric mesh graph descriptor path must be specified
+# for CUSTOM cluster type". The fix (tt-inference-server#4785) is not in any release yet, so
+# point at the CI build that carries it. Delete this once a released forge image includes the
+# fix and the artifact ships it.
+_FORGE_MESH_FIX_IMAGE = (
+    "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:"
+    "378e5da148a3d7599ace2626c9efd36428e86eb6_c69ba8e_90094926193"
+)
+_FORGE_MESH_FIX_MODELS = {
+    "Falcon3-7B-Instruct",
+}
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -224,6 +237,7 @@ class ContainersView(APIView):
                 "compatible_boards": compatible_boards,
                 "model_type": impl.model_type.value,
                 "display_model_type": impl.display_model_type,
+                "inference_engine": impl.inference_engine,
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
                 "chips_required": chips_required,
@@ -594,6 +608,9 @@ class DeployView(APIView):
                 override_docker_image = (
                     _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
                 )
+                # Forge models need the mesh-descriptor build (see _FORGE_MESH_FIX_IMAGE).
+                if impl.model_name in _FORGE_MESH_FIX_MODELS:
+                    override_docker_image = _FORGE_MESH_FIX_IMAGE
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,

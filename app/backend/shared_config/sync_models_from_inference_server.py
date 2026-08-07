@@ -27,11 +27,20 @@ OUTPUT_JSON = SCRIPT_DIR / "models_from_inference_server.json"
 #   3. .artifacts/tt-inference-server/ next to repo root (artifact default location)
 #   4. tt-inference-server/ next to repo root (manual local dev checkout)
 _REPO_ROOT = SCRIPT_DIR / "../../.."
+# Spec filenames in precedence order. The released artifact ships its spec as
+# release_model_spec.json, so that name is tried first; model_specs_output.json /
+# model_spec.json are older/local-dev names kept for backward compatibility.
+_SPEC_FILENAMES = [
+    "release_model_spec.json",
+    "model_specs_output.json",
+    "model_spec.json",
+]
+_SOURCE_DIRS = [
+    _REPO_ROOT / ".artifacts/tt-inference-server",  # artifact default location
+    _REPO_ROOT / "tt-inference-server",             # manual local dev checkout
+]
 _CANDIDATE_SOURCES = [
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_spec.json",
-    _REPO_ROOT / "tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / "tt-inference-server/model_spec.json",
+    d / name for d in _SOURCE_DIRS for name in _SPEC_FILENAMES
 ]
 
 
@@ -46,9 +55,10 @@ def resolve_source_json(override: str | None = None) -> Path:
     # Check env var set by run.py
     artifact_path = os.environ.get("TT_INFERENCE_ARTIFACT_PATH")
     if artifact_path:
-        p = Path(artifact_path) / "model_specs_output.json"
-        if p.exists():
-            return p.resolve()
+        for name in _SPEC_FILENAMES:
+            p = Path(artifact_path) / name
+            if p.exists():
+                return p.resolve()
 
     # Try static candidates
     for candidate in _CANDIDATE_SOURCES:
