@@ -35,6 +35,66 @@ _CANDIDATE_SOURCES = [
 ]
 
 
+# Catalog keys that are curated by hand and can never be derived from the
+# tt-inference-server source JSON. Without explicit preservation, every resync
+# rebuilds the catalog from scratch and silently drops them -- someone fixes a
+# deploy by editing the catalog, then loses the fix on the next --resync with no
+# error. Adding a future hand-owned field means adding it here. See issue #977.
+HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref")
+
+
+def load_existing_catalog(path: Path) -> dict:
+    """Return {model_name: entry} for the catalog already on disk, or {} if none.
+
+    Never fatal: a missing or malformed catalog just means there is nothing to
+    preserve, which is the correct outcome for a first-time sync.
+    """
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Warning: could not read existing catalog ({e}); nothing to preserve")
+        return {}
+    return {
+        m["model_name"]: m
+        for m in data.get("models", [])
+        if isinstance(m, dict) and m.get("model_name")
+    }
+
+
+def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
+    """Fold hand-curated state from `existing` into freshly-synced `models`.
+
+    Two distinct losses to prevent:
+    - A hand-set field on a model that IS in the source JSON (e.g. a dev-catalog
+      flag) has nothing in the source to regenerate it.
+    - A model that exists ONLY in the dev-tier catalog can't appear in a prod
+      release snapshot at all, so a rebuild deletes the whole entry.
+
+    Returns (merged_models, preserved_field_names, retained_model_names).
+    """
+    preserved, retained = [], []
+    synced_names = {m["model_name"] for m in models}
+
+    for model in models:
+        old = existing.get(model["model_name"])
+        if not old:
+            continue
+        for key in HAND_OWNED_KEYS:
+            if key in old and key not in model:
+                model[key] = old[key]
+                preserved.append(f"{model['model_name']}.{key}")
+
+    for name, old in existing.items():
+        if name not in synced_names:
+            models.append(old)
+            retained.append(name)
+
+    return models, preserved, retained
+
+
 def resolve_source_json(override: str | None = None) -> Path:
     """Return the path to model_specs_output.json, trying candidates in order."""
     if override:
@@ -329,6 +389,20 @@ def main():
         raise FileNotFoundError(f"Source not found: {source_path}")
 
     models = normalize(source_path)
+
+    # Fold in hand-curated state before writing. normalize() rebuilds every entry
+    # purely from the source JSON, so without this the write below silently
+    # discards anything the source can't express (issue #977).
+    existing = load_existing_catalog(OUTPUT_JSON.resolve())
+    models, preserved, retained = merge_hand_owned(models, existing)
+    if preserved:
+        print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
+    if retained:
+        print(f"Retained {len(retained)} model(s) absent from source: {', '.join(retained)}")
+
+    # Re-sort after merging so retained entries land in their proper position
+    # rather than appended at the end (same key as normalize()).
+    models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
 
     # Resolve artifact version from VERSION file or env vars (avoid leaking absolute paths)
     artifact_version = None
