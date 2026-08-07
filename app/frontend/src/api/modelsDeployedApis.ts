@@ -65,6 +65,7 @@ export const ModelType = {
   TTS: "TTS",
   Embedding: "Embedding",
   CNN: "CNN",
+  Training: "Training",
 };
 
 /**
@@ -95,6 +96,8 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.Embedding;
     case "cnn":
       return ModelType.CNN;
+    case "training":
+      return ModelType.Training;
     default:
       return ModelType.ChatModel;
   }
@@ -429,6 +432,8 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/chat"; // placeholder
     case ModelType.CNN:
       return "/object-detection"; // CNN reuses object detection UI
+    case ModelType.Training:
+      return "/training";
     default:
       return "/chat";
   }
@@ -571,6 +576,9 @@ export const getModelTypeFromName = (
   }
   if (combined.includes("tts")) {
     return ModelType.TTS;
+  }
+  if (combined.includes("training") || combined.includes("finetune") || combined.includes("fine-tune")) {
+    return ModelType.Training;
   }
   return ModelType.ChatModel;
 };
