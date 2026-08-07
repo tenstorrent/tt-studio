@@ -26,10 +26,6 @@ import {
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
 import { Model, getModelsUrl } from "./SelectionSteps";
-import {
-  isLlama31_8BModel,
-  isP300x2Board,
-} from "../utils/p300x2Placement";
 import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
@@ -75,6 +71,12 @@ const STATUS_CONFIG = {
 };
 
 const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPERIMENTAL: 1 };
+
+// Blackhole voice pipeline runs Qwen3.5-9B as its LLM. It is single-chip, so the
+// LLM, Whisper and SpeechT5 each take one device. Where Qwen3.5-9B is compatible
+// (Blackhole boards) it is pinned; elsewhere the wizard falls back to the chat
+// dropdown so the pipeline still deploys on Wormhole hardware.
+const PINNED_VOICE_LLM = "Qwen3.5-9B";
 
 // ---- helpers --------------------------------------------------------------
 
@@ -236,7 +238,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
             models.find((m) => m.model_type === type && filter(m))?.id ?? ""
           );
         };
-        setSelectedLlmId(firstCompat("chat"));
+        // Prefer the pinned Qwen3.5-9B where the board supports it; otherwise fall
+        // back to the compatible-chat default (Instruct-preferring).
+        const pinned = models.find(
+          (m) => m.name === PINNED_VOICE_LLM && m.is_compatible === true
+        );
+        setSelectedLlmId(pinned?.id ?? firstCompat("chat"));
         setSelectedWhisperId(firstCompat("speech_recognition"));
         setSpeechT5Id(firstCompat("tts"));
       })
@@ -301,16 +308,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const ttsModels = allModels.filter((m) => m.model_type === "tts" && isSingleChip(m));
   const selectedLlmModel = allModels.find((m) => m.id === selectedLlmId);
   const speechT5Model = allModels.find((m) => m.id === speechT5Id);
-  const currentBoard = allModels[0]?.current_board;
-  const useLlamaCardPair =
-    isP300x2Board(currentBoard) &&
-    isLlama31_8BModel(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
-  const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
-  const whisperDeviceId = useLlamaCardPair ? 2 : 1;
-  const ttsDeviceId = useLlamaCardPair ? 3 : 2;
+  // Pinned when the selected LLM is Qwen3.5-9B (Blackhole); the card is then fixed
+  // rather than a dropdown.
+  const isPinned = selectedLlmModel?.name === PINNED_VOICE_LLM;
+  const llmDeviceId = 0;
+  const whisperDeviceId = 1;
+  const ttsDeviceId = 2;
 
-  // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
-  const requiredSlots = useLlamaCardPair ? 4 : 3;
+  // Pre-flight: the pipeline pins one device per stage, so the board must expose enough of them.
+  const requiredSlots = 3;
   const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
   const hasErrors =
@@ -328,24 +334,14 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     });
     return Array.from(unique.values());
   };
-  const withDisplayDeviceIds = (item: OccupiedDevice): OccupiedDevice =>
-    useLlamaCardPair && item.device_ids.includes(0)
-      ? { ...item, device_ids: [0, 1] }
-      : item;
-  const llmOccupantsRaw = useLlamaCardPair
-    ? dedupeOccupiedDevices([occupiedByDevice(0), occupiedByDevice(1)])
-    : dedupeOccupiedDevices([occupiedByDevice(0)]);
-  const llmOccupants = useLlamaCardPair
-    ? dedupeOccupiedDevices(llmOccupantsRaw.map(withDisplayDeviceIds))
-    : llmOccupantsRaw;
+  const llmOccupants = dedupeOccupiedDevices([occupiedByDevice(llmDeviceId)]);
   const whisperOccupants = dedupeOccupiedDevices([occupiedByDevice(whisperDeviceId)]);
   const ttsOccupants = dedupeOccupiedDevices([occupiedByDevice(ttsDeviceId)]);
-  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
+  const targetSlots = [llmDeviceId, whisperDeviceId, ttsDeviceId];
   const occupiedSlots = dedupeOccupiedDevices(
     targetSlots
       .map((id) => occupiedByDevice(id))
       .filter((item): item is OccupiedDevice => item !== undefined)
-      .map(withDisplayDeviceIds)
   );
   const hasConflicts = occupiedSlots.length > 0;
 
@@ -457,8 +453,8 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         <div>
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
-            {useLlamaCardPair
-              ? "Deploys the full voice pipeline: Llama 8B Instruct on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
+            {isPinned
+              ? "Deploys the full voice pipeline: Qwen3.5-9B on device 0, Whisper on device 1, SpeechT5 on device 2."
               : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
@@ -473,21 +469,32 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
               <ModelCard
                 icon={<Bot className="w-5 h-5" />}
                 label="LLM"
-                deviceLabel={useLlamaCardPair ? "Device 0,1" : "Device 0"}
+                deviceLabel="Device 0"
                 deployState={llmState}
                 accent="blue"
                 occupants={llmOccupants}
                 helperContent={
                   <>
                     <Info className="w-2.5 h-2.5 shrink-0 opacity-60" />
-                    <span>Instruct variants recommended for chat</span>
+                    <span>
+                      {isPinned
+                        ? "Qwen3.5-9B is experimental on Blackhole"
+                        : "Instruct variants recommended for chat"}
+                    </span>
                   </>
                 }
               >
-                <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
-                  <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
-                  <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
-                </Select>
+                {isPinned ? (
+                  <div className="flex items-center h-8 px-3 rounded-md border border-input bg-muted/50 text-xs text-muted-foreground">
+                    {selectedLlmModel?.name ?? PINNED_VOICE_LLM}
+                    <span className="ml-auto text-[10px] opacity-60">fixed</span>
+                  </div>
+                ) : (
+                  <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
+                    <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
+                    <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
+                  </Select>
+                )}
               </ModelCard>
 
               <ModelCard
