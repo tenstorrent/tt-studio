@@ -2019,10 +2019,10 @@ class DeploymentHistoryView(APIView):
 class DiscoverContainersView(APIView):
     """List running containers that are candidates for registration.
 
-    A candidate is any running container that is either unregistered, or registered
-    but no longer on tt_studio_network (a disconnected stray). Being attached to the
-    network is not itself a disqualifier — only a registered container that is still
-    on the network is excluded; everything else is offered so it can be (re)registered.
+    A candidate is any running container with a Tenstorrent device bound that is
+    either unregistered, or registered but no longer on tt_studio_network (a
+    disconnected stray). Being attached to the network is not itself a disqualifier
+    — only a registered container that is still on the network is excluded.
     """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
@@ -2062,6 +2062,12 @@ class DiscoverContainersView(APIView):
                 if is_registered and network_name in networks:
                     continue
 
+                # Only offer containers that serve a model on the accelerator. A
+                # bound /dev/tenstorrent node is the definitive test
+                bound = _detect_device_ids_from_mounts(c)
+                if bound is None and not is_registered:
+                    continue
+
                 # Extract port bindings
                 port_bindings = c.get("NetworkSettings", {}).get("Ports", {})
                 if not port_bindings:
@@ -2072,7 +2078,6 @@ class DiscoverContainersView(APIView):
                 # granularity, so enumerate the board's slots from its device type
                 # so the UI still shows the real all-device mapping instead of a
                 # single-device picker. null only when nothing can be determined.
-                bound = _detect_device_ids_from_mounts(c)
                 if isinstance(bound, list):
                     detected_device_ids = bound
                 elif bound == "whole":
