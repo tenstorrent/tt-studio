@@ -102,8 +102,12 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         container_port=8080,
         default_host_port=3080,
         volumes={"tt_studio_open_webui_data": "/app/backend/data"},
-        # Open WebUI probes for a local Ollama daemon unless told not to.
-        env={"ENABLE_OLLAMA_API": "false"},
+        env={
+            # Open WebUI probes for a local Ollama daemon unless told not to.
+            "ENABLE_OLLAMA_API": "false",
+            # Don't persist config to volume in case the upstream changes.
+            "ENABLE_PERSISTENT_CONFIG": "false",
+        },
         gateway_env={
             "OPENAI_API_BASE_URL": "{base_url}",
             "OPENAI_API_KEY": "{api_key}",
