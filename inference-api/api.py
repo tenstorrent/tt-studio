@@ -15,6 +15,7 @@ import threading
 import uuid
 import re
 import json
+import shutil
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -194,6 +195,11 @@ workflows_log_setup.setup_run_logger = _patched_setup_run_logger
 # See issue #825.
 import subprocess as _subprocess  # noqa: E402
 _orig_popen = _subprocess.Popen
+
+# Fetches per-model tt-inference-server builds named by a catalog entry's
+# inference_artifact_ref. Local module, not part of the artifact.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from artifact_refs import ArtifactRefError, resolve_artifact_dir  # noqa: E402
 
 
 def _isolated_popen(*args, **kwargs):
@@ -818,6 +824,33 @@ def _execute_dev_mode_subprocess(
                                          # and -- a nice side benefit -- JWT_SECRET/HF_TOKEN now
                                          # flow ONLY into this dict, never into the shared process env
     child_env["MODEL_SPECS_ENV"] = "dev"  # belt-and-braces; run.py's own argv scan already does this
+
+    # api.py was launched pointing at the globally pinned artifact, so anything it
+    # inherited that holds an absolute path into that checkout is wrong whenever
+    # script_dir is a per-model artifact (RunRequest.artifact_ref). Re-point those
+    # at the artifact actually being executed. No-ops when script_dir IS the global
+    # artifact -- the values get rewritten to what they already were.
+    child_env["TT_INFERENCE_ARTIFACT_PATH"] = str(script_dir)
+    _benchmark_targets = (
+        script_dir / "benchmarking" / "benchmark_targets" / "model_performance_reference.json"
+    )
+    if _benchmark_targets.is_file():
+        child_env["OVERRIDE_BENCHMARK_TARGETS"] = str(_benchmark_targets)
+    else:
+        # Leaving the inherited value would point run.py at another checkout's
+        # benchmark file, which it asserts on.
+        child_env.pop("OVERRIDE_BENCHMARK_TARGETS", None)
+
+    # run.py reads .env from its own repo root, and sync_tokens_from_tt_studio()
+    # refreshes that file inside the global artifact on every /run. A per-model
+    # artifact is its own root, so mirror the freshly-synced file across.
+    if artifact_path and Path(artifact_path).resolve() != script_dir.resolve():
+        _src_env = Path(artifact_path) / ".env"
+        if _src_env.is_file():
+            try:
+                shutil.copyfile(_src_env, script_dir / ".env")
+            except OSError as e:
+                logger.warning("Job %s: could not copy .env into %s: %s", job_id, script_dir, e)
 
     # workflows/utils.py's get_repo_root_path() walks up from __file__ looking for
     # a ".git" marker (default) to find its own root. The fetched artifact is a
@@ -1740,6 +1773,11 @@ class RunRequest(BaseModel):
     disable_trace_capture: Optional[bool] = False
     dev_mode: Optional[bool] = False
     override_docker_image: Optional[str] = None
+    # tt-inference-server branch/tag/commit this deploy needs, when the globally
+    # pinned artifact doesn't carry the model. Fetched and cached on demand; only
+    # honoured alongside dev_mode, since that's the path that runs run.py as a
+    # subprocess and can therefore be pointed at a different artifact directory.
+    artifact_ref: Optional[str] = None
     device_id: Optional[str] = None
     override_tt_config: Optional[str] = None
     vllm_override_args: Optional[str] = None
@@ -2295,6 +2333,31 @@ async def run_inference(request: RunRequest):
                     progress_handler = ProgressHandler(job_id)
                     run_logger.addHandler(progress_handler)
 
+                # A model whose catalog entry names its own tt-inference-server build
+                # runs against that build instead of the globally pinned artifact.
+                # Resolved BEFORE taking _run_main_lock: the first use of a ref
+                # downloads ~18MB, and there's no reason to block unrelated deploys
+                # on that. An ArtifactRefError here propagates to the outer handler,
+                # which marks the job failed -- deliberately louder than falling back
+                # to a build that doesn't contain the model.
+                job_script_dir = script_dir
+                if request.dev_mode and request.artifact_ref:
+                    with progress_lock:
+                        if job_id in progress_store:
+                            progress_store[job_id].update({
+                                "status": "running",
+                                "stage": "artifact_setup",
+                                "message": f"Fetching tt-inference-server {request.artifact_ref}...",
+                                "last_updated": time.time(),
+                            })
+                    job_script_dir = resolve_artifact_dir(
+                        request.artifact_ref, _tt_studio_root / ".artifacts"
+                    )
+                    logger.info(
+                        "Job %s: using tt-inference-server ref '%s' at %s",
+                        job_id, request.artifact_ref, job_script_dir,
+                    )
+
                 # run_main() relies on process globals (sys.argv, os.environ, cwd), so
                 # serialize this setup/execution phase across concurrent /run requests.
                 with _run_main_lock:
@@ -2307,7 +2370,7 @@ async def run_inference(request: RunRequest):
                         # device/board allocation, the Docker daemon) that the rest
                         # of the system assumes are serialized system-wide.
                         return_code, container_info = _run_dev_mode_job(
-                            job_id, initial_argv, script_dir, env_vars_to_set, request, run_logger,
+                            job_id, initial_argv, job_script_dir, env_vars_to_set, request, run_logger,
                             expected_host_volume_dir, expected_host_weights_dir,
                         )
                     else:
@@ -2608,6 +2671,22 @@ async def run_inference(request: RunRequest):
                                     "last_updated": time.time(),
                                 }
                             )
+            except ArtifactRefError as e:
+                # Already a complete, actionable sentence naming the ref and URL --
+                # surface it verbatim rather than as a truncated "Deployment error",
+                # and skip the traceback (a missing branch isn't a crash).
+                logger.error("Job %s: %s", job_id, e)
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id].update(
+                            {
+                                "status": "error",
+                                "stage": "error",
+                                "progress": 0,
+                                "message": str(e),
+                                "last_updated": time.time(),
+                            }
+                        )
             except Exception as e:
                 logger.error(f"Job {job_id}: error: {e}", exc_info=True)
                 with progress_lock:
