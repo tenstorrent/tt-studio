@@ -314,6 +314,7 @@ export default function StepperDemo() {
   const handleDeploy = async (options?: {
     device_id?: number | string;
     host_port?: number | null;
+    host_weights_dir?: string;
   }): Promise<{
     success: boolean;
     job_id?: string;
@@ -356,6 +357,10 @@ export default function StepperDemo() {
     }
     if (resolvedDeviceId !== undefined) {
       payloadObj.device_id = resolvedDeviceId;
+    }
+    // Merged LoRA checkpoint selected in the deploy step → load via --host-weights-dir.
+    if (options?.host_weights_dir) {
+      payloadObj.host_weights_dir = options.host_weights_dir;
     }
     const payload = JSON.stringify(payloadObj);
 

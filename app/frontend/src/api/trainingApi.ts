@@ -128,6 +128,48 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
   return extractModels(data);
 }
 
+// ---------------------------------------------------------------------------
+// Custom (user-uploaded) datasets
+// ---------------------------------------------------------------------------
+
+// A dataset JSON file the user uploaded, stored under the shared training volume
+// at training_volume/custom_datasets/. These are offered as choices in the New
+// Training Job dialog. The training server does not yet accept arbitrary
+// datasets, so selecting one still trains on the default (sst2) recipe — see
+// DEFAULT_DATASET_LOADER.
+export interface CustomDataset {
+  id: string;
+  name: string;
+  size_bytes?: number;
+  modified_at?: number | null;
+}
+
+// Dataset the training server actually uses when a custom dataset is selected.
+// Custom datasets aren't supported by the inference/training server yet, so jobs
+// fall back to this built-in recipe while still showing the user's choice. Value
+// matches the dataset `id` exposed by the training container's /v1/catalog.
+export const DEFAULT_DATASET_LOADER = "SST2";
+
+export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
+  const { data } = await axios.get(`${TRAINING_API}/datasets/custom/`);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.datasets)) return data.datasets;
+  return [];
+}
+
+export async function uploadCustomDataset(
+  file: File,
+): Promise<CustomDataset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await axios.post(
+    `${TRAINING_API}/datasets/custom/`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
 export interface TrainingCatalog {
   models: CatalogEntry[];
   datasets: CatalogEntry[];
@@ -294,4 +336,47 @@ export function getCheckpointDownloadUrl(
   ckptId: string,
 ): string {
   return `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/`;
+}
+
+// ---------------------------------------------------------------------------
+// Adapter merge / merged checkpoints
+// ---------------------------------------------------------------------------
+
+// A LoRA adapter checkpoint merged into its base model, discovered on disk from
+// its merge_info.json sidecar. `path` is a host path passed to a later inference
+// deploy as `host_weights_dir`.
+export interface MergedCheckpoint {
+  merge_id: string;
+  model: string | null;
+  source_job_id?: string | null;
+  checkpoint_id?: string | null;
+  created_at?: number | null;
+  path: string;
+  valid: boolean;
+}
+
+// Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint the
+// inference container can serve. Returns the created merge job.
+export async function promoteCheckpoint(
+  jobId: string,
+  ckptId: string,
+): Promise<{ id?: string; status?: string; [key: string]: unknown }> {
+  const { data } = await axios.post(
+    `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
+  );
+  return data;
+}
+
+// Discover merged checkpoints available for deploying a given model. Returns only
+// checkpoints merged from that model's base weights (matched server-side on
+// hf_model_id).
+export async function fetchMergedCheckpoints(
+  modelId: string,
+): Promise<MergedCheckpoint[]> {
+  const { data } = await axios.get(`${TRAINING_API}/merged-checkpoints/`, {
+    params: { model_id: modelId },
+  });
+  if (Array.isArray(data)) return data;
+  if (data?.merged_checkpoints) return data.merged_checkpoints;
+  return [];
 }

@@ -175,7 +175,7 @@ export function FirstStepForm({
   const onSubmit = async (data: z.infer<typeof FirstFormSchema>) => {
     setIsSubmitting(true);
     try {
-      const selectedModel = models.find((model) => model.name === data.model);
+      const selectedModel = models.find((model) => model.id === data.model);
       if (selectedModel) {
         if (selectedModel.is_compatible === false) {
           customToast.error(
@@ -234,7 +234,7 @@ export function FirstStepForm({
 
       if (targetModel) {
         console.log("Auto-selecting model:", targetModel.name);
-        form.setValue("model", targetModel.name);
+        form.setValue("model", targetModel.id);
 
         // Auto-submit the form after a short delay
         setTimeout(() => {
@@ -341,7 +341,7 @@ export function FirstStepForm({
     return (
       <SelectItem
         key={model.id}
-        value={model.name}
+        value={model.id}
         disabled={!fits}
         className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
       >
@@ -391,7 +391,12 @@ export function FirstStepForm({
         <FormField
           control={form.control}
           name="model"
-          render={({ field }) => (
+          render={({ field }) => {
+            // field.value holds the unique model id; resolve its display name so
+            // the large-weights download warning can be keyed by name as before.
+            const selectedModelName =
+              models.find((m) => m.id === field.value)?.name ?? "";
+            return (
             <FormItem className="w-full mb-4 p-8">
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 <div className="flex items-center gap-3 mb-4">
@@ -554,7 +559,7 @@ export function FirstStepForm({
               )}
 
               {/* Download-reliability warning: HF often stalls fetching these large weights */}
-              {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
+              {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName] && (
                 <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <div className="space-y-2">
@@ -562,19 +567,19 @@ export function FirstStepForm({
                       Download the weights first to avoid a failed deploy
                     </p>
                     <p>
-                      Hugging Face often stalls downloading {field.value}'s large
+                      Hugging Face often stalls downloading {selectedModelName}'s large
                       weights mid-deploy, which fails the deployment. Pre-fetch them
                       first — run this, let it finish, then deploy:
                     </p>
                     <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
                       <code className="flex-1 break-all">
-                        hf download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                        hf download {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}
                       </code>
                       <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(
-                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}`
                           );
                           customToast.success("Command copied to clipboard");
                         }}
@@ -599,7 +604,8 @@ export function FirstStepForm({
                 {form.formState.errors.model?.message}
               </FormMessage>
             </FormItem>
-          )}
+            );
+          }}
         />
         <StepperFormActions
           form={form}

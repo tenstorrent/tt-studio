@@ -4,6 +4,7 @@
 
 # docker_control/docker_utils.py
 import socket, os, subprocess, json, signal, time
+import re
 import copy
 from pathlib import Path
 
@@ -30,6 +31,33 @@ logger.info(f"importing {__name__}")
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
+
+# Shared host-volume subdirectory (under the TT-Studio persistent volume) that
+# training deploys bind-mount via --host-volume. 
+TRAINING_HOST_VOLUME_SUBDIR = "training_volume"
+
+
+def get_training_host_volume() -> str:
+    """
+    Host path passed to run.py as --host-volume for training deploys.
+    """
+    internal_dir = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            # Dir is created root-owned, but the host user (run.py) and container
+            # (uid 1000) also write here. Sticky world-writable 01777 lets both
+            # write while blocking cross-user deletes.
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create training host-volume dir %s: %s", internal_dir, e
+            )
+    return os.path.join(
+        backend_config.host_peristent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -273,6 +301,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
+                    model_id=impl.model_id,
                     device=f"device_{device_id}",
                     device_id=deployment_device_ids[0],
                     device_ids=deployment_device_ids,
@@ -339,7 +368,110 @@ def deploys_whole_board(impl, board_type=None):
     return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+
+
+
+def _wait_for_container_exit(docker_client, name: str, timeout: int = 120):
+    """Block until the named container exits (or disappears). Returns its exit
+    code, or None if it vanished, errored transiently, or the wait timed out.
+
+    Polling is the only option: the docker-control-service exposes no
+    container-wait endpoint, and run_container is detached (it returns as soon as
+    the container starts, not when its command finishes).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            info = docker_client.get_container(name)
+        except Exception:
+            # 404 once the container is gone (or a transient error) — done.
+            return None
+        state = (
+            info.get("attrs", {}).get("State", {})
+            if isinstance(info, dict)
+            else {}
+        )
+        if state.get("Status") == "exited":
+            return state.get("ExitCode")
+        time.sleep(2)
+    return None
+
+
+def _force_remove_container(docker_client, name: str) -> None:
+    """Best-effort removal of a throwaway container; never raises."""
+    try:
+        docker_client.remove_container(name, force=True)
+    except Exception:
+        pass
+
+
+def clear_stale_tt_metal_cache(model_name: str, inference_impl) -> None:
+    """Invalidate the tt-metal converted-weights cache for a custom-weights deploy.
+
+    The cache is keyed only by impl + model name, not by weight contents. So when
+    a fine-tuned checkpoint is served under the same name via --host-weights-dir,
+    the previous checkpoint's cached weights are silently reused and shadow it. We
+    delete the cache before deploy so the server re-converts from the new weights.
+
+    Best-effort: failures are logged and the deploy proceeds. A throwaway
+    container removes only the tt_metal_cache subtree; the base weights
+    (bind-mounted from --host-weights-dir) are untouched.
+    """
+    # Without the impl_id we can't resolve the volume name, so skip rather than guess.
+    if not inference_impl:
+        logger.warning(
+            "tt-metal cache clear skipped for %s: no inference_impl set, cannot "
+            "resolve the cache volume name.",
+            model_name,
+        )
+        return
+
+    # Mirror tt-inference-server's layout: the named volume
+    # `volume_id_<impl>-<model>` is mounted at the container's cache_root, whose
+    # tt_metal_cache/cache_<model>/ subtree holds the converted weights.
+    mount_dir = "/mnt/ttcache"
+    volume_name = f"volume_id_{inference_impl}-{model_name}"
+    cache_path = f"{mount_dir}/tt_metal_cache/cache_{model_name}"
+
+    safe_model_name = re.sub(r"[^a-zA-Z0-9_.-]", "-", model_name)
+    container_name = f"tt-cache-clear-{safe_model_name}-{int(time.time())}"
+
+    docker_client = get_docker_client()
+    logger.info(
+        "Clearing stale tt-metal cache for %s: rm -rf %s (volume %s)",
+        model_name, cache_path, volume_name,
+    )
+    try:
+        result = docker_client.run_container(
+            image="alpine:latest",
+            name=container_name,
+            command=f"rm -rf {cache_path}",
+            volumes={volume_name: mount_dir},
+            detach=True,
+            auto_remove=False,
+        )
+        if isinstance(result, dict) and result.get("status") == "error":
+            logger.warning(
+                "tt-metal cache clear for %s could not start: %s",
+                model_name, result.get("message"),
+            )
+            return
+
+        exit_code = _wait_for_container_exit(docker_client, container_name, timeout=120)
+        if exit_code not in (None, 0):
+            logger.warning(
+                "tt-metal cache clear for %s exited with code %s",
+                model_name, exit_code,
+            )
+        else:
+            logger.info("Cleared stale tt-metal cache for %s", model_name)
+    except Exception as e:
+        logger.warning("tt-metal cache clear for %s failed: %s", model_name, e)
+    finally:
+        _force_remove_container(docker_client, container_name)
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, host_weights_dir=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -428,6 +560,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if inference_impl:
             payload["impl"] = inference_impl
 
+        if impl.model_type == ModelTypes.TRAINING:
+            payload["host_volume"] = get_training_host_volume()
+        elif host_weights_dir:
+            payload["host_weights_dir"] = host_weights_dir
+
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
         # container (root) wrote it, so the request payload is its reliable source.
@@ -448,6 +585,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             for k, v in payload.items()
         }
         logger.info(f"API payload: {_redacted_payload}")
+
+        if host_weights_dir:
+            clear_stale_tt_metal_cache(impl.model_name, inference_impl)
 
         # Make POST request to TT Inference Server API
         api_url = f"{FASTAPI_BASE_URL}/run"
@@ -487,6 +627,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         container_id=job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=primary_device_id,
                         device_ids=deployment_device_ids,
@@ -875,14 +1016,24 @@ def _enrich_container_with_model_impl(con, con_id):
                 deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                 if deployment:
-                    for _k, v in model_implmentations.items():
-                        if v.model_name == deployment.model_name:
-                            model_impl = v
-                            logger.info(
-                                f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                            )
-                            deployment_found = True
-                            break
+                    # model_name alone is ambiguous when two model specs share a name
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B")
+                    stored_model_id = getattr(deployment, "model_id", "") or ""
+                    if stored_model_id and stored_model_id in model_implmentations:
+                        model_impl = model_implmentations[stored_model_id]
+                        logger.info(
+                            f"Matched TT Inference Server container to model_impl by id: {model_impl.model_id}"
+                        )
+                        deployment_found = True
+                    if not model_impl:
+                        for _k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(
+                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
+                                )
+                                deployment_found = True
+                                break
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -1048,7 +1199,8 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
+            _stored_model_id = getattr(dep, "model_id", "") or ""
+            _impl = model_implmentations.get(_stored_model_id) or next(
                 (v for v in model_implmentations.values() if v.model_name == dep.model_name),
                 None,
             )
