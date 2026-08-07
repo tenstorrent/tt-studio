@@ -130,6 +130,56 @@ def _resolve_override_docker_image(impl) -> Optional[str]:
     return None
 
 
+def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
+    """Pick this entry's tt-inference-server build for the board being deployed to.
+
+    The catalog field is keyed by device because one entry usually covers several
+    boards (47 of 56 entries do) and only some may need a non-default build.
+
+    Returns None -- meaning "use the globally pinned artifact" -- for every case
+    except an explicit, matched, eligible pin. Callers need no other fallback.
+    """
+    ref_map = getattr(impl, "inference_artifact_ref", None)
+    if not ref_map:
+        return None
+
+    # Only dev-catalog deploys run run.py as a subprocess, which is the only path
+    # that can be pointed at a different artifact directory. The in-process path
+    # is bound to the artifact imported at inference-api boot, so honouring a ref
+    # there would silently deploy against the wrong build.
+    if not impl.requires_dev_catalog:
+        logger.warning(
+            f"{impl.model_name}: ignoring inference_artifact_ref -- it only applies to "
+            f"models with requires_dev_catalog=true. Using the globally pinned artifact."
+        )
+        return None
+
+    # Match the resolved runtime device first ("p150"), then the detected board
+    # type ("P300x2"). These differ on multi-chip boards: _BOARD_TO_SINGLE_CHIP_DEVICE
+    # maps P300x2 -> p150, so a P300x2 box actually deploys with --tt-device p150.
+    # Accept either spelling so a catalog author can key on what they see.
+    lookup = {str(k).strip().lower(): v for k, v in ref_map.items()}
+    for candidate in (device, board_type):
+        if not candidate:
+            continue
+        ref = lookup.get(str(candidate).strip().lower())
+        if ref:
+            logger.info(
+                f"{impl.model_name}: using tt-inference-server ref '{ref}' "
+                f"(matched '{candidate}')"
+            )
+            return ref
+
+    # A pin exists but nothing matched -- almost always a typo'd key. Say so
+    # rather than silently falling back to a build that lacks this model.
+    logger.warning(
+        f"{impl.model_name}: inference_artifact_ref has no entry for device "
+        f"'{device}' or board '{board_type}' (keys: {sorted(ref_map)}). "
+        f"Using the globally pinned artifact."
+    )
+    return None
+
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -610,6 +660,7 @@ class DeployView(APIView):
                     if overrides:
                         vllm_override_args = json.dumps(overrides)
                 override_docker_image = _resolve_override_docker_image(impl)
+                artifact_ref = _resolve_artifact_ref(impl, device, board_type)
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -621,6 +672,7 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     dev_mode=impl.requires_dev_catalog,
+                    artifact_ref=artifact_ref,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
