@@ -125,7 +125,7 @@
       "status": "COMPLETE",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.18.0-c49bb76-6b4a3a7",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/completions",
       "health_route": "/health",
       "env_vars": {
         "VLLM_CONFIGURE_LOGGING": "1",
