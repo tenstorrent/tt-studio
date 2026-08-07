@@ -28,6 +28,8 @@ export interface StartupPhase {
   // (see app/backend/model_control/download_progress.py).
   weights_repo?: string | null;
   weights_cached?: boolean;
+  // True only for the docker-volume path where the container downloads weights itself.
+  download_in_container?: boolean;
   downloaded_bytes?: number | null;
   total_bytes?: number | null;
   speed_bps?: number | null;
