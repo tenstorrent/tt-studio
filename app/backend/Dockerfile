@@ -59,5 +59,17 @@ RUN pip3 install --upgrade pip && \
 # We use inference_framework="onnx", so install without deps (onnxruntime is in requirements.txt).
 RUN pip3 install --no-cache-dir --no-deps openwakeword==0.6.0
 
+# Bake in the all-MiniLM-L6-v2 embedding model. ChromaDB otherwise fetches it
+# (79 MB) into ~/.cache/chroma on first use, which no volume persists — so every
+# container recreation would re-download it, and the four uvicorn workers would
+# race to extract the same archive (ChromaDB's downloader takes no lock).
+# Embedding rather than calling the private download helper also proves the
+# onnxruntime and tokenizer path works at build time. The archive is removed
+# afterwards; ChromaDB skips the download once the extracted files are present.
+RUN python3 -c "from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2; \
+v = ONNXMiniLM_L6_V2()(['bake']); \
+assert len(v) == 1 and len(v[0]) == 384, f'unexpected embedding shape: {len(v[0])}'" && \
+    rm -f /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2/onnx.tar.gz
+
 # Copy application code
 COPY . /backend/

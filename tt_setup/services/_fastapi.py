@@ -169,8 +169,8 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     # STOPGAP (excise when upstream catalog carries the var): overlay
     # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
     # artifact. Media containers get their per-model env solely from the catalog
-    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags);
-    # the backend compose service sets HF_HUB_DISABLE_XET but that never reaches them.
+    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags),
+    # so nothing set on the compose services reaches them.
     # Without it, large media weight downloads stall on the Xet CDN and hang past the
     # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
     # the pin, then delete this block and patch_catalog_env.py.
