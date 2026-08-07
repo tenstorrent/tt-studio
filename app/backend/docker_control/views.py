@@ -606,6 +606,7 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     host_weights_dir=host_weights_dir,
+                    inference_impl=getattr(impl, "inference_impl", None),
                     dev_mode=False,
                 )
 
