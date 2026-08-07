@@ -26,7 +26,9 @@ from vector_db_control.chroma import (
     delete_collection,
 )
 from vector_db_control.singletons import ChromaClient
-from vector_db_control.documents import chunk_document
+from vector_db_control.documents import chunk_document, deterministic_chunk_id
+from vector_db_control.retrieval import approx_token_count, retrieve
+from vector_db_control.rewrite import maybe_rewrite_query
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -408,15 +410,36 @@ class VectorCollectionsAPIView(ViewSet):
                 chunk_metadata.update(base_metadata)
                 metadatas.append(chunk_metadata)
             
-            ids = [str(uuid.uuid4()) for _ in documents]
+            # Deterministic ids: re-uploading the same file upserts over its own
+            # chunks instead of duplicating them.
+            ids = [deterministic_chunk_id(filename, i) for i in range(len(documents))]
             insert_to_chroma_collection(
                 collection_name=pk,
                 documents=documents,
                 ids=ids,
                 metadatas=metadatas,
                 embedding_func_name=self.EMBED_MODEL,
+                upsert=True,
             )
-            
+
+            # Sweep chunks of this file that the new upload no longer covers
+            # (shorter re-upload, or legacy random-id chunks). Upsert-then-sweep
+            # keeps the collection valid even if the request dies mid-way.
+            try:
+                collection = get_collection(
+                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                )
+                existing = collection.get(where={"source": filename}, include=[])
+                ids_set = set(ids)
+                stale = [i for i in existing.get("ids", []) if i not in ids_set]
+                if stale:
+                    collection.delete(ids=stale)
+                    logger.info(
+                        f"Removed {len(stale)} stale chunks of '{filename}' from {pk}"
+                    )
+            except Exception as e:
+                logger.warning(f"Stale-chunk sweep failed for '{filename}' in {pk}: {e}")
+
             # Update collection metadata with the last uploaded document
             metadata_update_success = False
             try:
@@ -659,6 +682,180 @@ class VectorCollectionsAPIView(ViewSet):
         all_results["results"] = all_results["results"][:limit]
 
         return Response(all_results)
+
+    # Named retrieve_documents because ViewSet.retrieve above is the GET-detail
+    # handler; the URL is still POST /collections/retrieve.
+    @action(methods=["POST"], detail=False, url_path="retrieve", url_name="retrieve-documents")
+    def retrieve_documents(self, request):
+        """Server-side RAG pipeline: rewrite -> dense + BM25 -> RRF -> rerank ->
+        parent expansion -> relevance threshold -> token budget."""
+        import time as _time
+
+        started = _time.monotonic()
+        data = request.data if isinstance(request.data, dict) else {}
+        query_text = data.get("query_text")
+        if not query_text or not str(query_text).strip():
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No query text provided"},
+            )
+        query_text = str(query_text)
+
+        collection_name = data.get("collection")
+        if collection_name == "special-all":
+            collection_name = None
+        where = data.get("where")
+        if where is not None and not isinstance(where, dict):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "`where` must be a JSON object"},
+            )
+        try:
+            max_distance = (
+                float(data["max_distance"])
+                if data.get("max_distance") not in (None, "")
+                else settings.RAG_RELEVANCE_THRESHOLD
+            )
+            top_k = min(20, max(1, int(data.get("top_k") or 5)))
+        except (TypeError, ValueError) as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": f"Invalid parameter: {e}"},
+            )
+        disable_raw = data.get("disable_stages")
+        if disable_raw is None:
+            disable_stages = ()
+        elif isinstance(disable_raw, list):
+            disable_stages = tuple(s for s in disable_raw if isinstance(s, str))
+        else:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "`disable_stages` must be a JSON array of strings"},
+            )
+
+        rerank_raw = data.get("rerank", settings.RAG_RERANK_ENABLED)
+        use_rerank = (
+            rerank_raw
+            if isinstance(rerank_raw, bool)
+            else str(rerank_raw).strip().lower() not in ("0", "false", "no", "")
+        )
+
+        user_id = self.get_user_identifier(request)
+        if collection_name:
+            # Single-collection mode: same ownership rules as /query.
+            try:
+                collection = get_collection(
+                    collection_name=collection_name, embedding_func_name=self.EMBED_MODEL
+                )
+            except Exception:
+                return Response(
+                    status=status.HTTP_404_NOT_FOUND,
+                    data={"error": f"Collection {collection_name} not found"},
+                )
+            owner = (collection.metadata or {}).get("user_id")
+            if owner and owner != user_id:
+                return Response(
+                    status=status.HTTP_403_FORBIDDEN,
+                    data={"error": "You don't have access to this collection"},
+                )
+            targets = [collection_name]
+            # Merge in the shared corpus unless the caller scopes with a filter,
+            # mirroring the /query behavior.
+            if collection_name != INTERNAL_KNOWLEDGE_COLLECTION and not where:
+                targets.append(INTERNAL_KNOWLEDGE_COLLECTION)
+            mode = "single"
+        else:
+            all_collections: List[Collection] = list_collections()
+            targets = [
+                col.name
+                for col in all_collections
+                if not col.metadata
+                or not col.metadata.get("user_id")
+                or col.metadata.get("user_id") == user_id
+            ]
+            if not targets:
+                return Response(
+                    status=status.HTTP_404_NOT_FOUND,
+                    data={"error": "No collections found for this user."},
+                )
+            mode = "all"
+
+        history = data.get("chat_history")
+        effective_query, rewritten = (
+            maybe_rewrite_query(query_text, history)
+            if "rewrite" not in disable_stages
+            else (query_text, False)
+        )
+
+        result = retrieve(
+            effective_query,
+            targets,
+            self.EMBED_MODEL,
+            top_k=top_k,
+            max_distance=max_distance,
+            where=where,
+            token_budget=settings.RAG_CONTEXT_TOKEN_BUDGET,
+            use_rerank=use_rerank,
+            rerank_min_score=settings.RAG_RERANK_MIN_SCORE,
+            disable_stages=disable_stages,
+        )
+        chunks = result["chunks"]
+        if not chunks and result["collection_errors"] and len(
+            result["collection_errors"]
+        ) == len(targets):
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "error": "Vector database unavailable",
+                    "details": result["collection_errors"],
+                },
+            )
+
+        documents = [
+            f"[From {c.collection}]"
+            + (f" {c.source}" if c.source else "")
+            + f"\n{c.text}"
+            for c in chunks
+        ]
+        return Response(
+            {
+                "documents": documents,
+                "results": [
+                    {
+                        "id": c.id,
+                        "text": c.text,
+                        "collection": c.collection,
+                        "source": c.source,
+                        "score": c.final_score,
+                        "distance": c.distance,
+                        "metadata": c.metadata,
+                        "signals": {
+                            "dense_rank": c.dense_rank,
+                            "lexical_rank": c.lexical_rank,
+                            "rrf_score": c.rrf_score,
+                            "rerank_score": c.rerank_score,
+                        },
+                    }
+                    for c in chunks
+                ],
+                "query": {
+                    "original": query_text,
+                    "effective": effective_query,
+                    "rewritten": rewritten,
+                },
+                "meta": {
+                    "reranker_used": result["reranker_used"],
+                    "mode": mode,
+                    "collections_searched": targets,
+                    "collection_errors": result["collection_errors"],
+                    "token_budget": settings.RAG_CONTEXT_TOKEN_BUDGET,
+                    "approx_context_tokens": sum(
+                        approx_token_count(c.text) for c in chunks
+                    ),
+                    "latency_ms": round((_time.monotonic() - started) * 1000),
+                },
+            }
+        )
 
     @action(methods=["GET"], detail=True, url_path="debug")
     def debug_collection(self, request, pk=None):
