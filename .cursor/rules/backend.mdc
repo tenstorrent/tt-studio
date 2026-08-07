@@ -31,7 +31,7 @@ TT Studio backend is a Django 5.0.4 REST API service that manages:
 - **Container Management**: Docker SDK 7.0.0
 - **RAG/Vector DB**: ChromaDB 0.5.3 with LangChain 0.2.14
 - **Document Processing**: pypdf 4.3.1, python-docx 1.1.0, beautifulsoup4 4.12.3
-- **ML/Embeddings**: sentence-transformers 2.7.0
+- **ML/Embeddings**: ChromaDB's ONNX all-MiniLM-L6-v2 on onnxruntime 1.18.1
 - **Production**: Gunicorn 22.0.0
 - **System Monitoring**: psutil 5.9.0
 
