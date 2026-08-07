@@ -1,9 +1,9 @@
 {
   "source": {
     "artifact_version": "0.19.0",
-    "generated_at": "2026-08-06T01:44:20.416786+00:00"
+    "generated_at": "2026-08-07T21:09:40.723783+00:00"
   },
-  "total_models": 67,
+  "total_models": 68,
   "models": [
     {
       "model_name": "DeepSeek-R1-Distill-Llama-70B",
@@ -19,12 +19,7 @@
       ],
       "hf_model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "llama3_70b_galaxy",
-        "impl_name": "llama3-70b-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/llama3_70b_galaxy"
-      },
+      "impl": "llama3_70b_galaxy",
       "status": "COMPLETE",
       "version": "0.16.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
@@ -52,12 +47,7 @@
       ],
       "hf_model_id": "distil-whisper/distil-large-v3",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "whisper",
-        "impl_name": "whisper",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/whisper"
-      },
+      "impl": "whisper",
       "status": "COMPLETE",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
@@ -80,12 +70,7 @@
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
@@ -108,12 +93,7 @@
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-schnell",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76",
@@ -136,12 +116,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-70B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "llama3_70b_galaxy",
-        "impl_name": "llama3-70b-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/llama3_70b_galaxy"
-      },
+      "impl": "llama3_70b_galaxy",
       "status": "COMPLETE",
       "version": "0.16.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
@@ -169,12 +144,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-70B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "llama3_70b_galaxy",
-        "impl_name": "llama3-70b-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/llama3_70b_galaxy"
-      },
+      "impl": "llama3_70b_galaxy",
       "status": "COMPLETE",
       "version": "0.16.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
@@ -207,12 +177,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.19.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.19.0-b204341-9bd099c",
@@ -245,12 +210,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.19.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.19.0-b204341-9bd099c",
@@ -278,12 +238,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.3-70B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "llama3_70b_galaxy",
-        "impl_name": "llama3-70b-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/llama3_70b_galaxy"
-      },
+      "impl": "llama3_70b_galaxy",
       "status": "COMPLETE",
       "version": "0.16.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
@@ -308,12 +263,7 @@
       ],
       "hf_model_id": "mistralai/Mistral-7B-Instruct-v0.3",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
@@ -338,12 +288,7 @@
       ],
       "hf_model_id": "mobilenetv2",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
@@ -365,12 +310,7 @@
       ],
       "hf_model_id": "genmo/mochi-1-preview",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
@@ -391,12 +331,7 @@
       ],
       "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
@@ -418,12 +353,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-32B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "qwen3_32b_galaxy",
-        "impl_name": "qwen3-32b-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/llama3_70b_galaxy"
-      },
+      "impl": "qwen3_32b_galaxy",
       "status": "COMPLETE",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a",
@@ -450,12 +380,7 @@
       ],
       "hf_model_id": "microsoft/speecht5_tts",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "speecht5_tts",
-        "impl_name": "speecht5-tts",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/experimental/speecht5_tts"
-      },
+      "impl": "speecht5_tts",
       "status": "COMPLETE",
       "version": "0.15.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-25891d3",
@@ -474,12 +399,7 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-3.5-large",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
@@ -500,12 +420,7 @@
       ],
       "hf_model_id": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.5.0-fbbbd2da8cfab49ddf43d28dd9c0813a3c3ee2bd",
@@ -526,12 +441,7 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-bac8b34",
@@ -552,12 +462,7 @@
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0-img-2-img",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.11.1-bac8b34",
@@ -576,12 +481,7 @@
       ],
       "hf_model_id": "vit",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
@@ -600,12 +500,7 @@
       ],
       "hf_model_id": "vovnet",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
@@ -627,12 +522,7 @@
       ],
       "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
@@ -655,12 +545,7 @@
       ],
       "hf_model_id": "openai/whisper-large-v3",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "whisper",
-        "impl_name": "whisper",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/whisper"
-      },
+      "impl": "whisper",
       "status": "COMPLETE",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
@@ -679,12 +564,7 @@
       ],
       "hf_model_id": "yolox_nano",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "COMPLETE",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.18.0-c49bb76",
@@ -703,12 +583,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-11B-Vision",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
@@ -732,12 +607,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
@@ -762,12 +632,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-1B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.11.1-84b4c53-222ee06",
@@ -793,12 +658,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-1B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.11.1",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.11.1-84b4c53-222ee06",
@@ -824,12 +684,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-3B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
@@ -854,12 +709,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-3B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.3.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-20edc39-03cb300",
@@ -882,12 +732,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-90B-Vision",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
@@ -911,12 +756,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
@@ -941,12 +781,7 @@
       ],
       "hf_model_id": "Qwen/Qwen-Image",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
@@ -967,12 +802,7 @@
       ],
       "hf_model_id": "Qwen/Qwen-Image-2512",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
@@ -994,12 +824,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-72B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
@@ -1026,12 +851,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-72B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
@@ -1056,12 +876,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-72B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
@@ -1090,12 +905,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-8B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e0e0500-409b1cd",
@@ -1118,12 +928,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-VL-32B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.14.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70",
@@ -1149,12 +954,7 @@
       ],
       "hf_model_id": "Qwen/QwQ-32B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
@@ -1179,12 +979,7 @@
       ],
       "hf_model_id": "resnet-50",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
@@ -1203,12 +998,7 @@
       ],
       "hf_model_id": "segformer",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.13.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.13.0-079a2c2",
@@ -1226,12 +1016,7 @@
       ],
       "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "FUNCTIONAL",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
@@ -1250,12 +1035,7 @@
       ],
       "hf_model_id": "arcee-ai/AFM-4.5B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.3.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-ae65ee5-35f023f",
@@ -1281,12 +1061,7 @@
       ],
       "hf_model_id": "BAAI/bge-large-en-v1.5",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_vllm_plugin",
-        "impl_name": "tt-vllm-plugin",
-        "repo_url": "https://github.com/tenstorrent/tt-inference-server/tree/dev/tt-vllm-plugin",
-        "code_path": "tt_vllm_plugin"
-      },
+      "impl": "tt_vllm_plugin",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
@@ -1311,12 +1086,7 @@
       ],
       "hf_model_id": "deepseek-ai/DeepSeek-R1-0528",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "deepseek_r1_galaxy",
-        "impl_name": "deepseek-r1-galaxy",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/deepseek_v3"
-      },
+      "impl": "deepseek_r1_galaxy",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.12.0-805f43d-a45c614",
@@ -1340,12 +1110,7 @@
       ],
       "hf_model_id": "efficientnet",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
@@ -1363,12 +1128,7 @@
       ],
       "hf_model_id": "tiiuae/Falcon3-7B-Instruct",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "forge_vllm_plugin",
-        "impl_name": "forge-vllm-plugin",
-        "repo_url": "https://github.com/tenstorrent/tt-xla/tree/main",
-        "code_path": "integrations/vllm_plugin"
-      },
+      "impl": "forge_vllm_plugin",
       "status": "EXPERIMENTAL",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.18.0-c49bb76",
@@ -1398,12 +1158,7 @@
       ],
       "hf_model_id": "google/gemma-3-1b-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
@@ -1428,12 +1183,7 @@
       ],
       "hf_model_id": "google/gemma-3-27b-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
@@ -1457,12 +1207,7 @@
       ],
       "hf_model_id": "google/gemma-3-4b-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
@@ -1485,12 +1230,7 @@
       ],
       "hf_model_id": "google/gemma-4-31B-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.18.0-c49bb76-6b4a3a7",
@@ -1518,12 +1258,7 @@
       ],
       "hf_model_id": "openai/gpt-oss-120b",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "gpt_oss",
-        "impl_name": "gpt-oss",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/gpt_oss"
-      },
+      "impl": "gpt_oss",
       "status": "EXPERIMENTAL",
       "version": "0.17.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a",
@@ -1549,12 +1284,7 @@
       ],
       "hf_model_id": "openai/gpt-oss-20b",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "gpt_oss",
-        "impl_name": "gpt-oss",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/gpt_oss"
-      },
+      "impl": "gpt_oss",
       "status": "EXPERIMENTAL",
       "version": "0.10.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e867533-8f36910",
@@ -1582,12 +1312,7 @@
       ],
       "hf_model_id": "google/medgemma-27b-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
@@ -1611,12 +1336,7 @@
       ],
       "hf_model_id": "google/medgemma-4b-it",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
@@ -1640,12 +1360,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-7B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
@@ -1670,12 +1385,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-7B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
@@ -1700,12 +1410,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-17a5973-aa4ae1e",
@@ -1729,12 +1434,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-32B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
@@ -1759,12 +1459,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-3B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
@@ -1789,12 +1484,7 @@
       ],
       "hf_model_id": "Qwen/Qwen2.5-VL-7B-Instruct",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
@@ -1819,12 +1509,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-4B",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "forge_vllm_plugin",
-        "impl_name": "forge-vllm-plugin",
-        "repo_url": "https://github.com/tenstorrent/tt-xla/tree/main",
-        "code_path": "integrations/vllm_plugin"
-      },
+      "impl": "forge_vllm_plugin",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
@@ -1849,12 +1534,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-4B",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "forge_vllm_plugin",
-        "impl_name": "forge-vllm-plugin",
-        "repo_url": "https://github.com/tenstorrent/tt-xla/tree/main",
-        "code_path": "integrations/vllm_plugin"
-      },
+      "impl": "forge_vllm_plugin",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
@@ -1882,12 +1562,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-8B",
       "inference_engine": "media",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
@@ -1910,12 +1585,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3.5-9B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "qwen36_blackhole",
-        "impl_name": "qwen36-blackhole",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/blackhole/qwen36"
-      },
+      "impl": "qwen36_blackhole",
       "status": "EXPERIMENTAL",
       "version": "0.0.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/vllm-tt-metal-src-dev-ubuntu-22.04-amd64:0.19.0-c355c15b62e2ec88891142c6cfe15574a9e62b42-6b4a3a7-92428159994",
@@ -1945,12 +1615,7 @@
       ],
       "hf_model_id": "Qwen/Qwen3.6-27B",
       "inference_engine": "vLLM",
-      "impl": {
-        "impl_id": "qwen36_blackhole",
-        "impl_name": "qwen36-blackhole",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/demos/blackhole/qwen36"
-      },
+      "impl": "qwen36_blackhole",
       "status": "EXPERIMENTAL",
       "version": "0.18.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.18.0-c49bb76-6b4a3a7",
@@ -1977,12 +1642,7 @@
       ],
       "hf_model_id": "unet",
       "inference_engine": "forge",
-      "impl": {
-        "impl_id": "tt_transformers",
-        "impl_name": "tt-transformers",
-        "repo_url": "https://github.com/tenstorrent/tt-metal",
-        "code_path": "models/tt_transformers"
-      },
+      "impl": "tt_transformers",
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
