@@ -15,6 +15,12 @@ logger = get_logger(__name__)
 _monitoring_thread = None
 _stop_monitoring = False
 
+# A container lookup can fail transiently (docker-control-service restarting, a
+# brief API hiccup) while the container is perfectly healthy. Writing "dead" is
+# costly enough that one miss shouldn't be believed, so require consecutive ones.
+_MISSES_BEFORE_DEAD = 2
+_lookup_misses: dict = {}
+
 
 def _cleanup_stale_starting_records():
     """Remove stale 'starting' records that permanently block chip slots.
@@ -95,6 +101,7 @@ def check_container_health():
                 # Get container info from docker-control-service
                 container_info = docker_client.get_container(deployment.container_id)
                 actual_status = container_info.get("status", "unknown")  # running, exited, dead, etc.
+                _lookup_misses.pop(deployment.id, None)
 
                 # If container is not running but we didn't mark it as stopped by user
                 if actual_status not in ["running", "restarting"] and not deployment.stopped_by_user:
@@ -114,6 +121,15 @@ def check_container_health():
                 if "not found" in error_msg or "404" in error_msg:
                     # Container doesn't exist anymore - it died
                     if not deployment.stopped_by_user:
+                        misses = _lookup_misses.get(deployment.id, 0) + 1
+                        _lookup_misses[deployment.id] = misses
+                        if misses < _MISSES_BEFORE_DEAD:
+                            logger.warning(
+                                f"Container {deployment.container_name} not found "
+                                f"({misses}/{_MISSES_BEFORE_DEAD}) - rechecking next poll"
+                            )
+                            continue
+                        _lookup_misses.pop(deployment.id, None)
                         logger.warning(f"Container {deployment.container_name} not found - marking as dead")
                         deployment.status = "dead"
                         deployment.stopped_at = timezone.now()

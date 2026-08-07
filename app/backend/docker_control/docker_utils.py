@@ -982,6 +982,39 @@ _CANONICAL_RUNNING_GRACE_SECONDS = 30
 _running_missing_since: dict = {}
 
 
+def _readopt_live_containers(live_containers: dict, live_by_name: dict) -> None:
+    """Flip records marked dead/exited back to running when their container is alive.
+
+    Marking a record dead used to be a one-way door: only starting/running rows are
+    ever read back, so a healthy model vanished from the UI while its chip slot read
+    as free — and the next deploy was handed that slot and collided with the
+    container still holding the chip and port. A user-initiated stop is left alone.
+    """
+    try:
+        from docker_control.models import ModelDeployment
+        stale = list(ModelDeployment.objects.filter(status__in=["dead", "exited"]))
+    except Exception as e:
+        logger.warning(f"get_canonical_deployments: could not scan for orphans: {e}")
+        return
+
+    for dep in stale:
+        if getattr(dep, "stopped_by_user", False):
+            continue
+        full_id = dep.container_id or ""
+        live = live_containers.get(full_id) or live_containers.get(full_id[:12])
+        if live is None and dep.container_name:
+            live = (live_by_name.get(dep.container_name) or (None, None))[1]
+        if live is None or live.get("status") not in ("running", "restarting"):
+            continue
+        logger.info(
+            f"Re-adopting {dep.container_name}: record was '{dep.status}' but the "
+            f"container is {live.get('status')}"
+        )
+        dep.status = "running"
+        dep.stopped_at = None
+        dep.save()
+
+
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
 
@@ -989,6 +1022,7 @@ def get_canonical_deployments():
     The name match fallback is load-bearing for the CHAT-model placeholder window: until
     deployment_sync swaps the real container_id in, the store's container_id is the FastAPI job_id, but the actual container exists under its name.
     Records with status="running" or status="starting" beyond the grace window that have no matching live container are reconciled to status="stopped".
+    Conversely, records marked dead/exited whose container is still alive are re-adopted as running.
     """
     from datetime import datetime as _dt
     from datetime import timezone as _dt_timezone
@@ -999,6 +1033,8 @@ def get_canonical_deployments():
         for cid, data in live_containers.items()
         if data.get("name")
     }
+
+    _readopt_live_containers(live_containers, live_by_name)
 
     try:
         from docker_control.models import ModelDeployment
