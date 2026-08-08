@@ -3,8 +3,9 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
-Sync script: reads ../../tt-inference-server/model_specs_output.json and
-normalizes it into models_from_inference_server.json (co-located with this script).
+Sync script: reads ../../tt-inference-server/release_model_spec.json (or the
+legacy model_specs_output.json / model_spec.json names) and normalizes it into
+models_from_inference_server.json (co-located with this script).
 
 Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
@@ -26,17 +27,91 @@ OUTPUT_JSON = SCRIPT_DIR / "models_from_inference_server.json"
 #   2. TT_INFERENCE_ARTIFACT_PATH env var (set by run.py after artifact download)
 #   3. .artifacts/tt-inference-server/ next to repo root (artifact default location)
 #   4. tt-inference-server/ next to repo root (manual local dev checkout)
+# Filenames tried per directory, newest release layout first:
+_SOURCE_FILENAMES = ["release_model_spec.json", "model_specs_output.json", "model_spec.json"]
 _REPO_ROOT = SCRIPT_DIR / "../../.."
 _CANDIDATE_SOURCES = [
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / ".artifacts/tt-inference-server/model_spec.json",
-    _REPO_ROOT / "tt-inference-server/model_specs_output.json",
-    _REPO_ROOT / "tt-inference-server/model_spec.json",
+    _REPO_ROOT / f".artifacts/tt-inference-server/{name}" for name in _SOURCE_FILENAMES
+] + [
+    _REPO_ROOT / f"tt-inference-server/{name}" for name in _SOURCE_FILENAMES
 ]
 
 
+# Catalog keys that are curated by hand and can never be derived from the
+# tt-inference-server source JSON. Without explicit preservation, every resync
+# rebuilds the catalog from scratch and silently drops them -- someone fixes a
+# deploy by editing the catalog, then loses the fix on the next --resync with no
+# error. Adding a future hand-owned field means adding it here. See issue #977.
+HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref")
+
+
+def _impl_id(value):
+    """Reduce tt-inference-server's impl object to its impl_id string. The
+    server's /run and /resolve-image endpoints expect a string, not the whole
+    {impl_id, impl_name, repo_url, code_path} object. Stdlib-only, kept local:
+    this script runs standalone on the host interpreter, so it can't import the
+    Django-bound copy in model_config."""
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return value.get("impl_id") or None
+    return None
+
+
+def load_existing_catalog(path: Path) -> dict:
+    """Return {model_name: entry} for the catalog already on disk, or {} if none.
+
+    Never fatal: a missing or malformed catalog just means there is nothing to
+    preserve, which is the correct outcome for a first-time sync.
+    """
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Warning: could not read existing catalog ({e}); nothing to preserve")
+        return {}
+    return {
+        m["model_name"]: m
+        for m in data.get("models", [])
+        if isinstance(m, dict) and m.get("model_name")
+    }
+
+
+def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
+    """Fold hand-curated state from `existing` into freshly-synced `models`.
+
+    Two distinct losses to prevent:
+    - A hand-set field on a model that IS in the source JSON (e.g. a dev-catalog
+      flag) has nothing in the source to regenerate it.
+    - A model that exists ONLY in the dev-tier catalog can't appear in a prod
+      release snapshot at all, so a rebuild deletes the whole entry.
+
+    Returns (merged_models, preserved_field_names, retained_model_names).
+    """
+    preserved, retained = [], []
+    synced_names = {m["model_name"] for m in models}
+
+    for model in models:
+        old = existing.get(model["model_name"])
+        if not old:
+            continue
+        for key in HAND_OWNED_KEYS:
+            if key in old and key not in model:
+                model[key] = old[key]
+                preserved.append(f"{model['model_name']}.{key}")
+
+    for name, old in existing.items():
+        if name not in synced_names:
+            models.append(old)
+            retained.append(name)
+
+    return models, preserved, retained
+
+
 def resolve_source_json(override: str | None = None) -> Path:
-    """Return the path to model_specs_output.json, trying candidates in order."""
+    """Return the path to the model spec JSON, trying candidates in order."""
     if override:
         p = Path(override)
         if not p.exists():
@@ -46,9 +121,10 @@ def resolve_source_json(override: str | None = None) -> Path:
     # Check env var set by run.py
     artifact_path = os.environ.get("TT_INFERENCE_ARTIFACT_PATH")
     if artifact_path:
-        p = Path(artifact_path) / "model_specs_output.json"
-        if p.exists():
-            return p.resolve()
+        for name in _SOURCE_FILENAMES:
+            p = Path(artifact_path) / name
+            if p.exists():
+                return p.resolve()
 
     # Try static candidates
     for candidate in _CANDIDATE_SOURCES:
@@ -56,7 +132,7 @@ def resolve_source_json(override: str | None = None) -> Path:
             return candidate.resolve()
 
     raise FileNotFoundError(
-        "Cannot find model_specs_output.json. Tried:\n"
+        "Cannot find a model spec JSON. Tried:\n"
         + "\n".join(f"  {c.resolve()}" for c in _CANDIDATE_SOURCES)
     )
 
@@ -239,10 +315,11 @@ def _iter_v1_entries(model_specs: dict):
             for _engine, by_impl in by_engine.items():
                 for _impl_name, entry in by_impl.items():
                     if isinstance(entry, dict):
-                        # The impl name is the nesting key, not always a field on
-                        # the leaf. Carry it so the catalog can disambiguate models
-                        # whose name+device match multiple engine specs.
-                        entry.setdefault("impl", _impl_name)
+                        # Store the impl_id STRING so the catalog can disambiguate
+                        # models whose name+device match multiple engine specs.
+                        # The leaf's "impl" is the whole impl object; reduce it to
+                        # its impl_id, falling back to the nesting key when absent.
+                        entry["impl"] = _impl_id(entry.get("impl")) or _impl_name
                         yield entry
 
 
@@ -294,6 +371,17 @@ def normalize(source_path: Path) -> list[dict]:
         raw_model_type = first.get("model_type", "LLM")
         service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
 
+        # Record an impl only when it actually disambiguates. The server does a
+        # stricter (model, device, impl) lookup that misses specs outside the prod
+        # tier, so an impl that buys no disambiguation turns a working resolve into
+        # a 404 (e.g. speecht5_tts on Blackhole). A future dev-catalog spec that
+        # collides on name+device won't appear in this prod artifact, so it can't be
+        # seen here; such models arrive as hand-added retained entries whose impl is
+        # preserved, or the impl can be set by hand.
+        distinct_impls = {_impl_id(e.get("impl")) for e in entries}
+        distinct_impls.discard(None)
+        disambiguating_impl = _impl_id(first.get("impl")) if len(distinct_impls) > 1 else None
+
         models.append({
             "model_name": model_name,
             "model_type": map_model_type(raw_model_type, inference_engine),
@@ -301,7 +389,7 @@ def normalize(source_path: Path) -> list[dict]:
             "device_configurations": device_configurations,
             "hf_model_id": first.get("hf_model_repo"),
             "inference_engine": inference_engine,
-            "impl": first.get("impl"),
+            "impl": disambiguating_impl,
             "status": status,
             "version": canonical.get("version", "0.0.0"),
             "docker_image": canonical.get("docker_image"),
@@ -329,6 +417,27 @@ def main():
         raise FileNotFoundError(f"Source not found: {source_path}")
 
     models = normalize(source_path)
+
+    # Fold in hand-curated state before writing. normalize() rebuilds every entry
+    # purely from the source JSON, so without this the write below silently
+    # discards anything the source can't express (issue #977).
+    existing = load_existing_catalog(OUTPUT_JSON.resolve())
+    models, preserved, retained = merge_hand_owned(models, existing)
+
+    # Hand-retained entries bypass normalize() entirely and may carry a stale
+    # impl object from an older catalog; reduce every impl to its impl_id string.
+    for _m in models:
+        if "impl" in _m:
+            _m["impl"] = _impl_id(_m.get("impl"))
+
+    if preserved:
+        print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
+    if retained:
+        print(f"Retained {len(retained)} model(s) absent from source: {', '.join(retained)}")
+
+    # Re-sort after merging so retained entries land in their proper position
+    # rather than appended at the end (same key as normalize()).
+    models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
 
     # Resolve artifact version from VERSION file or env vars (avoid leaking absolute paths)
     artifact_version = None
