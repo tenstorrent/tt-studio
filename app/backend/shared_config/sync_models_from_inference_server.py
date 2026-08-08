@@ -371,6 +371,17 @@ def normalize(source_path: Path) -> list[dict]:
         raw_model_type = first.get("model_type", "LLM")
         service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
 
+        # Record an impl only when it actually disambiguates. The server does a
+        # stricter (model, device, impl) lookup that misses specs outside the prod
+        # tier, so an impl that buys no disambiguation turns a working resolve into
+        # a 404 (e.g. speecht5_tts on Blackhole). A future dev-catalog spec that
+        # collides on name+device won't appear in this prod artifact, so it can't be
+        # seen here; such models arrive as hand-added retained entries whose impl is
+        # preserved, or the impl can be set by hand.
+        distinct_impls = {_impl_id(e.get("impl")) for e in entries}
+        distinct_impls.discard(None)
+        disambiguating_impl = _impl_id(first.get("impl")) if len(distinct_impls) > 1 else None
+
         models.append({
             "model_name": model_name,
             "model_type": map_model_type(raw_model_type, inference_engine),
@@ -378,7 +389,7 @@ def normalize(source_path: Path) -> list[dict]:
             "device_configurations": device_configurations,
             "hf_model_id": first.get("hf_model_repo"),
             "inference_engine": inference_engine,
-            "impl": first.get("impl"),
+            "impl": disambiguating_impl,
             "status": status,
             "version": canonical.get("version", "0.0.0"),
             "docker_image": canonical.get("docker_image"),

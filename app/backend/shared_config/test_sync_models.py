@@ -15,6 +15,7 @@ from sync_models_from_inference_server import (
     load_existing_catalog,
     map_service_route,
     merge_hand_owned,
+    normalize,
 )
 
 
@@ -209,6 +210,78 @@ class TestImplNormalization:
         by_name = {m["model_name"]: m for m in merged}
         assert by_name["Retained"]["impl"] == "qwen36_blackhole"
         assert by_name["Synced"]["impl"] == "whisper"
+
+
+def _leaf(model_name, impl_id, *, model_type="LLM", engine="vLLM"):
+    """A minimal model_spec leaf sufficient for normalize()."""
+    return {
+        "model_name": model_name,
+        "model_type": model_type,
+        "inference_engine": engine,
+        "hf_model_repo": f"org/{model_name}",
+        "status": "COMPLETE",
+        "version": "1.0.0",
+        "docker_image": f"ghcr.io/x/{model_name}:1.0.0",
+        "impl": {"impl_id": impl_id, "impl_name": impl_id},
+    }
+
+
+def _normalize_specs(tmp_path, model_specs):
+    """Write a v0.1.0 model_specs doc and return {model_name: catalog entry}.
+
+    Mirrors the real artifact, where each leaf carries a device_type equal to its
+    nesting key (that field is what normalize() uses to skip GPU specs)."""
+    for by_device in model_specs.values():
+        for device_type, by_engine in by_device.items():
+            for by_impl in by_engine.values():
+                for leaf in by_impl.values():
+                    leaf.setdefault("device_type", device_type)
+    src = tmp_path / "model_spec.json"
+    src.write_text(json.dumps({"schema_version": "0.1.0", "model_specs": model_specs}))
+    return {m["model_name"]: m for m in normalize(src)}
+
+
+class TestImplAmbiguity:
+    """An impl is only worth recording when it disambiguates multiple engine
+    specs for a model. Recording a redundant impl makes the server's stricter
+    (model, device, impl) lookup miss non-prod-tier specs and 404 (speecht5_tts
+    on Blackhole)."""
+
+    def test_single_impl_across_devices_yields_null(self, tmp_path):
+        model_specs = {
+            "org/speecht5_tts": {
+                "P150": {"media": {"speecht5_tts": _leaf("speecht5_tts", "speecht5_tts", engine="media")}},
+                "N150": {"media": {"speecht5_tts": _leaf("speecht5_tts", "speecht5_tts", engine="media")}},
+                "P300X2": {"media": {"speecht5_tts": _leaf("speecht5_tts", "speecht5_tts", engine="media")}},
+            }
+        }
+        by_name = _normalize_specs(tmp_path, model_specs)
+        assert by_name["speecht5_tts"]["impl"] is None
+
+    def test_multiple_impls_retains_impl(self, tmp_path):
+        model_specs = {
+            "org/Llama-3.2-3B": {
+                "P150": {
+                    "vLLM": {"tt_transformers": _leaf("Llama-3.2-3B", "tt_transformers")},
+                    "forge": {"training": _leaf("Llama-3.2-3B", "training", engine="forge")},
+                }
+            }
+        }
+        by_name = _normalize_specs(tmp_path, model_specs)
+        assert by_name["Llama-3.2-3B"]["impl"] in {"tt_transformers", "training"}
+        assert by_name["Llama-3.2-3B"]["impl"] is not None
+
+    def test_gpu_only_second_impl_is_not_ambiguous(self, tmp_path):
+        """normalize() skips GPU entries, so a second impl that appears only on a
+        GPU spec must not make the model look ambiguous."""
+        model_specs = {
+            "org/some-model": {
+                "P150": {"vLLM": {"tt_transformers": _leaf("some-model", "tt_transformers")}},
+                "GPU": {"vLLM": {"gpu_impl": _leaf("some-model", "gpu_impl")}},
+            }
+        }
+        by_name = _normalize_specs(tmp_path, model_specs)
+        assert by_name["some-model"]["impl"] is None
 
 
 class TestLoadExistingCatalog:
