@@ -132,6 +132,71 @@ class TestHandOwnedFieldPreservation:
             assert merged[0][key] == "sentinel", f"{key} was not preserved"
 
 
+class TestHandOwnedCollision:
+    """A hand-added entry whose model_name collides with a synced one must win.
+
+    The source JSON carries a vLLM CHAT "Llama-3.1-8B"; the catalog carries a
+    hand-added forge TRAINING row of the same name. Name-keyed merging replaced
+    the training row on every resync, taking fine-tuning offline (training_control
+    filters on model_type == TRAINING) while leaving the entry-name set unchanged,
+    so a count or name-set check could not see it."""
+
+    def _rows(self):
+        synced = [{
+            "model_name": "Llama-3.1-8B",
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/completions",
+        }]
+        existing = {"Llama-3.1-8B": {
+            "model_name": "Llama-3.1-8B",
+            "hand_owned": True,
+            "model_type": "TRAINING",
+            "inference_engine": "forge",
+            "service_route": "/v1/jobs",
+            "env_vars": {"MODEL_RUNNER": "training-lora"},
+        }}
+        return synced, existing
+
+    def test_hand_owned_row_survives_name_collision(self):
+        synced, existing = self._rows()
+        merged, _, retained = merge_hand_owned(synced, existing)
+
+        by_name = {m["model_name"]: m for m in merged}
+        assert by_name["Llama-3.1-8B"]["model_type"] == "TRAINING"
+        assert by_name["Llama-3.1-8B"]["inference_engine"] == "forge"
+        assert by_name["Llama-3.1-8B"]["service_route"] == "/v1/jobs"
+        assert by_name["Llama-3.1-8B"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
+        assert retained == ["Llama-3.1-8B"]
+
+    def test_collision_does_not_duplicate_the_name(self):
+        """model_name must stay unique: get_model_impl and the deployment->impl
+        mapping both take the first name match, so a duplicate is ambiguous."""
+        synced, existing = self._rows()
+        merged, _, _ = merge_hand_owned(synced, existing)
+
+        assert [m["model_name"] for m in merged].count("Llama-3.1-8B") == 1
+
+    def test_marker_itself_survives_the_resync(self):
+        """hand_owned is in HAND_OWNED_KEYS, so the protection is not one-shot."""
+        synced, existing = self._rows()
+        merged, _, _ = merge_hand_owned(synced, existing)
+
+        by_name = {m["model_name"]: m for m in merged}
+        assert by_name["Llama-3.1-8B"]["hand_owned"] is True
+
+    def test_unmarked_existing_row_still_yields_to_source(self):
+        """Only marked rows win. An ordinary catalog entry is still rebuilt from
+        the source, which is the whole point of a resync."""
+        synced = [{"model_name": "Qwen3-8B", "model_type": "CHAT", "version": "2.0"}]
+        existing = {"Qwen3-8B": {"model_name": "Qwen3-8B", "model_type": "CHAT", "version": "1.0"}}
+
+        merged, _, retained = merge_hand_owned(synced, existing)
+
+        assert merged[0]["version"] == "2.0"
+        assert retained == []
+
+
 class TestImplNormalization:
     """The server selects with `spec.impl.impl_name == impl`, so the catalog must
     store the hyphenated impl_name, not the underscored impl_id. Fixtures here

@@ -42,7 +42,18 @@ _CANDIDATE_SOURCES = [
 # rebuilds the catalog from scratch and silently drops them -- someone fixes a
 # deploy by editing the catalog, then loses the fix on the next --resync with no
 # error. Adding a future hand-owned field means adding it here. See issue #977.
-HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref")
+HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned")
+
+# Marker on a catalog entry that exists only because someone added it by hand
+# (e.g. the forge TRAINING rows, which no prod release snapshot contains). Such
+# an entry outranks a synced entry of the same model_name: the source JSON has a
+# vLLM CHAT "Llama-3.1-8B" whose name collides with the hand-added forge TRAINING
+# one, and without this the resync silently replaces the training row -- taking
+# the fine-tuning feature offline, since training_control filters on
+# model_type == TRAINING. Catalog model_name must stay unique: several lookups
+# (model_config.get_model_impl, docker_utils' deployment->impl mapping) take the
+# first name match, so keeping both would make them pick arbitrarily.
+HAND_OWNED_MARKER = "hand_owned"
 
 
 def _impl_selector(value):
@@ -98,9 +109,30 @@ def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
     - A model that exists ONLY in the dev-tier catalog can't appear in a prod
       release snapshot at all, so a rebuild deletes the whole entry.
 
+    A third loss, and the reason for HAND_OWNED_MARKER: a hand-added entry whose
+    model_name COLLIDES with a synced one. Name-keyed preservation silently hands
+    the synced entry the hand-owned fields and throws the rest of the hand-added
+    row away -- a different model_type, engine, service_route and env_vars. The
+    marked entry wins outright instead, and the colliding synced entry is dropped
+    so model_name stays unique.
+
     Returns (merged_models, preserved_field_names, retained_model_names).
     """
     preserved, retained = [], []
+    hand_owned = {
+        name for name, old in existing.items() if old.get(HAND_OWNED_MARKER)
+    }
+
+    # Drop synced entries whose name is claimed by a hand-owned entry; the
+    # hand-owned row is re-appended intact by the retain loop below.
+    displaced = [m["model_name"] for m in models if m["model_name"] in hand_owned]
+    if displaced:
+        models = [m for m in models if m["model_name"] not in hand_owned]
+        print(
+            f"Kept {len(displaced)} hand-owned entry(ies) over a same-named source "
+            f"entry: {', '.join(sorted(displaced))}"
+        )
+
     synced_names = {m["model_name"] for m in models}
 
     for model in models:
