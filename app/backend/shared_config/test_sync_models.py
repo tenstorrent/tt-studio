@@ -10,7 +10,7 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
-    _impl_id,
+    _impl_selector,
     _iter_v1_entries,
     load_existing_catalog,
     map_service_route,
@@ -133,47 +133,55 @@ class TestHandOwnedFieldPreservation:
 
 
 class TestImplNormalization:
-    """The inference server's /run and /resolve-image expect a string impl_id;
-    the artifact leaves carry the whole impl object, so the catalog must store
-    only the impl_id string (issue: media/non-chat deploy HTTP 422)."""
+    """The server selects with `spec.impl.impl_name == impl`, so the catalog must
+    store the hyphenated impl_name, not the underscored impl_id. Fixtures here
+    deliberately give the two keys DIFFERENT values -- equal-key fixtures cannot
+    distinguish a correct implementation from one returning impl_id."""
 
-    def test_impl_id_reduces_object_to_string(self):
+    def test_selector_prefers_impl_name(self):
         obj = {
-            "impl_id": "whisper",
-            "impl_name": "whisper",
+            "impl_id": "speecht5_tts",
+            "impl_name": "speecht5-tts",
             "repo_url": "https://github.com/tenstorrent/tt-metal",
-            "code_path": "models/demos/whisper",
+            "code_path": "models/demos/speecht5",
         }
-        assert _impl_id(obj) == "whisper"
+        assert _impl_selector(obj) == "speecht5-tts"
 
-    def test_impl_id_passes_through_string(self):
-        assert _impl_id("tt_transformers") == "tt_transformers"
+    def test_selector_falls_back_to_impl_id(self):
+        assert _impl_selector({"impl_id": "legacy_only"}) == "legacy_only"
 
-    def test_impl_id_handles_none_and_missing_id(self):
-        assert _impl_id(None) is None
-        assert _impl_id({}) is None
-        assert _impl_id("") is None
+    def test_selector_passes_through_string(self):
+        assert _impl_selector("tt-transformers") == "tt-transformers"
 
-    def test_v1_entries_yield_impl_id_string(self):
-        """A leaf whose impl is the full object should surface as its impl_id."""
+    def test_selector_handles_none_and_missing(self):
+        assert _impl_selector(None) is None
+        assert _impl_selector({}) is None
+        assert _impl_selector("") is None
+
+    def test_v1_entries_yield_impl_name_string(self):
+        """A leaf whose impl is the full object surfaces as its impl_name."""
         model_specs = {
-            "org/distil-large-v3": {
+            "org/Llama-3.2-3B": {
                 "P150": {
-                    "media": {
-                        "whisper": {
-                            "model_name": "distil-large-v3",
-                            "impl": {"impl_id": "whisper", "impl_name": "whisper"},
+                    "vLLM": {
+                        "tt_transformers": {
+                            "model_name": "Llama-3.2-3B",
+                            "impl": {
+                                "impl_id": "tt_transformers",
+                                "impl_name": "tt-transformers",
+                            },
                         }
                     }
                 }
             }
         }
         entries = list(_iter_v1_entries(model_specs))
-        assert [e["impl"] for e in entries] == ["whisper"]
+        assert [e["impl"] for e in entries] == ["tt-transformers"]
 
-    def test_v1_entries_fall_back_to_nesting_key(self):
-        """A leaf with no impl object should fall back to the nesting key so the
-        catalog can still disambiguate engine specs."""
+    def test_v1_entries_do_not_fall_back_to_nesting_key(self):
+        """The nesting key is the underscored impl_id, which the server does not
+        match on. A leaf with no impl object must yield None rather than a value
+        that would make run.py reject the deploy as an invalid --impl choice."""
         model_specs = {
             "org/some-model": {
                 "P150": {
@@ -186,17 +194,17 @@ class TestImplNormalization:
             }
         }
         entries = list(_iter_v1_entries(model_specs))
-        assert [e["impl"] for e in entries] == ["tt_transformers"]
+        assert [e["impl"] for e in entries] == [None]
 
     def test_retained_entry_dict_impl_is_normalized(self):
         """A hand-retained model bypasses normalize() and can carry a stale impl
-        object; the main() normalization loop reduces it to its impl_id string."""
+        object; the main() normalization loop reduces it to its impl_name string."""
         models = [{"model_name": "Synced", "status": "COMPLETE", "impl": "whisper"}]
         existing = {
             "Retained": {
                 "model_name": "Retained",
                 "requires_dev_catalog": True,
-                "impl": {"impl_id": "qwen36_blackhole", "impl_name": "qwen36"},
+                "impl": {"impl_id": "qwen36_blackhole", "impl_name": "qwen36-blackhole"},
             }
         }
 
@@ -204,16 +212,20 @@ class TestImplNormalization:
         # Mirror main(): normalize impl across every merged entry.
         for m in merged:
             if "impl" in m:
-                m["impl"] = _impl_id(m.get("impl"))
+                m["impl"] = _impl_selector(m.get("impl"))
 
         assert retained == ["Retained"]
         by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Retained"]["impl"] == "qwen36_blackhole"
+        assert by_name["Retained"]["impl"] == "qwen36-blackhole"
         assert by_name["Synced"]["impl"] == "whisper"
 
 
 def _leaf(model_name, impl_id, *, model_type="LLM", engine="vLLM"):
-    """A minimal model_spec leaf sufficient for normalize()."""
+    """A minimal model_spec leaf sufficient for normalize().
+
+    impl_name is the hyphenated form of impl_id, mirroring the real artifact
+    where the two differ for 9 of 10 impls. Keeping them distinct is what makes
+    these fixtures able to catch a regression back to emitting impl_id."""
     return {
         "model_name": model_name,
         "model_type": model_type,
@@ -222,7 +234,7 @@ def _leaf(model_name, impl_id, *, model_type="LLM", engine="vLLM"):
         "status": "COMPLETE",
         "version": "1.0.0",
         "docker_image": f"ghcr.io/x/{model_name}:1.0.0",
-        "impl": {"impl_id": impl_id, "impl_name": impl_id},
+        "impl": {"impl_id": impl_id, "impl_name": impl_id.replace("_", "-")},
     }
 
 
@@ -268,7 +280,8 @@ class TestImplAmbiguity:
             }
         }
         by_name = _normalize_specs(tmp_path, model_specs)
-        assert by_name["Llama-3.2-3B"]["impl"] in {"tt_transformers", "training"}
+        # Hyphenated: the recorded impl must be the impl_name the server matches on.
+        assert by_name["Llama-3.2-3B"]["impl"] in {"tt-transformers", "training"}
         assert by_name["Llama-3.2-3B"]["impl"] is not None
 
     def test_gpu_only_second_impl_is_not_ambiguous(self, tmp_path):

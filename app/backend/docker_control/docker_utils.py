@@ -12,7 +12,7 @@ from django.core.cache import caches
 
 from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
-from shared_config.model_config import model_implmentations, _impl_id
+from shared_config.model_config import model_implmentations, _impl_selector
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tavily_api_key
@@ -424,10 +424,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
         # spec on P150); without an impl the server defaults to the wrong engine and
         # pulls the wrong image. `impl.inference_impl` comes from the catalog.
-        # The server declares `impl: Optional[str]`, so send the impl_id string.
-        # _impl_id() is belt-and-braces: the catalog loader already reduces this
-        # field, but a directly-constructed ModelImpl would otherwise 422 here.
-        inference_impl = _impl_id(getattr(impl, "inference_impl", None))
+        # The server declares `impl: Optional[str]` and matches it against
+        # spec.impl.impl_name, so send the hyphenated impl_name. _impl_selector()
+        # is belt-and-braces: the catalog loader already reduces this field, but a
+        # directly-constructed ModelImpl would otherwise 422 here.
+        inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
         if inference_impl:
             payload["impl"] = inference_impl
 

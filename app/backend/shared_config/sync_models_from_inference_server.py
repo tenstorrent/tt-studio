@@ -45,16 +45,26 @@ _CANDIDATE_SOURCES = [
 HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref")
 
 
-def _impl_id(value):
-    """Reduce tt-inference-server's impl object to its impl_id string. The
-    server's /run and /resolve-image endpoints expect a string, not the whole
-    {impl_id, impl_name, repo_url, code_path} object. Stdlib-only, kept local:
-    this script runs standalone on the host interpreter, so it can't import the
-    Django-bound copy in model_config."""
+def _impl_selector(value):
+    """Reduce tt-inference-server's impl object to the string its endpoints match on.
+
+    The server selects with `spec.impl.impl_name == impl` and run.py builds its
+    --impl choices from impl_name, so the hyphenated impl_name ("tt-transformers")
+    is the wire value -- not the underscored impl_id ("tt_transformers"). The two
+    differ for 9 of the 10 impls in the v0.19.0 artifact. impl_id is a fallback
+    for objects that predate impl_name.
+
+    Stdlib-only, kept local: this script runs standalone on the host interpreter,
+    so it can't import the Django-bound copy in model_config. Keep the two in
+    step -- shared_config/test_sync_models.py and test_model_config.py assert the
+    same vectors against each."""
     if isinstance(value, str):
         return value or None
     if isinstance(value, dict):
-        return value.get("impl_id") or None
+        for key in ("impl_name", "impl_id"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate:
+                return candidate
     return None
 
 
@@ -313,13 +323,16 @@ def _iter_v1_entries(model_specs: dict):
     for _hf_id, by_device in model_specs.items():
         for _device_type, by_engine in by_device.items():
             for _engine, by_impl in by_engine.items():
-                for _impl_name, entry in by_impl.items():
+                for _impl_key, entry in by_impl.items():
                     if isinstance(entry, dict):
-                        # Store the impl_id STRING so the catalog can disambiguate
+                        # Store the impl_name STRING so the catalog can disambiguate
                         # models whose name+device match multiple engine specs.
-                        # The leaf's "impl" is the whole impl object; reduce it to
-                        # its impl_id, falling back to the nesting key when absent.
-                        entry["impl"] = _impl_id(entry.get("impl")) or _impl_name
+                        # No fallback to _impl_key: that nesting key is the
+                        # underscored impl_id, which the server does not match on,
+                        # and a wrong impl is a hard failure (argparse invalid
+                        # choice / ValueError) whereas None just lets the server
+                        # pick its default spec.
+                        entry["impl"] = _impl_selector(entry.get("impl"))
                         yield entry
 
 
@@ -378,9 +391,9 @@ def normalize(source_path: Path) -> list[dict]:
         # collides on name+device won't appear in this prod artifact, so it can't be
         # seen here; such models arrive as hand-added retained entries whose impl is
         # preserved, or the impl can be set by hand.
-        distinct_impls = {_impl_id(e.get("impl")) for e in entries}
+        distinct_impls = {_impl_selector(e.get("impl")) for e in entries}
         distinct_impls.discard(None)
-        disambiguating_impl = _impl_id(first.get("impl")) if len(distinct_impls) > 1 else None
+        disambiguating_impl = _impl_selector(first.get("impl")) if len(distinct_impls) > 1 else None
 
         models.append({
             "model_name": model_name,
@@ -428,7 +441,7 @@ def main():
     # impl object from an older catalog; reduce every impl to its impl_id string.
     for _m in models:
         if "impl" in _m:
-            _m["impl"] = _impl_id(_m.get("impl"))
+            _m["impl"] = _impl_selector(_m.get("impl"))
 
     if preserved:
         print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
