@@ -47,7 +47,7 @@ from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
-from shared_config.model_config import model_implmentations, infer_chips_required
+from shared_config.model_config import model_implmentations, infer_chips_required, _impl_id
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -831,7 +831,9 @@ class DeployView(APIView):
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
-                inference_impl = getattr(impl, "inference_impl", None)
+                # resolve-image declares `impl: Optional[str]`; send the impl_id
+                # string. See the matching guard in docker_utils.run_container.
+                inference_impl = _impl_id(getattr(impl, "inference_impl", None))
                 deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
