@@ -3,17 +3,41 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import os
-import mimetypes
 from typing import List, Optional, Dict, Any
 import pypdf
 import docx
-import markdown
 from bs4 import BeautifulSoup
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import (
+    HTMLHeaderTextSplitter,
+    Language,
+    MarkdownHeaderTextSplitter,
+    RecursiveCharacterTextSplitter,
+)
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
+
+# Heading levels that define section boundaries for markdown/HTML splitting.
+_MD_HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
+_HTML_HEADERS = [("h1", "h1"), ("h2", "h2"), ("h3", "h3")]
+
+# Language-aware splitting for code files so functions/classes stay intact.
+LANGUAGE_BY_EXTENSION = {
+    '.py': Language.PYTHON,
+    '.js': Language.JS,
+    '.jsx': Language.JS,
+    '.ts': Language.TS,
+    '.tsx': Language.TS,
+}
+
+
+def _collapse_section(meta: Dict[str, Any]) -> Optional[str]:
+    """Join h1/h2/h3 splitter keys into one "H1 > H2 > H3" section string."""
+    parts = [meta.get(level) for level in ("h1", "h2", "h3")]
+    section = " > ".join(p for p in parts if p)
+    return section or None
+
 
 class DocumentProcessor:
     SUPPORTED_EXTENSIONS = {
@@ -43,18 +67,24 @@ class DocumentProcessor:
         try:
             with open(file_path, 'rb') as file:
                 pdf_reader = pypdf.PdfReader(file)
-                documents = []
-                for page in pdf_reader.pages:
-                    documents.append(
-                        Document(
-                            page_content=page.extract_text(),
-                            metadata=metadata
-                        )
-                    )
-                return documents
+                return DocumentProcessor.pages_to_documents(
+                    (page.extract_text() for page in pdf_reader.pages), metadata
+                )
         except Exception as e:
             logger.error(f"Error processing PDF file {file_path}: {str(e)}")
             raise
+
+    @staticmethod
+    def pages_to_documents(page_texts, metadata: Dict[str, Any]) -> List[Document]:
+        """One Document per non-empty page, each with its own metadata + page number."""
+        documents = []
+        for page_number, text in enumerate(page_texts, start=1):
+            if not text or not text.strip():
+                continue
+            documents.append(
+                Document(page_content=text, metadata={**metadata, "page": page_number})
+            )
+        return documents
 
     @staticmethod
     def process_text(file_path: str, metadata: Dict[str, Any]) -> List[Document]:
@@ -86,14 +116,27 @@ class DocumentProcessor:
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
-                # Convert markdown to plain text
-                html = markdown.markdown(content)
-                soup = BeautifulSoup(html, 'html.parser')
-                text = soup.get_text()
-                return [Document(page_content=text, metadata=metadata)]
+            return DocumentProcessor.split_markdown_sections(content, metadata)
         except Exception as e:
             logger.error(f"Error processing Markdown file {file_path}: {str(e)}")
             raise
+
+    @staticmethod
+    def split_markdown_sections(content: str, metadata: Dict[str, Any]) -> List[Document]:
+        """Split markdown into heading-aligned sections carrying `section` metadata."""
+        splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=_MD_HEADERS, strip_headers=False
+        )
+        documents = []
+        for piece in splitter.split_text(content):
+            section = _collapse_section(piece.metadata)
+            piece_metadata = dict(metadata)
+            if section:
+                piece_metadata["section"] = section
+            documents.append(
+                Document(page_content=piece.page_content, metadata=piece_metadata)
+            )
+        return documents or [Document(page_content=content, metadata=metadata)]
 
     @staticmethod
     def process_html(file_path: str, metadata: Dict[str, Any]) -> List[Document]:
@@ -101,15 +144,54 @@ class DocumentProcessor:
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
-                soup = BeautifulSoup(content, 'html.parser')
-                # Remove script and style elements
-                for script in soup(["script", "style"]):
-                    script.decompose()
+            soup = BeautifulSoup(content, 'html.parser')
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            try:
+                return DocumentProcessor._split_html_sections(str(soup), metadata)
+            except Exception as e:
+                logger.warning(
+                    f"Heading-aware HTML split failed for {file_path} ({e}); "
+                    "falling back to plain text"
+                )
                 text = soup.get_text(separator='\n')
                 return [Document(page_content=text, metadata=metadata)]
         except Exception as e:
             logger.error(f"Error processing HTML file {file_path}: {str(e)}")
             raise
+
+    @staticmethod
+    def _split_html_sections(html: str, metadata: Dict[str, Any]) -> List[Document]:
+        """Split HTML on h1-h3 boundaries; the splitter emits one piece per element,
+        so consecutive pieces under the same headings are re-joined into sections."""
+        pieces = HTMLHeaderTextSplitter(_HTML_HEADERS).split_text(html)
+        documents = []
+        current_section = None
+        current_texts: List[str] = []
+
+        def flush():
+            if not current_texts:
+                return
+            piece_metadata = dict(metadata)
+            if current_section:
+                piece_metadata["section"] = current_section
+            documents.append(
+                Document(page_content="\n".join(current_texts), metadata=piece_metadata)
+            )
+
+        for piece in pieces:
+            section = _collapse_section(piece.metadata)
+            if section != current_section:
+                flush()
+                current_section = section
+                current_texts = []
+            if piece.page_content.strip():
+                current_texts.append(piece.page_content)
+        flush()
+        if not documents:
+            raise ValueError("HTML splitter produced no content")
+        return documents
 
     @staticmethod
     def process_code(file_path: str, metadata: Dict[str, Any]) -> List[Document]:
@@ -148,10 +230,19 @@ class DocumentProcessor:
         return processors[file_type](file_path, metadata)
 
     @staticmethod
-    def chunk_documents(documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 100) -> List[Document]:
-        """Split documents into chunks."""
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        return text_splitter.split_documents(documents) 
+    def chunk_documents(
+        documents: List[Document],
+        chunk_size: int = 1000,
+        chunk_overlap: int = 100,
+        language: Optional[Language] = None,
+    ) -> List[Document]:
+        """Split documents into chunks, language-aware when splitting code."""
+        if language is not None:
+            text_splitter = RecursiveCharacterTextSplitter.from_language(
+                language, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+        else:
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+        return text_splitter.split_documents(documents)
