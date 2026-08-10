@@ -43,7 +43,12 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
-from .docker_control_client import get_docker_client
+from .docker_control_client import (
+    ContainerNotFound,
+    get_docker_client,
+    http_status_of,
+    is_service_unreachable,
+)
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required
@@ -2715,17 +2720,24 @@ async def _astream_stop_remove_container(container_id, truncated):
             return "No deployment record found — continuing"
         # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
         # The only reliable signal is whether the container is actually alive right now.
-        alive = False
+        # Tri-state: True = still running, False = confirmed gone, None = we
+        # could not find out (docker-control-service unreachable). Only a
+        # confirmed death may be recorded as one.
+        alive = None
         try:
             info = get_docker_client().get_container(container_id)
             alive = (info or {}).get("status") in ("running", "restarting")
-        except Exception:
-            alive = False  # container gone / 404 → it died unexpectedly
+        except ContainerNotFound:
+            alive = False  # the service answered 404 → it died unexpectedly
+        except Exception as e:
+            if not is_service_unreachable(e):
+                logger.warning(f"Could not determine liveness of {truncated}: {e}")
 
         # Acknowledge so the Models Deployed page hides the row
         deployment.stopped_by_user = True
-        if alive:
-            # The user stopped a still-running model.
+        if alive or alive is None:
+            # Either the user stopped a still-running model, or we can't tell —
+            # in which case all we actually know is that they pressed stop.
             deployment.status = "stopped"
         elif deployment.status not in ("exited", "dead", "failed"):
             # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".
@@ -2746,13 +2758,14 @@ async def _astream_stop_remove_container(container_id, truncated):
     try:
         stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
     except Exception as e:
-        # 404 / "Not Found" means the container is already gone — not an error.
-        error_str = str(e)
-        if "404" in error_str or "Not Found" in error_str:
+        # A genuine 404 means the container is already gone — not an error. Match
+        # on the response status, never on str(e): connection-error reprs embed a
+        # memory address that can contain "404" by chance.
+        if http_status_of(e) == 404:
             container_gone = True
             yield "Container already stopped"
         else:
-            yield f"Error stopping container: {error_str}"
+            yield f"Error stopping container: {e}"
             raise _StopFailed(f"Failed to stop container {truncated}")
     else:
         stop_status = stop_result.get("status", "unknown")

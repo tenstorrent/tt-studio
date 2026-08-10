@@ -32,6 +32,7 @@ from uuid import uuid4
 from tt_setup.console import console, notice_panel
 from tt_setup.constants import (
     DOCKER_CONTROL_LOG_FILE,
+    DOCKER_CONTROL_LOGS_DIR,
     ENV_FILE_PATH,
     LOGS_DIR,
     MODEL_RUN_LOG_FILE,
@@ -133,6 +134,10 @@ def collect_bundle(exc=None, args=None):
         # Newest per-deployment model-run logs.
         for path in _newest_logs(MODEL_RUN_LOGS_DIR, _MAX_DEPLOYMENT_LOGS):
             zf.write(path, f"model_run_logs/{os.path.basename(path)}")
+
+        # Newest archived docker-control-service logs.
+        for path in _newest_logs(DOCKER_CONTROL_LOGS_DIR, _MAX_DEPLOYMENT_LOGS):
+            zf.write(path, f"docker_control_logs/{os.path.basename(path)}")
 
     return zip_path, ref
 

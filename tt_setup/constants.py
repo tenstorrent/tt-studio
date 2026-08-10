@@ -66,6 +66,9 @@ MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
 DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
+# Previous instances' logs, archived per restart the same way model_run_logs/
+# keeps per-deployment logs: docker-control-service_<YYYY-MM-DD_HH-MM-SS>.log.
+DOCKER_CONTROL_LOGS_DIR = os.path.join(LOGS_DIR, "docker_control_logs")
 # Consolidated launcher config store (issue #807): one namespaced JSON at the
 # repo root. The two dotfiles below are legacy sources, read only by the
 # one-time migration and removed by --purge-all.
