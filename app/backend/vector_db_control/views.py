@@ -797,6 +797,7 @@ class VectorCollectionsAPIView(ViewSet):
             token_budget=settings.RAG_CONTEXT_TOKEN_BUDGET,
             use_rerank=use_rerank,
             rerank_min_score=settings.RAG_RERANK_MIN_SCORE,
+            rerank_floor=settings.RAG_RERANK_FLOOR,
             disable_stages=disable_stages,
         )
         chunks = result["chunks"]

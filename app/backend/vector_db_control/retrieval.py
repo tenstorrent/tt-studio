@@ -131,6 +131,21 @@ def expand_to_parents(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
     return expanded
 
 
+def apply_rerank_threshold(
+    reranked: list[RetrievedChunk], min_score: float, floor: int
+) -> list[RetrievedChunk]:
+    """Drop low-scoring reranked chunks, but keep at least `floor` of the best.
+
+    On niche corpora the cross-encoder can score every candidate below the
+    threshold; a few weak chunks ground the answer better than none. Expects
+    `reranked` sorted by rerank_score descending (reranker.rerank's order).
+    """
+    kept = [c for c in reranked if (c.rerank_score or 0.0) >= min_score]
+    if len(kept) >= floor:
+        return kept
+    return reranked[:floor]
+
+
 def trim_to_token_budget(
     chunks: list[RetrievedChunk], budget_tokens: int
 ) -> list[RetrievedChunk]:
@@ -161,7 +176,8 @@ def retrieve(
     where: dict | None = None,
     token_budget: int = 2000,
     use_rerank: bool = True,
-    rerank_min_score: float = 0.1,
+    rerank_min_score: float = 0.05,
+    rerank_floor: int = 2,
     disable_stages: tuple = (),
 ) -> dict:
     """Run the full retrieval pipeline over the given collections.
@@ -213,7 +229,7 @@ def retrieve(
     if fused and use_rerank and "rerank" not in disable_stages:
         reranked, reranker_used = reranker.rerank(query_text, fused[:over_fetch])
         if reranker_used:
-            fused = [c for c in reranked if (c.rerank_score or 0.0) >= rerank_min_score]
+            fused = apply_rerank_threshold(reranked, rerank_min_score, rerank_floor)
 
     if "parents" not in disable_stages:
         fused = expand_to_parents(fused)

@@ -9,6 +9,7 @@ from rank_bm25 import BM25Okapi
 from vector_db_control.lexical import tokenize
 from vector_db_control.retrieval import (
     RetrievedChunk,
+    apply_rerank_threshold,
     approx_token_count,
     dense_result_to_chunks,
     expand_to_parents,
@@ -100,6 +101,33 @@ class TestExpandToParents:
             make_chunk("b", metadata={"parent_id": "p2", "parent_text": "P2"}),
         ]
         assert len(expand_to_parents(chunks)) == 2
+
+
+class TestApplyRerankThreshold:
+    def make_ranked(self, *scores):
+        # apply_rerank_threshold expects reranker.rerank's descending order.
+        return [
+            make_chunk(str(i), rerank_score=s)
+            for i, s in enumerate(sorted(scores, reverse=True))
+        ]
+
+    def test_drops_below_threshold_when_enough_pass(self):
+        ranked = self.make_ranked(0.9, 0.8, 0.01)
+        kept = apply_rerank_threshold(ranked, min_score=0.05, floor=2)
+        assert [c.rerank_score for c in kept] == [0.9, 0.8]
+
+    def test_backfills_to_floor_when_all_score_low(self):
+        ranked = self.make_ranked(0.04, 0.03, 0.01)
+        kept = apply_rerank_threshold(ranked, min_score=0.05, floor=2)
+        assert [c.rerank_score for c in kept] == [0.04, 0.03]
+
+    def test_floor_larger_than_candidates_keeps_everything(self):
+        ranked = self.make_ranked(0.01)
+        assert len(apply_rerank_threshold(ranked, min_score=0.05, floor=3)) == 1
+
+    def test_survivors_above_floor_are_untouched(self):
+        ranked = self.make_ranked(0.9, 0.8, 0.7)
+        assert len(apply_rerank_threshold(ranked, min_score=0.05, floor=1)) == 3
 
 
 class TestTokenBudget:

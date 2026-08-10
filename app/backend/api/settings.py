@@ -182,8 +182,11 @@ RAG_RERANK_ENABLED = os.environ.get("RAG_RERANK_ENABLED", "true").strip().lower(
     "false",
     "no",
 )
-# Reranked chunks scoring below this (0-1 sigmoid) are dropped.
-RAG_RERANK_MIN_SCORE = float(os.environ.get("RAG_RERANK_MIN_SCORE") or 0.1)
+# Reranked chunks scoring below this (0-1 sigmoid) are dropped...
+RAG_RERANK_MIN_SCORE = float(os.environ.get("RAG_RERANK_MIN_SCORE") or 0.05)
+# ...but the best N chunks always survive the threshold, so retrieval never
+# returns empty just because the cross-encoder scored a niche corpus low.
+RAG_RERANK_FLOOR = int(os.environ.get("RAG_RERANK_FLOOR") or 2)
 # Chunking for uploaded documents and the internal corpus. all-MiniLM-L6-v2
 # truncates input around 256 tokens, so keep chunks small. Changing either
 # value reseeds the internal knowledge collection on next startup.
