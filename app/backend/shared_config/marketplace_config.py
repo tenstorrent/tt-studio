@@ -209,6 +209,8 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "OPENAI_BASE_URL": "{base_url}",
             "OPENAI_API_KEY": "{api_key}",
         },
+       
+        requires_model=True,
         # Starting SearxNG before the app makes first boot slower than most.
         ready_timeout_s=300,
         first_run_note=(

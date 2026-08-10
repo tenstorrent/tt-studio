@@ -261,6 +261,25 @@ export default function AppsPage() {
               onSelectModel={setSelectedModel}
             />
 
+            {/* Apps that pin one model at launch are blocked individually, but the
+                ones that pick models up live are launchable and simply have nothing
+                to talk to. One banner covers both cases so the page says the same
+                thing everywhere. */}
+            {modelNames.length === 0 && (
+              <Alert className="border-amber-500/50 text-amber-600 dark:text-amber-500 [&>svg]:text-amber-500">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>No chat model is deployed</AlertTitle>
+                <AlertDescription>
+                  Apps here talk to your deployed models, so they have nothing to
+                  answer with yet.{" "}
+                  <Link to="/" className="underline hover:text-TT-purple">
+                    Deploy a chat model
+                  </Link>{" "}
+                  first — some apps cannot be launched until you do.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <CategoryFilter
               categories={categoryCounts}
               total={apps.length}
