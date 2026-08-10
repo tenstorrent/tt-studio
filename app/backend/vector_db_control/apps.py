@@ -22,8 +22,12 @@ class VectorDbConfig(AppConfig):
             get_collection,
             insert_to_chroma_collection,
         )
-        from vector_db_control.data import INTERNAL_KNOWLEDGE, knowledge_corpus_revision
-        from vector_db_control.documents import chunk_texts
+        from vector_db_control.data import (
+            INTERNAL_KNOWLEDGE,
+            document_title,
+            knowledge_corpus_revision,
+        )
+        from vector_db_control.documents import chunk_texts, chunking_fingerprint
 
         logger.info(f"{__name__} ready.")
         # Preload the singleton to initialize the model at startup
@@ -34,7 +38,9 @@ class VectorDbConfig(AppConfig):
         try:
             collections = list_collections()
             internal_collection_name = "tenstorrent_internal_knowledge"
-            revision = knowledge_corpus_revision()
+            # Salting with the chunking fingerprint reseeds the collection when
+            # chunk sizing or the header template changes, not just the corpus.
+            revision = knowledge_corpus_revision(salt=chunking_fingerprint())
 
             # Check if internal knowledge collection already exists
             existing_internal = next(
@@ -80,8 +86,12 @@ class VectorDbConfig(AppConfig):
             chunks = chunk_texts(
                 INTERNAL_KNOWLEDGE,
                 metadatas=[
-                    {"source": "internal_knowledge", "type": "documentation"}
-                    for _ in INTERNAL_KNOWLEDGE
+                    {
+                        "source": "internal_knowledge",
+                        "type": "documentation",
+                        "title": document_title(doc),
+                    }
+                    for doc in INTERNAL_KNOWLEDGE
                 ],
             )
             documents = [chunk.page_content for chunk in chunks]

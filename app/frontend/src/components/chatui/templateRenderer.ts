@@ -170,7 +170,8 @@ ${responseFormat}`
     const formattedDocuments = ragContext.documents
       .map((docContent) => {
         // Extract source name and content
-        const sourceMatch = docContent.match(/^\[From\s+([^\]]+)\]\s*(.*)$/);
+        // [\s\S] instead of . so multi-line chunk bodies are captured too.
+        const sourceMatch = docContent.match(/^\[From\s+([^\]]+)\]\s*([\s\S]*)$/);
         if (sourceMatch) {
           const [, source, content] = sourceMatch;
           return `[Source: ${source}]\n${content.trim()}`;

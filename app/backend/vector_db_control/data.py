@@ -86819,14 +86819,29 @@ INTERNAL_KNOWLEDGE = [
 ] + _SCRAPED_DOCS
 
 
-def knowledge_corpus_revision() -> str:
+def knowledge_corpus_revision(salt: str = "") -> str:
     """Short fingerprint of the corpus above.
 
     Stored on the seeded Chroma collection so startup can tell an up-to-date
     collection from one built before documents were added to or edited here.
+    ``salt`` folds external state into the fingerprint (e.g. the chunking
+    configuration) so those changes also trigger a reseed.
     """
     digest = hashlib.sha256()
     for document in INTERNAL_KNOWLEDGE:
         digest.update(document.encode("utf-8"))
         digest.update(b"\x00")
+    if salt:
+        digest.update(salt.encode("utf-8"))
     return digest.hexdigest()[:16]
+
+
+def document_title(text: str) -> str:
+    """Human title for a corpus document: its first markdown H1, else first line."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+        if stripped:
+            return stripped[:80]
+    return "Tenstorrent documentation"

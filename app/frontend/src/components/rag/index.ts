@@ -106,6 +106,10 @@ export const uploadDocument = async ({
     );
   } catch (error) {
     console.error("Error uploading document:", error);
+    // Surface the backend's reason (e.g. "Unsupported file type") to callers
+    if (axios.isAxiosError(error) && error.response?.data?.error) {
+      throw new Error(error.response.data.error);
+    }
     throw error;
   }
 };
