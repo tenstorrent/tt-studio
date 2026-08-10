@@ -23,6 +23,7 @@ export interface MarketplaceApp {
   docs_url: string;
   first_run_note: string | null;
   status: MarketplaceAppStatus;
+  blocked_reason?: string | null;
   message?: string;
   progress?: { downloaded_bytes: number; total_bytes: number };
   container_id?: string;

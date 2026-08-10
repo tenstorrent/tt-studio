@@ -2087,23 +2087,9 @@ class MarketplaceLaunchView(APIView):
                 {"error": f"No launchable app named '{app_id}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        if not marketplace.upstream_key(app):
-            return Response(
-                {
-                    "error": f"{marketplace.upstream_key_name(app)} is not set in your "
-                    f".env, so {app.name} cannot be wired to your models. Set it and "
-                    "restart TT-Studio."
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-        if app.requires_model and marketplace.default_model() is None:
-            return Response(
-                {
-                    "error": f"{app.name} is configured with one model at launch. "
-                    "Deploy a chat model first, then launch it."
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+        blocked = marketplace.launch_blocked_reason(app)
+        if blocked:
+            return Response({"error": blocked}, status=status.HTTP_409_CONFLICT)
 
         job = marketplace.get_job(app.id)
         if marketplace.is_job_active(job):

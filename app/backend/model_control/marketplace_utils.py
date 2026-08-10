@@ -273,6 +273,28 @@ def _model_env(app: MarketplaceApp) -> Dict[str, str]:
 # --- Serialization ----------------------------------------------------------
 
 
+def launch_blocked_reason(app: MarketplaceApp) -> Optional[str]:
+    """Why `app` cannot be launched right now, in plain language, or None if it can.
+
+    Read by the catalog endpoint, so the Apps page can disable Launch and say why
+    up front, and enforced by the launch endpoint. Sharing one source keeps the
+    card's explanation and the refusal from ever disagreeing.
+    """
+    if not upstream_key(app):
+        return (
+            f"{upstream_key_name(app)} is not set in your .env, so {app.name} "
+            "cannot be wired to your models. Set it and restart TT-Studio."
+        )
+    # Short-circuits before default_model(), so only the apps that pin one model
+    # pay for the deploy scan.
+    if app.requires_model and default_model() is None:
+        return (
+            f"{app.name} needs a chat model to connect to, and none is deployed "
+            f"yet. Deploy one from the Home page, then launch {app.name}."
+        )
+    return None
+
+
 def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
     """Catalog entry plus current state, from Docker and any in-flight job."""
     payload = {
@@ -297,6 +319,8 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
     if app.kind is not AppKind.CONTAINER:
         payload["status"] = "guide"
         return payload
+
+    payload["blocked_reason"] = launch_blocked_reason(app)
 
     container = find_container(containers, app)
     job = get_job(app.id)

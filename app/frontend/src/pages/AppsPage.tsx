@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import axios from "axios";
 import {
   AlertCircle,
   Boxes,
@@ -189,8 +190,14 @@ export default function AppsPage() {
     try {
       await action(app.id);
       await load();
-    } catch {
-      customToast.error(`Could not complete that action for ${app.name}.`);
+    } catch (error) {
+      const reason =
+        axios.isAxiosError(error) && typeof error.response?.data?.error === "string"
+          ? error.response.data.error
+          : null;
+      customToast.error(
+        reason ?? `Could not complete that action for ${app.name}.`
+      );
     } finally {
       setPending((p) => ({ ...p, [app.id]: false }));
     }
@@ -713,14 +720,23 @@ function AppCard({
             </Button>
           </div>
         ) : (
-          <Button
-            className="w-full"
-            onClick={onLaunch}
-            disabled={disabled || busy}
-          >
-            <Play className="h-4 w-4 mr-2" />
-            {app.status === "error" ? "Retry" : "Launch"}
-          </Button>
+          <div className="space-y-2">
+            <Button
+              className="w-full"
+              onClick={onLaunch}
+              disabled={disabled || busy || !!app.blocked_reason}
+              title={app.blocked_reason ?? undefined}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {app.status === "error" ? "Retry" : "Launch"}
+            </Button>
+            {app.blocked_reason && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                <span>{app.blocked_reason}</span>
+              </p>
+            )}
+          </div>
         )}
 
         <a
