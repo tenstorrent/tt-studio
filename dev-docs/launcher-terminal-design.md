@@ -119,6 +119,13 @@ The same idea (verbose-gating) is used for the update-check "couldn't reach GitH
 (`env_config.py`), the freed-ports breakdown (`services.py`), and the "(cached)" lines
 (`inference_server.py`). **Failures, prompts, and actionable warnings are never gated.**
 
+**`--no-clear`** is the scrollback-preserving sibling of `-v`. Startup clears the screen
+in two places — the sticky-region install (`console/_stepper.py`, `\033[2J\033[H`) and the
+welcome banner (`shell.py`, `os.system('clear')`). `--no-clear` sets `set_verbose(True)`
+(so the sticky region is never installed, skipping the first clear, and detail is un-folded)
+and a `no_clear()` global that guards the banner's clear. The result: nothing is wiped, and
+the full per-phase detail streams inline. The default calm/sticky flow is unchanged.
+
 ---
 
 ## What the user sees
