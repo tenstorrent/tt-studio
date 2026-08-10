@@ -98,6 +98,10 @@ _CLEANUP_VOLUME_PREFIX = "volume_id_"
 _CLEANUP_APP_VOLUME_PREFIX = "tt_studio_"
 _CLEANUP_APP_VOLUME_SUFFIX = "_data"
 
+# Having this compose label helps identify the containers that belong to the tt_studio stack vs marketplace apps,
+# and it is also used to give the containers mode-independent names in the diagnostics. 
+_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
+
 BROWSER_CLEANUP_SENTINEL = os.path.join(
     TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"
 )
