@@ -1236,6 +1236,7 @@
     },
     {
       "model_name": "gemma-1.1-2b-it",
+      "hand_owned": true,
       "model_type": "TRAINING",
       "display_model_type": "TRAINING",
       "device_configurations": [
@@ -1266,6 +1267,7 @@
     },
     {
       "model_name": "Llama-3.1-8B",
+      "hand_owned": true,
       "model_type": "TRAINING",
       "display_model_type": "TRAINING",
       "device_configurations": [
