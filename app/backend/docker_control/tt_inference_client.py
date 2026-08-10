@@ -82,23 +82,36 @@ def resolve_deploy_image(
         fastapi_base_url or backend_config.tt_inference_api_url
     ).rstrip("/")
     try:
-        params = {"model": model_name}
+        base_params = {"model": model_name}
         if device:
-            params["device"] = device
+            base_params["device"] = device
+
+        # Try impl-qualified first, then fall back to a plain lookup. An impl the
+        # server can't match (e.g. a spec outside the prod tier) 404s the qualified
+        # request even when the plain one would resolve, so a redundant impl must
+        # not block resolution. The catalog now records impl only when it truly
+        # disambiguates, making this a defensive backstop.
+        attempts = []
         if impl:
-            params["impl"] = impl
-        r = requests.get(
-            f"{fastapi_base_url}/resolve-image",
-            params=params,
-            timeout=timeout_seconds,
-        )
-        if r.status_code != 200:
-            logger.warning(
-                f"resolve-image for model={model_name} device={device} returned HTTP {r.status_code}: {r.text[:200]}"
+            attempts.append({**base_params, "impl": impl})
+        attempts.append(base_params)
+
+        for params in attempts:
+            r = requests.get(
+                f"{fastapi_base_url}/resolve-image",
+                params=params,
+                timeout=timeout_seconds,
             )
-            return None
-        image = (r.json() or {}).get("docker_image")
-        return image or None
+            if r.status_code != 200:
+                logger.warning(
+                    f"resolve-image for model={model_name} device={device} "
+                    f"impl={params.get('impl')} returned HTTP {r.status_code}: {r.text[:200]}"
+                )
+                continue
+            image = (r.json() or {}).get("docker_image")
+            if image:
+                return image
+        return None
     except requests.exceptions.RequestException as e:
         logger.warning(f"resolve-image request failed for model={model_name}: {e}")
         return None
@@ -120,6 +133,7 @@ def start_chat_deployment(
     vllm_override_args: Optional[str] = None,
     override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
+    artifact_ref: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -147,6 +161,8 @@ def start_chat_deployment(
         payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
+    if artifact_ref is not None:
+        payload["artifact_ref"] = artifact_ref
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend
