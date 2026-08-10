@@ -134,7 +134,10 @@ class DocumentProcessor:
         """Process document based on file type."""
         file_type = cls.get_file_type(file_path)
         if not file_type:
-            raise ValueError(f"Unsupported file type: {file_path}")
+            # Report only the extension — the full path is a server-side temp
+            # location and this message is surfaced to the user in the UI.
+            extension = os.path.splitext(file_path)[1] or os.path.basename(file_path)
+            raise ValueError(f"Unsupported file type: {extension}")
 
         processors = {
             'application/pdf': cls.process_pdf,

@@ -87,24 +87,36 @@ def _filter_results_by_distance(results, max_distance):
 
 
 def _merge_query_results(primary, secondary, limit):
-    """Merge two Chroma query result dicts (single query), keeping the closest matches.
+    """Merge two Chroma query result dicts (single query), primary results first.
+
+    The primary collection is the one the caller explicitly queried, so its matches
+    take the available slots first; secondary (shared internal knowledge) results only
+    fill whatever capacity remains, closest first. Merging purely by distance instead
+    would let the large documentation corpus crowd the user's own documents out of the
+    response entirely.
 
     Preserves Chroma's ``{ids, documents, metadatas, distances}`` shape with one inner
     list per query so the response contract is unchanged.
     """
-    combined = []
-    for result in (primary, secondary):
+    def _entries(result):
         if not result or not result.get("documents") or not result["documents"][0]:
-            continue
+            return []
         documents = result["documents"][0]
         ids = result["ids"][0]
         metadatas = result["metadatas"][0] if result.get("metadatas") else [None] * len(documents)
         distances = result["distances"][0] if result.get("distances") else [None] * len(documents)
-        for i in range(len(documents)):
-            combined.append((distances[i], ids[i], documents[i], metadatas[i]))
+        return [
+            (distances[i], ids[i], documents[i], metadatas[i])
+            for i in range(len(documents))
+        ]
 
-    combined.sort(key=lambda item: item[0] if item[0] is not None else float("inf"))
-    combined = combined[:limit]
+    combined = _entries(primary)[:limit]
+    remaining = limit - len(combined)
+    if remaining > 0:
+        secondary_entries = _entries(secondary)
+        secondary_entries.sort(key=lambda item: item[0] if item[0] is not None else float("inf"))
+        combined.extend(secondary_entries[:remaining])
+
     return {
         "ids": [[item[1] for item in combined]],
         "documents": [[item[2] for item in combined]],
@@ -369,7 +381,8 @@ class VectorCollectionsAPIView(ViewSet):
             elif file_extension in ['.doc', '.docx']:
                 folder_type = "docs"
                 folder_path = f"docs/{filename}"
-            elif file_extension in ['.txt', '.log']:
+            elif file_extension in ['.txt', '.log', '.json', '.csv', '.xml', '.yaml', '.yml']:
+                # Plain-text formats handled by DocumentProcessor.process_text
                 folder_type = "text"
                 folder_path = f"text/{filename}"
             elif file_extension in ['.ppt', '.pptx']:
@@ -563,9 +576,11 @@ class VectorCollectionsAPIView(ViewSet):
             where=where,
         )
 
-        # Merge in the shared Tenstorrent knowledge so single-collection queries still
-        # surface documentation, without copying the corpus into every collection. Skip
-        # the merge when a metadata filter is set — the caller is scoping to their own chunks.
+        # Backfill leftover result slots from the shared Tenstorrent knowledge so
+        # single-collection queries can still surface documentation, without copying the
+        # corpus into every collection. The queried collection's own matches always take
+        # priority (see _merge_query_results). Skip the merge when a metadata filter is
+        # set — the caller is scoping to their own chunks.
         if pk != INTERNAL_KNOWLEDGE_COLLECTION and not where:
             try:
                 internal_results = query_collection(

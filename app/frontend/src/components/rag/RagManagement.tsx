@@ -263,14 +263,16 @@ export default function RagManagement() {
       return { file, collectionName };
     },
     onMutate: ({ collectionName }) => {
-      setCollectionsUploading([...collectionsUploading, collectionName]);
+      setCollectionsUploading((prev) =>
+        prev.includes(collectionName) ? prev : [...prev, collectionName]
+      );
       customToast.info(
         `Creating datasource "${collectionName}" and uploading document...`
       );
     },
     onError: (error: any, { file, collectionName }) => {
-      setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName)
+      setCollectionsUploading((prev) =>
+        prev.filter((e) => e !== collectionName)
       );
       if (error.message === "Collection name already exists") {
         customToast.error(
@@ -283,8 +285,8 @@ export default function RagManagement() {
       }
     },
     onSuccess: async ({ file, collectionName }) => {
-      setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName)
+      setCollectionsUploading((prev) =>
+        prev.filter((e) => e !== collectionName)
       );
       customToast.success(
         `Successfully created datasource "${collectionName}" and uploaded "${file.name}"`
@@ -411,7 +413,9 @@ export default function RagManagement() {
   const uploadDocumentMutation = useMutation({
     mutationFn: uploadDocument,
     onMutate: ({ collectionName }) => {
-      setCollectionsUploading([...collectionsUploading, collectionName]);
+      setCollectionsUploading((prev) =>
+        prev.includes(collectionName) ? prev : [...prev, collectionName]
+      );
       customToast.info("Uploading document...");
     },
     onError: (error: Error, { file, collectionName }) => {
@@ -423,8 +427,8 @@ export default function RagManagement() {
       );
     },
     onSuccess: async (response, { file, collectionName }) => {
-      setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName)
+      setCollectionsUploading((prev) =>
+        prev.filter((e) => e !== collectionName)
       );
 
       // Check if metadata was updated successfully
