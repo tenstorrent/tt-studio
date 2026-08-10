@@ -1090,6 +1090,18 @@ def _readopt_live_containers(live_containers: dict, live_by_name: dict) -> None:
                 f"Re-adopting {dep.container_name}: record was '{dep.status}' but the "
                 f"container is {live.get('status')}"
             )
+            if matched_by_name and live_key:
+                # Bind the record to the real container. It was matched by name
+                # because its container_id is still a deploy-window placeholder,
+                # and every later lookup — stop, remove, logs — resolves by
+                # container_id, so leaving the placeholder in place would revive a
+                # row that no operation can find. This is the same swap
+                # deployment_sync performs when a job resolves.
+                logger.info(
+                    f"Re-adopting {dep.container_name}: binding placeholder "
+                    f"container_id '{dep.container_id}' to {live_key[:12]}"
+                )
+                dep.container_id = live_key
             dep.status = "running"
             dep.stopped_at = None
             dep.save()

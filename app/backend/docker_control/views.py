@@ -2803,11 +2803,27 @@ async def _astream_stop_remove_container(container_id, truncated):
             if not is_service_unreachable(e):
                 logger.warning(f"Could not determine liveness of {truncated}: {e}")
 
-        # Acknowledge so the Models Deployed page hides the row
+        # The user pressed stop — that much is a fact regardless of what we can
+        # observe, and it keeps a later death from being reported as unexpected.
         deployment.stopped_by_user = True
-        if alive or alive is None:
-            # Either the user stopped a still-running model, or we can't tell —
-            # in which case all we actually know is that they pressed stop.
+
+        if alive is None:
+            # We could not observe the container, and the stop below may fail for
+            # the same reason. Writing a terminal status here would free the chip
+            # slot while the container may still hold that chip and port — exactly
+            # the collision this change exists to prevent. Leave the status alone:
+            # if the stop does succeed, the canonical reconcile demotes the record
+            # once the container is actually gone, and if it fails the record still
+            # reflects a model that is really there.
+            logger.info(
+                f"Liveness of {truncated} could not be determined; leaving status "
+                f"'{deployment.status}' until the container can be observed"
+            )
+            deployment.save()
+            return f"Recorded stop intent for {truncated} (status unchanged — Docker unreachable)"
+
+        if alive:
+            # The user stopped a still-running model.
             deployment.status = "stopped"
         elif deployment.status not in ("exited", "dead", "failed"):
             # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".

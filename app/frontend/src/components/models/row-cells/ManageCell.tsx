@@ -71,11 +71,13 @@ export default React.memo(function ManageCell({
   // that service, so Open/Chat stays enabled.
   const { controlPlaneDegraded } = useModels();
   const deleteDisabled = deleteInProgress || isResetting || controlPlaneDegraded;
+  // Most specific cause first: an in-flight delete is a concrete operation the
+  // user is waiting on, so it must not be shadowed by the broader outage notice.
   const deleteDisabledReason = isResetting
     ? "The board is resetting. Wait for it to finish before deleting a model."
-    : controlPlaneDegraded
-      ? "The Docker control service is unreachable, so this model can't be stopped right now. The model itself is unaffected and still usable."
-      : "A model is currently being deleted. Please wait for it to finish before starting another destructive action.";
+    : deleteInProgress
+      ? "A model is currently being deleted. Please wait for it to finish before starting another destructive action."
+      : "The Docker control service is unreachable, so this model can't be stopped right now. The model itself is unaffected and still usable.";
   const resettingTitle = isResetting
     ? "Disabled while the board is resetting"
     : undefined;
