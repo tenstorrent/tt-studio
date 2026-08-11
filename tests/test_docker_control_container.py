@@ -73,6 +73,9 @@ class DockerControlComposeTests(unittest.TestCase):
         self.assertIsNone(docker_control.get("ports"))
         self.assertIn(("/var/run/docker.sock", "/var/run/docker.sock"), mounts)
         self.assertIn("docker-control", docker_control["networks"]["tt_studio_network"]["aliases"])
+        healthcheck = docker_control["healthcheck"]["test"]
+        self.assertIn("json.load", healthcheck[-1])
+        self.assertIn("get('docker') == 'healthy'", healthcheck[-1])
         self.assertEqual(
             backend["environment"]["DOCKER_CONTROL_SERVICE_URL"],
             "http://docker-control:8002",

@@ -32,7 +32,10 @@ services:
           - docker-control
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/api/v1/health', timeout=3)"]
+      # The endpoint reports Docker daemon failures in its JSON body while
+      # keeping the HTTP response inspectable. Gate startup on that check,
+      # rather than treating any HTTP 200 as a usable Docker Control service.
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; payload = json.load(urllib.request.urlopen('http://127.0.0.1:8002/api/v1/health', timeout=3)); sys.exit(0 if payload.get('checks', {}).get('docker') == 'healthy' else 1)"]
       timeout: 5s
       interval: 5s
       retries: 10
