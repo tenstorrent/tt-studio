@@ -192,13 +192,13 @@ class InstalledModelsTests(unittest.TestCase):
 class PurgeModelsFlowTests(unittest.TestCase):
     """End-to-end orchestrator runs with docker helpers mocked."""
 
-    def _stack(self, stack, pv, catalog_file, volumes=(), live=()):
+    def _stack(self, stack, pv, catalog_file, volumes=(), live=(), daemon="ok"):
         stack.enter_context(patch.object(
             _pm, "get_env_var", side_effect=lambda name, default="": str(pv)))
         stack.enter_context(patch.object(
             _pm, "_model_catalog_path", return_value=str(catalog_file)))
         stack.enter_context(patch.object(_pm, "check_docker_access", return_value=True))
-        stack.enter_context(patch.object(_pm, "_docker_daemon_status", return_value="ok"))
+        stack.enter_context(patch.object(_pm, "_docker_daemon_status", return_value=daemon))
         stack.enter_context(patch.object(
             _pm, "_docker_volume_names", return_value=list(volumes)))
         stack.enter_context(patch.object(
@@ -321,6 +321,81 @@ class PurgeModelsFlowTests(unittest.TestCase):
             record = json.loads(store.read_text())["records"][0]
             self.assertEqual(record["status"], "stopped")
             self.assertTrue(record["stopped_by_user"])
+
+    def test_docker_down_says_unchecked_not_missing(self):
+        """With the daemon down, volumes can't even be listed — the run must say
+        they were NOT CHECKED (with a re-run hint), never that they were absent,
+        or users trust a reclaim that left tens of GB in docker volumes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            weights = pv / "volume_id_tt-metal-Llama-3.1-8B-Instruct-v0.0.1"
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file, daemon="down")
+                vols = stack.enter_context(patch.object(_pm, "_remove_docker_volumes"))
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 0)
+            self.assertFalse(weights.exists())   # host-side purge still runs
+            vols.assert_not_called()
+            self.assertIn("not checked", text)
+            self.assertIn("Start Docker and re-run", text)
+
+    def test_in_use_volume_names_holders_and_exits_nonzero(self):
+        """A volume that survives removal must flip the run to a warning exit
+        with advice that works — name the holding container(s), don't point at
+        `--stop`, which leaves deployed models running."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            vol = "volume_id_tt-metal-Llama-3.1-8B-Instruct"
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file, volumes=[vol])
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [vol])))
+                stack.enter_context(patch.object(
+                    _pm, "_containers_using_volume", return_value=["stray-ctr"]))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 1)
+            self.assertIn("finished with issues", text)
+            self.assertIn("docker rm -f stray-ctr", text)
+            self.assertNotIn("--stop", text)
+
+    def test_failed_file_removal_is_not_reported_as_reclaimed(self):
+        """When deleting host files fails (e.g. permissions), the run must not
+        print a success header or count those bytes as reclaimed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            weights = pv / "volume_id_tt-metal-Llama-3.1-8B-Instruct-v0.0.1"
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file)
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [])))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_path", return_value=False))
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 1)
+            self.assertTrue(weights.exists())
+            self.assertIn("finished with issues", text)
+            self.assertIn("Could not remove", text)
+            self.assertNotIn("Reclaimed", text)
+            self.assertNotIn("Cleanup complete", text)
 
     def test_bare_picker_without_tty_exits_1(self):
         with tempfile.TemporaryDirectory() as tmp:

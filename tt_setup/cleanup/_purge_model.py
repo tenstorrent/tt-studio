@@ -18,6 +18,7 @@ from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var
 from tt_setup.cleanup._confirm import _confirm_purge
 from tt_setup.cleanup._resource_ops import (
+    _containers_using_volume,
     _deployed_model_names,
     _docker_daemon_status,
     _docker_object_sizes,
@@ -300,7 +301,8 @@ def _pick_models_interactively(installed):
 def purge_models(args):
     """Entry point for --purge-model. Returns an exit code: 0 on success or a
     clean user abort, 1 when a requested model can't be resolved (nothing is
-    touched in that case) or the bare picker has no terminal to run on."""
+    touched in that case), the bare picker has no terminal to run on, or some
+    of the selected artifacts could not actually be removed."""
     requested = list(getattr(args, "purge_model", None) or [])
     picker_requested = all(t == _PURGE_MODEL_PICKER for t in requested)
 
@@ -321,7 +323,9 @@ def purge_models(args):
     # --- choose what to purge ---
     if picker_requested:
         if not installed:
-            console.print("\n[info]No models installed — nothing to purge.[/info]")
+            hint = (" (Docker is not running, so docker volumes could not be checked)"
+                    if not docker_usable else "")
+            console.print(f"\n[info]No models installed{hint} — nothing to purge.[/info]")
             return 0
         if not sys.stdin.isatty():
             console.print()
@@ -359,7 +363,9 @@ def purge_models(args):
             if matched in by_name:
                 selected.append(by_name[matched])
             else:
-                console.print(f"[info]{matched}: nothing installed — skipping.[/info]")
+                hint = (" on disk — Docker is not running, so its docker volumes "
+                        "could not be checked" if not docker_usable else "")
+                console.print(f"[info]{matched}: nothing installed{hint} — skipping.[/info]")
         if not selected:
             console.print("\n[info]Nothing to remove.[/info]")
             return 0
@@ -382,18 +388,20 @@ def purge_models(args):
     ))
 
     total_bytes = 0
+    path_sizes = {}  # host path → bytes, to keep the reclaim total honest on failures
     for m in selected:
         console.print(f"\n[bold]{m['name']}[/bold]")
         table = _inventory_table()
         rows = 0
         for d in m["weight_dirs"]:
-            size = _path_size(d)
+            size = path_sizes[d] = _path_size(d)
             total_bytes += size
             table.add_row("📁", os.path.relpath(d, TT_STUDIO_ROOT),
                           _format_bytes(size) if size > 0 else "—", "model weights")
             rows += 1
         if m["env_file"]:
-            total_bytes += _path_size(m["env_file"])
+            size = path_sizes[m["env_file"]] = _path_size(m["env_file"])
+            total_bytes += size
             table.add_row("⚙️ ", os.path.relpath(m["env_file"], TT_STUDIO_ROOT),
                           "—", "model env file")
             rows += 1
@@ -407,8 +415,12 @@ def purge_models(args):
             table.add_row("🐳", r.get("container_name") or r.get("container_id", "?"),
                           "", "running — will be stopped")
             rows += 1
-        if not docker_usable and (m["volumes"] or m["running"]):
-            table.add_row("🐳", "docker objects", "", "skipped (Docker not running)")
+        if not docker_usable:
+            # Volumes can't even be listed without the daemon, so m["volumes"]
+            # being empty means "unknown", not "none".
+            table.add_row("🐳", "docker volumes", "",
+                          "not checked — Docker is not running")
+            rows += 1
         image = m["image"]
         if image:
             if image in removable_images:
@@ -442,6 +454,8 @@ def purge_models(args):
     docker_spinner = has_docker_access
     no_sudo = bool(getattr(args, "no_sudo", False))
     volumes_in_use = []
+    failed_paths = []
+    failed_bytes = 0
     for m in selected:
         name = m["name"]
         containers = list(dict.fromkeys(
@@ -457,10 +471,12 @@ def purge_models(args):
                 s.detail(f"{removed} container(s)")
 
         with step(f"Removing {name} model volume", spinner=docker_spinner) as s:
-            if not m["volumes"]:
+            if not docker_usable:
+                # Without the daemon we could not even list volumes — say so
+                # instead of claiming there were none.
+                s.skip("not checked — Docker is not running")
+            elif not m["volumes"]:
                 s.skip("none found")
-            elif not docker_usable:
-                s.skip("Docker not running")
             else:
                 removed, in_use = _remove_docker_volumes(m["volumes"], has_docker_access)
                 if in_use:
@@ -474,25 +490,35 @@ def purge_models(args):
             if not m["weight_dirs"]:
                 s.skip("none found")
             else:
-                removed = sum(1 for d in m["weight_dirs"]
-                              if _remove_path(d, no_sudo=no_sudo))
-                s.detail(f"{removed}/{len(m['weight_dirs'])} path(s)")
+                failed = [d for d in m["weight_dirs"]
+                          if not _remove_path(d, no_sudo=no_sudo)]
+                if failed:
+                    # fail() also surfaces _remove_path's captured warnings,
+                    # which otherwise only land in startup.log.
+                    failed_paths.extend(failed)
+                    failed_bytes += sum(path_sizes.get(d, 0) for d in failed)
+                    s.fail()
+                s.detail(f"{len(m['weight_dirs']) - len(failed)}"
+                         f"/{len(m['weight_dirs'])} path(s)")
 
         with step(f"Removing {name} env file", spinner=False) as s:
             if not m["env_file"]:
                 s.skip("none found")
             elif not _remove_path(m["env_file"], no_sudo=no_sudo):
+                failed_paths.append(m["env_file"])
+                failed_bytes += path_sizes.get(m["env_file"], 0)
                 s.fail()
 
     with step("Removing unreferenced images", spinner=docker_spinner) as s:
         if not docker_usable:
-            s.skip("Docker not running")
+            s.skip("not checked — Docker is not running")
         elif not removable_images:
             s.skip("all images shared" if shared_images else "none found")
         else:
-            removed = sum(1 for i in removable_images
-                          if _remove_image_ref(i, has_docker_access))
-            s.detail(f"{removed} image(s)")
+            missed = [i for i in removable_images
+                      if not _remove_image_ref(i, has_docker_access)]
+            failed_bytes += sum(image_sizes.get(i, 0) for i in missed)
+            s.detail(f"{len(removable_images) - len(missed)} image(s)")
 
     with step("Updating deployment records", spinner=False) as s:
         stopped_any = any(m["running"] for m in selected)
@@ -501,14 +527,33 @@ def purge_models(args):
         elif not _mark_deployments_stopped(deployments_path, purge_names):
             s.skip("left as-is")
 
-    # Don't claim bytes we failed to free — a volume still in use stays on disk.
-    reclaimed_bytes = total_bytes - sum(volume_sizes.get(v, 0) for v in volumes_in_use)
-    console.print("\n[bold success]✓ Cleanup complete[/bold success]")
+    # Don't claim bytes we failed to free — a volume still in use or an
+    # undeletable weights dir stays on disk.
+    reclaimed_bytes = total_bytes - failed_bytes - \
+        sum(volume_sizes.get(v, 0) for v in volumes_in_use)
+    problems = bool(failed_paths or volumes_in_use)
+    if problems:
+        console.print("\n[bold warning]⚠  Cleanup finished with issues[/bold warning]")
+    else:
+        console.print("\n[bold success]✓ Cleanup complete[/bold success]")
     if reclaimed_bytes > 0:
         console.print(f"   Reclaimed approximately [bold]{_format_bytes(reclaimed_bytes)}[/bold] from disk.")
     for image, kept in sorted(shared_images.items()):
         console.print(f"   [muted]{image} kept — still used by {', '.join(kept)}[/muted]")
-    if volumes_in_use:
-        console.print(f"   [warning]⚠  Not removed (still in use): {', '.join(volumes_in_use)} — "
-                      f"check `docker ps -a --filter volume=<name>` and re-run.[/warning]")
-    return 0
+    if not docker_usable:
+        console.print("   [warning]⚠  Docker is not running — this model's docker volumes "
+                      "were not checked or removed. Start Docker and re-run to "
+                      "reclaim them.[/warning]")
+    for vol in volumes_in_use:
+        holders = _containers_using_volume(vol, has_docker_access)
+        hint = (f"remove its container(s) with [accent]docker rm -f {' '.join(holders)}[/accent]"
+                if holders else
+                f"check [accent]docker ps -a --filter volume={vol}[/accent]")
+        console.print(f"   [warning]⚠  {vol} was not removed (still in use) — "
+                      f"{hint}, then re-run.[/warning]")
+    for path in failed_paths:
+        console.print(f"   [warning]⚠  Could not remove "
+                      f"{os.path.relpath(path, TT_STUDIO_ROOT)} — likely needs "
+                      f"elevated permissions; remove it manually with "
+                      f"[accent]sudo rm -rf[/accent].[/warning]")
+    return 1 if problems else 0
