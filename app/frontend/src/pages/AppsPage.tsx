@@ -177,7 +177,7 @@ export default function AppsPage() {
     } catch (error) {
       const reason =
         axios.isAxiosError(error) &&
-        typeof error.response?.data?.error === "string"
+          typeof error.response?.data?.error === "string"
           ? error.response.data.error
           : null;
       customToast.error(
@@ -237,6 +237,8 @@ export default function AppsPage() {
 
         {!loading && !error && (
           <>
+
+
             <GatewayCard
               openaiBase={openaiBase}
               apiKey={gateway?.master_key || ""}
@@ -246,23 +248,29 @@ export default function AppsPage() {
               onSelectModel={setSelectedModel}
             />
 
-            {/* Apps that pin one model at launch are blocked individually, but the
-                ones that pick models up live are launchable and simply have nothing
-                to talk to. One banner covers both cases so the page says the same
-                thing everywhere. */}
             {modelNames.length === 0 && (
-              <Alert className="border-amber-500/50 text-amber-600 dark:text-amber-500 [&>svg]:text-amber-500">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>No chat model is deployed</AlertTitle>
-                <AlertDescription>
-                  Apps here talk to your deployed models, so they have nothing
-                  to answer with yet.{" "}
-                  <Link to="/" className="underline hover:text-TT-purple">
-                    Deploy a chat model
-                  </Link>{" "}
-                  first — some apps cannot be launched until you do.
-                </AlertDescription>
-              </Alert>
+              <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:gap-4">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-500">
+                  <AlertCircle className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                    No chat model is deployed
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Apps here talk to your deployed models, so they have nothing
+                    to answer with yet — and some cannot be launched until one
+                    is running.
+                  </p>
+                </div>
+                <Button
+                  asChild
+                  variant="outline"
+                  className="shrink-0 border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+                >
+                  <Link to="/">Deploy a chat model</Link>
+                </Button>
+              </div>
             )}
 
             <CategoryFilter
@@ -472,11 +480,19 @@ function GatewayCard({
         <Field label="API Key" value={apiKey || "(not configured)"} />
       </div>
 
-      {models.length > 0 ? (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-2">
-            Model used in setup guides
-          </div>
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-2">
+          Model used in setup guides
+        </div>
+        {/* The page-level banner already explains an empty model list, so this
+            only fills the gap it leaves rather than repeating the warning. */}
+        {models.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Setup guides use{" "}
+            <code className="font-mono text-xs">{activeModel}</code> as a
+            placeholder until a model is deployed.
+          </p>
+        ) : (
           <div className="flex flex-wrap gap-2">
             {models.map((name) => (
               <button
@@ -495,20 +511,8 @@ function GatewayCard({
               </button>
             ))}
           </div>
-        </div>
-      ) : (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>No chat models deployed</AlertTitle>
-          <AlertDescription>
-            Apps need a deployed chat model to be useful.{" "}
-            <Link to="/models-deployed" className="text-TT-purple underline">
-              Go to Models Deployed
-            </Link>
-            .
-          </AlertDescription>
-        </Alert>
-      )}
+        )}
+      </div>
     </section>
   );
 }
@@ -571,9 +575,9 @@ function AppCard({
         running
           ? "border-TT-green bg-TT-green-tint2/40 dark:bg-TT-green/[0.07] ring-2 ring-TT-green/25 shadow-md shadow-TT-green/10 hover:shadow-lg hover:shadow-TT-green/20"
           : cn(
-              "bg-white dark:bg-gray-950/40 border-gray-200/90 dark:border-gray-800/80",
-              "hover:-translate-y-0.5 hover:border-TT-purple/60 hover:ring-1 hover:ring-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/5"
-            )
+            "bg-white dark:bg-gray-950/40 border-gray-200/90 dark:border-gray-800/80",
+            "hover:-translate-y-0.5 hover:border-TT-purple/60 hover:ring-1 hover:ring-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/5"
+          )
       )}
     >
       <div className="flex items-start gap-3">
