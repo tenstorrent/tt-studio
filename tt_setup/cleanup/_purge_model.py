@@ -349,14 +349,16 @@ def _model_storage_locations(m):
     return where
 
 
-def _pick_models_interactively(installed):
+def _pick_models_interactively(installed, volume_sizes=None):
     """Numbered multi-select over the installed models. Returns the chosen
     entries, or None when the user cancels (empty input / q / Ctrl-C)."""
+    volume_sizes = volume_sizes or {}
     console.print("\n[bold]Installed models[/bold]")
     listing = _inventory_table()
     for i, m in enumerate(installed, start=1):
         size = sum(_path_size(d)
                    for d in m["weight_dirs"] + m.get("hf_cache_dirs", []))
+        size += sum(volume_sizes.get(v, 0) for v in m.get("volumes", ()))
         tags = []
         if m["running"]:
             tags.append("[accent]deployed[/accent]")
@@ -406,6 +408,11 @@ def purge_models(args):
 
     installed = _installed_models(persistent_volume, catalog, deployments_path,
                                   docker_volumes, live_containers, _hf_home())
+    # Fetched before the picker so its size column can include docker volumes
+    # (the daemon computes those; _path_size can't see inside a volume).
+    volume_sizes, image_sizes = (
+        _docker_object_sizes(has_docker_access) if docker_usable else ({}, {})
+    )
 
     # --- choose what to purge ---
     if picker_requested:
@@ -423,7 +430,7 @@ def purge_models(args):
                 border_style="error",
             ))
             return 1
-        selected = _pick_models_interactively(installed)
+        selected = _pick_models_interactively(installed, volume_sizes)
         if selected is None:
             return 0
     else:
@@ -458,9 +465,6 @@ def purge_models(args):
             return 0
 
     # --- inventory ---
-    volume_sizes, image_sizes = (
-        _docker_object_sizes(has_docker_access) if docker_usable else ({}, {})
-    )
     volume_mounts = _docker_volume_mountpoints(
         [v for m in selected for v in m["volumes"]],
         has_docker_access) if docker_usable else {}

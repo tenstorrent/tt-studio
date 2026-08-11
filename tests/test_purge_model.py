@@ -288,6 +288,25 @@ class StorageLocationTests(unittest.TestCase):
         self.assertIn("~/.cache/huggingface/hub/models--a--b", where)
         self.assertIn("docker volume volume_id_x-y", where)
 
+    def test_picker_size_column_includes_docker_volumes(self):
+        """A model whose only storage is a docker volume must show that
+        volume's size in the picker, not '—' — _path_size can't see inside a
+        volume, so the daemon-reported sizes are passed in."""
+        installed = [{
+            "name": "Llama-3.1-8B-Instruct", "weight_dirs": [],
+            "hf_cache_dirs": [], "hf_model_id": None, "env_file": None,
+            "volumes": ["volume_id_tt_transformers-Llama-3.1-8B-Instruct"],
+            "deployments": [], "running": [], "image": None, "orphan": False,
+        }]
+        sizes = {"volume_id_tt_transformers-Llama-3.1-8B-Instruct": 16 * 1024**3}
+        out = io.StringIO()
+        with patch.object(_pm, "ask", return_value="1"), \
+                contextlib.redirect_stdout(out):
+            picked = _pm._pick_models_interactively(installed, sizes)
+        self.assertEqual(picked, installed)
+        text = " ".join(out.getvalue().split())
+        self.assertIn("16.0 GB", text)
+
     def test_volume_mountpoints_parses_inspect_output(self):
         from tt_setup.cleanup import _resource_ops as rops
         calls = []
