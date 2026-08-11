@@ -5,7 +5,7 @@ import json
 import os
 
 import requests
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -22,6 +22,7 @@ PROXY_TIMEOUT = 120
 
 CUSTOM_DATASETS_SUBDIR = os.path.join("training_volume", "custom_datasets")
 MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
 # Not the JWT used for vLLM/LLM inference endpoints.
@@ -247,6 +248,16 @@ class CustomDatasetsView(View):
 
         directory = _custom_datasets_dir()
         dest = os.path.join(directory, filename)
+        if os.path.exists(dest):
+            return JsonResponse(
+                {
+                    "error": (
+                        f'A dataset named "{filename}" already exists. '
+                        "Rename the file or delete the existing dataset first."
+                    )
+                },
+                status=409,
+            )
         try:
             with open(dest, "wb") as f:
                 f.write(raw)
@@ -271,6 +282,79 @@ class CustomDatasetsView(View):
             },
             status=201,
         )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class CustomDatasetDetailView(View):
+    """Read back or delete a single user-uploaded custom dataset.
+
+    GET    /training/datasets/custom/<name>/ → raw JSON contents of the dataset
+    DELETE /training/datasets/custom/<name>/ → remove the dataset from the volume
+
+    GET returns the file's raw bytes with an ``application/json`` content type so
+    the frontend can parse and preview it the same way it previews a freshly
+    selected local file.
+    """
+
+    def get(self, request, name, *args, **kwargs):
+        filename = _safe_dataset_filename(name)
+        if filename is None:
+            return JsonResponse(
+                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                status=400,
+            )
+
+        directory = _custom_datasets_dir()
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            return JsonResponse({"error": "Dataset not found."}, status=404)
+
+        try:
+            size = os.path.getsize(path)
+        except OSError as e:
+            logger.exception("Could not stat custom dataset %s", path)
+            return JsonResponse({"error": str(e)}, status=500)
+
+        if size > MAX_DATASET_PREVIEW_BYTES:
+            limit_mb = MAX_DATASET_PREVIEW_BYTES // (1024 * 1024)
+            return JsonResponse(
+                {
+                    "error": (
+                        f"Dataset is too large to preview. The limit is {limit_mb} MB."
+                    )
+                },
+                status=413,
+            )
+
+        try:
+            with open(path, "rb") as f:
+                raw = f.read()
+        except OSError as e:
+            logger.exception("Could not read custom dataset %s", path)
+            return JsonResponse({"error": str(e)}, status=500)
+
+        return HttpResponse(raw, content_type="application/json")
+
+    def delete(self, request, name, *args, **kwargs):
+        filename = _safe_dataset_filename(name)
+        if filename is None:
+            return JsonResponse(
+                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                status=400,
+            )
+
+        directory = _custom_datasets_dir()
+        path = os.path.join(directory, filename)
+        if not os.path.isfile(path):
+            return JsonResponse({"error": "Dataset not found."}, status=404)
+
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.exception("Could not delete custom dataset %s", path)
+            return JsonResponse({"error": str(e)}, status=500)
+
+        return JsonResponse({"id": filename, "name": filename, "deleted": True}, status=200)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

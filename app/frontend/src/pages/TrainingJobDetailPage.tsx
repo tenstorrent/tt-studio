@@ -39,6 +39,7 @@ import {
   fetchTrainingJobMetrics,
   fetchTrainingJobLogs,
   fetchTrainingJobCheckpoints,
+  fetchMergedCheckpoints,
   cancelTrainingJob,
   promoteCheckpoint,
   getCheckpointDownloadUrl,
@@ -174,6 +175,12 @@ export default function TrainingJobDetailPage() {
   const [mergeStatus, setMergeStatus] = useState<
     Record<string, { status: string; message?: string }>
   >({});
+  // Checkpoint ids already promoted (merged) to inference, discovered from the
+  // on-disk merge_info.json sidecars. Persists across refreshes, unlike the
+  // ephemeral `mergeStatus` above.
+  const [promotedCkptIds, setPromotedCkptIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -200,6 +207,21 @@ export default function TrainingJobDetailPage() {
       setLogs(l);
       setCheckpoints(c);
       setConnectionError(null);
+      // Determine which checkpoints are already promoted to inference by scanning
+      // merged checkpoints on disk and matching this job. Best-effort: a failure
+      // here (e.g. inference server unreachable) must not break the page.
+      try {
+        const merged = await fetchMergedCheckpoints();
+        setPromotedCkptIds(
+          new Set(
+            merged
+              .filter((mc) => mc.source_job_id === jobId && mc.checkpoint_id)
+              .map((mc) => mc.checkpoint_id as string),
+          ),
+        );
+      } catch {
+        // Leave the previously known promotion state untouched on failure.
+      }
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.error;
@@ -307,6 +329,7 @@ export default function TrainingJobDetailPage() {
 
       if (finalStatus === "completed") {
         setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
+        setPromotedCkptIds((prev) => new Set(prev).add(ckptId));
         customToast.success(
           "Checkpoint promoted — it will appear in the deploy step for this model.",
         );
@@ -746,7 +769,19 @@ export default function TrainingJobDetailPage() {
                               <div className="flex items-center justify-end gap-2">
                                 {(() => {
                                   const ms = mergeStatus[ckpt.id];
-                                  if (!ms) return null;
+                                  const isPromoted = promotedCkptIds.has(
+                                    ckpt.id,
+                                  );
+                                  // No live merge activity this session: fall back
+                                  // to the persistent on-disk promotion state.
+                                  if (!ms) {
+                                    return isPromoted ? (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    ) : null;
+                                  }
                                   if (
                                     ms.status === "in_progress" ||
                                     ms.status === "pending"
@@ -797,7 +832,9 @@ export default function TrainingJobDetailPage() {
                                   ) : (
                                     <Rocket className="mr-1 h-3 w-3" />
                                   )}
-                                  Promote for inference
+                                  {promotedCkptIds.has(ckpt.id)
+                                    ? "Re-promote"
+                                    : "Promote for inference"}
                                 </Button>
                                 <Button
                                   variant="outline"

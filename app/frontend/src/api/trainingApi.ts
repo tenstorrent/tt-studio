@@ -157,6 +157,18 @@ export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
   return [];
 }
 
+// Fetch the raw JSON contents of a previously uploaded custom dataset so it can
+// be parsed and previewed client-side (same path as a freshly selected file).
+// Returns the file text; `responseType: "text"` + a passthrough transform keep
+// axios from parsing/normalizing the JSON so the shared parser sees it verbatim.
+export async function fetchCustomDatasetContent(id: string): Promise<string> {
+  const { data } = await axios.get<string>(
+    `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
+    { responseType: "text", transformResponse: [(value) => value] },
+  );
+  return typeof data === "string" ? data : JSON.stringify(data);
+}
+
 export async function uploadCustomDataset(
   file: File,
 ): Promise<CustomDataset> {
@@ -168,6 +180,14 @@ export async function uploadCustomDataset(
     { headers: { "Content-Type": "multipart/form-data" } },
   );
   return data;
+}
+
+// Delete a previously uploaded custom dataset, removing the file from the shared
+// training volume.
+export async function deleteCustomDataset(id: string): Promise<void> {
+  await axios.delete(
+    `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
+  );
 }
 
 export interface TrainingCatalog {
@@ -367,14 +387,16 @@ export async function promoteCheckpoint(
   return data;
 }
 
-// Discover merged checkpoints available for deploying a given model. Returns only
-// checkpoints merged from that model's base weights (matched server-side on
-// hf_model_id).
+// Discover merged checkpoints available for deploying a given model. When
+// `modelId` is given, only checkpoints merged from that model's base weights are
+// returned (matched server-side on hf_model_id). Omit it to scan the whole
+// training host volume — used to tell which checkpoints of a job are already
+// promoted, regardless of base model.
 export async function fetchMergedCheckpoints(
-  modelId: string,
+  modelId?: string,
 ): Promise<MergedCheckpoint[]> {
   const { data } = await axios.get(`${TRAINING_API}/merged-checkpoints/`, {
-    params: { model_id: modelId },
+    params: modelId ? { model_id: modelId } : undefined,
   });
   if (Array.isArray(data)) return data;
   if (data?.merged_checkpoints) return data.merged_checkpoints;
