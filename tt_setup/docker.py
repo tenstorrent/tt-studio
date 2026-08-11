@@ -203,6 +203,23 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
         return _run_sudo(command)
 
 
+def remove_docker_control_container(dev_mode=False, use_sudo=False):
+    """Remove the Compose-managed Docker Control container, if it exists.
+
+    This is used by the explicit ``--skip-docker-control`` path so a container
+    left by a previous normal startup cannot keep providing Docker access.
+    """
+    command = build_docker_compose_command(
+        dev_mode=dev_mode,
+        show_hardware_info=False,
+        quiet=True,
+        include_docker_control=True,
+    )
+    command.extend(["rm", "--force", "--stop", DOCKER_CONTROL_CONTAINER_NAME])
+    result = run_docker_command(command, use_sudo=use_sudo, capture_output=True)
+    return result.returncode == 0
+
+
 def ensure_docker_group_membership():
     """
     Check if user is in Docker group and provide guidance if not.
@@ -295,12 +312,15 @@ def build_docker_compose_command(
         if show_hardware_info and not quiet:
             console.print("[warning]⚠️  No Tenstorrent hardware detected[/warning]")
 
-    # Docker Control is a profile so the legacy --skip-docker-control flag can
-    # still start the rest of the stack without an unavailable dependency.
+    # Docker Control is normally required. The explicit legacy opt-out adds a
+    # narrow override that makes this dependency optional; leaving out a profile
+    # in a third-party Compose command remains a fail-fast configuration error.
     # Keep this global Compose option before the subcommand; callers append
     # ``up``, ``down`` or ``logs`` afterwards.
     if include_docker_control:
         compose_files += ["--profile", "docker-control"]
+    else:
+        compose_files += ["-f", DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE]
 
     return compose_files
 

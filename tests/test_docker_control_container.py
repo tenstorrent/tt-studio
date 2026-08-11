@@ -88,6 +88,31 @@ class DockerControlComposeTests(unittest.TestCase):
             "http://docker-control:8002",
         )
 
+    @unittest.skipUnless(shutil.which("docker"), "Docker CLI is required")
+    def test_explicit_skip_override_allows_a_degraded_stack(self):
+        environment = os.environ.copy()
+        environment["TT_STUDIO_ROOT"] = str(ROOT)
+        command = [
+            "docker", "compose",
+            "-f", "app/docker-compose.yml",
+            "-f", "app/docker-compose.prod.yml",
+            "-f", "app/docker-compose.skip-docker-control.yml",
+            "config", "--format", "json",
+        ]
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        config = json.loads(result.stdout)
+        dependency = config["services"]["tt_studio_backend"]["depends_on"]["tt_studio_docker_control"]
+        self.assertFalse(dependency["required"])
+
 
 if __name__ == "__main__":
     unittest.main()

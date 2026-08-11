@@ -41,6 +41,9 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
+DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE = os.path.join(
+    TT_STUDIO_ROOT, "app", "docker-compose.skip-docker-control.yml"
+)
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
 # Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.

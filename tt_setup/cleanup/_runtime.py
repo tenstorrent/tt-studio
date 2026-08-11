@@ -22,6 +22,9 @@ def _cleanup_runtime(args, has_docker_access):
     serving across a TT Studio restart; ``--purge-all`` still removes them
     as part of the full reset."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
+    # --purge-all intentionally wins over --skip-docker-control: a full reset
+    # must remove every TT Studio service. A plain --stop honours the skip.
+    skip_docker_control = bool(getattr(args, "skip_docker_control", False)) and not full_cleanup
 
     # Tear down each piece as its own labelled step so the user can see exactly
     # what's being stopped (rather than one opaque "Stopping services…" line that
@@ -47,7 +50,11 @@ def _cleanup_runtime(args, has_docker_access):
             subprocess.run(["sudo", "-v"], check=False)
         with step("Stopping Docker containers", spinner=True) as s:
             docker_compose_cmd = build_docker_compose_command(
-                dev_mode=args.dev, show_hardware_info=False, quiet=True)
+                dev_mode=args.dev,
+                show_hardware_info=False,
+                quiet=True,
+                include_docker_control=not skip_docker_control,
+            )
             # `--ansi never` is a top-level compose flag (must precede the
             # subcommand): it disables Compose's in-place ANSI progress redraws,
             # which otherwise write cursor-up sequences straight to the terminal
@@ -93,5 +100,8 @@ def _cleanup_runtime(args, has_docker_access):
     # listener case.
     with step("Stopping inference API", spinner=False):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
-    with step("Stopping Docker control", spinner=False):
-        cleanup_docker_control_service(no_sudo=args.no_sudo)
+    with step("Stopping Docker control", spinner=False) as s:
+        if skip_docker_control:
+            s.skip("--skip-docker-control")
+        else:
+            cleanup_docker_control_service(no_sudo=args.no_sudo)

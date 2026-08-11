@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Explicit degraded-mode override for `python run.py --skip-docker-control`.
+#
+# The base stack requires Docker Control, so accidental direct `docker compose
+# up` calls fail before they start a backend unable to manage Docker. This
+# override is added only for the launcher's explicit opt-out flag.
+services:
+  tt_studio_backend:
+    depends_on:
+      tt_studio_docker_control:
+        required: false

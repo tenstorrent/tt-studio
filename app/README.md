@@ -80,6 +80,13 @@ docker compose \
 
 Or just use `python3 run.py --stop` from the repo root.
 
+### Explicitly run without Docker Control
+
+`python3 run.py --skip-docker-control` is an explicit degraded mode: it stops
+and removes any existing Docker Control container, then starts the rest of the
+stack without Docker-management features. A normal direct Compose command must
+still use `--profile docker-control`; it fails early if that profile is omitted.
+
 ## Environment variables
 
 Defined in the repo-root `.env`; template is the repo-root `.env.default`. Run `python3 run.py --help-env` for descriptions, or see the [env-var section in the top-level README](../README.md#environment-configuration).

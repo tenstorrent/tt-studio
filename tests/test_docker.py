@@ -64,6 +64,25 @@ class TestBuildDockerComposeCommand(unittest.TestCase):
                 quiet=True, include_docker_control=False
             )
         self.assertNotIn("--profile", cmd)
+        self.assertIn(M.DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE, cmd)
+
+    def test_remove_docker_control_container_uses_enabled_profile(self):
+        result = MagicMock(returncode=0)
+        with patch.object(M, "build_docker_compose_command", return_value=["docker", "compose"]) as build, \
+             patch.object(M, "run_docker_command", return_value=result) as run:
+            self.assertTrue(M.remove_docker_control_container(dev_mode=True, use_sudo=True))
+
+        build.assert_called_once_with(
+            dev_mode=True,
+            show_hardware_info=False,
+            quiet=True,
+            include_docker_control=True,
+        )
+        self.assertEqual(
+            run.call_args.args[0],
+            ["docker", "compose", "rm", "--force", "--stop", M.DOCKER_CONTROL_CONTAINER_NAME],
+        )
+        self.assertTrue(run.call_args.kwargs["use_sudo"])
 
 
 class TestCheckDockerAccess(unittest.TestCase):

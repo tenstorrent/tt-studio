@@ -543,6 +543,35 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
             ("Stopping Docker control", False),
         ])
 
+    def test_stop_skip_docker_control_leaves_its_container_and_legacy_process_alone(self):
+        args = SimpleNamespace(
+            dev=False,
+            no_sudo=True,
+            cleanup_all=False,
+            skip_docker_control=True,
+        )
+        compose_calls = []
+
+        def build_compose(**kwargs):
+            compose_calls.append(kwargs)
+            return ["docker", "compose"]
+
+        with patch.object(_cl_runt, "_docker_daemon_status", return_value="ok"), \
+             patch.object(_cl_runt, "build_docker_compose_command", side_effect=build_compose), \
+             patch.object(_cl_runt, "run_docker_command"), \
+             patch.object(_cl_runt, "cleanup_fastapi_server"), \
+             patch.object(_cl_runt, "cleanup_docker_control_service") as cleanup_docker_control, \
+             contextlib.redirect_stdout(io.StringIO()):
+            run._cleanup_runtime(args, has_docker_access=True)
+
+        self.assertEqual(compose_calls, [{
+            "dev_mode": False,
+            "show_hardware_info": False,
+            "quiet": True,
+            "include_docker_control": False,
+        }])
+        cleanup_docker_control.assert_not_called()
+
 
 class TermsAcceptanceGateTests(unittest.TestCase):
     def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
