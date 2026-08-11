@@ -7,6 +7,7 @@ and the orchestrator's abort/removal behavior (docker mocked)."""
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,31 @@ class DeploymentRecordTests(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["container_name"], "tt-inference-server-ab12")
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "chmod-based permission test is meaningless as root")
+    def test_mark_stopped_falls_back_to_docker_write_on_permission_error(self):
+        # deployments.json lives in backend_volume, usually owned by the
+        # backend container's user — the host-side write fails and must fall
+        # back to the ephemeral-container writer instead of leaving the record
+        # stuck on "running".
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "deployments.json"
+            self._write(store, [{"model_name": "Qwen3-32B", "container_id": "c1",
+                                 "container_name": "tt-inference-server-ab12",
+                                 "status": "running"}])
+            os.chmod(tmp, 0o555)
+            try:
+                with patch.object(_pm, "_write_file_with_docker",
+                                  return_value=True) as fallback:
+                    ok = _pm._mark_deployments_stopped(str(store), ["Qwen3-32B"])
+            finally:
+                os.chmod(tmp, 0o755)
+            self.assertTrue(ok)
+            fallback.assert_called_once()
+            path, payload = fallback.call_args.args
+            self.assertEqual(path, str(store))
+            self.assertIn('"stopped"', payload)
+
     def test_missing_and_corrupt_store_return_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = str(Path(tmp) / "nope.json")
@@ -188,6 +214,22 @@ class InstalledModelsTests(unittest.TestCase):
             self.assertIn("volume_id_old-orphan-v0.0.9", by_name)
             self.assertTrue(by_name["volume_id_old-orphan-v0.0.9"]["orphan"])
 
+    def test_stale_running_record_is_ignored_when_docker_is_queryable(self):
+        """A record stuck on status "running" (its write-back failed after an
+        earlier purge) must not resurrect the model as "deployed" when docker
+        confirms no such container exists — only when docker can't be checked
+        (live_containers=None) are records trusted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv = self._make_pv(Path(tmp))
+            store = str(pv / "backend_volume" / "deployments.json")
+            verified = run._installed_models(str(pv), CATALOG["models"], store,
+                                             live_containers=[])
+            self.assertNotIn("Qwen3-32B", {m["name"] for m in verified})
+            unverified = run._installed_models(str(pv), CATALOG["models"], store,
+                                               live_containers=None)
+            by_name = {m["name"]: m for m in unverified}
+            self.assertEqual(len(by_name["Qwen3-32B"]["running"]), 1)
+
 
 class PurgeModelsFlowTests(unittest.TestCase):
     """End-to-end orchestrator runs with docker helpers mocked."""
@@ -202,7 +244,7 @@ class PurgeModelsFlowTests(unittest.TestCase):
         stack.enter_context(patch.object(
             _pm, "_docker_volume_names", return_value=list(volumes)))
         stack.enter_context(patch.object(
-            _pm, "_deployed_model_names", return_value=list(live)))
+            _pm, "_running_container_names", return_value=list(live)))
         stack.enter_context(patch.object(
             _pm, "_docker_object_sizes", return_value=({}, {})))
 
@@ -397,6 +439,34 @@ class PurgeModelsFlowTests(unittest.TestCase):
             self.assertNotIn("Reclaimed", text)
             self.assertNotIn("Cleanup complete", text)
 
+    def test_record_update_failure_is_reported_not_hidden(self):
+        """If deployments.json can't be written even via the container
+        fallback, the run must warn that the backend may still list the model
+        as deployed, and exit non-zero — a silent 'left as-is' is how purged
+        models kept resurrecting in the picker."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file,
+                            live=["tt-inference-server-ab12"])
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_containers", return_value=1))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [])))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                stack.enter_context(patch.object(
+                    _pm, "_mark_deployments_stopped", return_value=False))
+                args = SimpleNamespace(purge_model=["Qwen3-32B"], yes=True,
+                                       no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 1)
+            self.assertIn("finished with issues", text)
+            self.assertIn("still list the purged model(s) as deployed", text)
+
     def test_bare_picker_without_tty_exits_1(self):
         with tempfile.TemporaryDirectory() as tmp:
             pv, catalog_file = self._setup_tree(Path(tmp))
@@ -493,15 +563,17 @@ class DockerHelperArgvTests(unittest.TestCase):
                        "reference=ghcr.io/x/media:1", "-q"], calls)
         self.assertIn(["docker", "image", "rm", "-f", "abc123"], calls)
 
-    def test_remove_docker_containers_uses_rm_fv(self):
+    def test_remove_docker_containers_counts_only_actual_removals(self):
+        # docker echoes each removed container; a name that no longer exists
+        # produces no echo, and the count must reflect that.
         from tt_setup.cleanup import _resource_ops as rops
         calls = []
         with patch.object(rops.subprocess, "run",
                           side_effect=lambda cmd, **k: calls.append(cmd) or
-                          SimpleNamespace(returncode=0, stdout="", stderr="")):
-            count = run._remove_docker_containers(["c1", "c2"], True)
-        self.assertEqual(count, 2)
-        self.assertEqual(calls, [["docker", "rm", "-fv", "c1", "c2"]])
+                          SimpleNamespace(returncode=1, stdout="c1\n", stderr="")):
+            count = run._remove_docker_containers(["c1", "already-gone"], True)
+        self.assertEqual(count, 1)
+        self.assertEqual(calls, [["docker", "rm", "-fv", "c1", "already-gone"]])
 
 
 if __name__ == "__main__":

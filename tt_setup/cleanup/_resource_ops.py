@@ -6,6 +6,7 @@ host paths, byte accounting, daemon/port probes. Pure operations — no console
 output beyond plain warnings, no orchestration."""
 
 import os
+import shlex
 import subprocess
 import time
 import shutil
@@ -84,6 +85,30 @@ def _remove_path_with_docker(path):
         print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: {e}{C_RESET}")
         return False
     return not os.path.exists(path)
+
+
+def _write_file_with_docker(path, content):
+    """Overwrite `path` with `content` via an ephemeral root container, for
+    files the host user can't write (left owned by a container user — e.g. the
+    backend's deployments.json). Write-then-rename inside the container keeps
+    the same atomic-replace behavior as the direct path. Returns True on
+    success."""
+    abs_path = os.path.abspath(path)
+    parent, name = os.path.dirname(abs_path), os.path.basename(abs_path)
+    if not parent or name in ("", ".", ".."):
+        return False
+    target, tmp = shlex.quote(f"/target/{name}"), shlex.quote(f"/target/{name}.tmp")
+    try:
+        subprocess.run(
+            ["docker", "run", "--rm", "-i", "-v", f"{parent}:/target",
+             "alpine", "sh", "-c", f"cat > {tmp} && mv {tmp} {target}"],
+            input=content, text=True, check=True, capture_output=True,
+        )
+        return True
+    except Exception as e:
+        detail = getattr(e, "stderr", "") or str(e)
+        print(f"{C_YELLOW}⚠️  Container write failed for {path}: {detail.strip()}{C_RESET}")
+        return False
 
 
 def _remove_path(path, no_sudo=False):
@@ -376,6 +401,26 @@ def _deployed_model_names(has_docker_access):
         return None
 
 
+def _running_container_names(has_docker_access):
+    """Names of ALL running containers, no image filter — used to verify
+    deployment records against reality (a record's `status: "running"` may be
+    stale if a purge or crash couldn't write the store back). Runs `docker ps`
+    WITHOUT sudo so it never triggers a password prompt. Returns None if docker
+    can't be queried, so callers fall back to trusting the records."""
+    if not has_docker_access:
+        return None
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except Exception:
+        return None
+
+
 def _docker_volume_names(has_docker_access):
     """Names of the docker named volumes that hold model weights (volume_id_*).
     Read-only counterpart of `_remove_tt_studio_model_volumes` — same listing
@@ -419,17 +464,19 @@ def _docker_object_sizes(has_docker_access):
 
 def _remove_docker_containers(ids, has_docker_access):
     """Force-remove specific containers (+ their anonymous volumes). Accepts
-    names or ids; already-gone containers are harmless. Returns count requested."""
+    names or ids; already-gone containers are harmless. Returns the count
+    actually removed (docker echoes each removed container on stdout), so
+    callers never report stopping containers that no longer existed."""
     ids = [i for i in ids if i]
     if not ids:
         return 0
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
-        subprocess.run(
+        result = subprocess.run(
             sudo_prefix + ["docker", "rm", "-fv", *ids],
-            capture_output=True, check=False,
+            capture_output=True, text=True, check=False,
         )
-        return len(ids)
+        return len([line for line in result.stdout.splitlines() if line.strip()])
     except Exception:
         return 0
 
@@ -503,11 +550,11 @@ def _remove_image_ref(repo_tag, has_docker_access):
             line.strip() for line in result.stdout.splitlines() if line.strip()))
         if not ids:
             return False
-        subprocess.run(
+        result = subprocess.run(
             sudo_prefix + ["docker", "image", "rm", "-f", *ids],
             capture_output=True, check=False,
         )
-        return True
+        return result.returncode == 0
     except Exception:
         return False
 

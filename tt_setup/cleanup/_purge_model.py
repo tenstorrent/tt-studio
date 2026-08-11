@@ -19,7 +19,6 @@ from tt_setup.env_config import get_env_var
 from tt_setup.cleanup._confirm import _confirm_purge
 from tt_setup.cleanup._resource_ops import (
     _containers_using_volume,
-    _deployed_model_names,
     _docker_daemon_status,
     _docker_object_sizes,
     _docker_volume_names,
@@ -29,6 +28,8 @@ from tt_setup.cleanup._resource_ops import (
     _remove_docker_volumes,
     _remove_image_ref,
     _remove_path,
+    _running_container_names,
+    _write_file_with_docker,
 )
 
 
@@ -166,11 +167,17 @@ def _parse_picker_selection(raw, count):
 
 
 def _installed_models(persistent_volume, catalog, deployments_path,
-                      docker_volumes=(), live_containers=()):
+                      docker_volumes=(), live_containers=None):
     """Discover models with something to remove. Returns ordered entries:
     {name, weight_dirs, env_file, volumes, deployments, running, image, orphan}.
     Catalog models come first; leftover `volume_id_*` dirs/volumes matching no
-    catalog model are appended as orphans (purgeable under their raw name)."""
+    catalog model are appended as orphans (purgeable under their raw name).
+
+    `live_containers` is the list of actually-running container names, or None
+    when docker couldn't be queried. When it IS available, a deployment
+    record's `status: "running"` alone is not trusted — a record whose write-
+    back failed after a purge would otherwise resurrect the model as
+    "deployed" forever."""
     try:
         disk_entries = sorted(
             e for e in os.listdir(persistent_volume)
@@ -179,6 +186,7 @@ def _installed_models(persistent_volume, catalog, deployments_path,
         )
     except OSError:
         disk_entries = []
+    verified = live_containers is not None
     live = set(live_containers or ())
     claimed_dirs, claimed_vols = set(), set()
     models = []
@@ -192,7 +200,8 @@ def _installed_models(persistent_volume, catalog, deployments_path,
             env_file = None
         deployments = _deployments_for_model(deployments_path, name)
         running = [r for r in deployments
-                   if r.get("container_name") in live or r.get("status") == "running"]
+                   if r.get("container_name") in live
+                   or (not verified and r.get("status") == "running")]
         if not (weight_dirs or volumes or env_file or running):
             continue
         claimed_dirs.update(os.path.basename(d) for d in weight_dirs)
@@ -223,10 +232,12 @@ def _installed_models(persistent_volume, catalog, deployments_path,
 
 
 def _mark_deployments_stopped(deployments_path, model_names):
-    """Best-effort: flip records of purged models to stopped so the backend
-    doesn't list ghosts. Atomic tmp+replace like the backend's own writer; a
-    concurrent backend write can lose this one update, which is acceptable —
-    the container itself is already gone."""
+    """Flip records of purged models to stopped so the backend doesn't list
+    ghosts. Atomic tmp+replace like the backend's own writer; a concurrent
+    backend write can lose this one update, which is acceptable — the
+    container itself is already gone. The store is usually owned by the
+    backend container's user, so on PermissionError fall back to writing via
+    an ephemeral root container (same pattern as _remove_path)."""
     from datetime import datetime, timezone
     folded = {n.casefold() for n in model_names}
     try:
@@ -244,11 +255,15 @@ def _mark_deployments_stopped(deployments_path, model_names):
                 changed = True
         if not changed:
             return True
-        tmp = deployments_path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, deployments_path)
-        return True
+        payload = json.dumps(data, indent=2, default=str)
+        try:
+            tmp = deployments_path + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(payload)
+            os.replace(tmp, deployments_path)
+            return True
+        except PermissionError:
+            return _write_file_with_docker(deployments_path, payload)
     except FileNotFoundError:
         return True
     except Exception:
@@ -315,7 +330,9 @@ def purge_models(args):
     daemon = _docker_daemon_status()
     docker_usable = daemon in ("ok", "sudo")
     docker_volumes = _docker_volume_names(has_docker_access) if docker_usable else []
-    live_containers = (_deployed_model_names(has_docker_access) or []) if docker_usable else []
+    # None (not []) when docker can't be queried: discovery then falls back to
+    # trusting deployment records instead of treating "unknown" as "not running".
+    live_containers = _running_container_names(has_docker_access) if docker_usable else None
 
     installed = _installed_models(persistent_volume, catalog, deployments_path,
                                   docker_volumes, live_containers)
@@ -520,18 +537,22 @@ def purge_models(args):
             failed_bytes += sum(image_sizes.get(i, 0) for i in missed)
             s.detail(f"{len(removable_images) - len(missed)} image(s)")
 
+    records_failed = False
     with step("Updating deployment records", spinner=False) as s:
-        stopped_any = any(m["running"] for m in selected)
-        if not stopped_any:
-            s.skip()
+        if not docker_usable:
+            # We didn't stop anything, so don't rewrite history: a record
+            # marked stopped here could strand a container still running.
+            s.skip("not checked — Docker is not running")
         elif not _mark_deployments_stopped(deployments_path, purge_names):
-            s.skip("left as-is")
+            records_failed = True
+            s.fail()
+            s.detail("could not write deployments.json")
 
     # Don't claim bytes we failed to free — a volume still in use or an
     # undeletable weights dir stays on disk.
     reclaimed_bytes = total_bytes - failed_bytes - \
         sum(volume_sizes.get(v, 0) for v in volumes_in_use)
-    problems = bool(failed_paths or volumes_in_use)
+    problems = bool(failed_paths or volumes_in_use or records_failed)
     if problems:
         console.print("\n[bold warning]⚠  Cleanup finished with issues[/bold warning]")
     else:
@@ -556,4 +577,8 @@ def purge_models(args):
                       f"{os.path.relpath(path, TT_STUDIO_ROOT)} — likely needs "
                       f"elevated permissions; remove it manually with "
                       f"[accent]sudo rm -rf[/accent].[/warning]")
+    if records_failed:
+        console.print(f"   [warning]⚠  Could not update {deployments_path} — "
+                      f"the backend may still list the purged model(s) as "
+                      f"deployed.[/warning]")
     return 1 if problems else 0
