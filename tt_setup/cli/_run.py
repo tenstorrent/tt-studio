@@ -21,7 +21,7 @@ from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
 from tt_setup.cleanup import cleanup_resources
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.services import check_and_free_ports, cleanup_docker_control_service, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -621,6 +621,11 @@ def _run(args):
         ph = begin_phase(3, 5, "Services")
 
         # Docker Control is started by the Compose profile during Phase 4.
+        # Remove a host-side service left by older releases before Compose
+        # brings up its private, non-published replacement.
+        if not args.skip_docker_control:
+            cleanup_docker_control_service(no_sudo=args.no_sudo)
+
         # Pre-create its mounted log so the container can append without
         # leaving a root-owned file behind on the host.
         if not args.skip_docker_control:

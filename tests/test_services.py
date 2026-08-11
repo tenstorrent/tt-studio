@@ -18,6 +18,11 @@ try:
 except ImportError:
     _ports_mod = M
 
+try:
+    from tt_setup.services import _docker_control as _docker_control_mod
+except ImportError:
+    _docker_control_mod = M
+
 
 class TestGetFrontendConfig(unittest.TestCase):
     def test_defaults(self):
@@ -73,6 +78,79 @@ class TestContainerHealth(unittest.TestCase):
         result = MagicMock(returncode=0, stdout="starting\n")
         with patch("subprocess.run", return_value=result):
             self.assertFalse(M.probe_container_health("tt_studio_docker_control"))
+
+
+class TestLegacyDockerControlCleanup(unittest.TestCase):
+    def test_stops_identified_listener_when_pid_file_is_missing(self):
+        legacy_command = f"python {M.DOCKER_CONTROL_SERVICE_DIR}/start_docker_control.py"
+
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps":
+                return MagicMock(stdout=legacy_command, returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        def kill_process(pid, sig):
+            if sig == 0:
+                raise ProcessLookupError
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+             patch.object(_docker_control_mod.os, "kill", side_effect=kill_process) as kill, \
+             patch.object(_docker_control_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        kill.assert_any_call(4242, _docker_control_mod.signal.SIGTERM)
+        self.assertNotIn(
+            unittest.mock.call(4242, _docker_control_mod.signal.SIGKILL),
+            kill.call_args_list,
+        )
+
+    def test_stale_pid_file_does_not_hide_identified_listener(self):
+        legacy_command = f"python {M.DOCKER_CONTROL_SERVICE_DIR}/start_docker_control.py"
+
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps" and command[2] == "9999":
+                return MagicMock(stdout="python unrelated_service.py", returncode=0)
+            if command[0] == "ps" and command[2] == "4242":
+                return MagicMock(stdout=legacy_command, returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        def kill_process(pid, sig):
+            if sig == 0:
+                raise ProcessLookupError
+
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = os.path.join(directory, "docker-control.pid")
+            with open(pid_file, "w") as handle:
+                handle.write("9999")
+            with patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", pid_file), \
+                 patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+                 patch.object(_docker_control_mod.os, "kill", side_effect=kill_process) as kill, \
+                 patch.object(_docker_control_mod.time, "sleep"):
+                M.cleanup_docker_control_service(no_sudo=True)
+
+        kill.assert_any_call(4242, _docker_control_mod.signal.SIGTERM)
+
+    def test_leaves_unidentified_port_8002_listener_running(self):
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps":
+                return MagicMock(stdout="python unrelated_service.py", returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+             patch.object(_docker_control_mod.os, "kill") as kill:
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        kill.assert_not_called()
 
 
 class TestPortFreeingNeverKillsDocker(unittest.TestCase):

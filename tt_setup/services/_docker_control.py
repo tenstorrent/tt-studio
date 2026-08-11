@@ -40,34 +40,61 @@ def _is_legacy_docker_control_process(pid):
     return "docker-control-service" in command or DOCKER_CONTROL_SERVICE_DIR.lower() in command
 
 
-def cleanup_docker_control_service(no_sudo=False):
-    """Stop only a known legacy host Docker Control process.
+def _legacy_docker_control_listener_pids():
+    """Return port-8002 listeners whose command identifies legacy Docker Control.
 
-    This deliberately does not scan or kill whatever happens to listen on
-    port 8002.  The new service has no host listener, and an unrelated process
-    must never be terminated by TT-Studio cleanup.
+    A missing or stale PID file is common after an upgrade, so the migration
+    path also checks the old public port.  It deliberately validates every PID
+    before returning it: port 8002 may belong to an unrelated local service.
+    """
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-tiTCP:8002", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return []
+
+    pids = {int(raw_pid) for raw_pid in (result.stdout or "").split() if raw_pid.isdigit()}
+    return [pid for pid in pids if _is_legacy_docker_control_process(pid)]
+
+
+def _stop_legacy_docker_control_process(pid, no_sudo=False):
+    """Terminate a process already proven to be legacy Docker Control."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(2)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        if not no_sudo:
+            subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
+
+
+def cleanup_docker_control_service(no_sudo=False):
+    """Stop known legacy host Docker Control processes.
+
+    Besides the old PID-file path, this safely discovers a legacy process that
+    still listens on port 8002 after an upgrade.  It never stops an arbitrary
+    port-8002 listener: each process must identify itself as Docker Control.
     """
     pid_path = DOCKER_CONTROL_PID_FILE
+    cleaned_pids = set()
     try:
         with open(pid_path, "r") as f:
             raw_pid = f.read().strip()
         if raw_pid.isdigit():
             pid = int(raw_pid)
             if _is_legacy_docker_control_process(pid):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(2)
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
-                        pass
-                    else:
-                        os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                except PermissionError:
-                    if not no_sudo:
-                        subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
+                _stop_legacy_docker_control_process(pid, no_sudo=no_sudo)
+                cleaned_pids.add(pid)
             else:
                 console.print(
                     f"[warning]Ignoring stale Docker Control PID file {pid_path}; "
@@ -84,3 +111,9 @@ def cleanup_docker_control_service(no_sudo=False):
             pass
         except OSError:
             pass
+
+    # PID files are not reliable across upgrades.  Scan the former host port
+    # as a migration step, but kill only listeners we can positively identify.
+    for pid in _legacy_docker_control_listener_pids():
+        if pid not in cleaned_pids:
+            _stop_legacy_docker_control_process(pid, no_sudo=no_sudo)
