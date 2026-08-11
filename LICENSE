@@ -200,10 +200,18 @@ distributed as part of the software:
 - Docker [License available here](https://github.com/docker/docs/blob/main/LICENSE)
 - shadcn/ui [License available here](https://github.com/shadcn/ui/blob/main/LICENSE.md)
 - Third Party Libraries used in Frontend Product [License available here](app/frontend/third-party-licenses.txt)
+- Pillow (MIT-CMU) [License available here](https://github.com/python-pillow/Pillow/blob/main/LICENSE)
+- SciPy (BSD-3-Clause) [License available here](https://github.com/scipy/scipy/blob/main/LICENSE.txt)
+- scikit-learn (BSD-3-Clause) [License available here](https://github.com/scikit-learn/scikit-learn/blob/main/COPYING)
+- all-MiniLM-L6-v2 sentence-embedding model (Apache-2.0, ONNX build bundled in the backend image) [License available here](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
 - openWakeWord (Apache-2.0) [License available here](https://github.com/dscripka/openWakeWord/blob/main/LICENSE)
 - Silero VAD (MIT) [License available here](https://github.com/snakers4/silero-vad/blob/master/LICENSE)
 - @ricky0123/vad-web (ISC) [License available here](https://github.com/ricky0123/vad/blob/master/LICENSE)
 - Google speech_embedding model (Apache-2.0, bundled by openWakeWord) [License available here](https://github.com/dscripka/openWakeWord/blob/main/LICENSE)
+- rank-bm25 (Apache-2.0) [License available here](https://github.com/dorianbrown/rank_bm25/blob/master/LICENSE)
+- tokenizers (Apache-2.0, HuggingFace) [License available here](https://github.com/huggingface/tokenizers/blob/main/LICENSE)
+- huggingface-hub (Apache-2.0) [License available here](https://github.com/huggingface/huggingface_hub/blob/main/LICENSE)
+- ms-marco-MiniLM-L-6-v2 reranker model, ONNX export Xenova/ms-marco-MiniLM-L-6-v2 (Apache-2.0, downloaded at runtime) [License available here](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2)
 
 -------------------------------------------------------------------------------
 Wake-Word Model Training Data:

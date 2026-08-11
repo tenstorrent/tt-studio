@@ -12,6 +12,7 @@ from chromadb.types import Collection
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
+from vector_db_control import lexical
 from vector_db_control.singletons import ChromaClient, get_embedding_function
 
 
@@ -20,10 +21,6 @@ def list_collections(filter_func=None):
     if filter_func:
         return filter(filter_func, chroma_collections)
     return chroma_collections
-
-
-def delete_collection(collection_name: str):
-    ChromaClient().delete_collection(name=collection_name)
 
 
 def get_collection(collection_name: str, embedding_func_name: str):
@@ -56,6 +53,7 @@ def delete_collection(collection_name: str):
     if not ChromaClient().get_collection(collection_name):
         raise ValueError("Collection does not exist")
     ChromaClient().delete_collection(collection_name)
+    lexical.invalidate(collection_name)
 
 
 def query_collection(
@@ -114,3 +112,5 @@ def insert_to_chroma_collection(
             documents=documents[start_idx:end_idx],
             metadatas=batch_metadatas,
         )
+
+    lexical.invalidate(collection_name)

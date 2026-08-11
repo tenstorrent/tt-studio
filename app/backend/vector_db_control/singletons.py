@@ -17,11 +17,22 @@ _instances = {}
 # Lock for thread safety during initialization
 _lock = Lock()
 
+# The only model ChromaDB's ONNX embedding function can run.
+ONNX_EMBED_MODEL = embedding_functions.ONNXMiniLM_L6_V2.MODEL_NAME
+
 
 def get_embedding_function(model_name: str):
     """
-    Returns the singleton instance of the SentenceTransformer model.
+    Returns the singleton instance of the all-MiniLM-L6-v2 embedding model.
     Ensures that the model is loaded only once in a thread-safe manner.
+
+    Uses ChromaDB's ONNX embedding function rather than sentence-transformers,
+    which requires torch and pulls in ~4.5 GB of CUDA wheels the backend never
+    uses. Both run the same all-MiniLM-L6-v2 weights and produce interchangeable
+    384-dimension vectors, so collections embedded either way stay queryable.
+
+    `model_name` is retained because callers store it as collection metadata,
+    but the ONNX function supports only all-MiniLM-L6-v2.
     """
 
     # Check if the model instance already exists
@@ -29,11 +40,26 @@ def get_embedding_function(model_name: str):
         with _lock:  # Ensure that only one thread can initialize the model
             # Double-check pattern to avoid race condition
             if model_name not in _instances:
-                _instances[model_name] = (
-                    embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name=model_name
+                if model_name != ONNX_EMBED_MODEL:
+                    logger.warning(
+                        f"CHROMA_DB_EMBED_MODEL={model_name!r} is not supported; "
+                        f"embedding with {ONNX_EMBED_MODEL!r} instead. Collections "
+                        f"created under {model_name!r} by an older build may have a "
+                        f"different vector dimension and will fail to query."
                     )
-                )
+                instance = embedding_functions.ONNXMiniLM_L6_V2()
+                # The constructor is lazy — the model is loaded on first call.
+                # Warm it here so the cost lands at startup (apps.py preloads
+                # this singleton) rather than on a user's first query.
+                try:
+                    instance(["warmup"])
+                except Exception:
+                    logger.warning(
+                        "Embedding model warm-up failed; it will be retried on "
+                        "first use.",
+                        exc_info=True,
+                    )
+                _instances[model_name] = instance
 
     return _instances[model_name]
 
