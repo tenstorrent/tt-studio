@@ -85,7 +85,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--resync` | Force a resync of the model catalog. |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
-| `--skip-docker-control` | Skip starting the Docker Control Service (port 8002). |
+| `--skip-docker-control` | Skip the internal Docker Control Compose service. |
 | `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
 | `--no-browser` | Don't open the frontend in a browser automatically. |
 | `--wait-for-services` | Block until all services report healthy before returning. |
@@ -570,4 +570,4 @@ ssh -L 3000:localhost:3000 -L 8001:localhost:8001 <username>@<remote_server>
 
 ---
 
-For troubleshooting issues with `run.py`, please refer to our [Troubleshooting Guide](troubleshooting.md). 
+For troubleshooting issues with `run.py`, please refer to our [Troubleshooting Guide](troubleshooting.md).

@@ -18,10 +18,11 @@ inference endpoints with no local hardware.
 | Inference server | 8001 | Host | FastAPI wrapper over tt-inference-server (`inference-api/`) |
 | Agent | 8080 | Docker | LLM agent service (`app/agent/`) |
 | ChromaDB | 8111 | Docker | Vector DB for RAG |
-| Docker control | 8002 | Host | JWT-secured Docker API wrapper (`docker-control-service/`) |
+| Docker control | internal 8002 | Docker (`tt_studio_network`) | JWT-secured Docker API wrapper (`docker-control-service/`) |
 
-Containers share the `tt_studio_network` bridge; the backend reaches host
-services via `host.docker.internal`. Health checks: backend `GET /up/` and
+Containers share the `tt_studio_network` bridge; the backend reaches Docker
+Control at `http://docker-control:8002` and the inference API via
+`host.docker.internal`. Health checks: backend `GET /up/` and
 `GET /models/health/`, inference server `GET /health`, frontend `GET /`.
 
 ## Repo layout

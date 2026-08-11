@@ -43,7 +43,8 @@ Plain `python3 run.py` does the full standard setup:
 1. Initializes the `tt-inference-server` submodule
 2. Creates `.env` at the repo root from `.env.default` (with placeholder secrets)
 3. Auto-detects Tenstorrent hardware (`/dev/tenstorrent`) and applies the right Docker compose overlay
-4. Starts the `docker-control-service` on the host (port 8002, JWT-secured)
+4. Builds and starts the internal `docker-control-service` Compose container
+   on `tt_studio_network` (port 8002 is not published on the host)
 5. Brings up the backend, frontend, agent, and ChromaDB containers
 
 > ⚠️ `.env.default` ships with placeholder secrets, which is fine for local eval only. For anything beyond your own machine, set your own `JWT_SECRET`, `DJANGO_SECRET_KEY`, and `DOCKER_CONTROL_JWT_SECRET`.
@@ -54,7 +55,7 @@ Plain `python3 run.py` does the full standard setup:
 | `--stop` | Stop and remove containers (keeps your data) — deprecated alias: `--cleanup` |
 | `--purge-all` | Stop **and** wipe the persistent volume and `.env` — a clean slate — deprecated alias: `--cleanup-all` |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (disables LLM deployment) |
-| `--skip-docker-control` | Don't start the docker-control-service |
+| `--skip-docker-control` | Don't start the internal docker-control-service Compose profile |
 | `--no-sudo` | Skip sudo prompts (some features won't be available) |
 | `--help-env` | Print environment-variable help |
 | `--help` | Full CLI reference |
@@ -81,6 +82,7 @@ TT-Studio composes from a base file plus zero or more **overlays**. `run.py` pic
 >   -f app/docker-compose.yml \
 >   -f app/docker-compose.dev-mode.yml \
 >   -f app/docker-compose.tt-hardware.yml \
+>   --profile docker-control \
 >   down
 > ```
 >
@@ -100,7 +102,7 @@ TT-Studio composes from a base file plus zero or more **overlays**. `run.py` pic
 | `tt_studio_backend` | 8001 (host) / 8000 (in-container) | Django API: deployment, RAG, models metadata | [app/backend/README.md](../app/backend/README.md) |
 | `tt_studio_agent` | 8080 | FastAPI agent — chat orchestration, voice, canvas, pipelines, search | [app/agent/README.md](../app/agent/README.md) |
 | `tt_studio_chroma` | — | ChromaDB vector store for RAG | (no README) |
-| `docker-control-service` | 8002 (host, not containerized) | JWT-secured Docker daemon proxy — the backend talks to **this**, not `docker.sock` | [docker-control-service/README.md](../docker-control-service/README.md) |
+| `docker-control-service` | internal 8002 on `tt_studio_network` | JWT-secured Docker daemon proxy; the socket is mounted only here | [docker-control-service/README.md](../docker-control-service/README.md) |
 | Deployed models | 7000+ | One port per model container (echo, Llama, YOLO, Whisper, Stable Diffusion, etc.) | [models/README.md](../models/README.md) |
 
 The `docker-control-service` is a recent security change — see [DOCKER_SOCKET_MIGRATION.md](DOCKER_SOCKET_MIGRATION.md) for the before/after architecture and rationale.
@@ -137,7 +139,7 @@ See [app/agent/README.md](../app/agent/README.md) for endpoints, env vars, and L
 
 | Variable | Default |
 | --- | --- |
-| `DOCKER_CONTROL_SERVICE_URL` | `http://host.docker.internal:8002` |
+| `DOCKER_CONTROL_SERVICE_URL` | `http://docker-control:8002` |
 | `BACKEND_API_HOSTNAME` | `tt-studio-backend-api` |
 | `FRONTEND_HOST` / `FRONTEND_PORT` / `FRONTEND_TIMEOUT` | `localhost` / `3000` / `60` |
 
@@ -189,6 +191,7 @@ To do the same manually without `run.py`:
 docker compose \
   -f app/docker-compose.yml \
   -f app/docker-compose.dev-mode.yml \
+  --profile docker-control \
   up
 # add -f app/docker-compose.tt-hardware.yml if running on TT hardware
 ```
@@ -209,7 +212,7 @@ SPDX headers are enforced via `dev-tools/add_spdx_header.py` — see [dev-tools/
 Backend tests (inside the backend container):
 
 ```bash
-docker compose exec tt_studio_backend pytest --log-cli-level=INFO docker_control/
+docker compose --profile docker-control exec tt_studio_backend pytest --log-cli-level=INFO docker_control/
 ```
 
 Frontend dev server / build / lint commands: [app/frontend/README.md](../app/frontend/README.md).
@@ -223,7 +226,6 @@ When TT-Studio runs on a remote machine, forward the relevant ports over SSH:
 ```bash
 ssh -L 3000:localhost:3000 \
     -L 8001:localhost:8001 \
-    -L 8002:localhost:8002 \
     -L 7000-7010:localhost:7000-7010 \
     <user>@<remote>
 ```
@@ -240,8 +242,8 @@ Start with [troubleshooting.md](troubleshooting.md) and the [FAQ](FAQ.md). A few
 
 - **`run.py` hangs at a "1 or 2" prompt during model setup** — your HF token has partial Llama access (e.g. 3.3 denied, 3.1 allowed). Pick the variant you have access to and continue.
 - **`docker compose down` says "no services"** — you didn't pass every overlay you used at `up` time. See [Hardware modes](#hardware-modes) above.
-- **`401 Unauthorized` from docker-control-service** — `DOCKER_CONTROL_JWT_SECRET` mismatch between the backend container and the host service. Re-run `python3 run.py` to regenerate consistent values.
-- **Backend can't reach docker-control-service** — verify port 8002 is up on the host (`curl http://localhost:8002/api/v1/health`).
+- **`401 Unauthorized` from docker-control-service** — `DOCKER_CONTROL_JWT_SECRET` mismatch between the backend and Docker Control containers. Re-run `python3 run.py` to regenerate consistent values.
+- **Backend can't reach docker-control-service** — inspect `docker compose logs tt_studio_docker_control`; port 8002 is internal and intentionally has no host URL.
 - **Permission denied on Docker** — your user isn't in the `docker` group. See [Prerequisites](#prerequisites).
 
 ---

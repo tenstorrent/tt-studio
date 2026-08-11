@@ -42,6 +42,45 @@ def snapshot_health(health_urls, timeout=2):
         return dict(pool.map(lambda u: (u, probe_service(u, timeout)), health_urls))
 
 
+def _container_health_status(container_name):
+    """Return a Docker container's health/state without requiring host ports."""
+    inspect = [
+        "docker", "inspect", "--format",
+        "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+        container_name,
+    ]
+    commands = [inspect]
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        commands.append(["sudo", "-n", *inspect])
+
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, check=False, timeout=5
+            )
+        except Exception:
+            continue
+        if result.returncode == 0:
+            status = (result.stdout or "").strip().lower()
+            if status:
+                return status
+    return ""
+
+
+def probe_container_health(container_name):
+    """Return True when a Compose container is healthy/running."""
+    return _container_health_status(container_name) in {"healthy", "running"}
+
+
+def snapshot_container_health(container_names):
+    """Probe several Compose container health states concurrently."""
+    if not container_names:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(container_names)) as pool:
+        return dict(pool.map(lambda name: (name, probe_container_health(name)), container_names))
+
+
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     """
     Wait for a service to become healthy (HTTP 200 at the given URL).
@@ -119,6 +158,42 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     return False
 
 
+def wait_for_container_health(container_name, service_name=None, timeout=300, interval=5):
+    """Wait for a Compose container's Docker healthcheck without host exposure."""
+    service_name = service_name or container_name
+    start_time = time.time()
+    last_status = "not found"
+
+    with progress_status(f"Waiting for {service_name}…") as health_spinner:
+        while time.time() - start_time < timeout:
+            status = _container_health_status(container_name)
+            if status in {"healthy", "running"}:
+                return True
+            if status:
+                last_status = status
+            elapsed = int(time.time() - start_time)
+            health_spinner.update(
+                f"Waiting for {service_name}… ({elapsed}s/{timeout}s) — {last_status}"
+            )
+            time.sleep(interval)
+
+    console.print(f"[error]⛔ {service_name} did not become healthy within {timeout}s[/error]")
+    console.print(f"   [muted]Last Docker status: {last_status}[/muted]")
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", "10", container_name],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        log_output = (result.stdout or "") + (result.stderr or "")
+        if log_output.strip():
+            console.print(f"[muted]   \\[{container_name} last 10 log lines][/muted]", highlight=False)
+            for line in log_output.strip().splitlines()[-10:]:
+                console.print(f"   {line}", markup=False, highlight=False)
+    except Exception:
+        pass
+    return False
+
+
 def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docker_control=False):
     """
     Wait for all core services to become healthy.
@@ -131,13 +206,20 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
         ("Backend API", "http://localhost:8000/up/"),
         ("Frontend", "http://localhost:3000/"),
     ]
-    if not skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
-        services_to_check.append(("Docker Control Service", "http://localhost:8002/api/v1/health"))
     if not skip_fastapi and not is_deployed_mode:
         services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
 
     all_healthy = True
     failed_services = []
+
+    if not skip_docker_control and not wait_for_container_health(
+        DOCKER_CONTROL_CONTAINER_NAME,
+        service_name="Docker Control Service",
+        timeout=120,
+        interval=3,
+    ):
+        all_healthy = False
+        failed_services.append("Docker Control Service")
 
     for service_name, health_url in services_to_check:
         if not wait_for_service_health(service_name, health_url, timeout=120, interval=3):
@@ -161,7 +243,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
             "Backend API": "docker logs -f tt_studio_backend",
             "Frontend": "docker logs -f tt_studio_frontend",
             "FastAPI Server": f"tail -f {MODEL_RUN_LOG_FILE}",
-            "Docker Control Service": f"tail -f {DOCKER_CONTROL_LOG_FILE}",
+            "Docker Control Service": "docker logs -f tt_studio_docker_control",
         }
         console.print("\n[info]📋 Check logs:[/info]")
         for svc in failed_services:
@@ -223,4 +305,3 @@ def get_frontend_config():
     timeout = int(os.getenv('FRONTEND_TIMEOUT', '60'))
     
     return host, port, timeout
-

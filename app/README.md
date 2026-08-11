@@ -2,7 +2,7 @@
 
 The `app/` directory holds the user-facing stack: Django backend, React frontend, agent service, ChromaDB, and the docker-compose files that wire them together.
 
-> For one-command setup, use **`python3 run.py`** from the repo root — it handles env, overlays, hardware detection, and the host-side `docker-control-service`. The instructions below are for running the compose stack directly when you need finer control.
+> For one-command setup, use **`python3 run.py`** from the repo root — it handles env, overlays, hardware detection, and the internal `docker-control-service` Compose profile. The instructions below are for running the compose stack directly when you need finer control.
 >
 > Full `run.py` reference: [dev-docs/run-py-guide.md](../dev-docs/run-py-guide.md)
 
@@ -14,8 +14,9 @@ The `app/` directory holds the user-facing stack: Django backend, React frontend
 | `tt_studio_frontend` | React + Vite UI (port 3000) | [frontend/README.md](frontend/README.md) |
 | `tt_studio_agent` | FastAPI agent — voice / canvas / pipelines / search | [agent/README.md](agent/README.md) |
 | `tt_studio_chroma` | ChromaDB vector store for RAG | — |
+| `tt_studio_docker_control` | Internal JWT-secured Docker API; no host port | [docker-control-service/README.md](../docker-control-service/README.md) |
 
-The **`docker-control-service`** ([root-level README](../docker-control-service/README.md)) runs on the **host** (not in compose) on port 8002. The backend talks to it for all Docker operations — see [dev-docs/DOCKER_SOCKET_MIGRATION.md](../dev-docs/DOCKER_SOCKET_MIGRATION.md).
+The **`docker-control-service`** ([root-level README](../docker-control-service/README.md)) runs as an internal Compose service on `tt_studio_network` at port 8002. It has the only Docker socket mount; the backend talks to it over `http://docker-control:8002` — see [dev-docs/DOCKER_SOCKET_MIGRATION.md](../dev-docs/DOCKER_SOCKET_MIGRATION.md).
 
 ## Compose overlays
 
@@ -38,7 +39,7 @@ python3 run.py
 # compose at it explicitly (compose still runs from app/):
 cd app
 cp ../.env.default ../.env  # then edit JWT_SECRET, HF_TOKEN, DOCKER_CONTROL_JWT_SECRET, etc.
-docker compose --env-file ../.env up
+docker compose --env-file ../.env --profile docker-control up
 ```
 
 ### Dev mode (hot reload)
@@ -47,6 +48,7 @@ docker compose --env-file ../.env up
 docker compose \
   -f app/docker-compose.yml \
   -f app/docker-compose.dev-mode.yml \
+  --profile docker-control \
   up
 ```
 
@@ -57,6 +59,7 @@ docker compose \
   -f app/docker-compose.yml \
   -f app/docker-compose.dev-mode.yml \
   -f app/docker-compose.tt-hardware.yml \
+  --profile docker-control \
   up
 ```
 
@@ -71,6 +74,7 @@ docker compose \
   -f app/docker-compose.yml \
   -f app/docker-compose.dev-mode.yml \
   -f app/docker-compose.tt-hardware.yml \
+  --profile docker-control \
   down
 ```
 

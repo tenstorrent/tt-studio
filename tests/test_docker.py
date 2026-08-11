@@ -49,6 +49,22 @@ class TestBuildDockerComposeCommand(unittest.TestCase):
             cmd = M.build_docker_compose_command(dev_mode=False, quiet=True)
         self.assertNotIn("--env-file", cmd)
 
+    def test_docker_control_profile_is_enabled_by_default(self):
+        with patch.object(M, "detect_tt_hardware", return_value=False), patch(
+            "os.path.exists", return_value=False
+        ):
+            cmd = M.build_docker_compose_command(quiet=True)
+        self.assertEqual(cmd[-2:], ["--profile", "docker-control"])
+
+    def test_docker_control_profile_can_be_skipped(self):
+        with patch.object(M, "detect_tt_hardware", return_value=False), patch(
+            "os.path.exists", return_value=False
+        ):
+            cmd = M.build_docker_compose_command(
+                quiet=True, include_docker_control=False
+            )
+        self.assertNotIn("--profile", cmd)
+
 
 class TestCheckDockerAccess(unittest.TestCase):
     def test_true_when_docker_info_succeeds(self):

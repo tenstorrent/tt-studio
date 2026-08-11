@@ -61,6 +61,20 @@ class TestCheckPortAvailable(unittest.TestCase):
             self.assertFalse(M.check_port_available(12345))
 
 
+class TestContainerHealth(unittest.TestCase):
+    def test_probe_container_health_uses_docker_inspect(self):
+        result = MagicMock(returncode=0, stdout="healthy\n")
+        with patch("subprocess.run", return_value=result) as run:
+            self.assertTrue(M.probe_container_health("tt_studio_docker_control"))
+        self.assertIn("docker", run.call_args.args[0])
+        self.assertIn("tt_studio_docker_control", run.call_args.args[0])
+
+    def test_probe_container_health_rejects_starting_container(self):
+        result = MagicMock(returncode=0, stdout="starting\n")
+        with patch("subprocess.run", return_value=result):
+            self.assertFalse(M.probe_container_health("tt_studio_docker_control"))
+
+
 class TestPortFreeingNeverKillsDocker(unittest.TestCase):
     """Regression guard: on macOS/Docker Desktop a *published* container port is
     held by `com.docker.backend`. The port-freeing step must NOT kill that PID —

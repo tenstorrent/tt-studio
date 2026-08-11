@@ -244,7 +244,12 @@ def detect_tt_hardware():
     return os.path.exists("/dev/tenstorrent") or os.path.isdir("/dev/tenstorrent")
 
 
-def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=False):
+def build_docker_compose_command(
+    dev_mode=False,
+    show_hardware_info=True,
+    quiet=False,
+    include_docker_control=True,
+):
     """
     Build the Docker Compose command with appropriate override files.
 
@@ -252,6 +257,8 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
         dev_mode (bool): Whether to enable development mode
         show_hardware_info (bool): Whether to show hardware detection messages
         quiet (bool): If True, suppress all output (for startup where output is transient)
+        include_docker_control (bool): Enable the internal Docker Control
+            Compose profile. Set False for ``--skip-docker-control``.
 
     Returns:
         list: Docker Compose command with appropriate files
@@ -287,6 +294,13 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     else:
         if show_hardware_info and not quiet:
             console.print("[warning]⚠️  No Tenstorrent hardware detected[/warning]")
+
+    # Docker Control is a profile so the legacy --skip-docker-control flag can
+    # still start the rest of the stack without an unavailable dependency.
+    # Keep this global Compose option before the subcommand; callers append
+    # ``up``, ``down`` or ``logs`` afterwards.
+    if include_docker_control:
+        compose_files += ["--profile", "docker-control"]
 
     return compose_files
 

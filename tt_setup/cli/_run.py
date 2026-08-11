@@ -21,7 +21,7 @@ from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
 from tt_setup.cleanup import cleanup_resources
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -50,7 +50,9 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED", "false"))
 
     fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
-    docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
+    # Docker Control is a Compose-managed internal service; it no longer has a
+    # host PID file or public URL.
+    docker_control_enabled = not args.skip_docker_control
 
     # Hardware — reuse the Phase-1 label when given, else probe tt-smi now (--info).
     if hardware_label is None:
@@ -69,8 +71,6 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     endpoints = [("URL", "http://localhost:3000", "http://localhost:3000/")]
     if is_verbose() and fastapi_enabled:
         endpoints.append(("FastAPI", "http://localhost:8001", "http://localhost:8001/"))
-    if is_verbose() and docker_control_enabled:
-        endpoints.append(("Docker Control", "http://localhost:8002", "http://localhost:8002/api/v1/health"))
 
     health = snapshot_health([health_url for _, _, health_url in endpoints])
     rows = [(label, url, "up" if health.get(health_url) else "starting")
@@ -216,7 +216,12 @@ def _run(args):
             # invocation carries --env-file <root>/.env + the -f files — a bare
             # `docker compose logs -f` would emit a wall of "variable is not set"
             # warnings (the vars reach compose only via --env-file, never the shell).
-            cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False, quiet=True)
+            cmd = build_docker_compose_command(
+                dev_mode=args.dev,
+                show_hardware_info=False,
+                quiet=True,
+                include_docker_control=not args.skip_docker_control,
+            )
             cmd += ["logs", "-f"]
             try:
                 sys.exit(subprocess.run(cmd, cwd=TT_STUDIO_ROOT).returncode)
@@ -615,19 +620,17 @@ def _run(args):
         # not captured, so they still show.)
         ph = begin_phase(3, 5, "Services")
 
-        # Start Docker Control Service BEFORE starting Docker containers so the
-        # backend can connect to it when it starts.
-        startup_log.step("docker_control_service", "START")
+        # Docker Control is started by the Compose profile during Phase 4.
+        # Pre-create its mounted log so the container can append without
+        # leaving a root-owned file behind on the host.
         if not args.skip_docker_control:
-            with step("Docker Control service", spinner=True) as s:
-                dc_ok = start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev)
-                if not dc_ok:
-                    s.fail()
-            if dc_ok:
-                startup_log.step("docker_control_service", "OK")
-            else:
-                startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
-                console.print("[warning]Note: Backend will not be able to manage Docker containers.[/warning]")
+            try:
+                os.makedirs(os.path.dirname(DOCKER_CONTROL_LOG_FILE), exist_ok=True)
+                with open(DOCKER_CONTROL_LOG_FILE, "a"):
+                    pass
+            except OSError as exc:
+                console.print(f"[warning]Could not prepare Docker Control log: {exc}[/warning]")
+            startup_log.step("docker_control_service", "COMPOSE")
         else:
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             console.print("[warning]⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used)[/warning]")
@@ -702,7 +705,11 @@ def _run(args):
 
         # Set up the Docker Compose command (quiet — build progress folds into
         # the checklist's Build row, not a separate display).
-        docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, quiet=True)
+        docker_compose_cmd = build_docker_compose_command(
+            dev_mode=args.dev,
+            quiet=True,
+            include_docker_control=not args.skip_docker_control,
+        )
         docker_compose_cmd.extend(["up", "--build", "-d"])
 
         # Stream the build; per-service events fold into the active Build row.
@@ -823,7 +830,10 @@ def _run(args):
             print(f"\n{C_YELLOW}📜 Tailing logs in development mode. Press Ctrl+C to stop.{C_RESET}")
             
             # Build the same Docker Compose command for logs
-            docker_logs_cmd = build_docker_compose_command(dev_mode=args.dev)
+            docker_logs_cmd = build_docker_compose_command(
+                dev_mode=args.dev,
+                include_docker_control=not args.skip_docker_control,
+            )
             docker_logs_cmd.extend(["logs", "-f"])
             
             # Start Docker Compose logs in background
@@ -918,4 +928,3 @@ def _run(args):
             pass
 
         sys.exit(1)
-

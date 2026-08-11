@@ -76,15 +76,13 @@ def _cleanup_runtime(args, has_docker_access):
         console.print("[muted]Docker isn't running — stopping host services only "
                       "(no containers to stop).[/muted]")
 
-    # Stopping a root-owned host process (started via sudo in a prior run) needs
-    # sudo. Its password prompt would otherwise appear un-announced under a step's
-    # spinner and read as a hang. Announce + pre-authenticate up-front, but ONLY
-    # when a listener on :8001/:8002 is actually root-owned — so users whose
-    # processes are their own (the common case) are never prompted.
+    # Stopping the legacy root-owned inference process (started via sudo in a
+    # prior run) needs sudo. Docker Control is now Compose-managed and has no
+    # host listener, so port 8002 is intentionally absent from this check.
     if (not args.no_sudo and os.geteuid() != 0 and console.is_terminal
-            and (_port_owned_by_root(8001) or _port_owned_by_root(8002))):
+            and _port_owned_by_root(8001)):
         console.print("[warning]TT Studio needs your password to stop a root-owned "
-                      "host service (ports 8001/8002).[/warning]")
+                      "inference API host service (port 8001).[/warning]")
         subprocess.run(["sudo", "-v"], check=False)
 
     # Host-service cleanup can discover a sudo requirement late (for example
