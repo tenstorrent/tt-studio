@@ -6,7 +6,8 @@ Secure FastAPI proxy for the Docker operations used by TT-Studio.
 
 Docker Control runs as the `tt_studio_docker_control` service in Compose. It is
 attached to `tt_studio_network`, listens on port `8002` inside that bridge, and
-has the only `/var/run/docker.sock` mount. The backend reaches it at
+has the only Docker socket mount (at `/var/run/docker.sock` inside the
+container). The backend reaches it at
 `http://docker-control:8002` using JWT authentication.
 
 The service has no host `ports:` mapping. Nothing from this API should be
@@ -56,6 +57,10 @@ available at `localhost:8002` or on the host LAN.
   host-mode runs and is set to `0.0.0.0` only inside the unexposed Compose
   container.
 - `DOCKER_CONTROL_PORT` — API port, default `8002`.
+- `DOCKER_SOCKET_PATH` — optional host-side Docker socket source for Compose.
+  Set this for direct rootless/custom-socket installations, for example
+  `/run/user/1000/docker.sock`; it is still mounted at `/var/run/docker.sock`
+  inside Docker Control.
 - `DOCKER_CONTROL_LOG_FILE`, `STARTUP_LOG_FILE`, and `MODEL_RUN_LOG_FILE` —
   mounted log paths used by the log endpoints.
 

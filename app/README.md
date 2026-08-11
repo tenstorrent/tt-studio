@@ -18,6 +18,10 @@ The `app/` directory holds the user-facing stack: Django backend, React frontend
 
 The **`docker-control-service`** ([root-level README](../docker-control-service/README.md)) runs as an internal Compose service on `tt_studio_network` at port 8002. It has the only Docker socket mount; the backend talks to it over `http://docker-control:8002` — see [dev-docs/DOCKER_SOCKET_MIGRATION.md](../dev-docs/DOCKER_SOCKET_MIGRATION.md).
 
+`run.py` detects rootless Docker sockets from `DOCKER_HOST` or the active
+context. For direct Compose, set `DOCKER_SOCKET_PATH` to the host socket path
+(for example `/run/user/1000/docker.sock`) in `.env`.
+
 ## Compose overlays
 
 TT-Studio composes from a base file plus optional overlays:

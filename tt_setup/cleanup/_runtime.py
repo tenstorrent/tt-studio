@@ -7,7 +7,7 @@ each rendered as its own labelled step."""
 import os
 import subprocess
 from tt_setup.console import console, step
-from tt_setup.docker import build_docker_compose_command, run_docker_command
+from tt_setup.docker import build_docker_compose_command, prepare_docker_socket_path, run_docker_command
 from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_server
 from tt_setup.cleanup._resource_ops import (
     _docker_daemon_status,
@@ -35,6 +35,7 @@ def _cleanup_runtime(args, has_docker_access):
     docker_up = _docker_daemon_status() in ("ok", "sudo")
 
     if docker_up:
+        prepare_docker_socket_path()
         # Plain --stop preserves deployments (summarised in the Preserved panel
         # afterwards); --purge-all removes them first so the later network removal
         # / weight deletion isn't blocked by running processes.

@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """Characterization tests for docker command building/access."""
+import os
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -95,6 +96,41 @@ class TestCheckDockerAccess(unittest.TestCase):
         bad = MagicMock(returncode=1)
         with patch("subprocess.run", return_value=bad):
             self.assertFalse(M.check_docker_access())
+
+
+class TestDockerSocketPath(unittest.TestCase):
+    def test_explicit_socket_path_takes_precedence(self):
+        with patch.object(M, "get_env_var", return_value="/custom/docker.sock"), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch.object(M.subprocess, "run") as run:
+            path = M.prepare_docker_socket_path()
+            configured_path = os.environ["DOCKER_SOCKET_PATH"]
+
+        self.assertEqual(path, "/custom/docker.sock")
+        self.assertEqual(configured_path, "/custom/docker.sock")
+        run.assert_not_called()
+
+    def test_rootless_docker_host_is_used_without_context_probe(self):
+        with patch.object(M, "get_env_var", return_value=""), \
+             patch.dict(os.environ, {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}, clear=True), \
+             patch.object(M.subprocess, "run") as run:
+            path = M.resolve_docker_socket_path()
+
+        self.assertEqual(path, "/run/user/1000/docker.sock")
+        run.assert_not_called()
+
+    def test_active_context_socket_is_used_when_docker_host_is_unset(self):
+        context = MagicMock(returncode=0, stdout="unix:///run/user/1000/docker.sock\n")
+        with patch.object(M, "get_env_var", return_value=""), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch.object(M.subprocess, "run", return_value=context) as run:
+            path = M.resolve_docker_socket_path()
+
+        self.assertEqual(path, "/run/user/1000/docker.sock")
+        self.assertEqual(
+            run.call_args.args[0],
+            ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+        )
 
 
 if __name__ == "__main__":

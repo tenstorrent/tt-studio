@@ -22,7 +22,9 @@ services:
     volumes:
       # Only Docker Control receives the Docker socket. The backend remains
       # unprivileged and communicates with this service over the bridge.
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Source is configurable for rootless/custom Docker installations; keep
+      # the conventional target so the Docker SDK in this container works.
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${TT_STUDIO_ROOT}/logs:/logs
     networks:
       tt_studio_network:

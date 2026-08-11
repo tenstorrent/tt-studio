@@ -15,7 +15,7 @@ from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
-from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues, remove_docker_control_container
+from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues, prepare_docker_socket_path, remove_docker_control_container
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
@@ -707,6 +707,7 @@ def _run(args):
         # Check Docker access to determine if sudo is needed
         has_docker_access = check_docker_access()
         use_sudo = not has_docker_access
+        prepare_docker_socket_path()
 
         # An explicit skip must also remove a Docker Control container left by
         # an earlier normal launch. Otherwise the skipped stack would still

@@ -10,6 +10,7 @@ import shutil
 import getpass
 from tt_setup.constants import *
 from tt_setup.console import console, step, notice_panel
+from tt_setup.env_config import get_env_var
 
 
 # Official docs we point users to — we link rather than try to fix Docker for
@@ -18,6 +19,58 @@ DOCKER_INSTALL_URL = "https://docs.docker.com/get-docker/"
 DOCKER_COMPOSE_URL = "https://docs.docker.com/compose/install/"
 DOCKER_DESKTOP_URL = "https://docs.docker.com/desktop/"
 DOCKER_DAEMON_URL = "https://docs.docker.com/config/daemon/start/"
+
+
+def _socket_path_from_docker_host(docker_host):
+    """Return a filesystem socket path from a unix ``DOCKER_HOST`` URI."""
+    value = (docker_host or "").strip()
+    if not value.startswith("unix://"):
+        return ""
+    path = value[len("unix://"):]
+    return path if os.path.isabs(path) else ""
+
+
+def resolve_docker_socket_path():
+    """Find the host Docker socket used for the Docker Control bind mount.
+
+    Rootless Docker commonly exposes a per-user unix socket through
+    ``DOCKER_HOST`` or the active Docker context. Compose mounts that source at
+    its conventional in-container path, so Docker SDK clients need no special
+    configuration.
+    """
+    configured_path = get_env_var("DOCKER_SOCKET_PATH", "").strip()
+    if configured_path:
+        return configured_path
+
+    socket_path = _socket_path_from_docker_host(os.getenv("DOCKER_HOST"))
+    if socket_path:
+        return socket_path
+
+    try:
+        result = subprocess.run(
+            ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            socket_path = _socket_path_from_docker_host(result.stdout)
+            if socket_path:
+                return socket_path
+    except OSError:
+        pass
+
+    rootless_default = f"/run/user/{os.getuid()}/docker.sock"
+    if os.path.exists(rootless_default):
+        return rootless_default
+    return "/var/run/docker.sock"
+
+
+def prepare_docker_socket_path():
+    """Expose the resolved socket path to Compose interpolation for this run."""
+    socket_path = resolve_docker_socket_path()
+    os.environ["DOCKER_SOCKET_PATH"] = socket_path
+    return socket_path
 
 
 def _docker_compose_v2_available():

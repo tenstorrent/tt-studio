@@ -55,6 +55,7 @@ class DockerControlComposeTests(unittest.TestCase):
         environment = os.environ.copy()
         environment["TT_STUDIO_ROOT"] = str(ROOT)
         environment.setdefault("DOCKER_CONTROL_JWT_SECRET", "test-secret")
+        environment["DOCKER_SOCKET_PATH"] = "/run/user/1000/docker.sock"
         command = [
             "docker", "compose",
             "-f", "app/docker-compose.yml",
@@ -86,7 +87,7 @@ class DockerControlComposeTests(unittest.TestCase):
             docker_control["command"],
             ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002"],
         )
-        self.assertIn(("/var/run/docker.sock", "/var/run/docker.sock"), mounts)
+        self.assertIn(("/run/user/1000/docker.sock", "/var/run/docker.sock"), mounts)
         self.assertIn("docker-control", docker_control["networks"]["tt_studio_network"]["aliases"])
         healthcheck = docker_control["healthcheck"]["test"]
         self.assertIn("json.load", healthcheck[-1])
