@@ -42,6 +42,15 @@ def set_verbose(value):
     VERBOSE = bool(value)
 
 
+NO_CLEAR = False
+
+
+def set_no_clear(value):
+    """When True, never clear the terminal at startup (preserve scrollback)."""
+    global NO_CLEAR
+    NO_CLEAR = bool(value)
+
+
 def real_console():
     """Console bound to the real terminal (survives step()'s stdout capture)."""
     return _real_console
@@ -66,6 +75,11 @@ def progress_status(label):
 def is_verbose():
     """True when --verbose/-v is active. Lets legacy modules gate extra detail."""
     return VERBOSE
+
+
+def no_clear():
+    """True when --no-clear is active — suppress the startup screen clears."""
+    return NO_CLEAR
 
 
 def _fmt_duration(seconds):
