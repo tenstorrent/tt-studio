@@ -61,14 +61,6 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   Search: Globe,
 };
 
-// One line of context per category heading; unknown categories just get none.
-const CATEGORY_BLURBS: Record<string, string> = {
-  Chat: "Browser front-ends TT-Studio launches and wires up for you.",
-  Code: "Terminal agents you install yourself — we supply the config.",
-  Automation: "Agents that drive tools and workflows on your behalf.",
-  Search: "Research front-ends that search the live web with your models.",
-};
-
 const ALL_CATEGORIES = "All";
 
 const STATUS_LABELS: Record<MarketplaceApp["status"], string> = {
@@ -151,31 +143,23 @@ export default function AppsPage() {
       ? selectedModel
       : (modelNames[0] ?? PLACEHOLDER_MODEL);
 
-  // Cards are grouped under their category, in the order categories first appear
-  // in the registry so the backend keeps control of ordering.
-  const groupedApps = useMemo(() => {
-    const groups = new Map<string, MarketplaceApp[]>();
+  // Filter tabs, in the order categories first appear in the registry so the
+  // backend keeps control of ordering.
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
     for (const app of apps) {
-      const group = groups.get(app.category);
-      if (group) group.push(app);
-      else groups.set(app.category, [app]);
+      counts.set(app.category, (counts.get(app.category) ?? 0) + 1);
     }
-    return [...groups.entries()];
+    return [...counts.entries()];
   }, [apps]);
 
-  const categoryCounts = useMemo(
-    () =>
-      groupedApps.map(([category, list]) => [category, list.length] as const),
-    [groupedApps]
-  );
-
   // A selected category that disappears (registry change) falls back to showing
-  // everything rather than an empty page.
-  const visibleGroups = useMemo(() => {
-    if (activeCategory === ALL_CATEGORIES) return groupedApps;
-    const filtered = groupedApps.filter(([c]) => c === activeCategory);
-    return filtered.length ? filtered : groupedApps;
-  }, [groupedApps, activeCategory]);
+  // everything rather than an empty grid.
+  const visibleApps = useMemo(() => {
+    if (activeCategory === ALL_CATEGORIES) return apps;
+    const filtered = apps.filter((app) => app.category === activeCategory);
+    return filtered.length ? filtered : apps;
+  }, [apps, activeCategory]);
 
   const appUrl = (app: MarketplaceApp) => {
     const scheme = window.location.protocol === "https:" ? "https" : "http";
@@ -192,7 +176,8 @@ export default function AppsPage() {
       await load();
     } catch (error) {
       const reason =
-        axios.isAxiosError(error) && typeof error.response?.data?.error === "string"
+        axios.isAxiosError(error) &&
+        typeof error.response?.data?.error === "string"
           ? error.response.data.error
           : null;
       customToast.error(
@@ -220,7 +205,7 @@ export default function AppsPage() {
     // Full-width root stays transparent so MainLayout's grid shows in the
     // margins; the content column gets its own solid panel background.
     <div className="w-full min-h-screen px-4 sm:px-6 lg:px-8 py-10">
-      <div className="max-w-6xl mx-auto space-y-8 bg-white dark:bg-black rounded-2xl p-6 sm:p-8 shadow-sm">
+      <div className="max-w-6xl mx-auto space-y-8 bg-white dark:bg-black rounded-2xl border border-gray-200/80 dark:border-gray-800/70 p-6 sm:p-8 shadow-sm dark:shadow-none">
         <header className="space-y-2 pb-2 text-center">
           <div className="flex items-center justify-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-TT-purple/10 text-TT-purple">
@@ -270,8 +255,8 @@ export default function AppsPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>No chat model is deployed</AlertTitle>
                 <AlertDescription>
-                  Apps here talk to your deployed models, so they have nothing to
-                  answer with yet.{" "}
+                  Apps here talk to your deployed models, so they have nothing
+                  to answer with yet.{" "}
                   <Link to="/" className="underline hover:text-TT-purple">
                     Deploy a chat model
                   </Link>{" "}
@@ -287,28 +272,19 @@ export default function AppsPage() {
               onSelect={setActiveCategory}
             />
 
-            {visibleGroups.map(([category, categoryApps]) => (
-              <div key={category} className="space-y-4">
-                <SectionHeading
-                  title={category}
-                  count={categoryApps.length}
-                  subtitle={CATEGORY_BLURBS[category] ?? ""}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleApps.map((app) => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  disabled={!!pending[app.id] || !gatewayConfigured}
+                  url={app.host_port ? appUrl(app) : null}
+                  onLaunch={() => runAction(app, launchMarketplaceApp)}
+                  onStop={() => runAction(app, stopMarketplaceApp)}
+                  onConnect={() => setGuideApp(app)}
                 />
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {categoryApps.map((app) => (
-                    <AppCard
-                      key={app.id}
-                      app={app}
-                      disabled={!!pending[app.id] || !gatewayConfigured}
-                      url={app.host_port ? appUrl(app) : null}
-                      onLaunch={() => runAction(app, launchMarketplaceApp)}
-                      onStop={() => runAction(app, stopMarketplaceApp)}
-                      onConnect={() => setGuideApp(app)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -431,30 +407,6 @@ function CategoryFilter({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function SectionHeading({
-  title,
-  subtitle,
-  count,
-}: {
-  title: string;
-  subtitle: string;
-  count?: number;
-}) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-gray-200 dark:border-gray-800 pb-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-900 dark:text-gray-100">
-        {title}
-      </h2>
-      {count !== undefined && (
-        <span className="text-xs font-medium text-TT-purple">{count}</span>
-      )}
-      {subtitle && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
-      )}
     </div>
   );
 }
@@ -607,16 +559,21 @@ function AppCard({
   onConnect: () => void;
 }) {
   const busy = app.status === "pulling" || app.status === "starting";
-  const reachable = useAppReachable(app.status === "running" ? url : null);
+  const running = app.status === "running";
+  const reachable = useAppReachable(running ? url : null);
 
   return (
+    // A launched app is the one thing on this page the user is likely to act on,
+    // so it gets a tinted fill, a green ring and a lift the idle tiles don't have.
     <div
       className={cn(
-        "group flex h-full flex-col rounded-2xl border bg-white dark:bg-gray-950/40 p-5",
-        "transition-all duration-200 hover:-translate-y-0.5 hover:border-TT-purple/60 hover:shadow-lg hover:shadow-TT-purple/5",
-        app.status === "running"
-          ? "border-TT-green/50"
-          : "border-gray-200 dark:border-gray-800"
+        "group flex h-full flex-col rounded-2xl border p-5 transition-all duration-200",
+        running
+          ? "border-TT-green bg-TT-green-tint2/40 dark:bg-TT-green/[0.07] ring-2 ring-TT-green/25 shadow-md shadow-TT-green/10 hover:shadow-lg hover:shadow-TT-green/20"
+          : cn(
+              "bg-white dark:bg-gray-950/40 border-gray-200/90 dark:border-gray-800/80",
+              "hover:-translate-y-0.5 hover:border-TT-purple/60 hover:ring-1 hover:ring-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/5"
+            )
       )}
     >
       <div className="flex items-start gap-3">
@@ -625,12 +582,19 @@ function AppCard({
           <h3 className="truncate font-semibold text-gray-900 dark:text-white">
             {app.name}
           </h3>
-          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <div
+            className={cn(
+              "mt-0.5 flex items-center gap-1.5 text-xs",
+              running
+                ? "font-medium text-TT-green-shade dark:text-TT-green"
+                : "text-gray-500 dark:text-gray-400"
+            )}
+          >
             <span
               className={cn(
                 "h-1.5 w-1.5 shrink-0 rounded-full",
                 STATUS_DOT[app.status],
-                busy && "animate-pulse"
+                (busy || running) && "animate-pulse"
               )}
             />
             {STATUS_LABELS[app.status]}
@@ -678,7 +642,7 @@ function AppCard({
           </Alert>
         )}
 
-        {app.status === "running" && reachable === "unreachable" && (
+        {running && reachable === "unreachable" && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Port {app.host_port} isn't reachable</AlertTitle>
@@ -696,13 +660,13 @@ function AppCard({
           </Alert>
         )}
 
-        {app.status === "running" && app.first_run_note && (
+        {running && app.first_run_note && (
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {app.first_run_note}
           </p>
         )}
 
-        {app.status === "running" && app.connection && (
+        {running && app.connection && (
           <dl className="space-y-1.5 rounded-lg bg-gray-50 dark:bg-gray-900/60 p-3 text-xs">
             {[
               ["Base URL", app.connection.base_url],
@@ -727,7 +691,7 @@ function AppCard({
           <Button variant="outline" className="w-full" onClick={onConnect}>
             <Terminal className="h-4 w-4 mr-2" /> Connect
           </Button>
-        ) : app.status === "running" ? (
+        ) : running ? (
           <div className="flex gap-2">
             <Button asChild className="flex-1">
               <a href={url ?? "#"} target="_blank" rel="noreferrer">
