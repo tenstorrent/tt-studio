@@ -55,7 +55,7 @@ export const runInference = async (
         `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
       );
       const ragStart = performance.now();
-      ragContext = await getRagContext(request, ragDatasource);
+      ragContext = await getRagContext(request, ragDatasource, chatHistory);
       onRagContext?.({
         documents: ragContext?.documents ?? [],
         latencyMs: Math.round(performance.now() - ragStart),
