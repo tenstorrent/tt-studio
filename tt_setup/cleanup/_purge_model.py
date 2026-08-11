@@ -466,7 +466,7 @@ def purge_models(args):
                 if in_use:
                     volumes_in_use.extend(in_use)
                     s.fail()
-                    s.detail("still in use — run `python run.py --stop` first")
+                    s.detail("in use by a container that could not be removed")
                 else:
                     s.detail(f"{len(removed)} volume(s)")
 
@@ -501,12 +501,14 @@ def purge_models(args):
         elif not _mark_deployments_stopped(deployments_path, purge_names):
             s.skip("left as-is")
 
+    # Don't claim bytes we failed to free — a volume still in use stays on disk.
+    reclaimed_bytes = total_bytes - sum(volume_sizes.get(v, 0) for v in volumes_in_use)
     console.print("\n[bold success]✓ Cleanup complete[/bold success]")
-    if total_bytes > 0:
-        console.print(f"   Reclaimed approximately [bold]{_format_bytes(total_bytes)}[/bold] from disk.")
+    if reclaimed_bytes > 0:
+        console.print(f"   Reclaimed approximately [bold]{_format_bytes(reclaimed_bytes)}[/bold] from disk.")
     for image, kept in sorted(shared_images.items()):
         console.print(f"   [muted]{image} kept — still used by {', '.join(kept)}[/muted]")
     if volumes_in_use:
-        console.print(f"   [warning]⚠  Still in use: {', '.join(volumes_in_use)} — "
-                      f"stop the stack (python run.py --stop) and re-run.[/warning]")
+        console.print(f"   [warning]⚠  Not removed (still in use): {', '.join(volumes_in_use)} — "
+                      f"check `docker ps -a --filter volume=<name>` and re-run.[/warning]")
     return 0

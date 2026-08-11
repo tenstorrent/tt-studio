@@ -372,6 +372,36 @@ class DockerHelperArgvTests(unittest.TestCase):
         self.assertEqual(in_use, ["in-use-vol"])
         self.assertIn(["docker", "volume", "rm", "-f", "volume_id_a"], calls)
 
+    def test_remove_docker_volumes_removes_stopped_holders_and_retries(self):
+        """A volume pinned only by a stopped container (docker counts those as
+        "in use" too) gets freed: the holders are force-removed and the rm is
+        retried, so purge works after `--stop` without manual docker surgery."""
+        from tt_setup.cleanup import _resource_ops as rops
+        calls = []
+        state = {"holders_removed": False}
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "ps"]:
+                return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
+            if cmd[:3] == ["docker", "rm", "-fv"]:
+                state["holders_removed"] = True
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if state["holders_removed"]:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(
+                returncode=1, stdout="",
+                stderr="volume is in use - [abc123]")
+
+        with patch.object(rops.subprocess, "run", side_effect=fake_run):
+            removed, in_use = run._remove_docker_volumes(["pinned-vol"], True)
+        self.assertEqual(removed, ["pinned-vol"])
+        self.assertEqual(in_use, [])
+        self.assertIn(["docker", "ps", "-aq", "--filter", "volume=pinned-vol"], calls)
+        self.assertIn(["docker", "rm", "-fv", "abc123"], calls)
+        self.assertEqual(
+            calls.count(["docker", "volume", "rm", "-f", "pinned-vol"]), 2)
+
     def test_remove_image_ref_targets_exact_reference(self):
         from tt_setup.cleanup import _resource_ops as rops
         calls = []

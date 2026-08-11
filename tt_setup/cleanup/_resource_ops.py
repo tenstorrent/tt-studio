@@ -434,22 +434,52 @@ def _remove_docker_containers(ids, has_docker_access):
         return 0
 
 
+def _containers_using_volume(name, has_docker_access):
+    """Ids of ALL containers — running or stopped — that mount the named
+    volume. Read-only. Returns [] on any error."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "ps", "-aq", "--filter", f"volume={name}"],
+            capture_output=True, text=True, check=False,
+        )
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except Exception:
+        return []
+
+
 def _remove_docker_volumes(names, has_docker_access):
-    """Force-remove specific named volumes. Returns (removed_names, in_use_names):
-    a volume still attached to a running container fails with "in use" and is
-    reported so callers can tell the user to stop the deployment first."""
+    """Force-remove specific named volumes. `docker volume rm` refuses while
+    ANY container references the volume — stopped/exited ones included — so on
+    "in use" the referencing containers are force-removed (anything mounting a
+    purged model's weight volume is a deployment container for that model) and
+    the rm is retried once. Returns (removed_names, in_use_names); in_use
+    means the retry still failed."""
     names = [n for n in names if n]
     removed, in_use = [], []
     sudo_prefix = ["sudo"] if not has_docker_access else []
+
+    def volume_rm(name):
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "rm", "-f", name],
+            capture_output=True, text=True, check=False,
+        )
+        return result.returncode == 0, (result.stderr or "").lower()
+
     for name in names:
         try:
-            result = subprocess.run(
-                sudo_prefix + ["docker", "volume", "rm", "-f", name],
-                capture_output=True, text=True, check=False,
-            )
-            if result.returncode == 0:
+            ok, err = volume_rm(name)
+            if not ok and "in use" in err:
+                holders = _containers_using_volume(name, has_docker_access)
+                if holders:
+                    subprocess.run(
+                        sudo_prefix + ["docker", "rm", "-fv", *holders],
+                        capture_output=True, check=False,
+                    )
+                    ok, err = volume_rm(name)
+            if ok:
                 removed.append(name)
-            elif "in use" in (result.stderr or "").lower():
+            elif "in use" in err:
                 in_use.append(name)
         except Exception:
             continue
