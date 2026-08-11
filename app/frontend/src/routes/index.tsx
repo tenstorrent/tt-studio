@@ -13,6 +13,7 @@ import { BackendHealthProvider } from "../providers/BackendHealthProvider";
 import { getRoutes } from "./route-config";
 import { MainLayout } from "../layouts/MainLayout";
 import { getSettings } from "../api/settingsApi";
+import { cancelDeployment } from "../api/modelsDeployedApis";
 import { DeploymentTray } from "../components/DeploymentTray";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 
@@ -72,6 +73,10 @@ const AppRouter = () => {
                 deployments={deployments}
                 progressByJob={progressByJob}
                 onDismiss={removeDeployment}
+                onCancel={(jobId) => {
+                  void cancelDeployment(jobId);
+                  removeDeployment(jobId);
+                }}
               />
             </Router>
           </ModelsProvider>
