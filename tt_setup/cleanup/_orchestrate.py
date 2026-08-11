@@ -7,7 +7,11 @@ teardown and (for --purge-all) wipe persistent state."""
 import os
 from rich.table import Table
 from tt_setup.constants import *
-from tt_setup.constants import _CLEANUP_VOLUME_PREFIX
+from tt_setup.constants import (
+    _CLEANUP_APP_VOLUME_PREFIX,
+    _CLEANUP_APP_VOLUME_SUFFIX,
+    _CLEANUP_VOLUME_PREFIX,
+)
 from tt_setup.console import console, kept_panel, notice_panel, step
 from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var
@@ -23,6 +27,7 @@ from tt_setup.cleanup._resource_ops import (
     _prune_anonymous_volumes,
     _remove_directory_contents,
     _remove_local_tt_studio_images,
+    _remove_marketplace_app_volumes,
     _remove_path,
     _remove_tt_studio_model_volumes,
     _write_browser_cleanup_sentinel,
@@ -191,6 +196,9 @@ def cleanup_resources(args):
     docker = _table()
     docker.add_row("🐳", "Deployment containers", "", "vLLM, YOLO, … on tt_studio_network")
     docker.add_row("💾", "Model-weight volumes", _dsize("model_volumes"), f"{_CLEANUP_VOLUME_PREFIX}*")
+    docker.add_row("💾", "App volumes", _dsize("app_volumes"),
+                   f"{_CLEANUP_APP_VOLUME_PREFIX}*{_CLEANUP_APP_VOLUME_SUFFIX} "
+                   "(marketplace app accounts, chats)")
     docker.add_row("💾", "Anonymous volumes", _dsize("anon_volumes"), "dangling (dev node_modules, …)")
     docker.add_row("🐳", "Local images", _dsize("images"), "tt-studio, tt-inference-server, chroma")
     console.print(docker)
@@ -245,6 +253,10 @@ def cleanup_resources(args):
     with step("Removing model volumes", spinner=docker_spinner) as s:
         removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
         s.detail(f"{removed_vols} volume(s)")
+
+    with step("Removing app volumes", spinner=docker_spinner) as s:
+        removed_app_vols = _remove_marketplace_app_volumes(has_docker_access)
+        s.detail(f"{removed_app_vols} volume(s)")
 
     with step("Pruning anonymous volumes", spinner=docker_spinner) as s:
         removed_anon = _prune_anonymous_volumes(has_docker_access)

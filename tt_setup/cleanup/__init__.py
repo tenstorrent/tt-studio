@@ -12,6 +12,8 @@ Re-exports the full prior surface so `import tt_setup.cleanup as X` /
 from tt_setup.cleanup._orchestrate import cleanup_resources
 from tt_setup.cleanup._runtime import _cleanup_runtime
 from tt_setup.cleanup._resource_ops import (
+    _CLEANUP_APP_VOLUME_PREFIX,
+    _CLEANUP_APP_VOLUME_SUFFIX,
     _CLEANUP_IMAGE_REFS,
     _CLEANUP_VOLUME_PREFIX,
     _deployed_model_names,
@@ -25,6 +27,7 @@ from tt_setup.cleanup._resource_ops import (
     _prune_anonymous_volumes,
     _remove_directory_contents,
     _remove_local_tt_studio_images,
+    _remove_marketplace_app_volumes,
     _remove_path,
     _remove_tt_studio_model_volumes,
     _remove_tt_studio_network_containers,
@@ -34,6 +37,8 @@ from tt_setup.cleanup._resource_ops import (
 __all__ = [
     "cleanup_resources",
     "_cleanup_runtime",
+    "_CLEANUP_APP_VOLUME_PREFIX",
+    "_CLEANUP_APP_VOLUME_SUFFIX",
     "_CLEANUP_IMAGE_REFS",
     "_CLEANUP_VOLUME_PREFIX",
     "_deployed_model_names",
@@ -47,6 +52,7 @@ __all__ = [
     "_prune_anonymous_volumes",
     "_remove_directory_contents",
     "_remove_local_tt_studio_images",
+    "_remove_marketplace_app_volumes",
     "_remove_path",
     "_remove_tt_studio_model_volumes",
     "_remove_tt_studio_network_containers",
