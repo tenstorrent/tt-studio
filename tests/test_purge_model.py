@@ -19,12 +19,17 @@ from tt_setup.cleanup import _purge_model as _pm
 
 CATALOG = {
     "models": [
-        {"model_name": "Llama-3.1-8B-Instruct", "docker_image": "ghcr.io/x/vllm:1"},
+        {"model_name": "Llama-3.1-8B-Instruct", "docker_image": "ghcr.io/x/vllm:1",
+         "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct"},
         {"model_name": "Llama-3.1-8B-Instruct-FP8", "docker_image": "ghcr.io/x/vllm:1"},
         {"model_name": "Qwen3-32B", "docker_image": "ghcr.io/x/vllm:2"},
-        {"model_name": "whisper-large-v3", "docker_image": "ghcr.io/x/media:1"},
-        {"model_name": "speecht5_tts", "docker_image": "ghcr.io/x/media:1"},
-        {"model_name": "YOLOv4", "docker_image": "ghcr.io/x/yolo:1"},
+        # whisper + speecht5 share an HF repo to exercise cache ref-counting.
+        {"model_name": "whisper-large-v3", "docker_image": "ghcr.io/x/media:1",
+         "hf_model_id": "shared/tts-repo"},
+        {"model_name": "speecht5_tts", "docker_image": "ghcr.io/x/media:1",
+         "hf_model_id": "shared/tts-repo"},
+        {"model_name": "YOLOv4", "docker_image": "ghcr.io/x/yolo:1",
+         "hf_model_id": "yolov4"},  # non-namespaced: no HF cache dir
     ]
 }
 NAMES = [m["model_name"] for m in CATALOG["models"]]
@@ -229,6 +234,42 @@ class InstalledModelsTests(unittest.TestCase):
                                                live_containers=None)
             by_name = {m["name"]: m for m in unverified}
             self.assertEqual(len(by_name["Qwen3-32B"]["running"]), 1)
+
+
+class HfCacheTests(unittest.TestCase):
+    def test_cache_dirs_found_across_layouts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = Path(tmp) / "hub" / "models--meta-llama--Llama-3.1-8B-Instruct"
+            hub.mkdir(parents=True)
+            legacy = Path(tmp) / "models--meta-llama--Llama-3.1-8B-Instruct"
+            legacy.mkdir()
+            locks = Path(tmp) / "hub" / ".locks" / "models--meta-llama--Llama-3.1-8B-Instruct"
+            locks.mkdir(parents=True)
+            dirs = run._hf_cache_dirs_for_repo(tmp, "meta-llama/Llama-3.1-8B-Instruct")
+            self.assertEqual(sorted(dirs), sorted([str(hub), str(legacy), str(locks)]))
+
+    def test_non_namespaced_ids_have_no_cache_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(run._hf_cache_dirs_for_repo(tmp, "yolov4"), [])
+            self.assertEqual(run._hf_cache_dirs_for_repo(tmp, None), [])
+            self.assertEqual(run._hf_cache_dirs_for_repo(None, "a/b"), [])
+
+    def test_kept_by_counts_installed_unpurged_repo_sharers(self):
+        installed = [
+            {"name": "speecht5_tts", "hf_model_id": "shared/tts-repo"},
+            {"name": "whisper-large-v3", "hf_model_id": "shared/tts-repo"},
+            {"name": "Qwen3-32B", "hf_model_id": "Qwen/Qwen3-32B"},
+        ]
+        self.assertEqual(
+            run._hf_cache_kept_by(installed[0], {"speecht5_tts"}, installed),
+            ["whisper-large-v3"])
+        # Purging both frees the repo; a model with its own repo pins nothing.
+        self.assertEqual(
+            run._hf_cache_kept_by(installed[0],
+                                  {"speecht5_tts", "whisper-large-v3"}, installed),
+            [])
+        self.assertEqual(
+            run._hf_cache_kept_by(installed[2], {"Qwen3-32B"}, installed), [])
 
 
 class PurgeModelsFlowTests(unittest.TestCase):
@@ -438,6 +479,61 @@ class PurgeModelsFlowTests(unittest.TestCase):
             self.assertIn("Could not remove", text)
             self.assertNotIn("Reclaimed", text)
             self.assertNotIn("Cleanup complete", text)
+
+    def test_purge_removes_hf_cache_weights(self):
+        """Forge/vLLM weights live in the HF hub cache (hf_home resolves to pv
+        here via the patched get_env_var), not under the persistent volume —
+        purging the model must delete its models--… dir and lock stubs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            hub = pv / "hub" / "models--meta-llama--Llama-3.1-8B-Instruct"
+            hub.mkdir(parents=True)
+            (hub / "model.safetensors").write_text("x" * 128)
+            locks = pv / "hub" / ".locks" / "models--meta-llama--Llama-3.1-8B-Instruct"
+            locks.mkdir(parents=True)
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file)
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [])))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 0)
+            self.assertFalse(hub.exists())
+            self.assertFalse(locks.exists())
+            self.assertIn("Hugging Face weights cache", text)
+
+    def test_shared_hf_cache_is_kept_while_a_sharer_remains(self):
+        """speecht5 and whisper share an HF repo — purging one must keep the
+        cache dir and say so, exactly like shared docker images."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            for name in ("speecht5_tts", "whisper-large-v3"):
+                (pv / "model_envs" / f"{name}.env").write_text("A=1")
+            hub = pv / "hub" / "models--shared--tts-repo"
+            hub.mkdir(parents=True)
+            (hub / "weights.bin").write_text("x" * 64)
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file)
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [])))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                args = SimpleNamespace(purge_model=["speecht5_tts"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 0)
+            self.assertTrue(hub.exists())
+            self.assertFalse((pv / "model_envs" / "speecht5_tts.env").exists())
+            self.assertIn("still used by whisper-large-v3", text)
 
     def test_record_update_failure_is_reported_not_hidden(self):
         """If deployments.json can't be written even via the container

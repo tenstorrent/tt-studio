@@ -53,6 +53,55 @@ def _load_catalog(catalog_path):
         return []
 
 
+def _hf_home():
+    """Host Hugging Face cache root, mirroring tt-inference-server's
+    defaulting: HOST_HF_HOME → HF_HOME → ~/.cache/huggingface."""
+    return get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+
+
+def _hf_cache_dirs_for_repo(hf_home, repo_id):
+    """Existing host HF-cache dirs belonging to one repo id, across the hub/
+    and legacy layouts plus the hub .locks entry. Weights for forge/vLLM
+    models are downloaded here (often tens/hundreds of GB), NOT under the
+    persistent volume. [] for non-namespaced ids ("vit", "resnet-50", …) —
+    those are built-in model names, not HF repos, and have no cache dir."""
+    if not hf_home or not repo_id or "/" not in repo_id:
+        return []
+    leaf = "models--" + repo_id.strip().replace("/", "--")
+    candidates = [
+        os.path.join(hf_home, "hub", leaf),
+        os.path.join(hf_home, leaf),  # legacy pre-hub cache layout
+        os.path.join(hf_home, "hub", ".locks", leaf),
+    ]
+    return [p for p in candidates if os.path.exists(p)]
+
+
+def _hf_cache_kept_by(model, selected_names, installed):
+    """Kept (installed, not-being-purged) model names that share `model`'s
+    hf_model_id — its HF cache dir must then survive the purge, mirroring the
+    docker-image reference counting."""
+    repo = (model.get("hf_model_id") or "").casefold()
+    if not repo:
+        return []
+    return sorted(o["name"] for o in installed
+                  if o["name"] not in selected_names
+                  and (o.get("hf_model_id") or "").casefold() == repo)
+
+
+def _display_path(path):
+    """Repo-relative for paths inside the repo, ~-abbreviated for paths in the
+    user's home (the HF cache), absolute otherwise."""
+    p = os.path.abspath(path)
+    root = TT_STUDIO_ROOT.rstrip(os.sep)
+    if p == root or p.startswith(root + os.sep):
+        return os.path.relpath(p, TT_STUDIO_ROOT)
+    home = os.path.expanduser("~").rstrip(os.sep)
+    if p == home or p.startswith(home + os.sep):
+        return "~" + p[len(home):]
+    return p
+
+
 def _dir_matches_model(name, model_name):
     """Whether a `volume_id_*` name (host weights dir OR docker named volume)
     belongs to `model_name`. Both follow `volume_id_{impl_id}-{model}[-v{ver}]`
@@ -167,9 +216,10 @@ def _parse_picker_selection(raw, count):
 
 
 def _installed_models(persistent_volume, catalog, deployments_path,
-                      docker_volumes=(), live_containers=None):
+                      docker_volumes=(), live_containers=None, hf_home=None):
     """Discover models with something to remove. Returns ordered entries:
-    {name, weight_dirs, env_file, volumes, deployments, running, image, orphan}.
+    {name, weight_dirs, hf_cache_dirs, hf_model_id, env_file, volumes,
+    deployments, running, image, orphan}.
     Catalog models come first; leftover `volume_id_*` dirs/volumes matching no
     catalog model are appended as orphans (purgeable under their raw name).
 
@@ -194,6 +244,8 @@ def _installed_models(persistent_volume, catalog, deployments_path,
         name = entry["model_name"]
         weight_dirs = [os.path.join(persistent_volume, d)
                        for d in disk_entries if _dir_matches_model(d, name)]
+        hf_model_id = entry.get("hf_model_id")
+        hf_cache_dirs = _hf_cache_dirs_for_repo(hf_home, hf_model_id)
         volumes = [v for v in docker_volumes if _dir_matches_model(v, name)]
         env_file = os.path.join(persistent_volume, "model_envs", f"{name}.env")
         if not os.path.isfile(env_file):
@@ -202,12 +254,14 @@ def _installed_models(persistent_volume, catalog, deployments_path,
         running = [r for r in deployments
                    if r.get("container_name") in live
                    or (not verified and r.get("status") == "running")]
-        if not (weight_dirs or volumes or env_file or running):
+        if not (weight_dirs or hf_cache_dirs or volumes or env_file or running):
             continue
         claimed_dirs.update(os.path.basename(d) for d in weight_dirs)
         claimed_vols.update(volumes)
         models.append({
-            "name": name, "weight_dirs": weight_dirs, "env_file": env_file,
+            "name": name, "weight_dirs": weight_dirs,
+            "hf_cache_dirs": hf_cache_dirs, "hf_model_id": hf_model_id,
+            "env_file": env_file,
             "volumes": volumes, "deployments": deployments, "running": running,
             "image": entry.get("docker_image"), "orphan": False,
         })
@@ -218,6 +272,7 @@ def _installed_models(persistent_volume, catalog, deployments_path,
         claimed_vols.update(volumes)
         models.append({
             "name": entry, "weight_dirs": [os.path.join(persistent_volume, entry)],
+            "hf_cache_dirs": [], "hf_model_id": None,
             "env_file": None, "volumes": volumes, "deployments": [], "running": [],
             "image": None, "orphan": True,
         })
@@ -225,7 +280,8 @@ def _installed_models(persistent_volume, catalog, deployments_path,
         if vol in claimed_vols:
             continue
         models.append({
-            "name": vol, "weight_dirs": [], "env_file": None, "volumes": [vol],
+            "name": vol, "weight_dirs": [], "hf_cache_dirs": [],
+            "hf_model_id": None, "env_file": None, "volumes": [vol],
             "deployments": [], "running": [], "image": None, "orphan": True,
         })
     return models
@@ -287,7 +343,8 @@ def _pick_models_interactively(installed):
     console.print("\n[bold]Installed models[/bold]")
     listing = _inventory_table()
     for i, m in enumerate(installed, start=1):
-        size = sum(_path_size(d) for d in m["weight_dirs"])
+        size = sum(_path_size(d)
+                   for d in m["weight_dirs"] + m.get("hf_cache_dirs", []))
         tags = []
         if m["running"]:
             tags.append("[accent]deployed[/accent]")
@@ -335,7 +392,7 @@ def purge_models(args):
     live_containers = _running_container_names(has_docker_access) if docker_usable else None
 
     installed = _installed_models(persistent_volume, catalog, deployments_path,
-                                  docker_volumes, live_containers)
+                                  docker_volumes, live_containers, _hf_home())
 
     # --- choose what to purge ---
     if picker_requested:
@@ -395,6 +452,11 @@ def purge_models(args):
     installed_names = [m["name"] for m in installed]
     removable_images, shared_images = _partition_images(
         catalog, purge_names, installed_names)
+    # Same reference-counting story for the HF cache: models can share a repo,
+    # so a purged model's cache dir survives while a kept model still needs it.
+    selected_names = set(purge_names)
+    hf_kept = {m["name"]: _hf_cache_kept_by(m, selected_names, installed)
+               for m in selected}
 
     console.print()
     console.print(notice_panel(
@@ -413,13 +475,27 @@ def purge_models(args):
         for d in m["weight_dirs"]:
             size = path_sizes[d] = _path_size(d)
             total_bytes += size
-            table.add_row("📁", os.path.relpath(d, TT_STUDIO_ROOT),
+            table.add_row("📁", _display_path(d),
                           _format_bytes(size) if size > 0 else "—", "model weights")
+            rows += 1
+        kept_by = hf_kept.get(m["name"]) or []
+        for d in m.get("hf_cache_dirs", []):
+            if ".locks" in d.split(os.sep):
+                continue  # lock stubs — removed/kept silently with the cache
+            if kept_by:
+                table.add_row("📁", _display_path(d), "",
+                              f"Hugging Face cache kept — shared with {', '.join(kept_by)}")
+            else:
+                size = path_sizes[d] = _path_size(d)
+                total_bytes += size
+                table.add_row("📁", _display_path(d),
+                              _format_bytes(size) if size > 0 else "—",
+                              "Hugging Face weights cache")
             rows += 1
         if m["env_file"]:
             size = path_sizes[m["env_file"]] = _path_size(m["env_file"])
             total_bytes += size
-            table.add_row("⚙️ ", os.path.relpath(m["env_file"], TT_STUDIO_ROOT),
+            table.add_row("⚙️ ", _display_path(m["env_file"]),
                           "—", "model env file")
             rows += 1
         for v in m["volumes"]:
@@ -504,10 +580,13 @@ def purge_models(args):
                     s.detail(f"{len(removed)} volume(s)")
 
         with step(f"Removing {name} weights", spinner=False) as s:
-            if not m["weight_dirs"]:
+            targets = list(m["weight_dirs"])
+            if not hf_kept.get(name):
+                targets += m.get("hf_cache_dirs", [])
+            if not targets:
                 s.skip("none found")
             else:
-                failed = [d for d in m["weight_dirs"]
+                failed = [d for d in targets
                           if not _remove_path(d, no_sudo=no_sudo)]
                 if failed:
                     # fail() also surfaces _remove_path's captured warnings,
@@ -515,8 +594,7 @@ def purge_models(args):
                     failed_paths.extend(failed)
                     failed_bytes += sum(path_sizes.get(d, 0) for d in failed)
                     s.fail()
-                s.detail(f"{len(m['weight_dirs']) - len(failed)}"
-                         f"/{len(m['weight_dirs'])} path(s)")
+                s.detail(f"{len(targets) - len(failed)}/{len(targets)} path(s)")
 
         with step(f"Removing {name} env file", spinner=False) as s:
             if not m["env_file"]:
@@ -561,6 +639,11 @@ def purge_models(args):
         console.print(f"   Reclaimed approximately [bold]{_format_bytes(reclaimed_bytes)}[/bold] from disk.")
     for image, kept in sorted(shared_images.items()):
         console.print(f"   [muted]{image} kept — still used by {', '.join(kept)}[/muted]")
+    for m in selected:
+        kept_by = hf_kept.get(m["name"])
+        if kept_by and m.get("hf_cache_dirs"):
+            console.print(f"   [muted]{m['name']} Hugging Face cache kept — "
+                          f"still used by {', '.join(kept_by)}[/muted]")
     if not docker_usable:
         console.print("   [warning]⚠  Docker is not running — this model's docker volumes "
                       "were not checked or removed. Start Docker and re-run to "
@@ -574,7 +657,7 @@ def purge_models(args):
                       f"{hint}, then re-run.[/warning]")
     for path in failed_paths:
         console.print(f"   [warning]⚠  Could not remove "
-                      f"{os.path.relpath(path, TT_STUDIO_ROOT)} — likely needs "
+                      f"{_display_path(path)} — likely needs "
                       f"elevated permissions; remove it manually with "
                       f"[accent]sudo rm -rf[/accent].[/warning]")
     if records_failed:
