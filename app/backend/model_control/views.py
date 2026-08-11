@@ -102,12 +102,18 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
             phase_dict["weights_cached"] = True
         if prev.get("weights_repo") and not phase_dict.get("weights_repo"):
             phase_dict["weights_repo"] = prev["weights_repo"]
+        # Sticky once we've seen a real in-container download (docker-volume path).
+        if prev.get("download_in_container") and not phase_dict.get("download_in_container"):
+            phase_dict["download_in_container"] = True
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
             "max_progress": new_max_progress,
             "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
+            "download_in_container": bool(
+                phase_dict.get("download_in_container") or prev.get("download_in_container")
+            ),
         }
     return phase_dict
 
@@ -467,11 +473,12 @@ def _format_bytes(n: int | float | None) -> str:
         return "—"
     if n == 0:
         return "0 B"
+    # Decimal (1000-based) units to match HuggingFace's reported sizes.
     units = ("B", "KB", "MB", "GB", "TB", "PB")
     v = float(n)
     u = 0
-    while v >= 1024 and u < len(units) - 1:
-        v /= 1024
+    while v >= 1000 and u < len(units) - 1:
+        v /= 1000
         u += 1
     if v >= 100 or u == 0:
         return f"{int(v)} {units[u]}"
@@ -2041,3 +2048,114 @@ class CodingAgentsView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# App marketplace. Sits beside the coding-agent gateway views because every app
+# here — launched or self-installed — talks to the same model endpoint. Launch
+# mechanics live in marketplace_utils; the catalog in shared_config.
+from model_control import marketplace_utils as marketplace  # noqa: E402
+from shared_config.marketplace_config import (  # noqa: E402
+    MARKETPLACE_APPS,
+    AppKind,
+    get_app,
+)
+
+
+def _launchable_app(app_id: str):
+    """The catalog entry for a launchable app, or None if it isn't one."""
+    app = get_app(app_id)
+    return app if app and app.kind is AppKind.CONTAINER else None
+
+
+class MarketplaceAppsView(APIView):
+    """Catalog of marketplace apps with the current state of each."""
+
+    def get(self, request, *args, **kwargs):
+        containers = marketplace.list_containers()
+        return Response(
+            {
+                "gateway_configured": marketplace.gateway_configured(),
+                "apps": [
+                    marketplace.serialize_app(app, containers)
+                    for app in MARKETPLACE_APPS
+                ],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MarketplaceLaunchView(APIView):
+    """Start a launch job for one app. Returns immediately; poll the list endpoint."""
+
+    def post(self, request, app_id, *args, **kwargs):
+        app = _launchable_app(app_id)
+        if app is None:
+            return Response(
+                {"error": f"No launchable app named '{app_id}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        blocked = marketplace.launch_blocked_reason(app)
+        if blocked:
+            return Response({"error": blocked}, status=status.HTTP_409_CONFLICT)
+
+        job = marketplace.get_job(app.id)
+        if marketplace.is_job_active(job):
+            return Response({"status": job["state"], "message": job["message"]})
+
+        containers = marketplace.list_containers()
+        container = marketplace.find_container(containers, app)
+        if marketplace.is_running(container):
+            return Response(
+                {
+                    "status": "running",
+                    "host_port": marketplace.published_host_port(
+                        container, app.container_port
+                    ),
+                }
+            )
+
+        host_port = marketplace.claim_host_port(app, containers)
+        if host_port is None:
+            return Response(
+                {"error": "No free host port available for apps."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        marketplace.start_launch(app, host_port)
+        return Response(
+            {"status": "starting", "host_port": host_port},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class MarketplaceStopView(APIView):
+    """Stop and remove an app's container. Its named volume, and so its data, is kept."""
+
+    def post(self, request, app_id, *args, **kwargs):
+        app = _launchable_app(app_id)
+        if app is None:
+            return Response(
+                {"error": f"No launchable app named '{app_id}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            marketplace.stop_app(app)
+        except requests.exceptions.HTTPError as e:
+            # Already gone — report the state the caller asked for.
+            if e.response is not None and e.response.status_code == 404:
+                marketplace.clear_job(app.id)
+                return Response({"status": "not_installed"})
+            logger.error(f"marketplace: {app.id} failed to stop: {e}")
+            return Response(
+                {"error": f"Could not stop {app.name}: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            logger.error(f"marketplace: {app.id} failed to stop: {e}")
+            return Response(
+                {"error": f"Could not stop {app.name}: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({"status": "not_installed"})

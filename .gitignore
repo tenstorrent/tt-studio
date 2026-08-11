@@ -63,6 +63,7 @@ db.sqlite3
 !docker-control-service/requirements-api.txt
 
 app/frontend/src/assets/*
+!app/frontend/src/assets/app-logos/
 
 fastapi.pid
 fastapi.log

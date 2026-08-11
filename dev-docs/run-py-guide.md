@@ -73,7 +73,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
+| `--purge-all` | Stop and wipe **everything** including the persistent volume, TT Studio's HuggingFace-cached model weights, and `.env`. (Deprecated alias: `--cleanup-all`.) |
 | `--purge-model MODEL` | Uninstall **one model** (or several — repeat the flag or comma-separate names): its weights, Docker volume, env file, and running container; the Docker image too when no other installed model shares it. Run it bare to pick from an interactive list of installed models. See the [purge-model guide](purge-model-guide.md). |
 | `--yes`, `-y` | Skip the `--purge-all` / `--purge-model` confirmation prompt (for non-interactive/scripted runs). |
 | `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
