@@ -272,10 +272,47 @@ class HfCacheTests(unittest.TestCase):
             run._hf_cache_kept_by(installed[2], {"Qwen3-32B"}, installed), [])
 
 
+class StorageLocationTests(unittest.TestCase):
+    def test_model_storage_locations_lists_all_stores(self):
+        home = os.path.expanduser("~")
+        m = {
+            "weight_dirs": ["/repo/tt_studio_persistent_volume/volume_id_x"],
+            "hf_cache_dirs": [
+                os.path.join(home, ".cache/huggingface/hub/models--a--b"),
+                os.path.join(home, ".cache/huggingface/hub/.locks/models--a--b"),
+            ],
+            "volumes": ["volume_id_x-y"],
+        }
+        where = run._model_storage_locations(m)
+        self.assertEqual(len(where), 3)  # lock stub elided
+        self.assertIn("~/.cache/huggingface/hub/models--a--b", where)
+        self.assertIn("docker volume volume_id_x-y", where)
+
+    def test_volume_mountpoints_parses_inspect_output(self):
+        from tt_setup.cleanup import _resource_ops as rops
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(
+                returncode=0,
+                stdout="vol-a\t/var/lib/docker/volumes/vol-a/_data\n",
+                stderr="")
+
+        with patch.object(rops.subprocess, "run", side_effect=fake_run):
+            points = run._docker_volume_mountpoints(["vol-a"], True)
+        self.assertEqual(points,
+                         {"vol-a": "/var/lib/docker/volumes/vol-a/_data"})
+        self.assertEqual(calls, [["docker", "volume", "inspect", "--format",
+                                  "{{.Name}}\t{{.Mountpoint}}", "vol-a"]])
+        self.assertEqual(run._docker_volume_mountpoints([], True), {})
+
+
 class PurgeModelsFlowTests(unittest.TestCase):
     """End-to-end orchestrator runs with docker helpers mocked."""
 
-    def _stack(self, stack, pv, catalog_file, volumes=(), live=(), daemon="ok"):
+    def _stack(self, stack, pv, catalog_file, volumes=(), live=(), daemon="ok",
+               mounts=None):
         stack.enter_context(patch.object(
             _pm, "get_env_var", side_effect=lambda name, default="": str(pv)))
         stack.enter_context(patch.object(
@@ -288,6 +325,10 @@ class PurgeModelsFlowTests(unittest.TestCase):
             _pm, "_running_container_names", return_value=list(live)))
         stack.enter_context(patch.object(
             _pm, "_docker_object_sizes", return_value=({}, {})))
+        stack.enter_context(patch.object(
+            _pm, "_docker_volume_mountpoints", return_value=dict(mounts or {})))
+        stack.enter_context(patch.object(
+            _pm, "_image_present", return_value=True))
 
     def _setup_tree(self, root):
         pv = InstalledModelsTests()._make_pv(root)
@@ -534,6 +575,56 @@ class PurgeModelsFlowTests(unittest.TestCase):
             self.assertTrue(hub.exists())
             self.assertFalse((pv / "model_envs" / "speecht5_tts.env").exists())
             self.assertIn("still used by whisper-large-v3", text)
+
+    def test_never_pulled_image_is_not_offered_or_removed(self):
+        """The catalog's docker_image is what a model WOULD run — if it was
+        never pulled (or already removed), the inventory must not list it and
+        the images step must say none found instead of \"✓ 0 image(s)\"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file)
+                stack.enter_context(patch.object(
+                    _pm, "_image_present", return_value=False))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([], [])))
+                imgs = stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                # Llama is vllm:1's only installed user, so the image would be
+                # removable — but it does not exist locally.
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            text = " ".join(out.getvalue().split())
+            self.assertEqual(code, 0)
+            imgs.assert_not_called()
+            self.assertNotIn("ghcr.io/x/vllm:1", text)
+
+    def test_inventory_shows_volume_mountpoint(self):
+        """The confirm inventory must say WHERE a docker volume's data lives
+        on the host, not just its name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pv, catalog_file = self._setup_tree(Path(tmp))
+            vol = "volume_id_tt-metal-Llama-3.1-8B-Instruct"
+            mount = f"/var/lib/docker/volumes/{vol}/_data"
+            with contextlib.ExitStack() as stack:
+                self._stack(stack, pv, catalog_file, volumes=[vol],
+                            mounts={vol: mount})
+                stack.enter_context(patch.object(
+                    _pm, "_remove_docker_volumes", return_value=([vol], [])))
+                stack.enter_context(patch.object(
+                    _pm, "_remove_image_ref", return_value=True))
+                args = SimpleNamespace(purge_model=["Llama-3.1-8B-Instruct"],
+                                       yes=True, no_sudo=True)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = run.purge_models(args)
+            # Rich may fold the long path anywhere, so compare whitespace-free.
+            text = "".join(out.getvalue().split())
+            self.assertEqual(code, 0)
+            self.assertIn("_data", text)
 
     def test_record_update_failure_is_reported_not_hidden(self):
         """If deployments.json can't be written even via the container

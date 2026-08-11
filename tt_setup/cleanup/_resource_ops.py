@@ -438,6 +438,31 @@ def _docker_volume_names(has_docker_access):
         return []
 
 
+def _docker_volume_mountpoints(names, has_docker_access):
+    """{volume name: host mountpoint} via `docker volume inspect`, so listings
+    can show WHERE a named volume's data actually lives (usually under
+    /var/lib/docker/volumes/<name>/_data). Best-effort: {} on any error."""
+    names = [n for n in names if n]
+    if not names:
+        return {}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "inspect", "--format",
+                           "{{.Name}}\t{{.Mountpoint}}", *names],
+            capture_output=True, text=True, check=False,
+        )
+        points = {}
+        for line in result.stdout.splitlines():
+            if "\t" in line:
+                name, mountpoint = line.split("\t", 1)
+                if name.strip() and mountpoint.strip():
+                    points[name.strip()] = mountpoint.strip()
+        return points
+    except Exception:
+        return {}
+
+
 def _docker_object_sizes(has_docker_access):
     """Per-object sizes from `docker system df -v`: ({volume_name: bytes},
     {"repo:tag": bytes}). Best-effort — empty dicts if docker is unavailable."""
@@ -531,6 +556,22 @@ def _remove_docker_volumes(names, has_docker_access):
         except Exception:
             continue
     return removed, in_use
+
+
+def _image_present(repo_tag, has_docker_access):
+    """Whether an image with this exact repo:tag exists locally. The catalog's
+    docker_image is what a model WOULD run, not proof it was ever pulled — a
+    purge inventory must only offer images that are actually on disk."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "image", "ls", "--filter",
+                           f"reference={repo_tag}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
 
 
 def _remove_image_ref(repo_tag, has_docker_access):

@@ -21,8 +21,10 @@ from tt_setup.cleanup._resource_ops import (
     _containers_using_volume,
     _docker_daemon_status,
     _docker_object_sizes,
+    _docker_volume_mountpoints,
     _docker_volume_names,
     _format_bytes,
+    _image_present,
     _path_size,
     _remove_docker_containers,
     _remove_docker_volumes,
@@ -337,6 +339,16 @@ def _inventory_table():
     return t
 
 
+def _model_storage_locations(m):
+    """Short human list of WHERE a model's data lives right now: host weight
+    dirs, its HF cache dir, and docker volume names. Lock stubs are elided."""
+    where = [_display_path(d) for d in m.get("weight_dirs", ())]
+    where += [_display_path(d) for d in m.get("hf_cache_dirs", ())
+              if ".locks" not in d.split(os.sep)]
+    where += [f"docker volume {v}" for v in m.get("volumes", ())]
+    return where
+
+
 def _pick_models_interactively(installed):
     """Numbered multi-select over the installed models. Returns the chosen
     entries, or None when the user cancels (empty input / q / Ctrl-C)."""
@@ -350,6 +362,7 @@ def _pick_models_interactively(installed):
             tags.append("[accent]deployed[/accent]")
         if m["orphan"]:
             tags.append("leftover files (not in catalog)")
+        tags += _model_storage_locations(m)
         listing.add_row(f"{i}.", m["name"],
                         _format_bytes(size) if size > 0 else "—",
                         " · ".join(tags))
@@ -448,10 +461,19 @@ def purge_models(args):
     volume_sizes, image_sizes = (
         _docker_object_sizes(has_docker_access) if docker_usable else ({}, {})
     )
+    volume_mounts = _docker_volume_mountpoints(
+        [v for m in selected for v in m["volumes"]],
+        has_docker_access) if docker_usable else {}
     purge_names = [m["name"] for m in selected]
     installed_names = [m["name"] for m in installed]
     removable_images, shared_images = _partition_images(
         catalog, purge_names, installed_names)
+    # The catalog's docker_image may never have been pulled (or was already
+    # removed) — only images actually on disk belong in the inventory, or the
+    # run would promise bytes and then "remove" 0 images.
+    if docker_usable:
+        removable_images = [i for i in removable_images
+                            if _image_present(i, has_docker_access)]
     # Same reference-counting story for the HF cache: models can share a repo,
     # so a purged model's cache dir survives while a kept model still needs it.
     selected_names = set(purge_names)
@@ -501,8 +523,10 @@ def purge_models(args):
         for v in m["volumes"]:
             size = volume_sizes.get(v, 0)
             total_bytes += size
+            where = volume_mounts.get(v)
             table.add_row("💾", v, f"~{_format_bytes(size)}" if size > 0 else "",
-                          "docker model-weight volume")
+                          "docker model-weight volume"
+                          + (f" · {where}" if where else ""))
             rows += 1
         for r in m["running"]:
             table.add_row("🐳", r.get("container_name") or r.get("container_id", "?"),
