@@ -11,9 +11,7 @@ services:
     build:
       context: ../docker-control-service
       dockerfile: Dockerfile
-    command: >
-      sh -c "uvicorn api:app --host 0.0.0.0 --port 8002
-      2>&1 | tee -a /logs/docker-control-service.log"
+    command: ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002"]
     environment:
       - DOCKER_CONTROL_HOST=0.0.0.0
       - DOCKER_CONTROL_PORT=8002

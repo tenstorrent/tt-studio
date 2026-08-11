@@ -8,9 +8,7 @@ services:
     volumes:
       - ../docker-control-service:/app
       - ${TT_STUDIO_ROOT}/logs:/logs
-    command: >
-      sh -c "uvicorn api:app --host 0.0.0.0 --port 8002 --reload
-      2>&1 | tee -a /logs/docker-control-service.log"
+    command: ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002", "--reload"]
 
   tt_studio_backend:
     container_name: tt_studio_backend_api_dev

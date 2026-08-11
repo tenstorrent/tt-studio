@@ -18,4 +18,4 @@ COPY . /app
 # host.  Backend traffic reaches it through the tt_studio_network bridge.
 EXPOSE 8002
 
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002"]
