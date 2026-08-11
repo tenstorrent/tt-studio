@@ -91,6 +91,16 @@ _CLEANUP_IMAGE_REFS = (
     "chromadb/chroma",
 )
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
+# Marketplace apps (Open WebUI, AnythingLLM, Vane, …) keep their state in named
+# volumes declared in shared_config/marketplace_config.py. Matched by shape
+# rather than an app list so volumes left by apps since removed from the
+# marketplace are cleaned up too.
+_CLEANUP_APP_VOLUME_PREFIX = "tt_studio_"
+_CLEANUP_APP_VOLUME_SUFFIX = "_data"
+
+# Having this compose label helps identify the containers that belong to the tt_studio stack vs marketplace apps,
+# and it is also used to give the containers mode-independent names in the diagnostics. 
+_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
 BROWSER_CLEANUP_SENTINEL = os.path.join(
     TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"
