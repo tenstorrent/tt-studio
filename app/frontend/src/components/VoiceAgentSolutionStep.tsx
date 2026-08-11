@@ -26,6 +26,11 @@ import {
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
 import { Model, getModelsUrl } from "./SelectionSteps";
+import {
+  isLlama31_8BModel,
+  isP300x2Board,
+  isQwen3_8BModel,
+} from "../utils/p300x2Placement";
 import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
@@ -74,9 +79,17 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 
 // Blackhole voice pipeline runs Qwen3.5-9B as its LLM. It is single-chip, so the
 // LLM, Whisper and SpeechT5 each take one device. Where Qwen3.5-9B is compatible
-// (Blackhole boards) it is pinned; elsewhere the wizard falls back to the chat
-// dropdown so the pipeline still deploys on Wormhole hardware.
+// (Blackhole boards) it is pinned and the LLM card is fixed rather than a dropdown.
 const PINNED_VOICE_LLM = "Qwen3.5-9B";
+
+// Where Qwen3.5-9B is not compatible, prefer Qwen3-8B before falling through to
+// the Instruct-preferring chat default, so the pipeline still deploys.
+const FALLBACK_VOICE_LLM = "Qwen3-8B";
+
+// Qwen3-8B and Llama-3.1-8B run across a whole P300 card. On a P300x2 that card
+// is slots 0,1, which pushes Whisper to 2 and SpeechT5 to 3 and needs 4 slots.
+const usesCardPairLlm = (modelNameOrId: string) =>
+  isQwen3_8BModel(modelNameOrId) || isLlama31_8BModel(modelNameOrId);
 
 // ---- helpers --------------------------------------------------------------
 
@@ -238,12 +251,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
             models.find((m) => m.model_type === type && filter(m))?.id ?? ""
           );
         };
-        // Prefer the pinned Qwen3.5-9B where the board supports it; otherwise fall
-        // back to the compatible-chat default (Instruct-preferring).
-        const pinned = models.find(
-          (m) => m.name === PINNED_VOICE_LLM && m.is_compatible === true
+        // Prefer the pinned Qwen3.5-9B where the board supports it, then Qwen3-8B,
+        // then the compatible-chat default (Instruct-preferring).
+        const compatibleByName = (name: string) =>
+          models.find((m) => m.name === name && m.is_compatible === true);
+        setSelectedLlmId(
+          compatibleByName(PINNED_VOICE_LLM)?.id ??
+            compatibleByName(FALLBACK_VOICE_LLM)?.id ??
+            firstCompat("chat")
         );
-        setSelectedLlmId(pinned?.id ?? firstCompat("chat"));
         setSelectedWhisperId(firstCompat("speech_recognition"));
         setSpeechT5Id(firstCompat("tts"));
       })
@@ -311,12 +327,19 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   // Pinned when the selected LLM is Qwen3.5-9B (Blackhole); the card is then fixed
   // rather than a dropdown.
   const isPinned = selectedLlmModel?.name === PINNED_VOICE_LLM;
-  const llmDeviceId = 0;
-  const whisperDeviceId = 1;
-  const ttsDeviceId = 2;
+  const currentBoard = allModels[0]?.current_board;
+  // Qwen3.5-9B is single-chip, so the pinned pipeline is one device per stage. The
+  // fallback LLMs take a whole P300 card, so on a P300x2 they occupy slots 0,1.
+  const useCardPair =
+    !isPinned &&
+    isP300x2Board(currentBoard) &&
+    usesCardPairLlm(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
+  const llmDeviceId: number | string = useCardPair ? "0,1" : 0;
+  const whisperDeviceId = useCardPair ? 2 : 1;
+  const ttsDeviceId = useCardPair ? 3 : 2;
 
-  // Pre-flight: the pipeline pins one device per stage, so the board must expose enough of them.
-  const requiredSlots = 3;
+  // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
+  const requiredSlots = useCardPair ? 4 : 3;
   const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
   const hasErrors =
@@ -334,14 +357,25 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     });
     return Array.from(unique.values());
   };
-  const llmOccupants = dedupeOccupiedDevices([occupiedByDevice(llmDeviceId)]);
+  // A card-pair LLM occupies both slots of the card, so report it as "0,1".
+  const withDisplayDeviceIds = (item: OccupiedDevice): OccupiedDevice =>
+    useCardPair && item.device_ids.includes(0)
+      ? { ...item, device_ids: [0, 1] }
+      : item;
+  const llmOccupantsRaw = useCardPair
+    ? dedupeOccupiedDevices([occupiedByDevice(0), occupiedByDevice(1)])
+    : dedupeOccupiedDevices([occupiedByDevice(0)]);
+  const llmOccupants = useCardPair
+    ? dedupeOccupiedDevices(llmOccupantsRaw.map(withDisplayDeviceIds))
+    : llmOccupantsRaw;
   const whisperOccupants = dedupeOccupiedDevices([occupiedByDevice(whisperDeviceId)]);
   const ttsOccupants = dedupeOccupiedDevices([occupiedByDevice(ttsDeviceId)]);
-  const targetSlots = [llmDeviceId, whisperDeviceId, ttsDeviceId];
+  const targetSlots = useCardPair ? [0, 1, 2, 3] : [0, 1, 2];
   const occupiedSlots = dedupeOccupiedDevices(
     targetSlots
       .map((id) => occupiedByDevice(id))
       .filter((item): item is OccupiedDevice => item !== undefined)
+      .map(withDisplayDeviceIds)
   );
   const hasConflicts = occupiedSlots.length > 0;
 
@@ -455,7 +489,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           <p className="text-sm text-muted-foreground">
             {isPinned
               ? "Deploys the full voice pipeline: Qwen3.5-9B on device 0, Whisper on device 1, SpeechT5 on device 2."
-              : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
+              : useCardPair
+                ? `Deploys the full voice pipeline: ${selectedLlmModel?.name ?? "LLM"} on devices 0,1, Whisper on device 2, SpeechT5 on device 3.`
+                : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
 
@@ -469,7 +505,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
               <ModelCard
                 icon={<Bot className="w-5 h-5" />}
                 label="LLM"
-                deviceLabel="Device 0"
+                deviceLabel={useCardPair ? "Device 0,1" : "Device 0"}
                 deployState={llmState}
                 accent="blue"
                 occupants={llmOccupants}
