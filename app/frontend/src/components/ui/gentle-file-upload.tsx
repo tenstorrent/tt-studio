@@ -67,7 +67,7 @@ export const GentleFileUpload = ({
           onChange={(e) => handleFileChange(Array.from(e.target.files || []))}
           className="hidden"
           multiple
-          accept=".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv"
+          accept=".pdf,.txt,.log,.docx,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/html,application/json,text/xml,text/csv"
         />
         <div className="absolute inset-0 mask-[radial-gradient(ellipse_at_center,white,transparent)]">
           <GridPattern />

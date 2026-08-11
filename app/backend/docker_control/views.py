@@ -17,6 +17,7 @@ import subprocess
 import signal
 import os
 from pathlib import Path
+from typing import Optional
 
 import re
 import os
@@ -46,7 +47,7 @@ from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
-from shared_config.model_config import model_implmentations, infer_chips_required
+from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -109,6 +110,75 @@ _LLAMA_V014_MODELS = {
     "Llama-3.1-70B-Instruct",
     "Llama-3.3-70B-Instruct",
 }
+
+
+def _resolve_override_docker_image(impl) -> Optional[str]:
+    """Pin an explicit docker image where the inference server can't infer one.
+
+    Two independent reasons a model needs this:
+    - _LLAMA_V014_MODELS: the inference server's own model_spec default is an
+      older image that's rejected on P300x2 (PR #815) -- unrelated to catalog tier.
+    - requires_dev_catalog: "dev" tier catalog entries don't pin a docker_image
+      (unlike "prod"), so run.py refuses to guess one and requires
+      --override-docker-image whenever --dev-mode is combined with
+      --docker-server. The catalog's own image_version is exactly what's needed.
+    """
+    if impl.model_name in _LLAMA_V014_MODELS:
+        return _LLAMA_V014_IMAGE
+    if impl.requires_dev_catalog:
+        return impl.image_version
+    return None
+
+
+def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
+    """Pick this entry's tt-inference-server build for the board being deployed to.
+
+    The catalog field is keyed by device because one entry usually covers several
+    boards (47 of 56 entries do) and only some may need a non-default build.
+
+    Returns None -- meaning "use the globally pinned artifact" -- for every case
+    except an explicit, matched, eligible pin. Callers need no other fallback.
+    """
+    ref_map = getattr(impl, "inference_artifact_ref", None)
+    if not ref_map:
+        return None
+
+    # Only dev-catalog deploys run run.py as a subprocess, which is the only path
+    # that can be pointed at a different artifact directory. The in-process path
+    # is bound to the artifact imported at inference-api boot, so honouring a ref
+    # there would silently deploy against the wrong build.
+    if not impl.requires_dev_catalog:
+        logger.warning(
+            f"{impl.model_name}: ignoring inference_artifact_ref -- it only applies to "
+            f"models with requires_dev_catalog=true. Using the globally pinned artifact."
+        )
+        return None
+
+    # Match the resolved runtime device first ("p150"), then the detected board
+    # type ("P300x2"). These differ on multi-chip boards: _BOARD_TO_SINGLE_CHIP_DEVICE
+    # maps P300x2 -> p150, so a P300x2 box actually deploys with --tt-device p150.
+    # Accept either spelling so a catalog author can key on what they see.
+    lookup = {str(k).strip().lower(): v for k, v in ref_map.items()}
+    for candidate in (device, board_type):
+        if not candidate:
+            continue
+        ref = lookup.get(str(candidate).strip().lower())
+        if ref:
+            logger.info(
+                f"{impl.model_name}: using tt-inference-server ref '{ref}' "
+                f"(matched '{candidate}')"
+            )
+            return ref
+
+    # A pin exists but nothing matched -- almost always a typo'd key. Say so
+    # rather than silently falling back to a build that lacks this model.
+    logger.warning(
+        f"{impl.model_name}: inference_artifact_ref has no entry for device "
+        f"'{device}' or board '{board_type}' (keys: {sorted(ref_map)}). "
+        f"Using the globally pinned artifact."
+    )
+    return None
+
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
@@ -589,11 +659,8 @@ class DeployView(APIView):
                         overrides["reasoning-parser"] = reasoning_parser
                     if overrides:
                         vllm_override_args = json.dumps(overrides)
-                # Some Llama models need a newer image than the inference server's model_spec default
-                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
-                override_docker_image = (
-                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
-                )
+                override_docker_image = _resolve_override_docker_image(impl)
+                artifact_ref = _resolve_artifact_ref(impl, device, board_type)
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -604,7 +671,8 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
-                    dev_mode=False,
+                    dev_mode=impl.requires_dev_catalog,
+                    artifact_ref=artifact_ref,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -763,7 +831,9 @@ class DeployView(APIView):
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
-                inference_impl = getattr(impl, "inference_impl", None)
+                # resolve-image declares `impl: Optional[str]` and matches on
+                # impl_name. See the matching guard in docker_utils.run_container.
+                inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
                 deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
