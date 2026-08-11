@@ -65,7 +65,6 @@ services:
         condition: service_healthy
       tt_studio_docker_control:
         condition: service_healthy
-        required: false
     stdin_open: true
     tty: true
     environment:

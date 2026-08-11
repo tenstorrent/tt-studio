@@ -77,6 +77,13 @@ class DockerControlComposeTests(unittest.TestCase):
         self.assertIn("json.load", healthcheck[-1])
         self.assertIn("get('docker') == 'healthy'", healthcheck[-1])
         self.assertEqual(
+            backend["depends_on"]["tt_studio_docker_control"]["condition"],
+            "service_healthy",
+        )
+        self.assertTrue(
+            backend["depends_on"]["tt_studio_docker_control"]["required"],
+        )
+        self.assertEqual(
             backend["environment"]["DOCKER_CONTROL_SERVICE_URL"],
             "http://docker-control:8002",
         )
