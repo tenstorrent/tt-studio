@@ -102,12 +102,18 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
             phase_dict["weights_cached"] = True
         if prev.get("weights_repo") and not phase_dict.get("weights_repo"):
             phase_dict["weights_repo"] = prev["weights_repo"]
+        # Sticky once we've seen a real in-container download (docker-volume path).
+        if prev.get("download_in_container") and not phase_dict.get("download_in_container"):
+            phase_dict["download_in_container"] = True
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
             "max_progress": new_max_progress,
             "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
+            "download_in_container": bool(
+                phase_dict.get("download_in_container") or prev.get("download_in_container")
+            ),
         }
     return phase_dict
 
@@ -467,11 +473,12 @@ def _format_bytes(n: int | float | None) -> str:
         return "—"
     if n == 0:
         return "0 B"
+    # Decimal (1000-based) units to match HuggingFace's reported sizes.
     units = ("B", "KB", "MB", "GB", "TB", "PB")
     v = float(n)
     u = 0
-    while v >= 1024 and u < len(units) - 1:
-        v /= 1024
+    while v >= 1000 and u < len(units) - 1:
+        v /= 1000
         u += 1
     if v >= 100 or u == 0:
         return f"{int(v)} {units[u]}"
