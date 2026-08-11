@@ -46,11 +46,12 @@ function resolvePhaseOrder(
 function formatBytes(n?: number | null): string {
   if (n === undefined || n === null || n < 0) return "—";
   if (n === 0) return "0 B";
+  // Decimal (1000-based) units to match HuggingFace's reported sizes.
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let v = n;
   let u = 0;
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024;
+  while (v >= 1000 && u < units.length - 1) {
+    v /= 1000;
     u += 1;
   }
   const decimals = v >= 100 || u === 0 ? 0 : v >= 10 ? 1 : 2;
@@ -292,7 +293,9 @@ function PreparingRow({
           <span className="text-stone-100 text-sm font-semibold truncate">
             {model.name}
           </span>
-          {isCached && <CachedBadge bytes={cachedBytes ?? undefined} />}
+          {isCached && phase?.download_in_container && (
+            <CachedBadge bytes={cachedBytes ?? undefined} />
+          )}
           <span className="text-stone-500 text-[11px] truncate">
             {phaseLabel}
           </span>
@@ -365,7 +368,11 @@ function PreparingRow({
         </div>
       )}
 
-      <PhaseTrack phase={phase} phaseKey={phaseKey} hideDownload={isCached} />
+      <PhaseTrack
+        phase={phase}
+        phaseKey={phaseKey}
+        hideDownload={isCached || !phase?.download_in_container}
+      />
     </div>
   );
 }

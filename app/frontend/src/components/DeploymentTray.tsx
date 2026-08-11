@@ -15,6 +15,7 @@ interface DeploymentTrayProps {
   deployments: ActiveDeployment[];
   progressByJob: Record<string, DeploymentProgressData>;
   onDismiss: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
 }
 
 /**
@@ -22,7 +23,7 @@ interface DeploymentTrayProps {
  * just-finished deployment. Stays mounted across Prev/Next. This subtle list shows
  * all deploys — including the one whose detailed bar is also open in the deploy step.
  */
-export function DeploymentTray({ deployments, progressByJob, onDismiss }: DeploymentTrayProps) {
+export function DeploymentTray({ deployments, progressByJob, onDismiss, onCancel }: DeploymentTrayProps) {
   const navigate = useNavigate();
   const [minimized, setMinimized] = useState(false);
   const shown = deployments;
@@ -37,10 +38,10 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
   const failedCount = shown.filter((d) => d.status === "failed").length;
   const summary =
     activeCount > 0
-      ? `${activeCount} deploying`
+      ? `${activeCount} downloading`
       : failedCount > 0
         ? `${failedCount} failed`
-        : "Deployments done";
+        : "Downloads done";
 
   // bottom-20 keeps the banner (especially the minimized pill) clear of the fixed
   // site footer instead of colliding with it.
@@ -78,7 +79,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
             <div className="flex items-center justify-between border-b bg-muted/40 px-3.5 py-2.5">
               <div className="flex items-center gap-2">
                 <Rocket className="h-4 w-4 text-TT-purple-accent" />
-                <span className="text-sm font-semibold">Deployments</span>
+                <span className="text-sm font-semibold">Downloads</span>
                 {activeCount > 0 && (
                   <span className="rounded-full bg-TT-purple/10 px-1.5 py-0.5 text-[10px] font-medium text-TT-purple-accent">
                     {activeCount} active
@@ -100,6 +101,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
                   deployment={d}
                   progress={progressByJob[d.jobId] ?? null}
                   onDismiss={onDismiss}
+                  onCancel={onCancel}
                   onOpen={openDeployment}
                 />
               ))}
@@ -111,7 +113,7 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss }: Deploy
   );
 }
 
-// Mirrors DeploymentProgress's unified bar
+// Mirrors DeploymentProgress's adaptive three-segment bar (image pull → weight download → container start).
 function compactPercent(
   p: DeploymentProgressData | null,
   completed: boolean,
@@ -120,28 +122,38 @@ function compactPercent(
   if (completed) return 100;
   if (!p) return 0;
   const isPull = p.stage === "pulling_image";
-  if (isPull || hadImagePull) {
-    if (isPull) {
-      const frac =
-        p.total_bytes && p.downloaded_bytes != null
-          ? Math.min(1, Math.max(0, p.downloaded_bytes / p.total_bytes))
-          : 0;
-      return Math.round(frac * 80);
-    }
-    return Math.min(99, Math.round(80 + Math.min(100, Math.max(0, p.progress ?? 0)) * 0.2));
-  }
-  return Math.min(100, Math.max(0, Math.round(p.progress ?? 0)));
+  const hasPull = isPull || hadImagePull;
+  const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
+  const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
+  const [startLo, startHi] = [95, 99];
+  const frac =
+    p.total_bytes && p.downloaded_bytes != null
+      ? Math.min(1, Math.max(0, p.downloaded_bytes / p.total_bytes))
+      : 0;
+  const lerp = (lo: number, hi: number, f: number) =>
+    lo + (hi - lo) * Math.min(1, Math.max(0, f));
+  const containerStartStages = new Set([
+    "image_ready", "container_setup", "container_started", "network_setup", "finalizing", "complete",
+  ]);
+  if (isPull) return Math.round(lerp(pullLo, pullHi, frac));
+  if (p.stage === "model_preparation")
+    return Math.round(lerp(dlLo, dlHi, p.weights_cached ? 1 : frac));
+  if (containerStartStages.has(p.stage))
+    return Math.round(lerp(startLo, startHi, (p.progress ?? 0) / 100));
+  return Math.round(hasPull ? pullLo : dlLo);
 }
 
 function DeploymentTrayItem({
   deployment,
   progress,
   onDismiss,
+  onCancel,
   onOpen,
 }: {
   deployment: ActiveDeployment;
   progress: DeploymentProgressData | null;
   onDismiss: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
   onOpen: (deployment: ActiveDeployment) => void;
 }) {
   const [showLogs, setShowLogs] = useState(false);
@@ -214,7 +226,7 @@ function DeploymentTrayItem({
         >
           {statusLabel}
         </span>
-        {(isFailed || isCompleted) && (
+        {isFailed || isCompleted ? (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -222,6 +234,18 @@ function DeploymentTrayItem({
             }}
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(deployment.jobId);
+            }}
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+            aria-label="Cancel deployment"
+            title="Cancel deployment"
           >
             <X className="h-3.5 w-3.5" />
           </button>
