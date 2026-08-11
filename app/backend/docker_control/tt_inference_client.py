@@ -41,6 +41,8 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
         return "mistral"
     if "deepseek" in s:
         return "deepseek_v3"
+    if "gemma-4-" in s:
+        return "gemma4"
     return None
 
 

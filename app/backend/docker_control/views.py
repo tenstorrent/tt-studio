@@ -180,6 +180,47 @@ def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
     return None
 
 
+# Models whose tt-metal implementation ignores the HF_MODEL env var and instead
+# derives its weights path from vLLM's --model value (hf_config._name_or_path).
+# For these, a repo ID means the loader globs a non-existent relative directory,
+# finds no safetensors, and falls back to AutoModelForCausalLM.from_pretrained(),
+# re-downloading the full weights into the container's ephemeral HF cache on
+# every start -- even though run.py already placed them on the persistent volume.
+_LOCAL_WEIGHTS_MODEL_ARG = {"gemma-4-31B-it"}
+
+_CONTAINER_WEIGHTS_SYMLINK_ROOT = "/home/container_app_user/cache_root/model_file_symlinks_map"
+
+
+def _local_weights_overrides(impl) -> dict:
+    """vLLM args that point an HF_MODEL-ignoring model at its in-container weights.
+
+    Sets --model to the weights symlink so the loader takes its fast safetensors
+    path, and pins --served-model-name back to the HF repo ID so the API identity
+    (and every client referencing it) is unchanged.
+
+    Only effective for requires_dev_catalog models: this rides in via
+    --vllm-override-args, whose "model" key run_docker_server rejects as a
+    reserved wrapper flag. It lands instead through the model spec merge, which
+    the container only reads when dev mode mounts the resolved runtime spec.
+    """
+    if impl.model_name not in _LOCAL_WEIGHTS_MODEL_ARG:
+        return {}
+    if not impl.requires_dev_catalog:
+        logger.warning(
+            f"{impl.model_name}: needs a local --model path to avoid re-downloading "
+            f"weights, but that only applies to requires_dev_catalog deploys. "
+            f"Skipping; expect a duplicate weights download."
+        )
+        return {}
+    hf_model_id = getattr(impl, "hf_model_id", "") or impl.model_name
+    # model_setup() names the symlink after the HF repo basename, not model_name.
+    symlink_name = hf_model_id.split("/")[-1]
+    return {
+        "model": f"{_CONTAINER_WEIGHTS_SYMLINK_ROOT}/{symlink_name}",
+        "served-model-name": hf_model_id,
+    }
+
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -657,6 +698,7 @@ class DeployView(APIView):
                     reasoning_parser = get_reasoning_parser(impl.model_name)
                     if reasoning_parser:
                         overrides["reasoning-parser"] = reasoning_parser
+                    overrides.update(_local_weights_overrides(impl))
                     if overrides:
                         vllm_override_args = json.dumps(overrides)
                 override_docker_image = _resolve_override_docker_image(impl)
