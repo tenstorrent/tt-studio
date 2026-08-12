@@ -720,6 +720,11 @@ class DeployView(APIView):
                     override_docker_image=override_docker_image,
                     dev_mode=impl.requires_dev_catalog,
                     artifact_ref=artifact_ref,
+                    # First-load weight remaps on experimental blackhole builds can
+                    # exceed the default 5s metal op timeout and abort a healthy deploy.
+                    disable_metal_timeout=bool(
+                        impl.requires_dev_catalog or artifact_ref
+                    ),
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
