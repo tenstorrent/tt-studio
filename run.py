@@ -18,6 +18,7 @@ Options:
     --purge-all        Stop and wipe everything including persistent data
     --skip-fastapi     Skip TT Inference Server FastAPI setup
     --no-sudo          Skip sudo usage for FastAPI setup
+    --build-images     Build container images locally instead of pulling prebuilt ones
     --check-headers       Check for missing SPDX license headers
     --add-headers         Add missing SPDX license headers (excludes frontend)
     --help-env         Show environment variables help"""

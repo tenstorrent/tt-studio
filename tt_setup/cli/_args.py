@@ -43,6 +43,7 @@ def _entry(
     reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Advanced"),
     resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog.", rich_help_panel="Advanced"),
     pull_branch: bool = typer.Option(False, "--pull-branch", help="Re-download the inference artifact from its branch.", rich_help_panel="Advanced"),
+    build_images: bool = typer.Option(False, "--build-images", help="Build container images locally instead of pulling prebuilt ones from ghcr.io.", rich_help_panel="Advanced"),
     skip_fastapi: bool = typer.Option(False, "--skip-fastapi", help="Skip TT Inference Server FastAPI setup.", rich_help_panel="Advanced"),
     skip_docker_control: bool = typer.Option(False, "--skip-docker-control", help="Skip the Docker Control Service.", rich_help_panel="Advanced"),
     no_sudo: bool = typer.Option(False, "--no-sudo", help="Skip sudo usage (may limit functionality).", rich_help_panel="Advanced"),
@@ -80,7 +81,7 @@ def _entry(
     args = SimpleNamespace(
         dev=dev, cleanup=stop_requested, cleanup_all=full_teardown, yes=yes, help_env=help_env,
         reconfigure=reconfigure, reconfigure_inference_server=reconfigure_inference_server,
-        resync=resync, pull_branch=pull_branch, skip_fastapi=skip_fastapi,
+        resync=resync, pull_branch=pull_branch, build_images=build_images, skip_fastapi=skip_fastapi,
         skip_docker_control=skip_docker_control, no_sudo=no_sudo, no_browser=no_browser,
         wait_for_services=wait_for_services, browser_timeout=browser_timeout,
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
