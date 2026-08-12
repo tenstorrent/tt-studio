@@ -8,6 +8,7 @@ import subprocess
 import time
 import tempfile
 import signal
+from datetime import datetime
 try:
     import requests  # noqa: F401
     HAS_REQUESTS = True
@@ -20,6 +21,55 @@ from tt_setup.env_config import get_env_var
 from tt_setup.docker import check_docker_access
 from tt_setup.console import console, progress_status, show_detail
 from tt_setup.services._ports import check_port_available, kill_process_on_port
+
+
+def archive_docker_control_log():
+    """Move the current service log into logs/docker_control_logs/, timestamped.
+
+    Mirrors how model_run_logs/ keeps one file per deployment: a stable live log
+    plus a timestamped archive, named
+    ``docker-control-service_<YYYY-MM-DD_HH-MM-SS>.log``. Needed because the log
+    is truncated on every start, so without this the record of why the previous
+    instance died is lost exactly when you restart to investigate it.
+
+    No-op when the log is missing or empty, so a fresh start doesn't litter the
+    archive with empty files. Best-effort: never blocks startup.
+    """
+    try:
+        if not (os.path.isfile(DOCKER_CONTROL_LOG_FILE)
+                and os.path.getsize(DOCKER_CONTROL_LOG_FILE) > 0):
+            return None
+        os.makedirs(DOCKER_CONTROL_LOGS_DIR, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        dest = os.path.join(
+            DOCKER_CONTROL_LOGS_DIR, f"docker-control-service_{stamp}.log"
+        )
+        os.replace(DOCKER_CONTROL_LOG_FILE, dest)
+        return dest
+    except Exception:
+        return None
+
+
+def _stop_supervisor(process):
+    """Stop the wrapper so a failed start leaves nothing running.
+
+    The wrapper supervises uvicorn in a restart loop and lives in its own session,
+    so without this an unsuccessful start would leave that loop respawning every
+    three seconds forever — unreported, and appending to the log indefinitely.
+    SIGTERM triggers the wrapper's own shutdown handler, which takes uvicorn and
+    its children down; waiting also reaps it instead of leaving a zombie.
+    """
+    if process is None or process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=10)
+    except Exception:
+        try:
+            process.kill()
+            process.wait(timeout=5)
+        except Exception:
+            pass
 
 
 def start_docker_control_service(no_sudo=False, dev_mode=False):
@@ -63,6 +113,12 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     if not os.path.exists(DOCKER_CONTROL_SERVICE_DIR):
         console.print(f"[error]⛔ Error: Docker Control Service directory not found at {DOCKER_CONTROL_SERVICE_DIR}[/error]")
         return False
+
+    # Preserve the previous instance's log before truncating it below. A plain
+    # `python run.py` restart does not go through cleanup_docker_control_service,
+    # so without this the record of why the last instance died is lost exactly
+    # when you restart to investigate it.
+    archive_docker_control_log()
 
     # Create PID and log files
     for file_path in [DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_LOG_FILE]:
@@ -130,20 +186,63 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
 
     # Start the service using uvicorn
     temp_script_path = None  # so the finally cleanup is safe if creation fails
+    process = None
     try:
         # Create a temporary wrapper script similar to FastAPI
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
             reload_flag = "--reload" if dev_mode else ""
+            # Supervise uvicorn in a restart loop, mirroring the FastAPI wrapper.
+            # The backend can see Docker only through this service, so if it dies
+            # the whole Models Deployed view goes blind — it must come back on its
+            # own. Output is appended so a restart within this wrapper's lifetime
+            # keeps the crashed instance's log; across launcher restarts the
+            # previous log is preserved by archive_docker_control_log().
             temp_script.write(f'''#!/bin/bash
-set -e
 cd "$1"
 # Save PID to file
 echo $$ > "$2"
-# Start the service
-if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 {reload_flag} > "$4" 2>&1; then
-    echo "Failed to start Docker Control Service. Check logs at $4"
-    exit 1
-fi
+
+CHILD_PID=""
+# Forward shutdown to uvicorn so stopping this wrapper doesn't orphan it, and exit
+# without tripping the restart loop.
+#
+# In dev mode uvicorn runs with --reload, which means $CHILD_PID is a *reloader*
+# that spawns the actual server as a separate process. Signalling only the
+# reloader can leave that spawned process alive, orphaned, and still holding port
+# 8002 — so the service looks up when it is actually unmanaged, and the next start
+# has to fight for the port. Signal the children too, then escalate if anything
+# is still standing.
+shutdown() {{
+    # Ignore what we are about to send so this handler survives to finish.
+    trap '' TERM INT
+    if [ -n "$CHILD_PID" ]; then
+        pkill -TERM -P "$CHILD_PID" 2>/dev/null
+        kill -TERM "$CHILD_PID" 2>/dev/null
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            kill -0 "$CHILD_PID" 2>/dev/null || break
+            sleep 0.5
+        done
+        pkill -KILL -P "$CHILD_PID" 2>/dev/null
+        kill -KILL "$CHILD_PID" 2>/dev/null
+    fi
+    exit 0
+}}
+trap shutdown TERM INT
+# Ignore hangup: closing the terminal or SSH session that ran run.py must not
+# take the service (and with it the whole Models Deployed view) down.
+trap "" HUP
+
+RESTART_COUNT=0
+while true; do
+    "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 {reload_flag} >> "$4" 2>&1 &
+    CHILD_PID=$!
+    wait "$CHILD_PID"
+    EXIT_CODE=$?
+    CHILD_PID=""
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    echo "[$(date)] Docker Control Service exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
+    sleep 3
+done
 ''')
             temp_script_path = temp_script.name
 
@@ -152,7 +251,10 @@ fi
 
         # Start the service
         cmd = [temp_script_path, DOCKER_CONTROL_SERVICE_DIR, DOCKER_CONTROL_PID_FILE, ".venv", DOCKER_CONTROL_LOG_FILE]
-        process = subprocess.Popen(cmd, env=env)
+        # Detach into its own session so closing the terminal or SSH connection
+        # that ran run.py doesn't SIGHUP the service out from under a running
+        # model. cleanup_docker_control_service() still stops it via the PID file.
+        process = subprocess.Popen(cmd, env=env, start_new_session=True)
 
         # Health check (silent — only prints on success or failure)
         health_check_retries = 30
@@ -170,6 +272,7 @@ fi
                                 console.print(f"   {line.rstrip()}", markup=False, highlight=False)
                     except:
                         pass
+                    _stop_supervisor(process)
                     return False
 
                 # Check if service is responding
@@ -196,6 +299,9 @@ fi
                 if i == health_check_retries:
                     console.print("[error]⛔ Docker Control Service failed to start[/error]")
                     console.print(f"   [muted]Check logs: tail -50 {DOCKER_CONTROL_LOG_FILE}[/muted]")
+                    # Don't leave the restart loop respawning a service we've just
+                    # declared failed. The log is left in place for the hint above.
+                    _stop_supervisor(process)
                     return False
 
                 docker_ctl_spinner.update(f"Waiting for Docker Control Service… (attempt {i}/{health_check_retries})")
@@ -203,6 +309,7 @@ fi
 
     except Exception as e:
         console.print(f"[error]⛔ Error starting Docker Control Service: {e}[/error]")
+        _stop_supervisor(process)
         return False
     finally:
         # Clean up the temporary script (only if it was actually created)
@@ -261,11 +368,14 @@ def cleanup_docker_control_service(no_sudo=False):
     # Kill any process on port 8002
     kill_process_on_port(8002, no_sudo=no_sudo, quiet=True)
 
-    # Remove PID and log files
-    for file_path in [DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_LOG_FILE]:
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        except Exception:
-            pass
+    # Remove the PID file; rotate the log rather than deleting it. Deleting it
+    # here meant a restart destroyed the only record of why the previous
+    # instance died, which is exactly what you need after an outage.
+    try:
+        if os.path.exists(DOCKER_CONTROL_PID_FILE):
+            os.remove(DOCKER_CONTROL_PID_FILE)
+    except Exception:
+        pass
+
+    archive_docker_control_log()
 

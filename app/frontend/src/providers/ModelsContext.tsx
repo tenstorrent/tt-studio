@@ -20,6 +20,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
     () => sessionStorage.getItem("userStoppedModel") === "true"
   );
   const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
+  const [controlPlaneDegraded, setControlPlaneDegraded] = useState<boolean>(false);
 
   // Pause polling while a hardware reset is running.
   const { deviceState } = useDeviceState();
@@ -38,6 +39,11 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const deployments = await fetchDeployments();
       const visible = deployments.filter(isVisibleDeployment);
+
+      // The backend flags every entry it served from cache during a
+      // docker-control-service outage. It's a property of the control plane, not
+      // of any one model, so one flagged entry means management is paused.
+      setControlPlaneDegraded(deployments.some((d) => d.status_stale));
 
       if (visible.length > 0) {
         setUserStoppedModel(false);
@@ -81,7 +87,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight }}
+      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight, controlPlaneDegraded }}
     >
       {children}
     </ModelsContext.Provider>
