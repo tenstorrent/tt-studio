@@ -16,6 +16,7 @@ except ImportError:
 from tt_setup.constants import *
 from tt_setup.docker_diag import _resolve_container_name
 from tt_setup.console import console, notice_panel, progress_status
+from tt_setup.docker import run_docker_command
 
 
 def probe_service(health_url, timeout=2):
@@ -180,7 +181,7 @@ def wait_for_container_health(container_name, service_name=None, timeout=300, in
     console.print(f"[error]⛔ {service_name} did not become healthy within {timeout}s[/error]")
     console.print(f"   [muted]Last Docker status: {last_status}[/muted]")
     try:
-        result = subprocess.run(
+        result = run_docker_command(
             ["docker", "logs", "--tail", "10", container_name],
             capture_output=True, text=True, check=False, timeout=10,
         )

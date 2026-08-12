@@ -76,6 +76,17 @@ def _stop_legacy_docker_control_process(pid, no_sudo=False):
     except PermissionError:
         if not no_sudo:
             subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
+            time.sleep(1)
+            try:
+                os.kill(pid, 0)
+                subprocess.run(["sudo", "kill", "-9", str(pid)], check=False)
+            except (ProcessLookupError, PermissionError):
+                pass
+        else:
+            console.print(
+                f"[warning]Permission denied stopping legacy Docker Control (PID {pid}). "
+                "Re-run without --no-sudo or kill PID manually.[/warning]"
+            )
 
 
 def cleanup_docker_control_service(no_sudo=False):
