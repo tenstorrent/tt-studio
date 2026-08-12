@@ -75,7 +75,8 @@ def _stop_supervisor(process):
 def start_docker_control_service(no_sudo=False, dev_mode=False):
     """Start the Docker Control Service on port 8002."""
     mode_label = " (dev/reload)" if dev_mode else ""
-    console.print(f"[info]🔧 Starting Docker Control Service{mode_label}...[/info]")
+    if show_detail():   # the "Docker Control service…" step line already says this
+        console.print(f"[info]🔧 Starting Docker Control Service{mode_label}...[/info]")
 
     # The venv-create + bash wrapper (.sh + chmod) path below is POSIX-only. TT
     # Studio's launcher supports macOS/Linux; on other platforms degrade cleanly
@@ -254,7 +255,11 @@ done
         # Detach into its own session so closing the terminal or SSH connection
         # that ran run.py doesn't SIGHUP the service out from under a running
         # model. cleanup_docker_control_service() still stops it via the PID file.
-        process = subprocess.Popen(cmd, env=env, start_new_session=True)
+        # stdout/stderr go to DEVNULL rather than the terminal: uvicorn already
+        # logs to DOCKER_CONTROL_LOG_FILE, and anything the wrapper echoes would
+        # paint over the live step spinner (it inherits the tty, bypassing step()).
+        process = subprocess.Popen(cmd, env=env, start_new_session=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # Health check (silent — only prints on success or failure)
         health_check_retries = 30
@@ -264,14 +269,9 @@ done
             for i in range(1, health_check_retries + 1):
                 # Check if process is still running
                 if process.poll() is not None:
-                    console.print("[error]⛔ Docker Control Service process died[/error]")
-                    try:
-                        with open(DOCKER_CONTROL_LOG_FILE, 'r') as f:
-                            lines = f.readlines()
-                            for line in lines[-15:]:
-                                console.print(f"   {line.rstrip()}", markup=False, highlight=False)
-                    except:
-                        pass
+                    # Diagnosis is rendered by the caller (report_service_failure)
+                    # once the step's spinner has collapsed.
+                    console.print("[error]Docker Control Service process died[/error]")
                     _stop_supervisor(process)
                     return False
 
@@ -297,10 +297,9 @@ done
                         pass
 
                 if i == health_check_retries:
-                    console.print("[error]⛔ Docker Control Service failed to start[/error]")
-                    console.print(f"   [muted]Check logs: tail -50 {DOCKER_CONTROL_LOG_FILE}[/muted]")
+                    console.print("[error]Docker Control Service never became healthy[/error]")
                     # Don't leave the restart loop respawning a service we've just
-                    # declared failed. The log is left in place for the hint above.
+                    # declared failed. The log stays in place for the diagnosis card.
                     _stop_supervisor(process)
                     return False
 

@@ -195,5 +195,126 @@ class TestFriendlyContainerName(unittest.TestCase):
         self.assertEqual(_diag._friendly_container_name("weird_name"), "weird_name")
 
 
+# Real `docker compose pull` output (piped / non-TTY), captured from compose v2.
+PULL_OK = """ Image python:3.12-slim Pulling 
+ b3c7a9bdb4f2 Pulling fs layer 0B
+ c85ad0bcaca8 Downloading 1.049MB
+ c85ad0bcaca8 Downloading 12.11MB
+ c85ad0bcaca8 Download complete 0B
+ c85ad0bcaca8 Extracting 1B
+ c85ad0bcaca8 Pull complete 0B
+ Image python:3.12-slim Pulled
+"""
+
+PULL_MISSING = """ Image ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2 Pulling 
+ Image alpine:3.19 Pulling 
+ Image ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2 Error failed to resolve reference "ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2": ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2: not found
+ Image alpine:3.19 Interrupted 
+Error response from daemon: failed to resolve reference "ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2": ghcr.io/tenstorrent/tt-studio/backend:sha-205aedf73de2: not found
+"""
+
+
+class TestParsePullLine(unittest.TestCase):
+    def test_image_status_line(self):
+        self.assertEqual(
+            M.parse_pull_line(" Image ghcr.io/tt/backend:sha-abc Pulled"),
+            ("image", "ghcr.io/tt/backend:sha-abc", "Pulled", ""),
+        )
+
+    def test_image_error_line_keeps_detail(self):
+        kind, ref, state, detail = M.parse_pull_line(
+            ' Image ghcr.io/tt/backend:sha-abc Error failed to resolve reference "x": not found')
+        self.assertEqual((kind, state), ("image", "Error"))
+        self.assertTrue(detail.startswith("failed to resolve reference"))
+
+    def test_layer_line_with_size(self):
+        self.assertEqual(
+            M.parse_pull_line(" c85ad0bcaca8 Downloading 12.11MB"),
+            ("layer", "c85ad0bcaca8", "Downloading", 12110000.0),
+        )
+
+    def test_layer_line_without_size(self):
+        self.assertEqual(
+            M.parse_pull_line(" c85ad0bcaca8 Verifying Checksum"),
+            ("layer", "c85ad0bcaca8", "Verifying Checksum", None),
+        )
+
+    def test_unrelated_line(self):
+        self.assertIsNone(M.parse_pull_line("Error response from daemon: nope"))
+
+    def test_short_image_name(self):
+        self.assertEqual(M.short_image_name("ghcr.io/tenstorrent/tt-studio/backend:sha-abc"), "backend")
+        self.assertEqual(M.short_image_name("python:3.12-slim"), "python")
+
+
+class TestParseSizeAndFormat(unittest.TestCase):
+    def test_decimal_units(self):
+        self.assertEqual(M.parse_size("1.049MB"), 1049000.0)
+        self.assertEqual(M.parse_size("512kB"), 512000.0)
+        self.assertEqual(M.parse_size("0B"), 0.0)
+
+    def test_bad_size(self):
+        self.assertIsNone(M.parse_size(""))
+        self.assertIsNone(M.parse_size("lots"))
+
+    def test_format_bytes(self):
+        self.assertEqual(M.format_bytes(0), "0 B")
+        self.assertEqual(M.format_bytes(12_110_000), "12.1 MB")
+        self.assertEqual(M.format_bytes(2_400_000_000), "2.4 GB")
+
+    def test_progress_bar_fills(self):
+        self.assertEqual(M.progress_bar(0, 0), "")
+        self.assertEqual(M.progress_bar(0, 4, width=4), "▕░░░░▏")
+        self.assertEqual(M.progress_bar(2, 4, width=4), "▕██░░▏")
+        self.assertEqual(M.progress_bar(4, 4, width=4), "▕████▏")
+
+
+class TestPullProgress(unittest.TestCase):
+    def _feed(self, text):
+        p = M.PullProgress()
+        events = [p.feed(line) for line in text.splitlines()]
+        return p, [e for e in events if e]
+
+    def test_successful_pull_counts_image_and_bytes(self):
+        p, events = self._feed(PULL_OK)
+        self.assertEqual(events, [("pulled", "python")])
+        self.assertEqual(p.counts(), (1, 1))
+        # Per-layer lines restate a running total; completion re-reports 0B.
+        self.assertEqual(p.bytes_downloaded(), 12110000.0)
+        self.assertIn("1/1 images", p.activity())
+        self.assertIn("12.1 MB", p.activity())
+
+    def test_activity_before_any_output(self):
+        self.assertEqual(M.PullProgress().activity(), "Pulling prebuilt images…")
+
+    def test_failed_pull_records_failure_and_resolves_bar(self):
+        p, events = self._feed(PULL_MISSING)
+        self.assertEqual([e[0] for e in events], ["error"])
+        self.assertEqual(events[0][1], "backend")
+        self.assertEqual(len(p.failures), 1)
+        # Errored images still count as resolved so the bar can complete.
+        self.assertEqual(p.counts(), (1, 2))
+
+
+class TestClassifyPullFailure(unittest.TestCase):
+    def test_unpublished_tag(self):
+        self.assertEqual(M.classify_pull_failure(PULL_MISSING), "unpublished")
+
+    def test_auth_required(self):
+        out = "Error response from daemon: unauthorized: authentication required"
+        self.assertEqual(M.classify_pull_failure(out), "auth")
+
+    def test_offline_wins_over_missing_manifest(self):
+        out = ('failed to resolve reference: dial tcp: lookup ghcr.io: '
+               'no such host\nmanifest unknown')
+        self.assertEqual(M.classify_pull_failure(out), "unreachable")
+
+    def test_empty_output(self):
+        self.assertEqual(M.classify_pull_failure(""), "unknown")
+
+    def test_unrecognized_output(self):
+        self.assertEqual(M.classify_pull_failure("something odd happened"), "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()
