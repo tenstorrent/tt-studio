@@ -73,6 +73,15 @@ const LEAKED_TOOL_CALL_RE = /\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,
 const processContent = (content: string): ProcessedContent => {
   const thinkingBlocks: string[] = [];
 
+  // Qwen-style chat templates put the opening <think> in the prompt, so the
+  // model streams only the closing </think>. If the server ran without a
+  // reasoning parser, that thinking arrives inline — restore the opening tag
+  // so it lands in the thinking block instead of the visible reply.
+  const closeIdx = content.indexOf("</think>");
+  if (closeIdx !== -1 && !content.slice(0, closeIdx).includes("<think>")) {
+    content = "<think>" + content;
+  }
+
   // Extract completed thinking blocks with <think>...</think> tags (before cleaning)
   const thinkingRegex = /<think>(.*?)<\/think>/gis;
   let match;

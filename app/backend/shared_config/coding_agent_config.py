@@ -26,6 +26,7 @@ CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 # The parser splits reasoning into reasoning_content instead of inline <think> text.
 REASONING_MODELS = {
     "Qwen3-32B": "qwen3",
+    "Qwen3.5-9B": "qwen3",
     "gemma-4-31B-it": "gemma4",
 }
 
