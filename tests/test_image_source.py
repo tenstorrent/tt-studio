@@ -20,6 +20,31 @@ class TestComputeImageTag(unittest.TestCase):
         self.assertEqual(M.compute_image_tag("", ""), "latest")
 
 
+class TestFrontendConfigDrift(unittest.TestCase):
+    """Naming the offending var is the difference between the user fixing it and
+    the user asking why their build takes five minutes."""
+
+    def _env(self, **overrides):
+        return lambda name, default="": overrides.get(name, default)
+
+    def test_stock_config_has_no_drift(self):
+        self.assertEqual(M.frontend_config_drift(self._env()), [])
+
+    def test_custom_title_is_named(self):
+        env = self._env(VITE_APP_TITLE="Tenstorrent | TT Studio")
+        self.assertEqual(M.frontend_config_drift(env), ["VITE_APP_TITLE"])
+
+    def test_quoted_stock_title_is_still_stock(self):
+        # .env values are sometimes quoted (VITE_APP_TITLE="TT Studio").
+        self.assertEqual(M.frontend_config_drift(self._env(VITE_APP_TITLE='"TT Studio"')), [])
+
+    def test_several_drifting_vars_are_all_named(self):
+        env = self._env(VITE_APP_TITLE="Lab", VITE_ENABLE_RAG_ADMIN="true",
+                        VITE_ENABLE_DEPLOYED="yes")
+        self.assertEqual(M.frontend_config_drift(env),
+                         ["VITE_ENABLE_DEPLOYED", "VITE_APP_TITLE", "VITE_ENABLE_RAG_ADMIN"])
+
+
 class TestFrontendConfigIsStock(unittest.TestCase):
     def _env(self, **overrides):
         return lambda name, default="": overrides.get(name, default)
@@ -115,6 +140,33 @@ class TestIsWorktreeDirty(unittest.TestCase):
     def test_git_exception_counts_as_dirty(self):
         with patch.object(M.subprocess, "run", side_effect=OSError("no git")):
             self.assertTrue(M.is_worktree_dirty())
+
+
+class TestDescribePullFallback(unittest.TestCase):
+    def test_unpublished_with_cached_images(self):
+        msg, hint = M.describe_pull_fallback("unpublished", "sha-205aedf73de2", cached=True)
+        self.assertIn("sha-205aedf73de2", msg)
+        self.assertIn("using local images", msg)
+        self.assertIsNone(hint)
+
+    def test_unpublished_without_cached_images_builds(self):
+        msg, _ = M.describe_pull_fallback("unpublished", "sha-abc", cached=False)
+        self.assertIn("building locally", msg)
+
+    def test_offline_message_names_the_registry(self):
+        msg, hint = M.describe_pull_fallback("unreachable", "v2.9.0", cached=True)
+        self.assertIn("ghcr.io", msg)
+        self.assertIsNone(hint)
+
+    def test_auth_offers_the_login_hint(self):
+        msg, hint = M.describe_pull_fallback("auth", "v2.9.0", cached=False)
+        self.assertIn("login", msg)
+        self.assertEqual(hint, "run: docker login ghcr.io")
+
+    def test_unknown_kind_falls_back_to_generic(self):
+        msg, hint = M.describe_pull_fallback("something-else", "v1", cached=False)
+        self.assertIn("Couldn't pull", msg)
+        self.assertIsNone(hint)
 
 
 if __name__ == "__main__":

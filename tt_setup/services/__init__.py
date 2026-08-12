@@ -12,14 +12,19 @@ and `import tt_setup.services as M` keep working unchanged.
 from tt_setup.constants import *  # noqa: F401,F403  (re-export constants: M.TT_STUDIO_ROOT etc.)
 
 from tt_setup.services._ports import (
+    _kill_port_holder,
     _process_is_docker,
     check_and_free_ports,
     check_port_available,
     kill_process_on_port,
+    wait_for_port_release,
 )
 from tt_setup.services._health import (
+    diagnose_service_log,
     get_frontend_config,
     probe_service,
+    read_log_tail,
+    report_service_failure,
     snapshot_health,
     wait_for_all_services,
     wait_for_frontend_and_open_browser,
@@ -39,6 +44,8 @@ from tt_setup.services._frontend import ensure_frontend_dependencies, is_valid_g
 
 __all__ = [
     "check_port_available", "check_and_free_ports", "_process_is_docker", "kill_process_on_port",
+    "_kill_port_holder", "wait_for_port_release",
+    "diagnose_service_log", "read_log_tail", "report_service_failure",
     "probe_service", "snapshot_health", "wait_for_service_health", "wait_for_all_services",
     "wait_for_frontend_and_open_browser", "get_frontend_config",
     "setup_fastapi_environment", "apply_media_catalog_env_overlay", "start_fastapi_server",
