@@ -3,11 +3,18 @@
 
 """Characterization tests for docker/compose diagnostics."""
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 try:
     from tt_setup import docker_diag as M
 except ImportError:  # pre-refactor
     import run as M
+
+try:
+    from tt_setup.docker_diag import _diagnostics as _diag
+except ImportError:  # pre-refactor
+    _diag = M
 
 
 class TestParseDockerBuildFailure(unittest.TestCase):
@@ -115,6 +122,77 @@ class TestDiagnoseContainerFailure(unittest.TestCase):
         d = M.diagnose_container_failure("c", 42, "nothing recognizable")
         self.assertIn("Unknown failure", d["cause"])
         self.assertIn("42", d["cause"])
+
+    def test_clean_exit_0_is_not_reported_as_unknown_failure(self):
+        # A clean exit is not an unrecognized failure (issue #1214).
+        d = M.diagnose_container_failure("c", 0, "")
+        self.assertEqual(d["cause"], "Exited cleanly")
+        self.assertNotIn("Unknown", d["cause"])
+
+
+class TestVerifyDockerContainers(unittest.TestCase):
+    """Startup verification must judge only the Compose stack (issue #1214)."""
+
+    def _run_with(self, stdout):
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            recorded["cmd"] = cmd
+            return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+
+        with patch.object(_diag.subprocess, "run", side_effect=fake_run):
+            return M.verify_docker_containers(), recorded["cmd"]
+
+    def test_filters_on_compose_project_label_and_name(self):
+        # Name alone is a substring match that catches tt_studio_app_* marketplace
+        # containers; the label restricts it to Compose-managed containers, and the
+        # name keeps an unrelated Compose project on the same host out.
+        _, cmd = self._run_with("tt_studio_backend_api_dev\ttt_studio_backend\tUp 2 minutes\n")
+        self.assertIn("name=tt_studio", cmd)
+        self.assertIn("label=com.docker.compose.service", cmd)
+
+    def test_parses_service_label_and_running_state(self):
+        stdout = (
+            "tt_studio_backend_api_dev\ttt_studio_backend\tUp 2 minutes (healthy)\n"
+            "tt_studio_chroma_dev\ttt_studio_chroma\tExited (1) 3 minutes ago\n"
+        )
+        containers, _ = self._run_with(stdout)
+
+        self.assertEqual(set(containers), {"tt_studio_backend_api_dev", "tt_studio_chroma_dev"})
+        self.assertTrue(containers["tt_studio_backend_api_dev"]["running"])
+        self.assertFalse(containers["tt_studio_chroma_dev"]["running"])
+        self.assertEqual(containers["tt_studio_backend_api_dev"]["service"], "tt_studio_backend")
+
+    def test_malformed_lines_are_skipped(self):
+        containers, _ = self._run_with("garbage\n\ntt_studio_agent_dev\ttt_studio_agent\tUp 1 minute\n")
+        self.assertEqual(list(containers), ["tt_studio_agent_dev"])
+
+
+class TestFriendlyContainerName(unittest.TestCase):
+    """Diagnosis panels must name the service, not the raw container (issue #1214)."""
+
+    def test_resolves_through_compose_service_not_container_name(self):
+        # Container names carry a mode suffix (_dev/_prod) the service name does
+        # not, so the old raw-name lookup matched nothing in any mode.
+        for container in ("tt_studio_backend_api_dev", "tt_studio_backend_api_prod"):
+            self.assertEqual(
+                _diag._friendly_container_name(container, {"service": "tt_studio_backend"}),
+                "Backend",
+            )
+
+    def test_covers_litellm_gateway(self):
+        self.assertEqual(
+            _diag._friendly_container_name("tt_studio_litellm", {"service": "tt_studio_litellm"}),
+            "LiteLLM gateway",
+        )
+
+    def test_falls_back_to_service_then_container_name(self):
+        self.assertEqual(
+            _diag._friendly_container_name("weird_name", {"service": "tt_studio_future"}),
+            "tt_studio_future",
+        )
+        self.assertEqual(_diag._friendly_container_name("weird_name", {}), "weird_name")
+        self.assertEqual(_diag._friendly_container_name("weird_name"), "weird_name")
 
 
 if __name__ == "__main__":

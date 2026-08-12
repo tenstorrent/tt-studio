@@ -31,14 +31,15 @@ interface DeploymentProgressProps {
     total_bytes?: number | null;
     eta_seconds?: number | null;
     speed_bps?: number | null;
+    weights_cached?: boolean;
   } | null;
   className?: string;
   onRetry?: () => void;
   onCancel?: () => void;
   onViewLogs?: () => void;
   startTime?: number;
-  /** True once the image has been pulled in this deploy. Drives the unified
-   *  0–50% (pull) / 50–100% (container start) bar and a "✓ Image ready" confirmation. */
+  /** True once the image has been pulled in this deploy. When set, the bar reserves
+   *  a leading pull segment; otherwise the download owns the front of the bar. */
   imagePulled?: boolean;
 }
 
@@ -134,11 +135,12 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const formatBytes = (bytes?: number | null) => {
     if (bytes === undefined || bytes === null || bytes < 0) return '—';
     if (bytes === 0) return '0 B';
+    // Decimal (1000-based) units to match HuggingFace's reported sizes
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     let value = bytes;
     let u = 0;
-    while (value >= 1024 && u < units.length - 1) {
-      value /= 1024;
+    while (value >= 1000 && u < units.length - 1) {
+      value /= 1000;
       u += 1;
     }
     const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;
@@ -192,12 +194,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       ? Math.min(100, Math.max(0, (downloadedBytes / totalBytes) * 100))
       : null;
 
-  // Unified percent that drives both the bar and the % label across every
-  // phase-A stage. During model_preparation we map the byte-level download
-  // fraction onto the 15→40 window (the same window backend `_weights_progress_monitor`
-  // uses), so the bar advances smoothly with bytes. For every other stage we
-  // fall back to the stage's coarse `progress` value the backend already sets
-  // (initialization=5, setup=15, container_setup=50–70, finalizing=85–90, complete=100).
+  // Byte-level download fraction (0–1), used to advance the download segment.
   const downloadFraction =
     totalBytes !== null && downloadedBytes !== null && totalBytes > 0
       ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
@@ -206,22 +203,35 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isContainerStarting =
     !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
 
-  // Unified, forward-only percent for a pre-pull deploy. The image pull is the long
-  // part (real, multi-GB bytes) so it owns most of the bar (0–80%); the container
-  // start is a fast cache-hit tail, mapped into the last 80–100%. The tail is capped
-  // at 99% so a real tick to 100% only happens on actual completion. For any non-pull
-  // use of this component we keep the original per-stage behavior.
-  const unifiedPullContext = isImagePull || imagePulled;
+  // Adaptive three-segment bar: image pull → weight download → container start, in
+  // the order they occur before the Models Deployed page.
+  //   with pull:    pull 0–25, download 25–95, start 95–99
+  //   image cached: download 0–95, start 95–99   (pull segment collapses)
+  // A weights cache-hit fast-forwards the download segment. Pull and download advance
+  // on real byte fractions; container start uses the backend's coarse per-stage progress.
+  const hasPull = isImagePull || imagePulled;
+  const cacheReady = isCacheReadyOrSetupCompleteMessage(message);
+  const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
+  const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
+  const [startLo, startHi] = [95, 99];
+  const lerp = (lo: number, hi: number, f: number) =>
+    lo + (hi - lo) * Math.min(1, Math.max(0, f));
+
+  // Only genuine post-download container-start stages map into the tail band. Early
+  // stages (starting/initialization/setup, or a transient not_found) precede the
+  // download and stay at the start, so the monotonic clamp can't lock the bar high
+  // before the download has even begun.
+  const containerStartStages = new Set([
+    'image_ready', 'container_setup', 'container_started', 'network_setup', 'finalizing', 'complete',
+  ]);
   const rawPercent = (() => {
     if (isError || isComplete) return 100;
-    if (unifiedPullContext) {
-      if (isImagePull) return (downloadFraction ?? 0) * 80;
-      return Math.min(99, 80 + Math.min(100, Math.max(0, progressPercent ?? 0)) * 0.2);
-    }
-    if (stage === 'model_preparation' && downloadFraction !== null) {
-      return 15 + downloadFraction * 25;
-    }
-    return Math.min(100, Math.max(0, progressPercent ?? 0));
+    if (isImagePull) return lerp(pullLo, pullHi, downloadFraction ?? 0);
+    if (stage === 'model_preparation')
+      return lerp(dlLo, dlHi, downloadFraction ?? (cacheReady ? 1 : 0));
+    if (containerStartStages.has(stage))
+      return lerp(startLo, startHi, (progressPercent ?? 0) / 100);
+    return hasPull ? pullLo : dlLo;
   })();
 
   // Clamp monotonic so a noisy/coarse backend value can never make the bar jump
@@ -262,8 +272,18 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           )}
           <span className="text-lg mr-2">{stageIcons[stage] || '⚙️'}</span>
           <span className="text-sm font-medium text-foreground">
-            {stageDisplayNames[stage] || stage}
+            {stage === 'model_preparation' && weightsDetails
+              ? 'Downloading model weights'
+              : stageDisplayNames[stage] || stage}
           </span>
+          {progress.weights_cached && (
+            <span
+              className="ml-2 inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-300"
+              title="Weights are already in the HuggingFace cache — no download needed."
+            >
+              <span aria-hidden="true">✓</span> Cached
+            </span>
+          )}
         </div>
         <div className="flex items-center space-x-2">
           {startTime && (
@@ -294,9 +314,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         </p>
       )}
 
-      {/* Single forward-only bar: image pull fills 0–50% (smooth, real bytes),
-          container-start milestones fill 50–100% (real backend stage progress,
-          clamped monotonic so it never resets backwards). */}
+      {/* Single forward-only bar across pull → download → container start,
+          clamped monotonic so it never resets backwards. */}
       <div className="mb-3">
         <Progress
           value={displayPercent}

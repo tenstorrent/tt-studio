@@ -73,7 +73,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
+| `--purge-all` | Stop and wipe **everything** including the persistent volume, TT Studio's HuggingFace-cached model weights, and `.env`. (Deprecated alias: `--cleanup-all`.) |
 | `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
 | `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
 
@@ -106,6 +106,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--help-env` | Show detailed help for environment variables. |
 | `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
 | `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
+| `--no-clear` | Don't clear the terminal at startup — keep whatever was already on screen and stream the full per-phase detail. Like `--verbose`, but it also preserves your scrollback. |
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
@@ -137,6 +138,15 @@ sudo/FastAPI steps) instead of the collapsed summary. Reach for it first when a
 phase reports ⚠ or ⛔ and you want the underlying error. For a run that already
 finished, `--logs` and `--status` (below) are the equivalent live views, and
 `--report-bug` bundles the logs for you.
+
+To watch every step **without** losing whatever is already in your terminal, use
+`--no-clear`. It implies `--verbose` (full per-phase output) and additionally
+never clears the screen, so the calm sticky-header splash is skipped and your
+existing scrollback stays put:
+
+```bash
+python run.py --no-clear
+```
 
 > The design of the calm output (phase stepper, sticky header, status glyphs) is
 > documented in [Launcher terminal design](launcher-terminal-design.md) — read

@@ -38,6 +38,7 @@ urlpatterns = [
     path("deploy/progress/<str:job_id>/", views.DeploymentProgressView.as_view(), name="deployment-progress"),
     path("deploy/logs/<str:job_id>/", views.DeploymentLogsView.as_view(), name="deployment-logs"),
     path("deploy/progress/stream/<str:job_id>/", views.DeploymentProgressStreamView.as_view(), name="deployment-progress-stream"),
+    path("deploy/cancel/<str:job_id>/", views.CancelDeploymentView.as_view(), name="deployment-cancel"),
     path("stop/stream/<str:container_id>/", views.StopStreamView.as_view(), name="stop-stream"),
     path("status/", views.StatusView.as_view()),
     path("deployments/", views.DeploymentsView.as_view(), name="deployments"),

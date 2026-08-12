@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 "use client";
 
-import { useCallback, useMemo, useEffect, useState } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { StepperFormActions } from "./StepperFormActions";
 import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
+import { cancelDeployment } from "../api/modelsDeployedApis";
+import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
 import { Button } from "./ui/button";
@@ -60,6 +62,7 @@ export function DeployModelStep({
 }) {
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
+  const { removeDeployment } = useActiveDeploymentsContext();
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
@@ -166,8 +169,27 @@ export function DeployModelStep({
     return () => clearTimeout(timer);
   }, [isDeploymentComplete, navigate]);
 
-  // Show blocking warning when the selected model can't fit the free devices
-  const showSlotsFullWarning = cannotFit;
+  // Show the blocking "board full" warning, but suppress the flash after a
+  // cancel/complete: while this model's deploy is in flight we never warn, and for a
+  // few seconds after it ends we hold off so chip-status can catch up to the freed slot
+  const [showSlotsFullWarning, setShowSlotsFullWarning] = useState(false);
+  const wasActiveRef = useRef(false);
+  const leftActiveAtRef = useRef(0);
+  useEffect(() => {
+    const isActive = !!activeDeployment;
+    if (wasActiveRef.current && !isActive) leftActiveAtRef.current = Date.now();
+    wasActiveRef.current = isActive;
+  }, [activeDeployment]);
+  useEffect(() => {
+    if (activeDeployment || !cannotFit) {
+      setShowSlotsFullWarning(false);
+      return;
+    }
+    const sinceLeftActive = Date.now() - leftActiveAtRef.current;
+    const delay = sinceLeftActive < 6000 ? 6000 - sinceLeftActive : 400;
+    const timer = setTimeout(() => setShowSlotsFullWarning(true), delay);
+    return () => clearTimeout(timer);
+  }, [cannotFit, activeDeployment]);
   // Show informational status when some slots are in use but the model still fits
   const showSlotInfo = !cannotFit && slotInfo.occupiedDetails.length > 0;
 
@@ -213,6 +235,10 @@ export function DeployModelStep({
               }
               startTime={activeDeployment.startedAt}
               imagePulled={activeDeployment.hadImagePull}
+              onCancel={() => {
+                void cancelDeployment(activeDeployment.jobId);
+                removeDeployment(activeDeployment.jobId);
+              }}
             />
             <p className="mt-3 text-xs text-muted-foreground text-center">
               This model is already deploying. Go back to deploy another model in parallel,
