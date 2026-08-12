@@ -15,6 +15,7 @@ from tt_setup.constants import (
 from tt_setup.console import console, kept_panel, notice_panel, step
 from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var
+from tt_setup.cleanup._confirm import _confirm_purge
 from tt_setup.cleanup._runtime import _cleanup_runtime
 from tt_setup.cleanup._resource_ops import (
     _container_pycache_dirs,
@@ -223,21 +224,8 @@ def cleanup_resources(args):
     else:
         console.print("\n[error]This cannot be undone.[/error]")
 
-    if not assume_yes:
-        while True:
-            try:
-                confirm = console.input("\n[warning]Proceed with full reset?[/warning] [muted](y/yes or n/no)[/muted] ").strip().lower()
-            except (KeyboardInterrupt, EOFError):
-                console.print("\n[warning]🛑 Aborted — nothing was deleted.[/warning]")
-                return False
-            if confirm in ("y", "yes"):
-                break
-            if confirm in ("n", "no", ""):
-                console.print("\n[info]🛑 Aborted — nothing was deleted.[/info]")
-                return False
-            console.print("[muted]Please answer y/yes or n/no.[/muted]")
-    else:
-        console.print("\n[muted]--yes passed; proceeding without prompt.[/muted]")
+    if not _confirm_purge(assume_yes, "Proceed with full reset?"):
+        return False
 
     console.print("\n[bold]🧹 Cleaning up TT Studio[/bold]")
     _cleanup_runtime(args, has_docker_access)
