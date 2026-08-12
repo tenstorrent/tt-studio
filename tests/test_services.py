@@ -108,5 +108,70 @@ class TestPortFreeingNeverKillsDocker(unittest.TestCase):
         self.assertEqual(failed, [])
 
 
+class TestWaitForPortRelease(unittest.TestCase):
+    def test_returns_true_as_soon_as_the_port_frees(self):
+        states = iter([False, False, True])
+        with patch.object(_ports_mod, "check_port_available", lambda p: next(states)), \
+             patch.object(_ports_mod.time, "sleep", lambda s: None):
+            self.assertTrue(_ports_mod.wait_for_port_release(8002, timeout=5, interval=0))
+
+    def test_gives_up_after_the_timeout(self):
+        clock = iter([0.0, 0.0, 10.0])
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod.time, "monotonic", lambda: next(clock)), \
+             patch.object(_ports_mod.time, "sleep", lambda s: None):
+            self.assertFalse(_ports_mod.wait_for_port_release(8002, timeout=1, interval=0))
+
+
+class TestKillProcessOnPortWaitsForRelease(unittest.TestCase):
+    """The bind-after-kill race: a killed uvicorn --reload hands its socket to a
+    child, so one kill can leave the port taken."""
+
+    def test_retries_until_the_port_is_actually_free(self):
+        released = iter([False, True])
+        with patch.object(_ports_mod, "_kill_port_holder", return_value=True) as kill, \
+             patch.object(_ports_mod, "wait_for_port_release", lambda p: next(released)):
+            self.assertTrue(_ports_mod.kill_process_on_port(8002, quiet=True))
+        self.assertEqual(kill.call_count, 2)
+
+    def test_docker_holder_is_returned_untouched(self):
+        with patch.object(_ports_mod, "_kill_port_holder", return_value="docker"):
+            self.assertEqual(_ports_mod.kill_process_on_port(8002, quiet=True), "docker")
+
+    def test_reports_failure_when_the_port_never_frees(self):
+        with patch.object(_ports_mod, "_kill_port_holder", return_value=True), \
+             patch.object(_ports_mod, "wait_for_port_release", return_value=False), \
+             patch.object(_ports_mod, "check_port_available", return_value=False):
+            self.assertFalse(_ports_mod.kill_process_on_port(8002, quiet=True, attempts=2))
+
+
+class TestDiagnoseServiceLog(unittest.TestCase):
+    def test_address_in_use(self):
+        log = ("INFO:     Will watch for changes in these directories: ['/x']\n"
+               "ERROR:    [Errno 98] Address already in use")
+        d = M.diagnose_service_log(log, port=8002, log_file="/tmp/dc.log")
+        self.assertIn("8002", d["cause"])
+        self.assertIn("Errno 98", d["evidence"])
+        self.assertTrue(any("lsof -i :8002" in a for a in d["actions"]))
+
+    def test_missing_dependency(self):
+        d = M.diagnose_service_log("ModuleNotFoundError: No module named 'fastapi'")
+        self.assertIn("dependency", d["cause"])
+        self.assertTrue(any(".venv" in a for a in d["actions"]))
+
+    def test_permission_denied_points_at_docker_access(self):
+        d = M.diagnose_service_log("PermissionError: [Errno 13] Permission denied: /var/run/docker.sock")
+        self.assertIn("permission", d["cause"])
+
+    def test_unrecognized_log_falls_back_to_the_log_file(self):
+        d = M.diagnose_service_log("INFO: started\nINFO: waiting", log_file="/tmp/x.log")
+        self.assertIn("health check", d["cause"])
+        self.assertEqual(d["actions"], ["tail -50 /tmp/x.log"])
+
+    def test_empty_log_is_safe(self):
+        d = M.diagnose_service_log("", port=8001, log_file="/tmp/x.log")
+        self.assertEqual(d["evidence"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

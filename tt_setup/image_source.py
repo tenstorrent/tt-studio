@@ -31,21 +31,32 @@ def compute_image_tag(exact_tag, full_sha):
     return "latest"
 
 
-def frontend_config_is_stock(get_env):
-    """Whether the frontend config matches what CI bakes into the published image.
+def frontend_config_drift(get_env):
+    """Which frontend settings differ from what CI bakes into the published image.
 
     The prod frontend inlines its VITE_* settings at build time, so a pulled
-    image is only correct for the stock configuration. Must stay in sync with
-    the frontend build-args in .github/workflows/publish-images.yml.
+    image is only correct for the stock configuration. Returns the names of the
+    offending vars (empty == stock) so the launcher can say *which* setting is
+    costing the user a local build, not merely that one is. Must stay in sync
+    with the frontend build-args in .github/workflows/publish-images.yml.
     """
     truthy = ("true", "1", "t", "y", "yes")
+    drift = []
     if str(get_env("VITE_ENABLE_DEPLOYED", "")).lower().strip() in truthy:
-        return False
-    if get_env("VITE_APP_TITLE", "") not in ("", "TT Studio"):
-        return False
+        drift.append("VITE_ENABLE_DEPLOYED")
+    if get_env("VITE_APP_TITLE", "") not in ("", "TT Studio", '"TT Studio"'):
+        drift.append("VITE_APP_TITLE")
     if str(get_env("VITE_ENABLE_RAG_ADMIN", "")).lower().strip() in truthy:
-        return False
-    return True
+        drift.append("VITE_ENABLE_RAG_ADMIN")
+    return drift
+
+
+def frontend_config_is_stock(get_env):
+    """Whether the frontend config matches the published image (see drift)."""
+    return not frontend_config_drift(get_env)
+
+
+BUILD_REASON_FRONTEND = "custom frontend settings are baked in at build time"
 
 
 def decide_image_source(build_images, worktree_dirty, dev_mode, frontend_stock):
@@ -55,7 +66,7 @@ def decide_image_source(build_images, worktree_dirty, dev_mode, frontend_stock):
     if worktree_dirty:
         return "build", "app/ has local changes"
     if not dev_mode and not frontend_stock:
-        return "build", "custom frontend settings are baked in at build time"
+        return "build", BUILD_REASON_FRONTEND
     return "pull", ""
 
 
@@ -63,6 +74,27 @@ def required_image_refs(dev_mode, registry, tag):
     """The TT-Studio images the selected compose overlay will run."""
     names = ["backend", "agent", "frontend-dev" if dev_mode else "frontend"]
     return [f"{registry}/{name}:{tag}" for name in names]
+
+
+def describe_pull_fallback(kind, tag, cached):
+    """Explain a skipped image pull in one calm sentence: why, and what happens
+    instead. `kind` comes from docker_diag.classify_pull_failure. Returns
+    (message, hint) where hint is None unless there's something to act on.
+
+    Pulling is an optimization, never a requirement — so this reads as a note,
+    not an error: falling back to the local images or to a build is a normal,
+    complete outcome.
+    """
+    next_step = "using local images" if cached else "building locally"
+    reasons = {
+        "unpublished": f"Prebuilt images for {tag} aren't published",
+        "auth": "ghcr.io needs a login for these images",
+        "unreachable": "Couldn't reach ghcr.io",
+        "unknown": f"Couldn't pull the prebuilt images ({tag})",
+    }
+    reason = reasons.get(kind, reasons["unknown"])
+    hint = "run: docker login ghcr.io" if kind == "auth" else None
+    return f"{reason} — {next_step}", hint
 
 
 def is_worktree_dirty():
