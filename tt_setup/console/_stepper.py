@@ -330,7 +330,7 @@ class _ChecklistController:
                 self._build_last[svc] = label
                 with self._paint_lock:
                     console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
-        elif kind in ("built", "pulled") and svc:
+        elif kind in ("built", "pulled", "started") and svc:
             with self._paint_lock:
                 console.print(f"  [success]✓ {svc} {kind}[/success]")
 

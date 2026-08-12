@@ -53,10 +53,12 @@ class TestParseBuildLine(unittest.TestCase):
             ("built", "tt_studio_backend"),
         )
 
-    def test_started_line_counts_as_built(self):
+    def test_started_line(self):
+        # Container start is a distinct event — image-only services (chroma)
+        # start without ever building, and must not be labeled "built".
         self.assertEqual(
-            M.parse_build_line(" ✔ Container tt_studio_chroma  Started"),
-            ("built", "tt_studio_chroma"),
+            M.parse_build_line(" ✔ Container tt_studio_chroma_dev  Started"),
+            ("started", "tt_studio_chroma_dev"),
         )
 
     def test_pulled_line_service_name(self):

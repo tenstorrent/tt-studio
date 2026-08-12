@@ -11,8 +11,11 @@ import subprocess
 _BUILD_STEP_RE = re.compile(r'^#(?P<n>\d+)\s+\[(?P<svc>\S+)\s+(?P<x>\d+)/(?P<y>\d+)\]\s+(?P<desc>.*)$')
 # A cached step, e.g. "#22 CACHED"
 _CACHED_RE = re.compile(r'^#(?P<n>\d+)\s+CACHED\b')
-# Compose completion, e.g. " ✔ tt_studio_backend  Built" / "... tt_studio_frontend  Started"
-_BUILT_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\b(?:Built|Started)\b')
+# Compose build completion, e.g. " ✔ tt_studio_backend  Built". Image-only
+# services (chroma) never emit this — only container-start lines, matched below.
+_BUILT_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\bBuilt\b')
+# Compose container start, e.g. " ✔ Container tt_studio_chroma_dev  Started"
+_STARTED_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\bStarted\b')
 # Compose pull completion. Non-TTY compose prints image refs ("Image
 # ghcr.io/.../backend:sha-… Pulled"); older/TTY variants print service names
 # ("✔ tt_studio_backend Pulled") — accept both.
@@ -60,7 +63,8 @@ def parse_build_line(line):
     Returns one of:
       ('step', n, svc, x, y, desc) -- a BuildKit step header (n = step number)
       ('cached', n)                -- step number n was served from cache
-      ('built', svc)               -- a service finished building/starting
+      ('built', svc)               -- a service's image finished building
+      ('started', svc)             -- a service's container started
       ('pulled', svc)              -- a service's image finished pulling
       None                         -- not a line we render
     """
@@ -74,6 +78,9 @@ def parse_build_line(line):
     m = _BUILT_RE.search(stripped)
     if m:
         return ('built', m.group('svc'))
+    m = _STARTED_RE.search(stripped)
+    if m:
+        return ('started', m.group('svc'))
     m = _PULLED_RE.search(stripped)
     if m:
         if m.group('svc'):
@@ -145,7 +152,7 @@ def run_docker_compose_with_progress(cmd, cwd, dev_mode=False):
                 short = step_svc.get(parsed[1])
                 if short and verbose_build:
                     build_event('cached', svc=short)
-            elif parsed[0] in ('built', 'pulled'):
+            elif parsed[0] in ('built', 'pulled', 'started'):
                 build_event(parsed[0], svc=_short_service(parsed[1]))   # ✓ line: both modes
     finally:
         stop_pulse()
