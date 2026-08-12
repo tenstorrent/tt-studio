@@ -60,10 +60,29 @@ class TestParseBuildLine(unittest.TestCase):
             ("built", "tt_studio_backend"),
         )
 
-    def test_started_line_counts_as_built(self):
+    def test_started_line(self):
+        # Container start is a distinct event — image-only services (chroma)
+        # start without ever building, and must not be labeled "built".
         self.assertEqual(
-            M.parse_build_line(" ✔ Container tt_studio_chroma  Started"),
-            ("built", "tt_studio_chroma"),
+            M.parse_build_line(" ✔ Container tt_studio_chroma_dev  Started"),
+            ("started", "tt_studio_chroma_dev"),
+        )
+
+    def test_pulled_line_service_name(self):
+        # `docker compose pull` completion, rendered as "✓ backend pulled".
+        self.assertEqual(
+            M.parse_build_line(" ✔ tt_studio_backend  Pulled"),
+            ("pulled", "tt_studio_backend"),
+        )
+
+    def test_pulled_line_image_ref(self):
+        # Non-TTY compose prints image refs instead of service names.
+        line = " Image ghcr.io/tenstorrent/tt-studio/backend:sha-3f6cccd191d2 Pulled "
+        self.assertEqual(M.parse_build_line(line), ("pulled", "backend"))
+
+    def test_pulling_line_is_ignored(self):
+        self.assertIsNone(
+            M.parse_build_line(" Image ghcr.io/tenstorrent/tt-studio/backend:sha-3f6cccd191d2 Pulling ")
         )
 
     def test_internal_stage_is_ignored(self):
