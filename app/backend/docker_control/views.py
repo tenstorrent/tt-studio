@@ -983,6 +983,13 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         Path(tt_studio_root) / ".artifacts" / "tt-inference-server" / "workflow_logs" / "docker_server",
         Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
     ]
+    # Per-model artifact refs (e.g. Qwen3.5-9B) write under .artifacts/refs/<ref>/...
+    refs_root = Path(tt_studio_root) / ".artifacts" / "refs"
+    if refs_root.is_dir():
+        for ref_dir in sorted(refs_root.iterdir()):
+            ref_logs = ref_dir / "workflow_logs" / "docker_server"
+            if ref_logs.is_dir():
+                candidate_dirs.append(ref_logs)
 
     # Pass 1: exact timestamp match — try common prefixes (vllm, media, and bare model name)
     for prefix in ("vllm", "media", model.lower()):
@@ -2781,12 +2788,22 @@ class WorkflowLogStreamView(View):
             logger.info(f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}")
             
             if not deployment.workflow_log_path:
-                logger.warning(f"No workflow log path for deployment {deployment_id}")
-                return HttpResponse(
-                    status=404,
-                    content="No workflow log file available for this deployment"
-                )
-            
+                found_path = _find_workflow_log_for_deployment(deployment)
+                if found_path:
+                    deployment.workflow_log_path = found_path
+                    try:
+                        deployment.save(update_fields=["workflow_log_path"])
+                    except Exception as save_err:
+                        logger.warning(
+                            f"Could not save workflow_log_path for deployment {deployment_id}: {save_err}"
+                        )
+                else:
+                    logger.warning(f"No workflow log path for deployment {deployment_id}")
+                    return HttpResponse(
+                        status=404,
+                        content="No workflow log file available for this deployment"
+                    )
+
             log_file_path = deployment.workflow_log_path
             
             # Check if file exists
