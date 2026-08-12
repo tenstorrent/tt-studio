@@ -3,10 +3,13 @@
 
 """Typer CLI surface: options, the entry callback, and main()."""
 
+import sys
 import typer
 from types import SimpleNamespace
+from typing import List, Optional
 from tt_setup.console import console, ensure_region_reset, set_no_clear, set_verbose
 from tt_setup.constants import *
+from tt_setup.constants import _PURGE_MODEL_PICKER
 from tt_setup.cli._run import _run
 
 
@@ -37,7 +40,8 @@ def _entry(
     info: bool = typer.Option(False, "--info", help="Re-show the 'TT Studio is ready' summary (URLs, mode, hardware).", rich_help_panel="Lifecycle"),
     # ── Reset (--purge-all) ──────────────────────────────────────────────────
     purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env.", rich_help_panel="Reset (--purge-all)"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all confirmation prompt.", rich_help_panel="Reset (--purge-all)"),
+    purge_model: Optional[List[str]] = typer.Option(None, "--purge-model", metavar="MODEL", help="Uninstall one model: weights, volume, env, container (image if unshared). Repeatable; bare --purge-model opens an interactive picker.", rich_help_panel="Reset (--purge-all)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --purge-all / --purge-model confirmation prompt.", rich_help_panel="Reset (--purge-all)"),
     uninstall: bool = typer.Option(False, "--uninstall", help="Full uninstall: run the --purge-all teardown and remove the `tt-studio` shell shortcut.", rich_help_panel="Reset (--purge-all)"),
     # ── Advanced (less-common setup/runtime knobs) ───────────────────────────
     reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Advanced"),
@@ -88,9 +92,25 @@ def _entry(
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
         status=status, logs=logs, info=info, report_bug=report_bug,
         install_shortcut=install_shortcut, accept_terms=accept_terms,
-        switch=switch, uninstall=uninstall,
+        switch=switch, uninstall=uninstall, purge_model=list(purge_model or []),
     )
     _run(args)
+
+
+def _normalize_purge_model_argv(argv):
+    """Support bare `--purge-model` (no model name) meaning "open the picker".
+    The vendored click in this typer version can't express an option with an
+    optional value, so inject the picker sentinel whenever --purge-model is the
+    last token or is followed by another flag. `--purge-model NAME` and
+    `--purge-model=NAME` pass through untouched."""
+    out = []
+    for i, token in enumerate(argv):
+        out.append(token)
+        if token == "--purge-model" and (
+            i + 1 == len(argv) or argv[i + 1].startswith("-")
+        ):
+            out.append(_PURGE_MODEL_PICKER)
+    return out
 
 
 def main():
@@ -100,7 +120,7 @@ def main():
     import atexit
     atexit.register(ensure_region_reset)
     try:
-        app()
+        app(_normalize_purge_model_argv(sys.argv[1:]))
     finally:
         ensure_region_reset()
 
