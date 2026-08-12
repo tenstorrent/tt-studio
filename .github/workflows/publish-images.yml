@@ -1,0 +1,168 @@
+name: Publish images
+
+# Builds the TT-Studio service images and pushes them to
+# ghcr.io/tenstorrent/tt-studio/* so run.py can pull prebuilt images instead of
+# building on every fresh checkout (tt_setup/image_source.py is the consumer).
+#
+# Publishing is deliberately release-only: a v* tag push or a published GitHub
+# release pushes <vX.Y.Z>, latest, and sha-<12> tags. workflow_dispatch builds
+# everything as a dry run by default; its `push` input allows an explicit ad-hoc
+# publish (sha-<12> of the dispatched ref). Nothing publishes from dev or
+# feature branches automatically.
+#
+# Caveat: tags/releases created by another workflow using the default
+# GITHUB_TOKEN do not trigger this workflow (GitHub suppresses recursive
+# triggers). If release tagging is ever automated, that workflow must call this
+# one via workflow_call or push the tag with a PAT.
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push the built images to GHCR (off = dry-run build only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # backend/agent are shared by dev and prod mode (single Dockerfile,
+          # identical build in both compose overlays); only the frontend has
+          # separate dev and prod images.
+          - name: backend
+            context: app/backend
+            file: app/backend/Dockerfile
+            # Published image is the local-hardware variant; deployed-mode
+            # setups rebuild locally (VITE_ENABLE_DEPLOYED gates tt-smi only).
+            build_args: |
+              VITE_ENABLE_DEPLOYED=false
+            # The backend image is far larger than the 10 GB GitHub Actions
+            # cache quota — keep its layer cache in GHCR instead.
+            cache: registry
+          - name: frontend
+            context: app/frontend
+            file: app/frontend/Dockerfile.prod
+            target: production
+            # Stock configuration only — these values are inlined into the JS
+            # bundle at build time. Must stay in sync with
+            # frontend_config_is_stock() in tt_setup/image_source.py, which
+            # makes run.py build locally when a user customizes them.
+            build_args: |
+              VITE_APP_TITLE=TT Studio
+              VITE_ENABLE_DEPLOYED=false
+              VITE_ENABLE_RAG_ADMIN=false
+            cache: gha
+            cache_scope: frontend-prod # shared with frontend-ci.yml
+          - name: frontend-dev
+            context: app/frontend
+            file: app/frontend/Dockerfile.dev
+            cache: gha
+            cache_scope: frontend-dev # shared with frontend-ci.yml
+          - name: agent
+            context: app/agent
+            file: app/agent/Dockerfile
+            cache: gha
+            cache_scope: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        if: matrix.name == 'backend'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags and build settings
+        id: meta
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          MATRIX_BUILD_ARGS: ${{ matrix.build_args }}
+          CACHE_KIND: ${{ matrix.cache }}
+          CACHE_SCOPE: ${{ matrix.cache_scope }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_PUSH: ${{ inputs.push }}
+        run: |
+          set -euo pipefail
+          IMG="ghcr.io/${{ github.repository }}/${IMAGE_NAME}"
+
+          # sha-<12> pins an image to its commit; run.py computes the same
+          # 12-char prefix from `git rev-parse HEAD` (tt_setup/image_source.py).
+          TAGS="${IMG}:sha-${GITHUB_SHA:0:12}"
+          VERSION=""
+          case "$GITHUB_REF" in
+            refs/tags/v*) VERSION="$GITHUB_REF_NAME" ;;
+          esac
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="$RELEASE_TAG"
+          fi
+          if [ -n "$VERSION" ]; then
+            TAGS="$TAGS,${IMG}:${VERSION},${IMG}:latest"
+          fi
+
+          PUSH=true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PUSH="${DISPATCH_PUSH:-false}"
+          fi
+
+          if [ "$CACHE_KIND" = "registry" ]; then
+            CACHE_FROM="type=registry,ref=${IMG}:buildcache"
+            CACHE_TO="type=registry,ref=${IMG}:buildcache,mode=max"
+            # A dry run must not write to the registry, cache included.
+            [ "$PUSH" = "true" ] || CACHE_TO=""
+          else
+            CACHE_FROM="type=gha,scope=${CACHE_SCOPE}"
+            CACHE_TO="type=gha,mode=max,scope=${CACHE_SCOPE}"
+          fi
+
+          {
+            echo "tags=$TAGS"
+            echo "push=$PUSH"
+            echo "cache_from=$CACHE_FROM"
+            echo "cache_to=$CACHE_TO"
+            echo "build_args<<EOF"
+            echo "$MATRIX_BUILD_ARGS"
+            if [ "$IMAGE_NAME" = "frontend" ]; then
+              # Version stamp shown in the UI footer; empty for non-release
+              # builds so the frontend falls back to the branch label.
+              echo "VITE_APP_VERSION=$VERSION"
+              echo "VITE_APP_GIT_BRANCH=$GITHUB_REF_NAME"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target || '' }}
+          platforms: linux/amd64
+          push: ${{ steps.meta.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: ${{ steps.meta.outputs.build_args }}
+          cache-from: ${{ steps.meta.outputs.cache_from }}
+          cache-to: ${{ steps.meta.outputs.cache_to }}

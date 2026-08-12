@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "../../ui/tooltip";
 import { useIsResetting } from "../../../hooks/useIsResetting";
+import { useModels } from "../../../hooks/useModels";
 
 interface Props {
   id: string;
@@ -64,10 +65,19 @@ export default React.memo(function ManageCell({
   // A board/device reset is in progress: block destructive + log-tailing actions
   // everywhere so the user can't fight an in-flight reset.
   const isResetting = useIsResetting();
-  const deleteDisabled = deleteInProgress || isResetting;
+  // Stopping a container goes through docker-control-service, so while that is
+  // unreachable the action cannot succeed — better to disable it and say why than
+  // to let it fail. The model itself is unaffected: inference does not go through
+  // that service, so Open/Chat stays enabled.
+  const { controlPlaneDegraded } = useModels();
+  const deleteDisabled = deleteInProgress || isResetting || controlPlaneDegraded;
+  // Most specific cause first: an in-flight delete is a concrete operation the
+  // user is waiting on, so it must not be shadowed by the broader outage notice.
   const deleteDisabledReason = isResetting
     ? "The board is resetting. Wait for it to finish before deleting a model."
-    : "A model is currently being deleted. Please wait for it to finish before starting another destructive action.";
+    : deleteInProgress
+      ? "A model is currently being deleted. Please wait for it to finish before starting another destructive action."
+      : "The Docker control service is unreachable, so this model can't be stopped right now. The model itself is unaffected and still usable.";
   const resettingTitle = isResetting
     ? "Disabled while the board is resetting"
     : undefined;

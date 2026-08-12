@@ -119,7 +119,8 @@ def apply_media_catalog_env_overlay():
 
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
-    console.print("[info]🔧 Starting FastAPI server...[/info]")
+    if show_detail():   # the "Starting inference server…" step line already says this
+        console.print("[info]🔧 Starting FastAPI server...[/info]")
 
     # Check if port 8001 is available
     if not check_port_available(8001):
@@ -227,8 +228,11 @@ fi
 
             tt_studio_root_export = f'export TT_STUDIO_ROOT="{TT_STUDIO_ROOT}"\n'
 
+            # Ignore hangup: closing the terminal or SSH session that ran run.py
+            # must not take the inference server down under a running model.
             temp_script.write(f'''#!/bin/bash
 set -e
+trap "" HUP
 cd "$1"
 {tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
@@ -238,7 +242,13 @@ cd "$1"
         
         # Start server
         cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
-        process = subprocess.Popen(cmd, env=env)
+        # Detach into its own session so an SSH disconnect doesn't SIGHUP the
+        # inference server. cleanup_fastapi_server() still stops it via the PID
+        # file, with kill_process_on_port(8001) as a backstop. Its stdout/stderr
+        # go to DEVNULL: uvicorn logs to MODEL_RUN_LOG_FILE, and the wrapper's own
+        # output would paint over the live step spinner (it inherits the tty).
+        process = subprocess.Popen(cmd, env=env, start_new_session=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         
         # Health check (silent — only prints on success or failure)
         health_check_retries = 30
@@ -247,20 +257,9 @@ cd "$1"
         with progress_status("Waiting for FastAPI server…") as fastapi_spinner:
             for i in range(1, health_check_retries + 1):
                 if process.poll() is not None:
-                    console.print("[error]⛔ FastAPI server process died[/error]")
-                    try:
-                        with open(MODEL_RUN_LOG_FILE, 'r') as f:
-                            lines = f.readlines()
-                            for line in lines[-15:]:
-                                console.print(f"   {line.rstrip()}", markup=False, highlight=False)
-                    except:
-                        pass
-                    try:
-                        with open(MODEL_RUN_LOG_FILE, 'r') as f:
-                            if "address already in use" in f.read():
-                                console.print("[warning]   Port 8001 still in use. Try: python run.py --stop && python run.py[/warning]")
-                    except:
-                        pass
+                    # Diagnosis is rendered by the caller (report_service_failure)
+                    # once the step's spinner has collapsed.
+                    console.print("[error]Inference server process died[/error]")
                     return False
 
                 try:
@@ -282,8 +281,7 @@ cd "$1"
                         pass
 
                 if i == health_check_retries:
-                    console.print("[error]⛔ FastAPI server failed to start[/error]")
-                    console.print(f"   [muted]Check logs: tail -50 {MODEL_RUN_LOG_FILE}[/muted]")
+                    console.print("[error]Inference server never became healthy[/error]")
                     return False
 
                 fastapi_spinner.update(f"Waiting for FastAPI server… (attempt {i}/{health_check_retries})")

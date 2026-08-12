@@ -36,6 +36,23 @@ def check_port_available(port):
             return False
 
 
+def wait_for_port_release(port, timeout=6.0, interval=0.25):
+    """Block until `port` is actually free, up to `timeout` seconds.
+
+    Killing the holder doesn't hand the port back instantly — the kernel needs a
+    moment, and a `uvicorn --reload` parent hands off to a child that keeps the
+    socket. Binding straight after the kill is what produced "Address already in
+    use" on restart, so every caller that frees a port waits for it here.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if check_port_available(port):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+
+
 def check_and_free_ports(ports, no_sudo=False):
     """
     Check if multiple ports are available and free any that are in use.
@@ -130,13 +147,31 @@ def _process_is_docker(pid):
     return any(tok in name for tok in ("docker", "vpnkit", "containerd"))
 
 
-def kill_process_on_port(port, no_sudo=False, quiet=False):
+def kill_process_on_port(port, no_sudo=False, quiet=False, attempts=3):
     """
     Free a port by stopping the process holding it. Returns True if freed (or
     nothing was holding it), "docker" if the holder is Docker itself (left
     untouched — killing it would crash the engine), or False on failure.
     Handles permissions by trying commands with and without sudo.
+
+    Returns only once the port is genuinely free: each attempt kills the current
+    holder and waits for the socket to be released, then re-checks. `uvicorn
+    --reload` in particular survives one kill (the reloader's child inherits the
+    socket), so a single pass can leave the port taken.
     """
+    for attempt in range(1, attempts + 1):
+        result = _kill_port_holder(port, no_sudo=no_sudo, quiet=quiet)
+        if result is not True:        # "docker" (left alone) or a kill failure
+            return result
+        if wait_for_port_release(port):
+            return True
+        if not quiet and attempt < attempts:
+            print(f"⚠️  Port {port} is still held after stopping its process; retrying...")
+    return check_port_available(port)
+
+
+def _kill_port_holder(port, no_sudo=False, quiet=False):
+    """One pass: find whoever holds `port` and stop it (see kill_process_on_port)."""
     pid = None
 
     # --- macOS and Linux logic ---

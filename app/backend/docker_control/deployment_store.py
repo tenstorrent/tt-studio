@@ -216,6 +216,11 @@ class _Manager:
     def get(self, **kwargs) -> "ModelDeployment":
         return self.all().get(**kwargs)
 
+    def count(self) -> int:
+        # docker_control.apps logs the record count at startup; without this the
+        # ORM-shim manager raised AttributeError on every boot.
+        return self.all().count()
+
 
 class ModelDeployment:
     class DoesNotExist(Exception):

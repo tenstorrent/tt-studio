@@ -216,5 +216,48 @@ class TestPreferences(unittest.TestCase):
         self.assertEqual(config_store.get("ui", "vite_app_title"), "TT Studio")
 
 
+class TestSetAppVersionEnvImageTag(unittest.TestCase):
+    """set_app_version_env pins TT_STUDIO_IMAGE_TAG to the current checkout."""
+
+    def _run_with_git(self, exact_tag, full_sha):
+        from tt_setup.env_config import _version as _ecfg_version
+
+        def fake_git_run(cmd, **kwargs):
+            class R:
+                pass
+            r = R()
+            git_args = cmd[3:]  # after ["git", "-C", <root>]
+            if git_args[0] == "describe":
+                r.returncode = 0 if exact_tag else 128
+                r.stdout = exact_tag
+            elif git_args == ["rev-parse", "HEAD"]:
+                r.returncode = 0 if full_sha else 128
+                r.stdout = full_sha
+            else:  # branch lookups
+                r.returncode = 0
+                r.stdout = "dev"
+            return r
+
+        writes = {}
+        with patch.object(_ecfg_version.subprocess, "run", side_effect=fake_git_run), \
+             patch.object(_ecfg_version, "write_env_var",
+                          side_effect=lambda k, v: writes.__setitem__(k, v)):
+            M.set_app_version_env()
+        return writes
+
+    def test_release_tag_checkout(self):
+        writes = self._run_with_git("v2.9.0", "f" * 40)
+        self.assertEqual(writes["TT_STUDIO_IMAGE_TAG"], "v2.9.0")
+
+    def test_untagged_checkout_uses_sha(self):
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        writes = self._run_with_git("", sha)
+        self.assertEqual(writes["TT_STUDIO_IMAGE_TAG"], "sha-0123456789ab")
+
+    def test_no_git_falls_back_to_latest(self):
+        writes = self._run_with_git("", "")
+        self.assertEqual(writes["TT_STUDIO_IMAGE_TAG"], "latest")
+
+
 if __name__ == "__main__":
     unittest.main()

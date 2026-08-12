@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
@@ -55,7 +55,7 @@ import type { ChipStatus } from "../../types/chipStatus";
 import { deviceIdsForRow } from "../../utils/deviceIds";
 
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight, controlPlaneDegraded } = useModels();
   const { refreshTrigger, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
   // True while any board/device reset is in progress (global, backend-sourced).
@@ -624,6 +624,27 @@ export default function ModelsDeployedCard(): JSX.Element {
             />
           </div>
         </CardHeader>
+
+        {/* Docker control service outage. */}
+        {controlPlaneDegraded && (
+          <ElevatedCard accent="amber" depth="md" className="mx-6 mb-6">
+            <CardContent className="px-6 py-5">
+              <div className="flex flex-col items-center text-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 ring-1 ring-amber-500/30">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                </div>
+                <p className="text-sm font-semibold tracking-tight">
+                  Docker control service unreachable — model management paused
+                </p>
+                <p className="max-w-xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
+                  Deployed models are unaffected and still usable. Deploying and
+                  stopping are unavailable until the service is reachable again.
+                  Statuses below are the last confirmed values.
+                </p>
+              </div>
+            </CardContent>
+          </ElevatedCard>
+        )}
 
         {/* Voice Agent discovery banner */}
         {showVoiceBanner && (

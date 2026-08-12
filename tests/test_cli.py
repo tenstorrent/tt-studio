@@ -20,12 +20,20 @@ runner = CliRunner()
 
 
 class TestCli(unittest.TestCase):
+    def tearDown(self):
+        # --no-clear / --verbose set module-global rendering state; reset it so a
+        # flag test doesn't leak the globals into later tests.
+        from tt_setup import console
+        console.set_no_clear(False)
+        console.set_verbose(False)
+
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--purge-model", "--help-env",
-                     "--no-sudo", "--logs", "--info", "--uninstall", "--switch"):
+                     "--no-sudo", "--logs", "--info", "--uninstall", "--switch",
+                     "--build-images", "--no-clear"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
@@ -234,6 +242,19 @@ class TestCli(unittest.TestCase):
         ]
         for argv, expected in cases:
             self.assertEqual(_normalize_purge_model_argv(argv), expected, argv)
+
+    def test_no_clear_flag_sets_globals_and_implies_verbose(self):
+        # --no-clear preserves the terminal's contents AND streams full detail, so
+        # it flips both the no_clear and verbose rendering globals. _run is patched
+        # so startup doesn't actually run.
+        from tt_setup.cli import _args
+        from tt_setup import console
+        with patch.object(_args, "_run") as run:
+            result = runner.invoke(M.app, ["--no-clear"])
+        self.assertEqual(result.exit_code, 0)
+        run.assert_called_once()
+        self.assertTrue(console.no_clear())
+        self.assertTrue(console.is_verbose())
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))
