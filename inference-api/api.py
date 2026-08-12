@@ -883,8 +883,18 @@ def _execute_dev_mode_subprocess(
     # before this fix (or one that hit the old empty-touch() bug) already has a
     # ".git" file on disk, and an exists-only guard would leave that stale,
     # invalid marker in place forever instead of repairing it.
+    #
+    # Point at TT-Studio's resolved *git directory*.
     git_marker = script_dir / ".git"
-    git_marker.write_text(f"gitdir: {_tt_studio_root / '.git'}\n")
+    try:
+        _tt_studio_git_dir = _subprocess.check_output(
+            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
+            stderr=_subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (_subprocess.CalledProcessError, OSError):
+        _tt_studio_git_dir = str(_tt_studio_root / ".git")
+    git_marker.write_text(f"gitdir: {_tt_studio_git_dir}\n")
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
