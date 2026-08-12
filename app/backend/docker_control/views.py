@@ -50,7 +50,7 @@ from .docker_control_client import (
     http_status_of,
     is_service_unreachable,
 )
-from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
+from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
 from shared_config.model_type_config import ModelTypes
@@ -1064,6 +1064,52 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
         logger.warning(f"_sync_chat_deployment_record failed for job {job_id}: {e}")
 
 
+class CancelDeploymentView(APIView):
+    """Cancel an in-flight deployment during image pull or weight download.
+
+    Tells any pre-pull worker to bail before starting the container, asks
+    inference-api to kill the in-flight download, and frees the reserved chip slot
+    by marking the placeholder deployment record stopped. Partial weight files are
+    left on disk so a later deploy resumes them.
+    """
+
+    def post(self, request, job_id: str):
+        from docker_control.models import ModelDeployment
+
+        # job_id may be a pre-pull id or the real inference job id; target both.
+        targets = {job_id}
+        pull_job = get_pull_job(job_id)
+        if pull_job is not None:
+            request_pull_cancel(job_id)
+            real = pull_job.get("real_job_id")
+            if real:
+                targets.add(real)
+
+        for target in targets:
+            # The pre-pull id isn't an inference job — request_pull_cancel() above
+            # handles it; only forward the real inference job id to inference-api.
+            if pull_job is not None and target == job_id:
+                continue
+            try:
+                requests.post(_build_fastapi_url(f"run/cancel/{target}"), timeout=5)
+            except Exception as e:
+                logger.warning(f"cancel: inference-api cancel failed for {target}: {e}")
+
+        stopped = 0
+        for target in targets:
+            try:
+                dep = ModelDeployment.objects.filter(container_id=target).first()
+                if dep and dep.status not in ("stopped", "dead"):
+                    dep.status = "stopped"
+                    dep.stopped_by_user = True
+                    dep.save()
+                    stopped += 1
+            except Exception as e:
+                logger.warning(f"cancel: could not mark deployment {target} stopped: {e}")
+
+        return Response({"status": "cancelled", "job_id": job_id, "stopped_records": stopped})
+
+
 class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
@@ -1081,13 +1127,15 @@ class DeploymentProgressView(APIView):
                 if real_job_id:
                     # Pull finished and /run dispatched — track the real job from here on.
                     job_id = real_job_id
-                elif pull_job.get("status") == "error":
+                elif pull_job.get("status") in ("error", "cancelled"):
+                    is_cancelled = pull_job.get("status") == "cancelled"
                     return Response(
                         {
-                            "status": "error",
-                            "stage": "error",
+                            "status": "cancelled" if is_cancelled else "error",
+                            "stage": "cancelled" if is_cancelled else "error",
                             "progress": 0,
-                            "message": pull_job.get("message") or "Image pull failed",
+                            "message": pull_job.get("message")
+                            or ("Deployment cancelled by user" if is_cancelled else "Image pull failed"),
                         },
                         status=status.HTTP_200_OK,
                     )

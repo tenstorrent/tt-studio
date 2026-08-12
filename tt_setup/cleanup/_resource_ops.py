@@ -13,7 +13,12 @@ import json
 import re
 import fnmatch
 from tt_setup.constants import *
-from tt_setup.constants import _CLEANUP_IMAGE_REFS, _CLEANUP_VOLUME_PREFIX
+from tt_setup.constants import (
+    _CLEANUP_APP_VOLUME_PREFIX,
+    _CLEANUP_APP_VOLUME_SUFFIX,
+    _CLEANUP_IMAGE_REFS,
+    _CLEANUP_VOLUME_PREFIX,
+)
 
 
 def _format_bytes(size):
@@ -51,6 +56,60 @@ def _path_size(path):
         return total
     except Exception:
         return 0
+
+
+def _hf_cache_hub_dir():
+    """HuggingFace hub cache dir TT Studio downloads model weights into — mirrors
+    inference-api's _default_hf_home: HOST_HF_HOME → HF_HOME → ~/.cache/huggingface."""
+    from tt_setup.env_config import get_env_var
+    base = os.path.normpath(
+        get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME")
+        or os.path.expanduser("~/.cache/huggingface")
+    )
+    # HF_HOME points at the cache root (hub lives under it); tolerate it already
+    # pointing at the hub dir so we don't append a second /hub.
+    return base if os.path.basename(base) == "hub" else os.path.join(base, "hub")
+
+
+def _tt_studio_hf_repo_ids():
+    """HF repo ids TT Studio can deploy, read from the backend model catalog."""
+    catalog = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config",
+        "models_from_inference_server.json",
+    )
+    try:
+        with open(catalog) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    ids, stack = set(), [data]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            hid = node.get("hf_model_id")
+            if isinstance(hid, str) and "/" in hid:
+                ids.add(hid)
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return sorted(ids)
+
+
+def _hf_cache_model_dirs():
+    """(repo_id, path, size) for each catalog model present in the HF hub cache.
+
+    Scoped to TT Studio's catalog so --purge-all clears the models it downloaded
+    without touching the user's other HuggingFace-cached models (the same way it
+    only removes `volume_id_*` volumes, not every Docker volume)."""
+    hub = _hf_cache_hub_dir()
+    if not os.path.isdir(hub):
+        return []
+    out = []
+    for repo_id in _tt_studio_hf_repo_ids():
+        path = os.path.join(hub, "models--" + repo_id.replace("/", "--"))
+        if os.path.isdir(path):
+            out.append((repo_id, path, _path_size(path)))
+    return out
 
 
 def _remove_path_with_docker(path):
@@ -169,14 +228,15 @@ def _docker_reclaimable_bytes(has_docker_access):
     sizes) and sums the images and volumes cleanup-all actually deletes:
       - images whose Repository matches `_CLEANUP_IMAGE_REFS`
         (same set `_remove_local_tt_studio_images` removes),
-      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`),
+        `tt_studio_*_data` app volumes (`_remove_marketplace_app_volumes`),
         plus dangling anonymous volumes (`_prune_anonymous_volumes`).
     Build cache is intentionally excluded — cleanup-all does not prune it.
-    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
-    docker is unavailable, so the reclaim total degrades to the host-side paths
-    just like before.
+    Returns {"images", "model_volumes", "app_volumes", "anon_volumes"} byte
+    counts; zeros if docker is unavailable, so the reclaim total degrades to the
+    host-side paths just like before.
     """
-    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    zero = {"images": 0, "model_volumes": 0, "app_volumes": 0, "anon_volumes": 0}
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
         result = subprocess.run(
@@ -195,8 +255,10 @@ def _docker_reclaimable_bytes(has_docker_access):
 
     for vol in data.get("Volumes") or []:
         name = vol.get("Name", "")
-        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+        if _is_model_volume(name):
             sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif _is_marketplace_app_volume(name):
+            sizes["app_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
         elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
             sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
 
@@ -238,18 +300,52 @@ def _remove_tt_studio_model_volumes(has_docker_access):
     containers using them first or `volume rm` will fail with "in use".
     Returns count removed.
     """
+    return _remove_named_volumes(has_docker_access, _is_model_volume,
+                                 _CLEANUP_VOLUME_PREFIX)
+
+
+def _remove_marketplace_app_volumes(has_docker_access):
+    """Remove the named volumes marketplace apps store their state in.
+
+    Created implicitly by `docker run -v <name>:<path>` from the backend, so they
+    are declared in neither docker-compose.yml nor the model-weight naming scheme
+    and survive every other sweep. Leaving them behind outlasts the `.env`
+    --purge-all deletes, so an app would boot with the old LITELLM_MASTER_KEY
+    baked into its own config and fail to reach the gateway. Callers must remove
+    the app containers first or `volume rm` will fail with "in use".
+    Returns count removed.
+    """
+    return _remove_named_volumes(has_docker_access, _is_marketplace_app_volume,
+                                 _CLEANUP_APP_VOLUME_PREFIX)
+
+
+def _is_model_volume(name):
+    """True for a model-weight volume (`volume_id_*`)."""
+    return name.startswith(_CLEANUP_VOLUME_PREFIX)
+
+
+def _is_marketplace_app_volume(name):
+    """True for a marketplace app state volume (`tt_studio_*_data`)."""
+    return (name.startswith(_CLEANUP_APP_VOLUME_PREFIX)
+            and name.endswith(_CLEANUP_APP_VOLUME_SUFFIX)
+            and len(name) > len(_CLEANUP_APP_VOLUME_PREFIX) + len(_CLEANUP_APP_VOLUME_SUFFIX))
+
+
+def _remove_named_volumes(has_docker_access, matches, name_filter):
+    """Force-remove every docker volume `matches` accepts. Returns count removed.
+
+    `name_filter` only narrows what the daemon lists — it is a substring match,
+    so `matches` is re-applied in Python and an unrelated volume that merely
+    contains the filter mid-name is never deleted.
+    """
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
         result = subprocess.run(
-            sudo_prefix + ["docker", "volume", "ls", "--filter",
-                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            sudo_prefix + ["docker", "volume", "ls", "--filter", f"name={name_filter}", "-q"],
             capture_output=True, text=True, check=False,
         )
-        # `--filter name=foo` is substring match; double-check the prefix in
-        # Python so we never delete an unrelated volume that happens to contain
-        # "volume_id_" mid-name.
         names = [n for n in (line.strip() for line in result.stdout.splitlines())
-                 if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+                 if matches(n)]
         if not names:
             return 0
         subprocess.run(

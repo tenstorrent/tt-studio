@@ -36,4 +36,8 @@ urlpatterns = [
     path("openai/v1/chat/completions", views.OpenAIChatCompletionsView.as_view()),
     path("openai/v1/models", views.OpenAIModelsView.as_view()),
     path("coding-agents/", views.CodingAgentsView.as_view()),
+    # App marketplace — companion apps wired to the same gateway
+    path("marketplace/apps/", views.MarketplaceAppsView.as_view()),
+    path("marketplace/apps/<str:app_id>/launch/", views.MarketplaceLaunchView.as_view()),
+    path("marketplace/apps/<str:app_id>/stop/", views.MarketplaceStopView.as_view()),
 ]

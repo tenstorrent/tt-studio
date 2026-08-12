@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from rich.table import Table
 from tt_setup.constants import *
+from tt_setup.constants import _COMPOSE_SERVICE_LABEL
 from tt_setup.shell import copy_to_clipboard
 from tt_setup.console import console, notice_panel
 
@@ -111,11 +112,19 @@ def parse_docker_build_failure(output):
 
 def verify_docker_containers(use_sudo=False):
     """
-    Verify that Docker containers started successfully.
-    Returns dict {container_name: {'status': str, 'running': bool}} or empty dict on error.
+    Verify that the Compose stack started successfully.
+
+    Returns dict {container_name: {'status': str, 'running': bool,
+    'service': str}} or empty dict on error.
     """
     try:
-        cmd = ["docker", "ps", "-a", "--filter", "name=tt_studio", "--format", "{{.Names}}\t{{.Status}}"]
+        # The label filter excludes marketplace apps and model deployments (started
+        # outside Compose); the name filter excludes any other Compose project on the
+        # same host. The label's value rides along so diagnostics can name the service.
+        cmd = ["docker", "ps", "-a",
+               "--filter", "name=tt_studio",
+               "--filter", f"label={_COMPOSE_SERVICE_LABEL}",
+               "--format", f'{{{{.Names}}}}\t{{{{.Label "{_COMPOSE_SERVICE_LABEL}"}}}}\t{{{{.Status}}}}']
         if use_sudo:
             cmd = ["sudo"] + cmd
 
@@ -128,11 +137,13 @@ def verify_docker_containers(use_sudo=False):
 
         containers = {}
         for line in result.stdout.strip().split('\n'):
-            if line and '\t' in line:
-                name, status = line.split('\t', 1)
+            parts = line.split('\t')
+            if len(parts) == 3:
+                name, service, status = parts
                 containers[name] = {
                     'status': status,
                     'running': status.startswith('Up'),
+                    'service': service,
                 }
 
         if not containers:
@@ -154,6 +165,13 @@ def diagnose_container_failure(container_name, exit_code, logs):
     Returns dict with keys: severity, cause, detail, action.
     """
     # Exit code classification
+    if exit_code == 0:
+        return {
+            'severity': 'warning',
+            'cause': 'Exited cleanly',
+            'detail': f"{container_name} stopped on its own without an error (exit 0), so the stack is incomplete.",
+            'action': f"Run: docker logs {container_name} --tail 50\n  Then: python run.py --stop && python run.py",
+        }
     if exit_code == 137:
         return {
             'severity': 'critical',
@@ -233,14 +251,29 @@ def diagnose_container_failure(container_name, exit_code, logs):
     }
 
 
+_SERVICE_FRIENDLY_NAMES = {
+    'tt_studio_backend': 'Backend',
+    'tt_studio_frontend': 'Frontend',
+    'tt_studio_agent': 'Agent',
+    'tt_studio_chroma': 'ChromaDB',
+    'tt_studio_litellm': 'LiteLLM gateway',
+}
+
+
+def _friendly_container_name(name, info=None):
+    """Human label for a container, keyed on its Compose *service* name.
+
+    The table is keyed on service names, but every container name carries a mode
+    suffix (`tt_studio_frontend_dev`/`_prod`), so the previous raw-name lookup
+    matched nothing in any mode and always fell through to the container name.
+    Falls back to the service name, then the container name.
+    """
+    service = (info or {}).get('service') or ''
+    return _SERVICE_FRIENDLY_NAMES.get(service) or service or name
+
+
 def print_container_diagnostics(containers):
     """Print diagnostic info for failed containers with smart diagnosis."""
-    friendly_map = {
-        'tt_studio_backend': 'Backend',
-        'tt_studio_frontend': 'Frontend',
-        'tt_studio_agent': 'Agent',
-        'tt_studio_chroma': 'ChromaDB',
-    }
     failed = {name: info for name, info in containers.items() if not info['running']}
     if not failed:
         return
@@ -250,7 +283,7 @@ def print_container_diagnostics(containers):
     failed_table.add_column("Container")
     failed_table.add_column("Status")
     for name, info in failed.items():
-        friendly = friendly_map.get(name, name)
+        friendly = _friendly_container_name(name, info)
         failed_table.add_row(f"[warning]{friendly} ({name})[/warning]", info['status'])
     console.print(failed_table)
 
@@ -275,7 +308,7 @@ def print_container_diagnostics(containers):
 
         diagnosis = diagnose_container_failure(name, exit_code, logs)
         style = "error" if diagnosis['severity'] == 'critical' else "warning"
-        friendly = friendly_map.get(name, name)
+        friendly = _friendly_container_name(name, failed[name])
         lines = [
             f"[{style}]{diagnosis['detail']}[/{style}]",
             "",

@@ -7,7 +7,11 @@ teardown and (for --purge-all) wipe persistent state."""
 import os
 from rich.table import Table
 from tt_setup.constants import *
-from tt_setup.constants import _CLEANUP_VOLUME_PREFIX
+from tt_setup.constants import (
+    _CLEANUP_APP_VOLUME_PREFIX,
+    _CLEANUP_APP_VOLUME_SUFFIX,
+    _CLEANUP_VOLUME_PREFIX,
+)
 from tt_setup.console import console, kept_panel, notice_panel, step
 from tt_setup.docker import check_docker_access
 from tt_setup.env_config import get_env_var
@@ -18,10 +22,12 @@ from tt_setup.cleanup._resource_ops import (
     _deployed_model_names,
     _docker_daemon_status,
     _format_bytes,
+    _hf_cache_model_dirs,
     _path_size,
     _prune_anonymous_volumes,
     _remove_directory_contents,
     _remove_local_tt_studio_images,
+    _remove_marketplace_app_volumes,
     _remove_path,
     _remove_tt_studio_model_volumes,
     _write_browser_cleanup_sentinel,
@@ -141,7 +147,13 @@ def cleanup_resources(args):
     # model volumes + images (tens of GB), not just the host-side files.
     has_docker_access = check_docker_access()
     docker_sizes = _docker_reclaimable_bytes(has_docker_access)
-    total_bytes = host_bytes + sum(docker_sizes.values())
+
+    # Weights TT Studio downloaded into the host HuggingFace cache (--host-hf-cache).
+    # Scoped to catalog models so we don't touch the user's other cached models.
+    hf_models = _hf_cache_model_dirs()
+    hf_bytes = sum(size for _, _, size in hf_models)
+
+    total_bytes = host_bytes + sum(docker_sizes.values()) + hf_bytes
 
     # --- Danger header ---
     danger_lines = [
@@ -184,9 +196,22 @@ def cleanup_resources(args):
     docker = _table()
     docker.add_row("🐳", "Deployment containers", "", "vLLM, YOLO, … on tt_studio_network")
     docker.add_row("💾", "Model-weight volumes", _dsize("model_volumes"), f"{_CLEANUP_VOLUME_PREFIX}*")
+    docker.add_row("💾", "App volumes", _dsize("app_volumes"),
+                   f"{_CLEANUP_APP_VOLUME_PREFIX}*{_CLEANUP_APP_VOLUME_SUFFIX} "
+                   "(marketplace app accounts, chats)")
     docker.add_row("💾", "Anonymous volumes", _dsize("anon_volumes"), "dangling (dev node_modules, …)")
     docker.add_row("🐳", "Local images", _dsize("images"), "tt-studio, tt-inference-server, chroma")
     console.print(docker)
+
+    # --- HuggingFace cache ---
+    console.print("\n[bold]HuggingFace cache[/bold]")
+    if hf_models:
+        hf = _table()
+        for repo_id, _path, size in hf_models:
+            hf.add_row("🤗", repo_id, _format_bytes(size) if size > 0 else "—", "downloaded model weights")
+        console.print(hf)
+    else:
+        console.print("  [muted]none found[/muted]")
 
     # --- Browser ---
     console.print("\n[bold]Browser[/bold]")
@@ -229,6 +254,10 @@ def cleanup_resources(args):
         removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
         s.detail(f"{removed_vols} volume(s)")
 
+    with step("Removing app volumes", spinner=docker_spinner) as s:
+        removed_app_vols = _remove_marketplace_app_volumes(has_docker_access)
+        s.detail(f"{removed_app_vols} volume(s)")
+
     with step("Pruning anonymous volumes", spinner=docker_spinner) as s:
         removed_anon = _prune_anonymous_volumes(has_docker_access)
         s.detail(f"{removed_anon} volume(s)")
@@ -236,6 +265,16 @@ def cleanup_resources(args):
     with step("Removing local images", spinner=docker_spinner) as s:
         removed = _remove_local_tt_studio_images(has_docker_access)
         s.detail(f"{removed} image(s)")
+
+    with step("Removing HuggingFace cache models", spinner=False) as s:
+        if not hf_models:
+            s.skip()
+        else:
+            removed_hf = sum(
+                1 for _repo, path, _size in hf_models
+                if _remove_path(path, no_sudo=args.no_sudo)
+            )
+            s.detail(f"{removed_hf}/{len(hf_models)} model(s)")
 
     with step("Removing host state", spinner=False) as s:
         removed_paths = 0

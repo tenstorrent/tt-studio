@@ -17,8 +17,10 @@ from tt_setup.console._theme import (
     _real_console,
     console,
     is_verbose,
+    no_clear,
     progress_status,
     real_console,
+    set_no_clear,
     set_verbose,
 )
 from tt_setup.console._stepper import (
@@ -53,7 +55,7 @@ from tt_setup.console._steps import download_with_progress, step
 
 __all__ = [
     "TT_THEME", "Console", "console", "_real_console", "real_console", "set_verbose",
-    "is_verbose", "progress_status", "_fmt_duration",
+    "is_verbose", "set_no_clear", "no_clear", "progress_status", "_fmt_duration",
     "in_phase", "show_detail", "add_note", "get_notes",
     "register_phases", "register_setup_phases", "set_mode", "ensure_region_reset",
     "sticky_active", "begin_phase", "end_phase", "end_run",

@@ -5,7 +5,7 @@
 
 import typer
 from types import SimpleNamespace
-from tt_setup.console import console, ensure_region_reset, set_verbose
+from tt_setup.console import console, ensure_region_reset, set_no_clear, set_verbose
 from tt_setup.constants import *
 from tt_setup.cli._run import _run
 
@@ -56,6 +56,7 @@ def _entry(
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help.", rich_help_panel="Troubleshooting & Info"),
     report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and open a pre-filled GitHub issue.", rich_help_panel="Troubleshooting & Info"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary.", rich_help_panel="Troubleshooting & Info"),
+    no_clear: bool = typer.Option(False, "--no-clear", help="Keep the terminal's contents and show full startup detail (don't clear the screen).", rich_help_panel="Troubleshooting & Info"),
     # ── Deprecated / hidden ──────────────────────────────────────────────────
     fix_docker: bool = typer.Option(False, "--fix-docker", hidden=True, help="Deprecated. Start Docker yourself; see the links shown when the daemon isn't running."),
     # ── Deprecated aliases (hidden) ──────────────────────────────────────────
@@ -63,7 +64,8 @@ def _entry(
     cleanup_all: bool = typer.Option(False, "--cleanup-all", hidden=True, help="Deprecated alias for --purge-all."),
 ):
     """Set up and launch TT Studio. With no flags, runs the default minimal setup."""
-    set_verbose(verbose)
+    set_verbose(verbose or no_clear)   # --no-clear shows full step detail too
+    set_no_clear(no_clear)
 
     # --cleanup/--cleanup-all are deprecated aliases for --stop/--purge-all.
     # Warn, then normalize all four onto the internal cleanup/cleanup_all flags.
