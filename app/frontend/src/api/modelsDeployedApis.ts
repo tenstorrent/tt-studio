@@ -136,6 +136,13 @@ export interface CanonicalDeployment {
   stopped_by_user: boolean;
   deployment_id?: number;
   deployment_model_name?: string;
+  /**
+   * Set when the backend could not reach docker-control-service and served this
+   * entry from its last known good state. The model itself is unaffected —
+   * inference and the readiness probe go straight to the container — but
+   * container management (deploy/stop/logs) is unavailable until it recovers.
+   */
+  status_stale?: boolean;
 }
 
 // Fetch the current deployed models from the canonical endpoint, which is the single source of truth for current deployed models.

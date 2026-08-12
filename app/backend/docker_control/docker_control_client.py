@@ -19,6 +19,38 @@ from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 
 
+class ContainerNotFound(Exception):
+    """The docker-control-service authoritatively reported a container as absent.
+
+    Raised only for an HTTP 404 from a service that actually answered. This is a
+    definitive "the container is gone" signal and callers may act on it
+    immediately. Transport failures (service down, timeout) never produce this —
+    see :func:`is_service_unreachable`.
+    """
+
+
+def is_service_unreachable(exc: BaseException) -> bool:
+    """True when ``exc`` means we never got an answer from docker-control-service.
+
+    Connection refused / DNS failure / timeout all arrive as a
+    ``RequestException`` with no ``response`` attached, whereas an HTTP error
+    status raised by ``raise_for_status()`` always carries its response. That
+    distinction is the reliable discriminator.
+    """
+    return (
+        isinstance(exc, requests.exceptions.RequestException)
+        and getattr(exc, "response", None) is None
+    )
+
+
+def http_status_of(exc: BaseException) -> Optional[int]:
+    """HTTP status code carried by ``exc``, or None if it never got a response."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    return getattr(response, "status_code", None)
+
+
 class DockerControlClient:
     """Client for interacting with the docker-control-service API"""
 
@@ -93,8 +125,21 @@ class DockerControlClient:
         return response.json()
 
     def get_container(self, container_id: str) -> Dict:
-        """Get detailed information about a specific container"""
-        response = self._request("GET", f"/api/v1/containers/{container_id}")
+        """Get detailed information about a specific container.
+
+        Raises:
+            ContainerNotFound: the service answered 404 — the container is
+                genuinely gone.
+            requests.exceptions.RequestException: any other failure, including
+                the service being unreachable (see ``is_service_unreachable``),
+                which carries no information about the container's state.
+        """
+        try:
+            response = self._request("GET", f"/api/v1/containers/{container_id}")
+        except requests.exceptions.HTTPError as e:
+            if http_status_of(e) == 404:
+                raise ContainerNotFound(container_id) from e
+            raise
         return response.json()
 
     def run_container(

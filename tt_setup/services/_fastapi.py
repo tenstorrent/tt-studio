@@ -227,8 +227,11 @@ fi
 
             tt_studio_root_export = f'export TT_STUDIO_ROOT="{TT_STUDIO_ROOT}"\n'
 
+            # Ignore hangup: closing the terminal or SSH session that ran run.py
+            # must not take the inference server down under a running model.
             temp_script.write(f'''#!/bin/bash
 set -e
+trap "" HUP
 cd "$1"
 {tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
@@ -238,7 +241,10 @@ cd "$1"
         
         # Start server
         cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", MODEL_RUN_LOG_FILE]
-        process = subprocess.Popen(cmd, env=env)
+        # Detach into its own session so an SSH disconnect doesn't SIGHUP the
+        # inference server. cleanup_fastapi_server() still stops it via the PID
+        # file, with kill_process_on_port(8001) as a backstop.
+        process = subprocess.Popen(cmd, env=env, start_new_session=True)
         
         # Health check (silent — only prints on success or failure)
         health_check_retries = 30
