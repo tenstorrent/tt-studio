@@ -152,9 +152,7 @@ def start_chat_deployment(
         payload["host_weights_dir"] = host_weights_dir
         
         from docker_control.docker_utils import derive_custom_weights_label
-        payload["custom_weights"] = derive_custom_weights_label(
-            model_name, host_weights_dir
-        )
+        payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend

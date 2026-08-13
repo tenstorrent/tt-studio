@@ -373,14 +373,14 @@ def deploys_whole_board(impl, board_type=None):
 CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
 
 
-def derive_custom_weights_label(model_name: str, host_weights_dir) -> Optional[str]:
+def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
     """
     Mint a stable, collision-free identity for a local custom-weights deploy.
     """
     if not host_weights_dir:
         return None
-    merge_id = os.path.basename(os.path.normpath(str(host_weights_dir)))
-    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", f"{model_name}-{merge_id}")
+    dir_name = os.path.basename(os.path.normpath(str(host_weights_dir)))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", dir_name)
     return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
 
 
@@ -477,9 +477,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             payload["host_volume"] = get_training_host_volume()
         elif host_weights_dir:
             payload["host_weights_dir"] = host_weights_dir
-            payload["custom_weights"] = derive_custom_weights_label(
-                impl.model_name, host_weights_dir
-            )
+            payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
 
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
