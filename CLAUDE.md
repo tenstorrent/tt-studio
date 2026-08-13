@@ -58,6 +58,9 @@ python run.py --switch REF    # fetch + check out a tt-studio branch/tag (e.g. a
 python run.py --uninstall     # --purge-all teardown + remove the `tt-studio` shell shortcut
 python run.py --check-headers # report files missing SPDX headers
 python run.py --build-images  # build images locally instead of pulling prebuilt ones from GHCR
+python run.py --make-rc-branch   # maintainers: cut rc-vX.Y.Z from main + open the RC PR
+python run.py --update-rc-branch # maintainers: cherry-pick new dev commits into the RC
+python run.py --merge-rc-branch  # maintainers: merge the approved RC, tag, publish the release
 ```
 
 Frontend (in `app/frontend/`): `npm run dev`, `npm run build`,

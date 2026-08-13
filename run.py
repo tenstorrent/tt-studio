@@ -21,6 +21,9 @@ Options:
     --build-images     Build container images locally instead of pulling prebuilt ones
     --check-headers       Check for missing SPDX license headers
     --add-headers         Add missing SPDX license headers (excludes frontend)
+    --make-rc-branch   Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+    --update-rc-branch Cherry-pick new dev commits into the current RC branch (maintainers)
+    --merge-rc-branch  Merge the approved RC PR, tag, and publish the release (maintainers)
     --help-env         Show environment variables help"""
 
 # Thin entrypoint. Implementation lives in the tt_setup/ package.

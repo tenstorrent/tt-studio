@@ -243,6 +243,56 @@ class TestCli(unittest.TestCase):
         for argv, expected in cases:
             self.assertEqual(_normalize_purge_model_argv(argv), expected, argv)
 
+    def test_release_flags_listed_in_their_own_help_panel(self):
+        result = runner.invoke(M.app, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        self.assertIn("Release (maintainers)", output_without_ansi)
+        for flag in ("--make-rc-branch", "--update-rc-branch", "--merge-rc-branch"):
+            self.assertIn(flag, output_without_ansi)
+
+    def test_make_rc_branch_dispatches_with_value(self):
+        with patch.object(_cli_run, "make_rc_branch", return_value=0) as make:
+            result = runner.invoke(M.app, ["--make-rc-branch", "minor"])
+        self.assertEqual(result.exit_code, 0)
+        make.assert_called_once_with("minor")
+
+    def test_make_rc_branch_picker_sentinel_reaches_dispatch(self):
+        # main() (not click) supplies the sentinel for a bare --make-rc-branch;
+        # here we inject it the way _normalize_argv would.
+        from tt_setup.constants import _RC_BUMP_PICKER
+        with patch.object(_cli_run, "make_rc_branch", return_value=0) as make:
+            result = runner.invoke(M.app, ["--make-rc-branch", _RC_BUMP_PICKER])
+        self.assertEqual(result.exit_code, 0)
+        make.assert_called_once_with(_RC_BUMP_PICKER)
+
+    def test_update_rc_branch_dispatches(self):
+        with patch.object(_cli_run, "update_rc_branch", return_value=0) as update:
+            result = runner.invoke(M.app, ["--update-rc-branch"])
+        self.assertEqual(result.exit_code, 0)
+        update.assert_called_once_with()
+
+    def test_merge_rc_branch_nonzero_exit_propagates(self):
+        with patch.object(_cli_run, "merge_rc_branch", return_value=1) as merge:
+            result = runner.invoke(M.app, ["--merge-rc-branch"])
+        self.assertEqual(result.exit_code, 1)
+        merge.assert_called_once_with()
+
+    def test_normalize_argv_handles_bare_optional_value_flags(self):
+        from tt_setup.cli._args import _normalize_argv
+        from tt_setup.constants import _PURGE_MODEL_PICKER as P, _RC_BUMP_PICKER as R
+        cases = [
+            (["--make-rc-branch"], ["--make-rc-branch", R]),
+            (["--make-rc-branch", "-v"], ["--make-rc-branch", R, "-v"]),
+            (["--make-rc-branch", "minor"], ["--make-rc-branch", "minor"]),
+            (["--make-rc-branch=minor"], ["--make-rc-branch=minor"]),
+            # Both optional-value flags normalize independently.
+            (["--purge-model", "--make-rc-branch"],
+             ["--purge-model", P, "--make-rc-branch", R]),
+        ]
+        for argv, expected in cases:
+            self.assertEqual(_normalize_argv(argv), expected, argv)
+
     def test_no_clear_flag_sets_globals_and_implies_verbose(self):
         # --no-clear preserves the terminal's contents AND streams full detail, so
         # it flips both the no_clear and verbose rendering globals. _run is patched
