@@ -423,6 +423,16 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Mochi pinned to a patched 0.18.0 media image: the artifact's spec pins
+        # 0.10.0-555f240, whose bundled tt-metal predates the Mochi blackhole
+        # mesh fixes and rejects the P300x2 2x2 mesh outright; the stock 0.18.0
+        # image fixes the mesh but still carries the pre-refactor Mochi runner.
+        # The -mochi-fix build layers tt-inference-server#4940 on top of
+        # 0.18.0-c49bb76. Drop this pin once an artifact release carries #4940
+        # and #4941.
+        if impl.model_name in {"mochi-1-preview"}:
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/tt-media-inference-server:0.18.0-c49bb76-mochi-fix"
+
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
         # spec on P150); without an impl the server defaults to the wrong engine and
