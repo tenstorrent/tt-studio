@@ -7,6 +7,7 @@ import socket, os, subprocess, json, signal, time
 import re
 import copy
 from pathlib import Path
+from typing import Optional
 
 import requests
 from django.core.cache import caches
@@ -369,106 +370,18 @@ def deploys_whole_board(impl, board_type=None):
 
 
 
+CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
 
 
-def _wait_for_container_exit(docker_client, name: str, timeout: int = 120):
-    """Block until the named container exits (or disappears). Returns its exit
-    code, or None if it vanished, errored transiently, or the wait timed out.
-
-    Polling is the only option: the docker-control-service exposes no
-    container-wait endpoint, and run_container is detached (it returns as soon as
-    the container starts, not when its command finishes).
+def derive_custom_weights_label(model_name: str, host_weights_dir) -> Optional[str]:
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            info = docker_client.get_container(name)
-        except Exception:
-            # 404 once the container is gone (or a transient error) — done.
-            return None
-        state = (
-            info.get("attrs", {}).get("State", {})
-            if isinstance(info, dict)
-            else {}
-        )
-        if state.get("Status") == "exited":
-            return state.get("ExitCode")
-        time.sleep(2)
-    return None
-
-
-def _force_remove_container(docker_client, name: str) -> None:
-    """Best-effort removal of a throwaway container; never raises."""
-    try:
-        docker_client.remove_container(name, force=True)
-    except Exception:
-        pass
-
-
-def clear_stale_tt_metal_cache(model_name: str, inference_impl) -> None:
-    """Invalidate the tt-metal converted-weights cache for a custom-weights deploy.
-
-    The cache is keyed only by impl + model name, not by weight contents. So when
-    a fine-tuned checkpoint is served under the same name via --host-weights-dir,
-    the previous checkpoint's cached weights are silently reused and shadow it. We
-    delete the cache before deploy so the server re-converts from the new weights.
-
-    Best-effort: failures are logged and the deploy proceeds. A throwaway
-    container removes only the tt_metal_cache subtree; the base weights
-    (bind-mounted from --host-weights-dir) are untouched.
+    Mint a stable, collision-free identity for a local custom-weights deploy.
     """
-    # Without the impl_id we can't resolve the volume name, so skip rather than guess.
-    if not inference_impl:
-        logger.warning(
-            "tt-metal cache clear skipped for %s: no inference_impl set, cannot "
-            "resolve the cache volume name.",
-            model_name,
-        )
-        return
-
-    # Mirror tt-inference-server's layout: the named volume
-    # `volume_id_<impl>-<model>` is mounted at the container's cache_root, whose
-    # tt_metal_cache/cache_<model>/ subtree holds the converted weights.
-    mount_dir = "/mnt/ttcache"
-    volume_name = f"volume_id_{inference_impl}-{model_name}"
-    cache_path = f"{mount_dir}/tt_metal_cache/cache_{model_name}"
-
-    safe_model_name = re.sub(r"[^a-zA-Z0-9_.-]", "-", model_name)
-    container_name = f"tt-cache-clear-{safe_model_name}-{int(time.time())}"
-
-    docker_client = get_docker_client()
-    logger.info(
-        "Clearing stale tt-metal cache for %s: rm -rf %s (volume %s)",
-        model_name, cache_path, volume_name,
-    )
-    try:
-        result = docker_client.run_container(
-            image="alpine:latest",
-            name=container_name,
-            command=f"rm -rf {cache_path}",
-            volumes={volume_name: mount_dir},
-            detach=True,
-            auto_remove=False,
-        )
-        if isinstance(result, dict) and result.get("status") == "error":
-            logger.warning(
-                "tt-metal cache clear for %s could not start: %s",
-                model_name, result.get("message"),
-            )
-            return
-
-        exit_code = _wait_for_container_exit(docker_client, container_name, timeout=120)
-        if exit_code not in (None, 0):
-            logger.warning(
-                "tt-metal cache clear for %s exited with code %s",
-                model_name, exit_code,
-            )
-        else:
-            logger.info("Cleared stale tt-metal cache for %s", model_name)
-    except Exception as e:
-        logger.warning("tt-metal cache clear for %s failed: %s", model_name, e)
-    finally:
-        _force_remove_container(docker_client, container_name)
+    if not host_weights_dir:
+        return None
+    merge_id = os.path.basename(os.path.normpath(str(host_weights_dir)))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", f"{model_name}-{merge_id}")
+    return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
 
 
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, host_weights_dir=None):
@@ -564,6 +477,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             payload["host_volume"] = get_training_host_volume()
         elif host_weights_dir:
             payload["host_weights_dir"] = host_weights_dir
+            payload["custom_weights"] = derive_custom_weights_label(
+                impl.model_name, host_weights_dir
+            )
 
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
@@ -585,9 +501,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             for k, v in payload.items()
         }
         logger.info(f"API payload: {_redacted_payload}")
-
-        if host_weights_dir:
-            clear_stale_tt_metal_cache(impl.model_name, inference_impl)
 
         # Make POST request to TT Inference Server API
         api_url = f"{FASTAPI_BASE_URL}/run"

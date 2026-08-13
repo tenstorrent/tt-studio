@@ -1598,6 +1598,9 @@ class RunRequest(BaseModel):
     skip_system_sw_validation: Optional[bool] = False
     host_volume: Optional[str] = None
     host_weights_dir: Optional[str] = None
+    # Fine-tuning case: label identifying custom weights, paired with host_weights_dir
+    # so the weights are read from local disk instead of HuggingFace.
+    custom_weights: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2048,6 +2051,15 @@ async def run_inference(request: RunRequest):
                 "Job %s: using explicit --host-volume %s (auto host-volume/hf-cache disabled)",
                 job_id,
                 request.host_volume,
+            )
+
+        if request.custom_weights:
+            base_argv.extend(["--custom-weights", request.custom_weights])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using --custom-weights %s (identity re-keyed; auto host-volume disabled)",
+                job_id,
+                request.custom_weights,
             )
 
         preferred_host_volume = None
