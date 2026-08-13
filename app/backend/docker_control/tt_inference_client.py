@@ -35,6 +35,10 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     s = f"{hf_model_id} {model_name}".lower()
     if "llama-3" in s or "llama3" in s:
         return "llama3_json"
+    # Qwen3.5 / Qwen3.6 blackhole builds ship with the qwen3_coder parser; older
+    # Qwen families use hermes.
+    if "qwen3.5" in s or "qwen3.6" in s or "qwen35" in s or "qwen36" in s:
+        return "qwen3_coder"
     if "qwen" in s or "qwq" in s:
         return "hermes"
     if "mistral" in s:
@@ -136,6 +140,7 @@ def start_chat_deployment(
     override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
     artifact_ref: Optional[str] = None,
+    disable_metal_timeout: bool = False,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -165,6 +170,8 @@ def start_chat_deployment(
         payload["override_docker_image"] = override_docker_image
     if artifact_ref is not None:
         payload["artifact_ref"] = artifact_ref
+    if disable_metal_timeout:
+        payload["disable_metal_timeout"] = True
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend
