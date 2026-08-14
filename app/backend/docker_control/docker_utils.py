@@ -374,8 +374,12 @@ CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
 
 
 def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
-    """
-    Mint a stable, collision-free identity for a local custom-weights deploy.
+    """Namespace a merged-checkpoint directory into a --custom-weights label.
+
+    Uniqueness already comes from the directory name (a merge-job uuid4), so this
+    only prefixes the namespace and clamps the charset. The clamp matters because
+    the inference server turns the label's basename into model_name and builds the
+    docker volume name from it — and merged_models/ entries can be renamed by hand.
     """
     if not host_weights_dir:
         return None
