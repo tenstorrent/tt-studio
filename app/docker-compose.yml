@@ -130,6 +130,8 @@ services:
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
+      # Per-model artifact refs (e.g. Qwen3.5-9B) write logs under .artifacts/refs/<ref>/
+      - ${TT_STUDIO_ROOT}/.artifacts/refs:${TT_STUDIO_ROOT}/.artifacts/refs:ro
       # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs
       - ${TT_STUDIO_ROOT}/logs/model_run_logs:${TT_STUDIO_ROOT}/logs/model_run_logs:ro
 

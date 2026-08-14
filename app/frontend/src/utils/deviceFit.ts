@@ -164,7 +164,9 @@ export function autoPlacement(
     slots.find((s) => s.slot_id === id)?.status === "available";
 
   if (placement.cardGroups.length > 0) {
-    if (board.every(isFree)) return { deviceIds: board, fullBoard: true };
+    if (placement.allowsFullBoard && board.every(isFree)) {
+      return { deviceIds: board, fullBoard: true };
+    }
     for (const group of placement.cardGroups) {
       if (group.every(isFree)) return { deviceIds: group, fullBoard: false };
     }

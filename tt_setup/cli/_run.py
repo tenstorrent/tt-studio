@@ -699,18 +699,32 @@ def _run(args):
             startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
             console.print("[muted]AI Playground mode — using cloud models; local inference server not needed[/muted]")
 
-        # Pre-create workflow_logs before docker compose up.
-        # docker-compose.yml bind-mounts this directory; if Docker creates it first, it
-        # does so as root, which blocks the FastAPI server (running as the current user)
-        # from writing logs on the first deploy. Also fix ownership if already root-owned
-        # from a previous run.
-        for _subdir in ["workflow_logs", os.path.join("workflow_logs", "run_logs")]:
-            _log_dir = os.path.join(INFERENCE_ARTIFACT_DIR, _subdir)
+        # Pre-create the host dirs docker-compose.yml bind-mounts, before compose up.
+        # Docker creates a missing bind-mount path itself, as root, which then blocks
+        # the FastAPI server (running as the current user) from writing there on the
+        # first deploy. Creating them first keeps them owned by the current user.
+        for _mount_dir in [
+            os.path.join(INFERENCE_ARTIFACT_DIR, "workflow_logs"),
+            os.path.join(INFERENCE_ARTIFACT_DIR, "workflow_logs", "run_logs"),
+            # Per-model artifact refs (e.g. Qwen3.5-9B) are downloaded here by the
+            # FastAPI server at deploy time, and bind-mounted read-only so the UI can
+            # stream their workflow logs. Without this, Docker wins the race and the
+            # ref download fails with EACCES before the model ever reaches hardware.
+            os.path.join(TT_STUDIO_ROOT, ".artifacts", "refs"),
+        ]:
             try:
-                os.makedirs(_log_dir, exist_ok=True)
+                os.makedirs(_mount_dir, exist_ok=True)
             except PermissionError:
-                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
-                os.makedirs(_log_dir, exist_ok=True)
+                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _mount_dir], check=False)
+                os.makedirs(_mount_dir, exist_ok=True)
+            # An earlier run may have let Docker create it first. makedirs(exist_ok=True)
+            # accepts an existing root-owned dir silently, so repair ownership explicitly
+            # rather than leaving a directory we cannot write to.
+            if not os.access(_mount_dir, os.W_OK):
+                subprocess.run(
+                    ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", _mount_dir],
+                    check=False,
+                )
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.

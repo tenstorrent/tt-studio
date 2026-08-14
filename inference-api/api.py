@@ -1832,6 +1832,10 @@ class RunRequest(BaseModel):
     # Internal flag to track if this is already a retry (to prevent infinite loops)
     is_retry: Optional[bool] = False
     skip_system_sw_validation: Optional[bool] = False
+    # Pass --disable-metal-timeout to run.py so the container does not set the
+    # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
+    # weight remaps on experimental models like Qwen3.5-9B).
+    disable_metal_timeout: Optional[bool] = False
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2297,6 +2301,8 @@ async def run_inference(request: RunRequest):
             base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
             base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+        if request.disable_metal_timeout:
+            base_argv.append("--disable-metal-timeout")
 
         preferred_host_volume = None
         expected_host_volume_dir: Optional[Path] = None
