@@ -151,6 +151,13 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 
 - **Tags are created in `main`** to mark production releases.
 - **Semantic versioning** (e.g., `v1.0.0`) is used to track different versions.
+- Pushing a `v*` tag (or publishing a GitHub release) triggers the
+  **Publish images** workflow, which builds the backend, frontend,
+  frontend-dev, and agent images and pushes them to
+  `ghcr.io/tenstorrent/tt-studio/*` so `run.py` can pull prebuilt images
+  instead of building locally. Nothing is published from `dev` or feature
+  branches; ad-hoc publishes go through the workflow's manual dispatch with
+  its explicit `push` input.
 
 ---
 

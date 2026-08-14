@@ -8,6 +8,7 @@ from tt_setup import config_store
 from tt_setup.constants import *
 from tt_setup.console import console, is_verbose
 from tt_setup.env_config._dotenv import write_env_var
+from tt_setup.image_source import compute_image_tag
 
 
 def set_app_version_env():
@@ -44,6 +45,12 @@ def set_app_version_env():
 
     write_env_var("VITE_APP_VERSION", version)
     write_env_var("VITE_APP_GIT_BRANCH", branch)
+
+    # Pin the compose image tag to this checkout (release tag, else sha-<12>,
+    # else "latest") so a pull fetches exactly the bits CI built for it.
+    # TT_STUDIO_IMAGE_REGISTRY is user-owned and never written here.
+    full_sha = _git(["rev-parse", "HEAD"])
+    write_env_var("TT_STUDIO_IMAGE_TAG", compute_image_tag(version, full_sha))
 
     # Low-priority provenance: show a muted one-liner for official releases;
     # the unofficial-branch note is detail, shown only with --verbose.

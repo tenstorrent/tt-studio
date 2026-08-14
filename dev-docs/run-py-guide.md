@@ -74,7 +74,8 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | Option | Description |
 | --- | --- |
 | `--purge-all` | Stop and wipe **everything** including the persistent volume, TT Studio's HuggingFace-cached model weights, and `.env`. (Deprecated alias: `--cleanup-all`.) |
-| `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
+| `--purge-model MODEL` | Uninstall **one model** (or several — repeat the flag or comma-separate names): its weights, Docker volume, env file, and running container; the Docker image too when no other installed model shares it. Run it bare to pick from an interactive list of installed models. See the [purge-model guide](purge-model-guide.md). |
+| `--yes`, `-y` | Skip the `--purge-all` / `--purge-model` confirmation prompt (for non-interactive/scripted runs). |
 | `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
 
 ### Advanced
@@ -84,6 +85,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
 | `--resync` | Force a resync of the model catalog. |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
+| `--build-images` | Build the container images locally instead of pulling prebuilt ones from ghcr.io. By default `run.py` pulls the images CI published for the exact checkout (release tag, else `sha-<12>`) and falls back to a local build automatically when they aren't available (feature branch, local changes, offline, custom frontend config). |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
 | `--skip-docker-control` | Skip the internal Docker Control Compose service. |
 | `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
@@ -513,6 +515,20 @@ python run.py --stop
 ```bash
 python run.py --purge-all
 ```
+
+### Purging a Single Model
+```bash
+python run.py --purge-model                       # interactive picker over installed models
+python run.py --purge-model Qwen3-32B             # one model by name
+python run.py --purge-model Qwen3-32B,YOLOv4      # several at once (or repeat the flag)
+```
+Removes everything belonging to just the named model(s) — weights on disk, the
+Docker weights volume, its env file, and any running container — while leaving
+the rest of TT-Studio (and every other model) untouched. Shared Docker images
+are reference-counted and only removed when no other installed model still uses
+the same tag. An inventory with sizes is shown before anything is deleted;
+`--yes` skips the confirmation. Full walkthrough:
+[purge-model guide](purge-model-guide.md).
 
 ### A Shorter Command (`tt-studio`)
 ```bash

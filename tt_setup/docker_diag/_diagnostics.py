@@ -11,7 +11,7 @@ from rich.table import Table
 from tt_setup.constants import *
 from tt_setup.constants import _COMPOSE_SERVICE_LABEL
 from tt_setup.shell import copy_to_clipboard
-from tt_setup.console import console, notice_panel
+from tt_setup.console import console, notice_panel, show_detail
 
 
 def _resolve_container_name(prefix):
@@ -108,6 +108,37 @@ def parse_docker_build_failure(output):
         return failed_container, friendly_name, error_section
 
     return None, None, None
+
+
+def classify_pull_failure(output):
+    """Why `docker compose pull` failed, from its output.
+
+    Returns one of 'unreachable' (no route to the registry), 'auth' (the
+    registry wants a login), 'unpublished' (the tag simply isn't there — the
+    normal case on an unmerged branch), or 'unknown'. Network trouble is checked
+    first: an offline machine can also report a missing manifest, and "you're
+    offline" is the more useful thing to say.
+    """
+    text = (output or "").lower()
+    if not text.strip():
+        return "unknown"
+    if any(k in text for k in (
+        "dial tcp", "no such host", "connection refused", "network is unreachable",
+        "i/o timeout", "timeout exceeded", "tls handshake", "temporary failure in name resolution",
+        "server misbehaving", "certificate", "proxyconnect",
+    )):
+        return "unreachable"
+    if any(k in text for k in (
+        "unauthorized", "authentication required", "denied", "forbidden",
+        "login prior to", "insufficient_scope",
+    )):
+        return "auth"
+    if any(k in text for k in (
+        "not found", "manifest unknown", "no such manifest", "does not exist",
+        "name unknown", "notfound",
+    )):
+        return "unpublished"
+    return "unknown"
 
 
 def verify_docker_containers(use_sudo=False):
@@ -352,7 +383,8 @@ def handle_docker_compose_result(returncode, full_output, use_sudo=False):
             copy_to_clipboard(error_log)
             return False
 
-        console.print("[success]✅ All containers built and running[/success]")
+        if show_detail():   # the collapsed Build phase line is the done signal
+            console.print("[success]✅ All containers built and running[/success]")
         return True
 
     # Build failed

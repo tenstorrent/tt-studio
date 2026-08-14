@@ -49,6 +49,7 @@ python run.py                 # full setup + start (venv, .env, artifact, Docker
 python run.py --dev           # dev mode: hot-reload frontend & backend, mount source
 python run.py --stop          # stop containers, keep the persistent volume
 python run.py --purge-all     # wipe containers, volumes, HF-cached models and .env
+python run.py --purge-model   # uninstall specific model(s); bare flag opens a picker
 python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
 python run.py --info          # re-show the "TT Studio is ready" summary (URLs, mode, hardware)
 python run.py --no-clear      # start without clearing the terminal; stream full startup detail
@@ -57,6 +58,7 @@ python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/
 python run.py --switch REF    # fetch + check out a tt-studio branch/tag (e.g. an RC), then re-run
 python run.py --uninstall     # --purge-all teardown + remove the `tt-studio` shell shortcut
 python run.py --check-headers # report files missing SPDX headers
+python run.py --build-images  # build images locally instead of pulling prebuilt ones from GHCR
 ```
 
 Frontend (in `app/frontend/`): `npm run dev`, `npm run build`,
