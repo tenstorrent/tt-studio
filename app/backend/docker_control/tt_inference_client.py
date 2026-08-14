@@ -35,9 +35,12 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     s = f"{hf_model_id} {model_name}".lower()
     if "llama-3" in s or "llama3" in s:
         return "llama3_json"
-    # Qwen3.5 / Qwen3.6 blackhole builds ship with the qwen3_coder parser; older
-    # Qwen families use hermes.
-    if "qwen3.5" in s or "qwen3.6" in s or "qwen35" in s or "qwen36" in s:
+    # Qwen3.5 / Qwen3.6 / Qwen3.8 blackhole builds ship with the qwen3_coder
+    # parser; older Qwen families use hermes.
+    if (
+        "qwen3.5" in s or "qwen3.6" in s or "qwen3.8" in s
+        or "qwen35" in s or "qwen36" in s or "qwen38" in s
+    ):
         return "qwen3_coder"
     if "qwen" in s or "qwq" in s:
         return "hermes"
