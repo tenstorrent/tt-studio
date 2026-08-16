@@ -6,7 +6,10 @@ services:
   tt_studio_backend:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
+    # Prebuilt image published by .github/workflows/publish-images.yml; run.py
+    # writes TT_STUDIO_IMAGE_TAG to .env each start (release tag, else sha-<12>).
+    # Falls back to a local build via the build: context when the pull fails.
+    image: ${TT_STUDIO_IMAGE_REGISTRY:-ghcr.io/tenstorrent/tt-studio}/backend:${TT_STUDIO_IMAGE_TAG:-latest}
     build: 
       context: ./backend
       args:
@@ -29,9 +32,6 @@ services:
     tty: true
     environment:
       # env vars come from the repo-root .env (run.py passes it via --env-file); .env.default is the template
-      # Force huggingface_hub to use plain HTTPS instead of the Xet CDN, which can
-      # be extremely slow/hang here and stall the embedding-model download on boot.
-      - HF_HUB_DISABLE_XET=1
       # ./backend is bind-mounted from the host repo; keep root-owned
       # __pycache__ out of the source tree
       - PYTHONDONTWRITEBYTECODE=1
@@ -39,6 +39,13 @@ services:
       - CHROMA_DB_PORT=8111
       - CHROMA_DB_EMBED_MODEL=${CHROMA_DB_EMBED_MODEL:-all-MiniLM-L6-v2}
       - RAG_RELEVANCE_THRESHOLD=${RAG_RELEVANCE_THRESHOLD:-}
+      - RAG_QUERY_REWRITE=${RAG_QUERY_REWRITE:-false}
+      - RAG_CONTEXT_TOKEN_BUDGET=${RAG_CONTEXT_TOKEN_BUDGET:-2000}
+      - RAG_RERANK_ENABLED=${RAG_RERANK_ENABLED:-true}
+      - RAG_RERANK_MIN_SCORE=${RAG_RERANK_MIN_SCORE:-0.05}
+      - RAG_RERANK_FLOOR=${RAG_RERANK_FLOOR:-2}
+      - RAG_CHUNK_SIZE=${RAG_CHUNK_SIZE:-750}
+      - RAG_CHUNK_OVERLAP=${RAG_CHUNK_OVERLAP:-100}
       - TT_STUDIO_ROOT
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
@@ -80,22 +87,21 @@ services:
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
+      # Per-model artifact refs (e.g. Qwen3.5-9B) write logs under .artifacts/refs/<ref>/
+      - ${TT_STUDIO_ROOT}/.artifacts/refs:${TT_STUDIO_ROOT}/.artifacts/refs:ro
       # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs
       - ${TT_STUDIO_ROOT}/logs/model_run_logs:${TT_STUDIO_ROOT}/logs/model_run_logs:ro
-      # Persist the Hugging Face cache so the embedding model (all-MiniLM-L6-v2)
-      # is downloaded once and survives container recreation on subsequent run.py.
-      - hf_cache:/root/.cache/huggingface
 
     healthcheck:
-      # On first application load resources for transformers/etc
-      # are downloaded. The UI should not start until these resources
-      # have been downloaded. Adjust timeout if on a very slow connection
+      # On a cold Chroma volume the backend embeds its internal knowledge corpus
+      # before serving. The UI should not start until that finishes.
+      # Adjust timeout if on a very slow machine.
       test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
       timeout: 120s
       interval: 10s
       retries: 5
-      # Cold first boot downloads the embedding model; allow time so the
-      # healthcheck doesn't mark the backend unhealthy mid-download.
+      # Embedding the corpus is CPU-bound and slow; allow time so the healthcheck
+      # doesn't mark the backend unhealthy mid-ingest.
       start_period: 300s
     # Allow container to access host services (docker-control-service)
     extra_hosts:
@@ -115,7 +121,8 @@ services:
   tt_studio_agent:
     hostname: tt-studio-agent
     user: "1000:1000"  # run non-root; no host mounts, so no ownership impact
-    # Container name and image are defined in mode-specific override files
+    # Container name is defined in mode-specific override files
+    image: ${TT_STUDIO_IMAGE_REGISTRY:-ghcr.io/tenstorrent/tt-studio}/agent:${TT_STUDIO_IMAGE_TAG:-latest}
     build: ./agent
     depends_on:
       tt_studio_backend:
@@ -208,7 +215,3 @@ networks:
     # to avoid colliding existing docker networks
     external: true
     name: tt_studio_network
-
-volumes:
-  # Persistent Hugging Face cache for the backend embedding model.
-  hf_cache:

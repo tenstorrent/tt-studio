@@ -31,12 +31,20 @@ runner = CliRunner()
 
 
 class TestCli(unittest.TestCase):
+    def tearDown(self):
+        # --no-clear / --verbose set module-global rendering state; reset it so a
+        # flag test doesn't leak the globals into later tests.
+        from tt_setup import console
+        console.set_no_clear(False)
+        console.set_verbose(False)
+
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
         self.assertEqual(result.exit_code, 0)
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-        for flag in ("--dev", "--stop", "--purge-all", "--help-env", "--no-sudo",
-                     "--logs", "--info", "--auto-deploy", "--headless"):
+        for flag in ("--dev", "--stop", "--purge-all", "--purge-model", "--help-env",
+                     "--no-sudo", "--logs", "--info", "--uninstall", "--switch",
+                     "--build-images", "--no-clear", "--auto-deploy", "--headless"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
@@ -238,6 +246,102 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         run.assert_called_once()
         self.assertIsNone(run.call_args[0][0].auto_deploy)
+
+    def test_uninstall_runs_purge_then_removes_shortcut(self):
+        with patch.object(_cli_run, "cleanup_resources", return_value=True) as cleanup, \
+             patch.object(_cli_run, "uninstall_shortcut") as remove:
+            result = runner.invoke(M.app, ["--uninstall"])
+        self.assertEqual(result.exit_code, 0)
+        cleanup.assert_called_once()
+        remove.assert_called_once()
+        # --uninstall implies the full purge (and therefore the stop trigger).
+        ns = cleanup.call_args[0][0]
+        self.assertTrue(ns.cleanup_all)
+        self.assertTrue(ns.cleanup)
+
+    def test_uninstall_keeps_shortcut_when_purge_aborted(self):
+        # Declining the purge confirmation aborts the whole uninstall.
+        with patch.object(_cli_run, "cleanup_resources", return_value=False), \
+             patch.object(_cli_run, "uninstall_shortcut") as remove:
+            result = runner.invoke(M.app, ["--uninstall"])
+        self.assertEqual(result.exit_code, 0)
+        remove.assert_not_called()
+
+    def test_switch_dispatches_with_ref(self):
+        with patch.object(_cli_run, "switch_checkout", return_value=0) as switch:
+            result = runner.invoke(M.app, ["--switch", "v2.9.0-rc1"])
+        self.assertEqual(result.exit_code, 0)
+        switch.assert_called_once_with("v2.9.0-rc1")
+
+    def test_switch_requires_value(self):
+        result = runner.invoke(M.app, ["--switch"])
+        self.assertEqual(result.exit_code, 2)
+
+    def test_switch_nonzero_exit_propagates(self):
+        with patch.object(_cli_run, "switch_checkout", return_value=1):
+            result = runner.invoke(M.app, ["--switch", "dev"])
+        self.assertEqual(result.exit_code, 1)
+
+    def test_purge_model_dispatches_with_names(self):
+        with patch.object(_cli_run, "purge_models", return_value=0) as purge, \
+             patch.object(_cli_run, "cleanup_resources") as cleanup:
+            result = runner.invoke(
+                M.app, ["--purge-model", "foo", "--purge-model", "bar"])
+        self.assertEqual(result.exit_code, 0)
+        purge.assert_called_once()
+        cleanup.assert_not_called()
+        ns = purge.call_args[0][0]
+        self.assertEqual(ns.purge_model, ["foo", "bar"])
+        # Purging one model is not a stack teardown.
+        self.assertFalse(ns.cleanup)
+        self.assertFalse(ns.cleanup_all)
+
+    def test_purge_model_nonzero_exit_propagates(self):
+        with patch.object(_cli_run, "purge_models", return_value=1):
+            result = runner.invoke(M.app, ["--purge-model", "no-such-model"])
+        self.assertEqual(result.exit_code, 1)
+
+    def test_purge_model_picker_sentinel_reaches_dispatch(self):
+        # main() (not click) supplies the sentinel for a bare --purge-model;
+        # here we inject it the way _normalize_purge_model_argv would.
+        from tt_setup.constants import _PURGE_MODEL_PICKER
+        with patch.object(_cli_run, "purge_models", return_value=0) as purge:
+            result = runner.invoke(M.app, ["--purge-model", _PURGE_MODEL_PICKER])
+        self.assertEqual(result.exit_code, 0)
+        ns = purge.call_args[0][0]
+        self.assertEqual(ns.purge_model, [_PURGE_MODEL_PICKER])
+
+    def test_normalize_purge_model_argv(self):
+        from tt_setup.cli._args import _normalize_purge_model_argv
+        from tt_setup.constants import _PURGE_MODEL_PICKER as P
+        cases = [
+            # Bare at end → sentinel appended.
+            (["--purge-model"], ["--purge-model", P]),
+            # Bare before another flag → sentinel inserted, flag preserved.
+            (["--purge-model", "-y"], ["--purge-model", P, "-y"]),
+            (["--dev", "--purge-model", "--yes"], ["--dev", "--purge-model", P, "--yes"]),
+            # With a value (either form) → untouched.
+            (["--purge-model", "foo"], ["--purge-model", "foo"]),
+            (["--purge-model=foo"], ["--purge-model=foo"]),
+            # Not present → untouched.
+            (["--stop"], ["--stop"]),
+            ([], []),
+        ]
+        for argv, expected in cases:
+            self.assertEqual(_normalize_purge_model_argv(argv), expected, argv)
+
+    def test_no_clear_flag_sets_globals_and_implies_verbose(self):
+        # --no-clear preserves the terminal's contents AND streams full detail, so
+        # it flips both the no_clear and verbose rendering globals. _run is patched
+        # so startup doesn't actually run.
+        from tt_setup.cli import _args
+        from tt_setup import console
+        with patch.object(_args, "_run") as run:
+            result = runner.invoke(M.app, ["--no-clear"])
+        self.assertEqual(result.exit_code, 0)
+        run.assert_called_once()
+        self.assertTrue(console.no_clear())
+        self.assertTrue(console.is_verbose())
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))

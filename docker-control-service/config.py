@@ -28,6 +28,10 @@ class Settings:
         "ubuntu:",
         "python:",
         "face-recognition-api:",
+        # Marketplace apps (shared_config/marketplace_config.py)
+        "ghcr.io/open-webui/",
+        "mintplexlabs/",
+        "itzcrazykns1337/",
     ]
 
     ALLOWED_NETWORKS: List[str] = [

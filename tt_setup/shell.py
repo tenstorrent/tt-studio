@@ -10,7 +10,7 @@ import sys
 import subprocess
 import socket
 from tt_setup.constants import *
-from tt_setup.console import console, notice_panel, sticky_active, welcome_panel
+from tt_setup.console import console, no_clear, notice_panel, sticky_active, welcome_panel
 
 
 def clear_lines(n):
@@ -307,8 +307,9 @@ def display_welcome_banner(dev_mode=False):
     border, a two-column body (greeting + logo + context | getting-started)."""
     # Clear screen for a clean splash effect (only when interactive). Skip it when
     # the sticky-top stepper region is installed — it already cleared the screen,
-    # and a `clear` here would reset its scroll region.
-    if sys.stdout.isatty() and not sticky_active():
+    # and a `clear` here would reset its scroll region. Also skip under --no-clear,
+    # which preserves the terminal's existing contents.
+    if sys.stdout.isatty() and not sticky_active() and not no_clear():
         os.system('cls' if OS_NAME == 'Windows' else 'clear')
 
     branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"])

@@ -33,6 +33,7 @@ urlpatterns = [
     path("collections/", include("vector_db_control.urls")),
     path("logs/", include("logs_control.urls")),
     path("board/", include("board_control.urls")),
+    path("training/", include("training_control.urls")),
     path("workflows/", include("workflow_control.urls")),
     # OpenAI-compatible audio endpoint
     path("v1/audio/speech", OpenAIAudioSpeechView.as_view()),

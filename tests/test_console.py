@@ -76,5 +76,41 @@ class TestDownloadHelperShape(unittest.TestCase):
         self.assertEqual(captured["dest"], "/tmp/y.tar.gz")
 
 
+class TestPhaseTitles(unittest.TestCase):
+    """The phase COUNT is fixed, but the word follows what the run decided to do:
+    a phase titled "Build" while it pulls makes the user decode the output."""
+
+    def setUp(self):
+        C.register_setup_phases()
+
+    def _titles(self):
+        from tt_setup.console import _stepper
+        return [p.title for p in _stepper._checklist.phases]
+
+    def test_begin_phase_title_overrides_the_roadmap(self):
+        self.assertIn("Build", self._titles())
+        handle = C.begin_phase(4, 5, "Pull")
+        self.assertIn("Pull", self._titles())
+        self.assertNotIn("Build", self._titles())
+        C.end_phase(handle)
+
+    def test_rename_phase_mid_run(self):
+        handle = C.begin_phase(4, 5, "Pull")
+        C.rename_phase(4, "Build")       # the pull fell back to a local build
+        self.assertIn("Build", self._titles())
+        C.end_phase(handle)
+
+    def test_phase_count_is_untouched_by_renames(self):
+        before = len(self._titles())
+        handle = C.begin_phase(4, 5, "Pull")
+        C.rename_phase(4, "Build")
+        C.end_phase(handle)
+        self.assertEqual(len(self._titles()), before)
+
+    def test_unknown_index_rename_is_a_noop(self):
+        C.rename_phase(99, "Nope")       # never raise on an error path
+        self.assertNotIn("Nope", self._titles())
+
+
 if __name__ == "__main__":
     unittest.main()

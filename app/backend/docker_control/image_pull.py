@@ -68,9 +68,27 @@ def _new_entry(image_ref: str) -> dict:
         "image_ref": image_ref,
         "real_job_id": None,
         "error": None,
+        "cancelled": False,
         "started_at": now,
         "updated_at": now,
     }
+
+
+def request_pull_cancel(pull_id: str) -> bool:
+    """Flag a pull job for cancellation so its worker bails before starting the
+    deploy. Returns True if the pull job was tracked."""
+    with _lock:
+        entry = _image_pull_jobs.get(pull_id)
+        if entry is None:
+            return False
+        entry["cancelled"] = True
+        return True
+
+
+def _is_pull_cancelled(pull_id: str) -> bool:
+    with _lock:
+        entry = _image_pull_jobs.get(pull_id)
+        return bool(entry and entry.get("cancelled"))
 
 
 def get_pull_job(pull_id: str) -> Optional[dict]:
@@ -187,6 +205,8 @@ def _worker(
             last_bytes: Optional[int] = None
             last_heartbeat = 0.0
             while time.time() < deadline:
+                if _is_pull_cancelled(pull_id):
+                    break
                 # Keep the placeholder deployment record alive during pulls.
                 if time.time() - last_heartbeat >= _HEARTBEAT_INTERVAL_SECONDS:
                     last_heartbeat = time.time()
@@ -232,6 +252,14 @@ def _worker(
                         )
                     break
                 time.sleep(_POLL_INTERVAL_SECONDS)
+
+        # Cancelled during the pull: don't start the deploy at all. Use a distinct
+        # "cancelled" status so the UI shows a user cancellation, not a pull failure.
+        if _is_pull_cancelled(pull_id):
+            _update(pull_id, status="cancelled",
+                    message="Deployment cancelled by user")
+            logger.info(f"[image_pull] {pull_id} cancelled before deploy")
+            return
 
         # Trigger the real deployment (image is now cached, or we fall back to letting the inference server pull
         _update(pull_id, message="Image ready — starting container…")

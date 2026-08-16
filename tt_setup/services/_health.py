@@ -42,6 +42,98 @@ def snapshot_health(health_urls, timeout=2):
         return dict(pool.map(lambda u: (u, probe_service(u, timeout)), health_urls))
 
 
+def read_log_tail(log_file, lines=40):
+    """The last `lines` non-blank lines of a service log ('' if unreadable)."""
+    try:
+        with open(log_file, "r", errors="replace") as f:
+            kept = [ln.rstrip() for ln in f if ln.strip()]
+        return "\n".join(kept[-lines:])
+    except Exception:
+        return ""
+
+
+def diagnose_service_log(log_text, port=None, log_file=None):
+    """Why a host service didn't come up, from its log tail.
+
+    The counterpart of docker_diag.diagnose_container_failure for the processes
+    the launcher runs on the host: recognize the handful of failures that
+    actually happen and say what to do about them, instead of dumping the last
+    N log lines and leaving the reader to grep. Pure — takes text, returns
+    {cause, detail, evidence, actions}.
+    """
+    text = (log_text or "")
+    low = text.lower()
+    evidence = ""
+    for line in reversed(text.splitlines()):
+        if any(k in line.lower() for k in ("error", "exception", "traceback", "failed", "errno")):
+            evidence = line.strip()
+            break
+    port_ref = f":{port}" if port else ""
+
+    if "address already in use" in low or "errno 98" in low or "errno 48" in low:
+        return {
+            "cause": f"port {port or '?'} is still taken",
+            "detail": f"Another process was holding port {port or '?'} when the service tried to bind to it.",
+            "evidence": evidence,
+            "actions": [f"lsof -i {port_ref}".strip(), "python run.py --stop, then re-run"],
+        }
+    if "modulenotfounderror" in low or "importerror" in low:
+        return {
+            "cause": "a Python dependency is missing",
+            "detail": "The service's virtual environment is incomplete or out of date.",
+            "evidence": evidence,
+            "actions": ["delete the service's .venv directory, then re-run python run.py"],
+        }
+    if "permission denied" in low:
+        return {
+            "cause": "permission denied",
+            "detail": "The service couldn't open a file or socket it needs (often the Docker socket).",
+            "evidence": evidence,
+            "actions": ["check Docker access: docker ps",
+                        "add yourself to the docker group: sudo usermod -aG docker $USER (then log out/in)"],
+        }
+    if "no space left on device" in low:
+        return {
+            "cause": "the disk is full",
+            "detail": "The service couldn't write to disk.",
+            "evidence": evidence,
+            "actions": ["df -h", "docker system prune -af"],
+        }
+    return {
+        "cause": "it didn't answer its health check",
+        "detail": "The service started but never became healthy.",
+        "evidence": evidence,
+        "actions": [f"tail -50 {log_file}" if log_file else "check the service log"],
+    }
+
+
+def report_service_failure(name, log_file, port=None, consequence=None):
+    """Print the calm 'didn't start' card for a host service: the cause in plain
+    words, the one log line that shows it, and what to try. Replaces dumping the
+    log tail into the phase output."""
+    # Paths read better relative to the repo the user launched from.
+    shown_log = log_file
+    try:
+        if log_file and log_file.startswith(TT_STUDIO_ROOT):
+            shown_log = os.path.relpath(log_file, TT_STUDIO_ROOT)
+    except Exception:
+        pass
+
+    diagnosis = diagnose_service_log(read_log_tail(log_file), port=port, log_file=shown_log)
+    lines = [f"[error]{diagnosis['detail']}[/error]"]
+    if diagnosis["evidence"]:
+        lines.append(f"[muted]Log · {diagnosis['evidence'][:120]}[/muted]")
+    if consequence:
+        lines += ["", f"[warning]{consequence}[/warning]"]
+    lines += ["", "[info]Try:[/info]"]
+    lines += [f"[muted]  {action}[/muted]" for action in diagnosis["actions"]]
+    if not any(shown_log in action for action in diagnosis["actions"]):
+        lines.append(f"[muted]  tail -50 {shown_log}[/muted]")
+    console.print(notice_panel(f"[error]{name} didn't start — {diagnosis['cause']}[/error]",
+                               lines, border_style="error"))
+    return diagnosis
+
+
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     """
     Wait for a service to become healthy (HTTP 200 at the given URL).
