@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import { cn } from "@/src/lib/utils";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { motion } from "framer-motion";
 import { IconUpload } from "@tabler/icons-react";
 import { useDropzone } from "react-dropzone";
@@ -12,7 +12,7 @@ import { CheckCircle2, AlertCircle, X, FileText } from "lucide-react";
 export interface UploadFileItem {
   id: string;
   file: File;
-  status: "uploading" | "processing" | "success" | "error";
+  status: "loading" | "success" | "error";
   progress?: number;
   statusText?: string;
   errorMessage?: string;
@@ -52,12 +52,10 @@ export const GentleFileUpload = ({
   onRemoveFile,
   disabled = false,
 }: GentleFileUploadProps) => {
-  const [internalFiles, setInternalFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (newFiles: File[]) => {
     if (disabled) return;
-    setInternalFiles((prevFiles) => [...prevFiles, ...newFiles]);
     if (onChange) {
       onChange(newFiles);
     }
@@ -78,16 +76,8 @@ export const GentleFileUpload = ({
     },
   });
 
-  // If controlled files are provided, map them; otherwise convert internal files
-  const displayFiles: UploadFileItem[] = controlledFiles
-    ? controlledFiles
-    : internalFiles.map((file, idx) => ({
-      id: `internal-${file.name}-${idx}`,
-      file,
-      status: "processing" as const,
-      progress: 100,
-      statusText: "Ready",
-    }));
+  // Use controlled files if provided, otherwise empty (parent owns state)
+  const displayFiles: UploadFileItem[] = controlledFiles ?? [];
 
   return (
     <div className="w-full" {...getRootProps()}>
@@ -123,8 +113,7 @@ export const GentleFileUpload = ({
           <div className="relative w-full mt-10 max-w-xl mx-auto space-y-3">
             {displayFiles.length > 0 &&
               displayFiles.map((item, idx) => {
-                const isProcessing =
-                  item.status === "uploading" || item.status === "processing";
+                const isProcessing = item.status === "loading";
                 const isSuccess = item.status === "success";
                 const isError = item.status === "error";
 

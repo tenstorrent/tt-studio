@@ -142,6 +142,10 @@ export default function RagManagement() {
   const progressIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(
     new Map()
   );
+  // Track auto-dismiss timeouts so they can be cleared on unmount
+  const dismissTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
   const [isDragging, setIsDragging] = useState(false);
 
   // State to track expanded rows
@@ -165,10 +169,7 @@ export default function RagManagement() {
     const interval = setInterval(() => {
       setActiveUploads((prev) =>
         prev.map((item) => {
-          if (
-            item.id === uploadId &&
-            (item.status === "uploading" || item.status === "processing")
-          ) {
+          if (item.id === uploadId && item.status === "loading") {
             const current = item.progress || 15;
             if (current < 85) {
               const step = current < 50 ? 8 : 4;
@@ -197,16 +198,36 @@ export default function RagManagement() {
     }
   };
 
+  // Schedule auto-dismiss of a completed upload card after 6 seconds
+  const scheduleDismiss = (uploadId: string) => {
+    if (dismissTimeouts.current.has(uploadId)) {
+      clearTimeout(dismissTimeouts.current.get(uploadId)!);
+    }
+    const timer = setTimeout(() => {
+      setActiveUploads((prev) => prev.filter((item) => item.id !== uploadId));
+      dismissTimeouts.current.delete(uploadId);
+    }, 6000);
+    dismissTimeouts.current.set(uploadId, timer);
+  };
+
   const handleRemoveUploadItem = (id: string) => {
     stopProgressSimulation(id);
+    // Cancel pending auto-dismiss if user manually dismisses
+    if (dismissTimeouts.current.has(id)) {
+      clearTimeout(dismissTimeouts.current.get(id)!);
+      dismissTimeouts.current.delete(id);
+    }
     setActiveUploads((prev) => prev.filter((item) => item.id !== id));
   };
 
   useEffect(() => {
     const currentIntervals = progressIntervals.current;
+    const currentTimeouts = dismissTimeouts.current;
     return () => {
       currentIntervals.forEach((interval) => clearInterval(interval));
       currentIntervals.clear();
+      currentTimeouts.forEach((timer) => clearTimeout(timer));
+      currentTimeouts.clear();
     };
   }, []);
 
@@ -382,11 +403,7 @@ export default function RagManagement() {
               : item
           )
         );
-        setTimeout(() => {
-          setActiveUploads((prev) =>
-            prev.filter((item) => item.id !== uploadId)
-          );
-        }, 6000);
+        scheduleDismiss(uploadId);
       }
       customToast.success(
         `Successfully created datasource "${collectionName}" and uploaded "${file.name}"`
@@ -572,11 +589,7 @@ export default function RagManagement() {
               : item
           )
         );
-        setTimeout(() => {
-          setActiveUploads((prev) =>
-            prev.filter((item) => item.id !== uploadId)
-          );
-        }, 6000);
+        scheduleDismiss(uploadId);
       }
 
       // Check if metadata was updated successfully
@@ -739,7 +752,7 @@ export default function RagManagement() {
       const newUpload: UploadFileItem = {
         id: uploadId,
         file,
-        status: "processing",
+        status: "loading",
         progress: 15,
         statusText: `Uploading & preparing "${collectionName}"...`,
       };
@@ -1216,7 +1229,7 @@ export default function RagManagement() {
                             const newUpload: UploadFileItem = {
                               id: uploadId,
                               file,
-                              status: "processing",
+                              status: "loading",
                               progress: 15,
                               statusText: `Uploading to "${rds.name}"...`,
                             };
