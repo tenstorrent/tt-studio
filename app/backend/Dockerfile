@@ -10,6 +10,7 @@ ENV VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
 ENV PYTHONUNBUFFERED=1
 # /backend is bind-mounted from the host repo; don't litter it with bytecode
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_ROOT_USER_ACTION=ignore
 
 EXPOSE 8000
 
