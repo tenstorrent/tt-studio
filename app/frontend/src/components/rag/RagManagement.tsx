@@ -29,7 +29,10 @@ import {
   ChevronUp,
   Database,
 } from "lucide-react";
-import { GentleFileUpload } from "@/src/components/ui/gentle-file-upload";
+import {
+  GentleFileUpload,
+  type UploadFileItem,
+} from "@/src/components/ui/gentle-file-upload";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
 import type { JSX } from "react";
@@ -135,6 +138,10 @@ export default function RagManagement() {
   const [collectionsUploading, setCollectionsUploading] = useState<string[]>(
     []
   );
+  const [activeUploads, setActiveUploads] = useState<UploadFileItem[]>([]);
+  const progressIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map()
+  );
   const [isDragging, setIsDragging] = useState(false);
 
   // State to track expanded rows
@@ -149,6 +156,59 @@ export default function RagManagement() {
       [id]: !prev[id],
     }));
   };
+
+  // Helper to start smooth simulated progress while backend creates embeddings
+  const startProgressSimulation = (uploadId: string, collectionName: string) => {
+    if (progressIntervals.current.has(uploadId)) {
+      clearInterval(progressIntervals.current.get(uploadId)!);
+    }
+    const interval = setInterval(() => {
+      setActiveUploads((prev) =>
+        prev.map((item) => {
+          if (
+            item.id === uploadId &&
+            (item.status === "uploading" || item.status === "processing")
+          ) {
+            const current = item.progress || 15;
+            if (current < 85) {
+              const step = current < 50 ? 8 : 4;
+              const nextProgress = Math.min(current + step, 85);
+              return {
+                ...item,
+                progress: nextProgress,
+                statusText:
+                  nextProgress > 50
+                    ? `Generating vector embeddings for "${collectionName}"...`
+                    : `Extracting text & chunking "${item.file.name}"...`,
+              };
+            }
+          }
+          return item;
+        })
+      );
+    }, 400);
+    progressIntervals.current.set(uploadId, interval);
+  };
+
+  const stopProgressSimulation = (uploadId: string) => {
+    if (progressIntervals.current.has(uploadId)) {
+      clearInterval(progressIntervals.current.get(uploadId)!);
+      progressIntervals.current.delete(uploadId);
+    }
+  };
+
+  const handleRemoveUploadItem = (id: string) => {
+    stopProgressSimulation(id);
+    setActiveUploads((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    const currentIntervals = progressIntervals.current;
+    return () => {
+      currentIntervals.forEach((interval) => clearInterval(interval));
+      currentIntervals.clear();
+    };
+  }, []);
 
   // Ensure browser ID is initialized on component mount
   useEffect(() => {
@@ -237,9 +297,11 @@ export default function RagManagement() {
     mutationFn: async ({
       file,
       collectionName,
+      uploadId,
     }: {
       file: File;
       collectionName: string;
+      uploadId?: string;
     }) => {
       // First create the collection
       await createCollection({ collectionName });
@@ -260,7 +322,7 @@ export default function RagManagement() {
         throw uploadError;
       }
 
-      return { file, collectionName };
+      return { file, collectionName, uploadId };
     },
     onMutate: ({ collectionName }) => {
       setCollectionsUploading((prev) =>
@@ -270,10 +332,28 @@ export default function RagManagement() {
         `Creating datasource "${collectionName}" and uploading document...`
       );
     },
-    onError: (error: any, { file, collectionName }) => {
+    onError: (error: any, { file, collectionName, uploadId }) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage:
+                    error.message === "Collection name already exists"
+                      ? `Collection "${collectionName}" already exists.`
+                      : error.message || "Failed to create datasource",
+                }
+              : item
+          )
+        );
+      }
       if (error.message === "Collection name already exists") {
         customToast.error(
           `Collection "${collectionName}" already exists. Please choose a different name.`
@@ -284,10 +364,30 @@ export default function RagManagement() {
         );
       }
     },
-    onSuccess: async ({ file, collectionName }) => {
+    onSuccess: async ({ file, collectionName, uploadId }) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Datasource "${collectionName}" created successfully`,
+                }
+              : item
+          )
+        );
+        setTimeout(() => {
+          setActiveUploads((prev) =>
+            prev.filter((item) => item.id !== uploadId)
+          );
+        }, 6000);
+      }
       customToast.success(
         `Successfully created datasource "${collectionName}" and uploaded "${file.name}"`
       );
@@ -411,25 +511,73 @@ export default function RagManagement() {
 
   // Upload document mutation (for existing collections)
   const uploadDocumentMutation = useMutation({
-    mutationFn: uploadDocument,
+    mutationFn: ({
+      file,
+      collectionName,
+    }: {
+      file: File;
+      collectionName: string;
+      uploadId?: string;
+    }) => uploadDocument({ file, collectionName }),
     onMutate: ({ collectionName }) => {
       setCollectionsUploading((prev) =>
         prev.includes(collectionName) ? prev : [...prev, collectionName]
       );
       customToast.info("Uploading document...");
     },
-    onError: (error: Error, { file, collectionName }) => {
+    onError: (
+      error: Error,
+      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+    ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage: error.message || "Upload failed",
+                }
+              : item
+          )
+        );
+      }
       customToast.error(
         `Error uploading ${file.name} to ${collectionName}: ${error.message}`
       );
     },
-    onSuccess: async (response, { file, collectionName }) => {
+    onSuccess: async (
+      response,
+      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+    ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Uploaded "${file.name}" to "${collectionName}"`,
+                }
+              : item
+          )
+        );
+        setTimeout(() => {
+          setActiveUploads((prev) =>
+            prev.filter((item) => item.id !== uploadId)
+          );
+        }, 6000);
+      }
 
       // Check if metadata was updated successfully
       const uploadResponse = response.data;
@@ -587,16 +735,28 @@ export default function RagManagement() {
         return;
       }
 
+      const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newUpload: UploadFileItem = {
+        id: uploadId,
+        file,
+        status: "processing",
+        progress: 15,
+        statusText: `Uploading & preparing "${collectionName}"...`,
+      };
+
+      setActiveUploads((prev) => [...prev, newUpload]);
+      startProgressSimulation(uploadId, collectionName);
+
       // Check if collection already exists
       const existingCollection = ragDataSources.find(
         (rds) => rds.name === collectionName
       );
       if (existingCollection) {
         // Upload to existing collection
-        uploadDocumentMutation.mutate({ file, collectionName });
+        uploadDocumentMutation.mutate({ file, collectionName, uploadId });
       } else {
         // Create new collection and upload
-        autoCreateAndUploadMutation.mutate({ file, collectionName });
+        autoCreateAndUploadMutation.mutate({ file, collectionName, uploadId });
       }
     });
   };
@@ -783,7 +943,12 @@ export default function RagManagement() {
               </div>
               {/* Documents info visible on mobile - below the name */}
               <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">
-                {item.documents && item.documents.length > 0 ? (
+                {isUploading ? (
+                  <div className="flex items-center gap-1.5 text-blue-500 animate-pulse">
+                    <Spinner size="sm" />
+                    <span>Indexing document...</span>
+                  </div>
+                ) : item.documents && item.documents.length > 0 ? (
                   <>
                     <FileType className="w-3 h-3 shrink-0 text-blue-500" />
                     <span className="truncate">
@@ -807,7 +972,19 @@ export default function RagManagement() {
               className="hidden sm:block col-span-4 md:col-span-5 cursor-pointer"
               onClick={() => toggleExpandRow(item.id)}
             >
-              {item.documents && item.documents.length > 0 ? (
+              {isUploading ? (
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 animate-pulse">
+                  <Spinner size="sm" />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      Processing & Indexing...
+                    </span>
+                    <span className="text-xs text-blue-500/80">
+                      Generating vector embeddings
+                    </span>
+                  </div>
+                </div>
+              ) : item.documents && item.documents.length > 0 ? (
                 <div className="flex items-center gap-2">
                   <FileType color="blue" className="w-4 h-4 shrink-0" />
                   <div className="flex flex-col">
@@ -953,7 +1130,11 @@ export default function RagManagement() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
-          <GentleFileUpload onChange={handleFileUpload} />
+          <GentleFileUpload
+            onChange={handleFileUpload}
+            files={activeUploads}
+            onRemoveFile={handleRemoveUploadItem}
+          />
         </Card>
 
         <Card
@@ -1030,9 +1211,21 @@ export default function RagManagement() {
                         input.onchange = (e) => {
                           const target = e.target as HTMLInputElement;
                           if (target.files && target.files[0]) {
+                            const file = target.files[0];
+                            const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+                            const newUpload: UploadFileItem = {
+                              id: uploadId,
+                              file,
+                              status: "processing",
+                              progress: 15,
+                              statusText: `Uploading to "${rds.name}"...`,
+                            };
+                            setActiveUploads((prev) => [...prev, newUpload]);
+                            startProgressSimulation(uploadId, rds.name);
                             uploadDocumentMutation.mutate({
-                              file: target.files[0],
+                              file,
                               collectionName: rds.name,
+                              uploadId,
                             });
                           }
                         };
