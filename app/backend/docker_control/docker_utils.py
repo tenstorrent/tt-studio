@@ -427,11 +427,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # 0.10.0-555f240, whose bundled tt-metal predates the Mochi blackhole
         # mesh fixes and rejects the P300x2 2x2 mesh outright; the stock 0.18.0
         # image fixes the mesh but still carries the pre-refactor Mochi runner.
-        # The -mochi-fix build layers tt-inference-server#4940 on top of
+        # The patched build layers tt-inference-server#4940 on top of
         # 0.18.0-c49bb76. Drop this pin once an artifact release carries #4940
         # and #4941.
         if impl.model_name in {"mochi-1-preview"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/tt-media-inference-server:0.18.0-c49bb76-mochi-fix"
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76"
 
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
