@@ -3,7 +3,7 @@
     "artifact_version": "0.18.0",
     "generated_at": "2026-07-23T20:22:38.003837+00:00"
   },
-  "total_models": 56,
+  "total_models": 59,
   "models": [
     {
       "model_name": "distil-large-v3",
