@@ -1351,6 +1351,40 @@
       },
       "requires_dev_catalog": true,
       "param_count": 31
+    },
+    {
+      "model_name": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+      "hand_owned": true,
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+      "inference_engine": "vLLM",
+      "status": "EXPERIMENTAL",
+      "version": "0.20.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:nemotron35-lightning-30b-blackhole-0.20.0-PENDING",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "HF_MODEL": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+        "MESH_DEVICE": "P300x2",
+        "ARCH_NAME": "blackhole",
+        "NEMOTRON_BLOCK_SIZE": "64",
+        "NEMOTRON_MAX_MODEL_LEN": "1048576",
+        "NEMOTRON_TT_CONFIG": "{\"trace_region_size\": 536870912, \"fabric_config\": \"FABRIC_1D_RING\"}",
+        "NEMOTRON_ADDITIONAL_SERVER_ARGS": "--hf-overrides '{\"quantization_config\":null}' --reasoning-parser deepseek_r1"
+      },
+      "param_count": 30,
+      "requires_dev_catalog": true,
+      "inference_artifact_ref": {
+        "P300x2": "autoport/nemotron-3.5-lightning-30b-a3b-nvfp4"
+      }
     }
   ]
 }

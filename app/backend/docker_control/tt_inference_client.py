@@ -52,17 +52,21 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
 
 def tool_calling_launch_flags(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
     """The vLLM flags a container must be launched with for coding-agent tool
-    calling, or None if the model family has no known tool-call parser."""
+    calling and/or reasoning splitting, or None if the model family needs
+    neither. A registered reasoning parser no longer requires a tool-call
+    parser: reasoning models without a known tool format (e.g. NemotronH)
+    still need --reasoning-parser so thinking ends up in reasoning_content
+    instead of leaking into the reply."""
     from shared_config.coding_agent_config import get_reasoning_parser
 
     parser = tool_call_parser_for(model_name, hf_model_id)
-    if not parser:
-        return None
-    flags = f"--enable-auto-tool-choice --tool-call-parser {parser}"
     reasoning = get_reasoning_parser(model_name)
+    parts = []
+    if parser:
+        parts.append(f"--enable-auto-tool-choice --tool-call-parser {parser}")
     if reasoning:
-        flags += f" --reasoning-parser {reasoning}"
-    return flags
+        parts.append(f"--reasoning-parser {reasoning}")
+    return " ".join(parts) if parts else None
 
 
 def resolve_deploy_image(

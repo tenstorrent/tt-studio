@@ -28,6 +28,10 @@ REASONING_MODELS = {
     "Qwen3-32B": "qwen3",
     "Qwen3.5-9B": "qwen3",
     "gemma-4-31B-it": "gemma4",
+    # NemotronH hybrids pre-fill `<think>\n` in the assistant turn; the
+    # completion format (`...reasoning...</think>answer`) is exactly the
+    # DeepSeek-R1 contract, so vLLM's deepseek_r1 parser splits it correctly.
+    "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4": "deepseek_r1",
 }
 
 # Suffix that selects thinking mode for a reasoning model over the gateway,
