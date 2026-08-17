@@ -160,7 +160,11 @@ COPY --chown=container_app_user:container_app_user <patched-file> <same-path-in-
 - **The layered file must be the image's own copy with the minimal patch
   applied** (`docker cp` it out of the patched container) — never a copy from
   the repo's main, which references symbols the image doesn't have.
-- Tag as `ghcr.io/tenstorrent/tt-studio/<image>:<stock-tag>-<model>-<fix>`.
+- Push to the **`tt-studio/studio_images` GHCR package**
+  (`ghcr.io/tenstorrent/tt-studio/studio_images`) — never an ad-hoc path like
+  `tt-studio/<image-name>`. Tag model-first to match the package's existing
+  versions: `studio_images:<model>-<board>-<builddate>-<stock-tag>` (e.g.
+  `motif-image-6b-p300x2-20260814-0.18.0-c49bb76`).
 - Redeploy from the clean built image and re-verify end-to-end (§3) — the
   hot-patched container proving it and the baked image proving it are
   different facts.
@@ -183,6 +187,15 @@ honesty.
   minimal diff — prefer a true one-liner with the rationale in the commit
   message and PR body (problem, exact error, fix, hardware verification,
   reproduce steps). Cross-link related PRs.
+- **Never PR direct version/commit edits to the model spec files** (`prod.yaml`
+  / catalogs / release model specs). Maintainers reject them
+  (tt-inference-server#4941): version promotions must go through their Models
+  CI Release Process (evals, benchmarks, acceptance criteria), and a spec pin
+  touches many files that must stay in sync. Instead: request inclusion in the
+  next release via `#model-requests`, and carry any interim pin **tt-studio
+  side** via `override_docker_image` (§7) with a patched `studio_images` tag
+  (§6) if needed. Code fixes (runners, configs, constants) are still fine as
+  direct PRs.
 - **tt-metal**: huge repo — use a sparse partial clone:
   `git clone --filter=blob:none --no-checkout --depth 1 <url> && git
   sparse-checkout set <dir> && git checkout main`. Same minimal-diff rules.
