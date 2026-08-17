@@ -148,7 +148,7 @@ def _preflight_device_availability(args):
         return
     client = dh.Client("http://localhost:8000", proxy=False)
     try:
-        st, data = client.get("chip-status", timeout=5)
+        st, data = client.get("chip_status", timeout=5)
     except Exception:
         return  # backend not reachable yet — deploy-time guard will handle it
     if st != 200 or not isinstance(data, dict):
