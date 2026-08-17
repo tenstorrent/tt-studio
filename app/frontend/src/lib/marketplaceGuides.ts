@@ -276,9 +276,217 @@ Vision Support              No Support${isThinking(activeModel)
   };
 };
 
+// Every gateway model is a chat model: TT-Studio's OpenAI surface serves
+// /v1/chat/completions only, with no /v1/completions and so no fill-in-the-middle
+// endpoint. Tools whose autocomplete needs FIM are told to keep that part local.
+const NO_FIM_NOTE =
+  "Inline autocomplete needs a fill-in-the-middle (FIM) completions endpoint, which the gateway does not serve — it exposes chat completions only. Keep completion on a local model and point chat, edit and refactor features at TT-Studio.";
+
+const buildPiGuide = ({
+  openaiBase,
+  apiKey,
+  models,
+  activeModel,
+}: GuideContext): Guide => {
+  // Pi has no model discovery, so every deployed model is declared explicitly.
+  // Costs are zero because the models run on your own hardware. compat turns off
+  // two things the OpenAI API has that vLLM-backed servers do not: the developer
+  // role, and reasoning_effort.
+  const provider = {
+    baseUrl: openaiBase,
+    api: "openai-completions",
+    apiKey,
+    compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+    models: models.map((model) => ({
+      id: model.name,
+      name: model.name,
+      reasoning: isThinking(model.name),
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: model.context_window ?? DEFAULT_CONTEXT_WINDOW,
+      maxTokens: model.max_tokens ?? DEFAULT_MAX_TOKENS,
+    })),
+  };
+
+  // Merge only the tt-studio provider into any existing models.json, leaving
+  // other providers untouched. Pi re-reads the file whenever /model is opened.
+  const setupScript = `python3 - <<'PY' && pi --model tt-studio/${activeModel}
+import json, pathlib
+p = pathlib.Path.home() / ".pi/agent/models.json"
+cfg = json.loads(p.read_text()) if p.exists() else {}
+cfg.setdefault("providers", {})["tt-studio"] = json.loads('''${JSON.stringify(provider)}''')
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2) + "\\n")
+print(f"Updated {p}")
+PY`;
+
+  const config = JSON.stringify(
+    { providers: { "tt-studio": provider } },
+    null,
+    2,
+  );
+
+  return {
+    intro:
+      "Pi reads custom providers from ~/.pi/agent/models.json. This merges a tt-studio provider into that file, keeping any others, and launches Pi on the selected model.",
+    snippets: [
+      {
+        label: "Quick setup",
+        language: "bash",
+        code: setupScript,
+        // The separator matters: pi reads provider/id, and treats ":" as the
+        // thinking-level suffix (e.g. sonnet:high), not the provider separator.
+        note: "Run pi --list-models to confirm the provider loaded, then switch models from inside Pi with /model. Model names are given as tt-studio/<model> — a colon there means a thinking level, not a provider.",
+      },
+      {
+        label: "Config file",
+        language: "json",
+        code: config,
+        note: "No Python? Save this to ~/.pi/agent/models.json yourself.",
+      },
+    ],
+  };
+};
+
+const buildAiderGuide = ({ openaiBase, apiKey, activeModel }: GuideContext): Guide => ({
+  intro:
+    "Aider treats any OpenAI-compatible endpoint as its openai provider. The openai/ prefix on the model name is required — without it Aider routes the request to api.openai.com instead of your gateway.",
+  snippets: [
+    {
+      label: "Quick setup",
+      language: "bash",
+      code: `export OPENAI_API_BASE=${openaiBase}
+export OPENAI_API_KEY=${apiKey}
+aider --model openai/${activeModel}`,
+    },
+    {
+      label: "Config file",
+      language: "yaml",
+      code: `openai-api-base: ${openaiBase}
+openai-api-key: ${apiKey}
+model: openai/${activeModel}`,
+      note: "Save as ~/.aider.conf.yml to make it the default for every project, or as .aider.conf.yml in one repo. Aider warns that it does not know the model's context limits; that is cosmetic.",
+    },
+  ],
+});
+
+const buildContinueGuide = ({
+  openaiBase,
+  apiKey,
+  models,
+  activeModel,
+}: GuideContext): Guide => {
+  // Ordered so the model selected on this page is Continue's default.
+  const ordered = [
+    ...models.filter((m) => m.name === activeModel),
+    ...models.filter((m) => m.name !== activeModel),
+  ];
+  const modelEntries = ordered.map(({ name }) => ({
+    name,
+    provider: "openai",
+    model: name,
+    apiBase: openaiBase,
+    apiKey,
+    roles: ["chat", "edit", "apply"],
+  }));
+
+  const config = `name: TT-Studio
+version: 0.0.1
+schema: v1
+models:
+${ordered
+      .map(
+        ({ name }) => `  - name: ${name}
+    provider: openai
+    model: ${name}
+    apiBase: ${openaiBase}
+    apiKey: ${apiKey}
+    roles:
+      - chat
+      - edit
+      - apply`,
+      )
+      .join("\n")}
+`;
+
+  // Merges the models into config.yaml rather than replacing it: Continue
+  // auto-discovers that one file only — YAML dropped into ~/.continue/agents or
+  // ~/.continue/assistants is not loaded — so a separate tt-studio.yaml would
+  // never be read. Re-running replaces our own entries instead of duplicating
+  // them, and the previous file is kept as config.yaml.bak.
+  const setupScript = `python3 - <<'PY'
+import json, pathlib, yaml
+p = pathlib.Path.home() / ".continue/config.yaml"
+cfg = yaml.safe_load(p.read_text()) if p.exists() else None
+cfg = cfg if isinstance(cfg, dict) else {}
+for key, value in (("name", "My Config"), ("version", "0.0.1"), ("schema", "v1")):
+    cfg.setdefault(key, value)
+new = json.loads('''${JSON.stringify(modelEntries)}''')
+names = {m["name"] for m in new}
+# Ours first: Continue picks the first chat model as the default.
+cfg["models"] = new + [
+    m for m in (cfg.get("models") or []) if m.get("name") not in names
+]
+p.parent.mkdir(parents=True, exist_ok=True)
+if p.exists():
+    p.with_name("config.yaml.bak").write_text(p.read_text())
+p.write_text(yaml.safe_dump(cfg, sort_keys=False))
+print(f"Updated {p}")
+PY`;
+
+  return {
+    intro:
+      "Continue reads one config file, ~/.continue/config.yaml, in both VS Code and JetBrains. This merges your deployed models into it, leaving any models you already had in place.",
+    snippets: [
+      {
+        label: "Quick setup",
+        language: "bash",
+        code: setupScript,
+        note: "Reload your editor and the models appear in the Continue panel's model dropdown. Needs PyYAML (pip install pyyaml) — without it, use the Config file tab instead. Rewriting the file through a YAML parser drops any comments you had in it; the original is kept as config.yaml.bak.",
+      },
+      {
+        label: "Config file",
+        language: "yaml",
+        code: config,
+        note: `${NO_FIM_NOTE} Over a remote-SSH session, run the setup on whichever machine the Continue extension is installed on — that is where it reads ~/.continue/config.yaml, and it is the laptop unless the extension is installed on the remote host. Either way apiBase has to be reachable from that machine: forward the gateway port over SSH, or use the TT-Studio host's address in place of localhost.`,
+      },
+    ],
+  };
+};
+
+const buildVsCodeAgentGuide = (
+  appName: string,
+  panelPath: string,
+  extra?: string,
+) => ({ openaiBase, apiKey, activeModel }: GuideContext): Guide => ({
+  intro: `${appName} stores model credentials in its own settings panel rather than a config file, so these three values are entered once in the extension. In a remote-SSH window the Base URL is resolved from wherever the extension is installed — on the remote host it reaches the gateway directly, on the laptop it needs the gateway port forwarded.`,
+  snippets: [
+    {
+      label: "Add the provider",
+      language: "text",
+      code: `${panelPath}
+
+API Provider    OpenAI Compatible
+Base URL        ${openaiBase}
+API Key         ${apiKey}
+Model ID        ${activeModel}`,
+      note: extra,
+    },
+  ],
+});
+
+
 export const GUIDE_BUILDERS: Record<string, (ctx: GuideContext) => Guide> = {
   dify: buildDifyGuide,
   "claude-code": buildClaudeCodeGuide,
   opencode: buildOpenCodeGuide,
   openclaw: buildOpenClawGuide,
+  pi: buildPiGuide,
+  aider: buildAiderGuide,
+  continue: buildContinueGuide,
+  cline: buildVsCodeAgentGuide(
+    "Cline",
+    "Cline panel -> settings (gear) -> API Configuration",
+    "Leave the OpenAI-compatible defaults for everything else. Cline sends long system prompts, so prefer a model with a large context window.",
+  ),
 };
