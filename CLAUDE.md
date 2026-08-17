@@ -100,4 +100,7 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
 - `.cursor/rules/` — Cursor rules: `general`, `backend`, `frontend`,
   `docker-deployment`, `ai-models`, `project-overview`.
 - `.claude/skills/` — skills: `tt-studio-overview` (project map),
-  `feature-branch-pr` (branch/PR workflow), `tt-studio-debug-bundle` (log triage).
+  `feature-branch-pr` (branch/PR workflow), `tt-studio-debug-bundle` (log triage),
+  `model-bringup` (bring up an inference-server model that TT-Studio can't
+  deploy yet: catalog entry, hardware deploy, cross-repo triage, patched image,
+  upstream PRs).
