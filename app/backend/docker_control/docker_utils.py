@@ -433,7 +433,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # tensor-parallel halved); drop it once tt-metal ships the preset and the
         # artifact re-pins.
         if impl.model_name == "Motif-Image-6B-Preview":
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/tt-media-inference-server:0.18.0-c49bb76-motif-p300x2"
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/studio_images:motif-image-6b-p300x2-20260814-0.18.0-c49bb76"
 
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training

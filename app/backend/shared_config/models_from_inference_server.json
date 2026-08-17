@@ -1366,7 +1366,7 @@
       "inference_engine": "media",
       "status": "COMPLETE",
       "version": "0.9.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-studio/tt-media-inference-server:0.18.0-c49bb76-motif-p300x2",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:motif-image-6b-p300x2-20260814-0.18.0-c49bb76",
       "service_route": "/v1/images/generations",
       "health_route": "/health",
       "env_vars": {},
