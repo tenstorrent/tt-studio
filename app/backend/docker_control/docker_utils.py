@@ -423,6 +423,18 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Motif pinned to a patched 0.18.0 media image. The artifact spec pins
+        # 0.9.0-c180ef7, which cannot run Motif at all: its ModelNames enum predates
+        # the rename to exact-case values ("motif-image-6b-preview" vs the
+        # "Motif-Image-6B-Preview" that run.py passes as MODEL) and it has no Motif
+        # P300X2 device config. The stock 0.18.0 image fixes both but its tt-metal
+        # MotifPipeline lacks a (2, 2) mesh preset, so the p300x2 mesh dies with
+        # KeyError: 'num_links'. The patch layer adds that preset (T3K preset with
+        # tensor-parallel halved); drop it once tt-metal ships the preset and the
+        # artifact re-pins.
+        if impl.model_name == "Motif-Image-6B-Preview":
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-studio/studio_images:motif-image-6b-p300x2-20260814-0.18.0-c49bb76"
+
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
         # spec on P150); without an impl the server defaults to the wrong engine and
