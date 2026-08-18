@@ -14,7 +14,7 @@ export default function WelcomeIntroStep({ onNext }: Props) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-6"
+      className="space-y-6 text-left"
     >
       <div>
         <h2 className="text-2xl font-semibold">Welcome to TT Studio</h2>
@@ -30,7 +30,7 @@ export default function WelcomeIntroStep({ onNext }: Props) {
           <span className="text-TT-purple">•</span>
           <span>
             A <span className="font-medium">Hugging Face token</span> gives you
-            prioritized model weight downloads, and unlocks gated models like
+            faster model weight downloads, and unlocks gated models like
             the Llama family and FLUX.1-dev.
           </span>
         </li>

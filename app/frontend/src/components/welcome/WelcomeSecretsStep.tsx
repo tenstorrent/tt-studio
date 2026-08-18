@@ -96,13 +96,13 @@ export default function WelcomeSecretsStep({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-5"
+      className="space-y-5 text-left"
     >
       <div>
         <h2 className="text-2xl font-semibold">Add your Hugging Face token</h2>
         <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-          The token is stored on the server. Leave it blank to skip for now or
-          to keep the existing value.
+          The token is stored on the server. Leave it blank to set it up later
+          or to keep the existing value.
         </p>
       </div>
 

@@ -21,7 +21,7 @@ export default function WelcomeHfCheckStep({ onBack, onNext }: Props) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-5"
+      className="space-y-5 text-left"
     >
       <div>
         <h2 className="text-2xl font-semibold">Verify model access</h2>
