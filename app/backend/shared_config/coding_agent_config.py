@@ -16,7 +16,14 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.1-8B-Instruct",
     "Llama-3.3-70B-Instruct",
     "Qwen3.6-27B",
-    "gemma-4-31B-it"
+    "gemma-4-31B-it",
+    "Qwen2.5-Coder-32B-Instruct",
+}
+
+# Models trained with fill-in-the-middle tokens, so a raw /v1/completions call
+# with prefix + suffix returns a code fragment rather than prose.
+FIM_CAPABLE_MODELS = {
+    "Qwen2.5-Coder-32B-Instruct",
 }
 
 # Model types coding agents can talk to.
@@ -46,6 +53,11 @@ def is_coding_agent_eligible(model_impl) -> bool:
         getattr(model_impl, "model_type", None) in CODING_AGENT_MODEL_TYPES
         and getattr(model_impl, "model_name", None) in CODING_AGENT_ELIGIBLE_MODELS
     )
+
+
+def supports_fim(model_name) -> bool:
+    """True if a model can serve editor autocomplete over /v1/completions."""
+    return model_name in FIM_CAPABLE_MODELS
 
 
 def get_reasoning_parser(model_name) -> str | None:

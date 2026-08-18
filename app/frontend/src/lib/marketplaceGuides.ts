@@ -15,6 +15,7 @@ export interface GuideModel {
   name: string;
   context_window?: number;
   max_tokens?: number;
+  supports_fim?: boolean;
 }
 
 export interface GuideContext {
@@ -23,6 +24,8 @@ export interface GuideContext {
   apiKey: string;
   models: GuideModel[];
   activeModel: string;
+  completionsBase?: string;
+  completionsKey?: string;
 }
 
 export interface GuideSnippet {
@@ -280,7 +283,7 @@ Vision Support              No Support${isThinking(activeModel)
 // /v1/chat/completions only, with no /v1/completions and so no fill-in-the-middle
 // endpoint. Tools whose autocomplete needs FIM are told to keep that part local.
 const NO_FIM_NOTE =
-  "Inline autocomplete needs a fill-in-the-middle (FIM) completions endpoint, which the gateway does not serve — it exposes chat completions only. Keep completion on a local model and point chat, edit and refactor features at TT-Studio.";
+  "Tab autocomplete needs a model trained for fill-in-the-middle, and none of your deployed models is, so only chat, edit and apply are configured here. Deploy a coder model (e.g. Qwen2.5-Coder) and this page adds an autocomplete entry automatically; until then, keep completion on a small local model.";
 
 const buildPiGuide = ({
   openaiBase,
@@ -375,13 +378,15 @@ const buildContinueGuide = ({
   apiKey,
   models,
   activeModel,
+  completionsBase,
+  completionsKey,
 }: GuideContext): Guide => {
   // Ordered so the model selected on this page is Continue's default.
   const ordered = [
     ...models.filter((m) => m.name === activeModel),
     ...models.filter((m) => m.name !== activeModel),
   ];
-  const modelEntries = ordered.map(({ name }) => ({
+  const modelEntries: Record<string, unknown>[] = ordered.map(({ name }) => ({
     name,
     provider: "openai",
     model: name,
@@ -390,21 +395,39 @@ const buildContinueGuide = ({
     roles: ["chat", "edit", "apply"],
   }));
 
+  // Tab autocomplete needs a raw fill-in-the-middle completion, so it is only
+  // offered for models trained for it, and it goes to TT-Studio's own OpenAI
+  // surface: useLegacyCompletionsEndpoint switches Continue from
+  // /chat/completions to /completions, which the gateway cannot route.
+  const fimModel = ordered.find((m) => m.supports_fim);
+  if (fimModel && completionsBase) {
+    modelEntries.push({
+      name: `${fimModel.name} (autocomplete)`,
+      provider: "openai",
+      model: fimModel.name,
+      apiBase: completionsBase,
+      apiKey: completionsKey,
+      useLegacyCompletionsEndpoint: true,
+      roles: ["autocomplete"],
+    });
+  }
+
+  // Same entries as the merge script, rendered as YAML for hand-editing. Values
+  // here are model names, URLs, keys and booleans, so no quoting is needed.
   const config = `name: TT-Studio
 version: 0.0.1
 schema: v1
 models:
-${ordered
-      .map(
-        ({ name }) => `  - name: ${name}
-    provider: openai
-    model: ${name}
-    apiBase: ${openaiBase}
-    apiKey: ${apiKey}
-    roles:
-      - chat
-      - edit
-      - apply`,
+${modelEntries
+      .map((entry) =>
+        Object.entries(entry)
+          .map(([key, value], index) => {
+            const prefix = index === 0 ? "  - " : "    ";
+            return Array.isArray(value)
+              ? `${prefix}${key}:\n${value.map((item) => `      - ${item}`).join("\n")}`
+              : `${prefix}${key}: ${value}`;
+          })
+          .join("\n"),
       )
       .join("\n")}
 `;
@@ -448,7 +471,10 @@ PY`;
         label: "Config file",
         language: "yaml",
         code: config,
-        note: `${NO_FIM_NOTE} Over a remote-SSH session, run the setup on whichever machine the Continue extension is installed on — that is where it reads ~/.continue/config.yaml, and it is the laptop unless the extension is installed on the remote host. Either way apiBase has to be reachable from that machine: forward the gateway port over SSH, or use the TT-Studio host's address in place of localhost.`,
+        note: `${fimModel && completionsBase
+          ? `Tab autocomplete is wired to ${fimModel.name}, the one deployed model trained for fill-in-the-middle. It goes to TT-Studio's own endpoint rather than the gateway, so both ports have to be reachable from the editor's machine.`
+          : NO_FIM_NOTE
+          } Over a remote-SSH session, run the setup on whichever machine the Continue extension is installed on — that is where it reads ~/.continue/config.yaml, and it is the laptop unless the extension is installed on the remote host. Either way each apiBase has to be reachable from that machine: forward the ports over SSH, or use the TT-Studio host's address in place of localhost.`,
       },
     ],
   };

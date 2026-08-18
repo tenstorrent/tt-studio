@@ -1795,11 +1795,16 @@ from shared_config.coding_agent_config import (  # noqa: E402
     is_coding_agent_eligible,
     get_gateway_model_names,
     resolve_thinking_variant,
+    supports_fim,
 )
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
+# Host port the backend is published on (app/docker-compose.yml). Reported to the
+# frontend so setup guides can point autocomplete at this surface directly: the
+# gateway's wildcard entry cannot route /v1/completions.
+BACKEND_HOST_PORT = int(os.environ.get("BACKEND_HOST_PORT", "8000"))
 LITELLM_INTERNAL_URL = os.environ.get("LITELLM_INTERNAL_URL", "http://tt-studio-litellm:4000")
 
 # Round-robin cursor per model_name for multi-chip / duplicate deployments
@@ -1834,16 +1839,18 @@ def _running_coding_agent_deploys(require_tool_calling: bool = True) -> list[tup
     return out
 
 
-def _resolve_deploy_by_model_name(model_name: str):
+def _resolve_deploy_by_model_name(model_name: str, require_tool_calling: bool = True):
     """Find a running CHAT/VLM deployment whose friendly model_name matches.
 
     Matches the catalog `model_impl.model_name` (what the UI shows and the user
     types), falling back to `cached_model_name`/`hf_model_id`. Round-robins
     across duplicates (e.g. the same model deployed on multiple chips).
+    Pass require_tool_calling=False for requests that send no tools, so a
+    container launched without tool-calling support is still resolvable.
     """
     matches = [
         entry
-        for _, entry in _running_coding_agent_deploys()
+        for _, entry in _running_coding_agent_deploys(require_tool_calling)
         if model_name
         in (
             getattr(entry.get("model_impl"), "model_name", None),
@@ -1954,6 +1961,88 @@ class OpenAIChatCompletionsView(View):
             return JsonResponse({"error": {"message": str(e)}}, status=502)
 
 
+class OpenAICompletionsView(View):
+    """OpenAI-compatible /v1/completions upstream — the autocomplete route.
+
+    Editor tab completion (Continue and friends) asks for a raw completion with
+    `prompt` and `suffix` instead of a chat turn, which vLLM serves on
+    /v1/completions for every deployment regardless of the model's own
+    service_route. Nothing is converted here: a fill-in-the-middle model's prompt
+    format is the client's business, so both fields are forwarded verbatim —
+    which is what separates this from OpenAIChatCompletionsView, where messages
+    are folded into a prompt for base models.
+
+    Only reached directly, not through the gateway: LiteLLM's wildcard entry
+    cannot route text completion (it looks for a model_list DB and 400s), so the
+    setup guides point autocomplete at this surface with LITELLM_UPSTREAM_KEY.
+    """
+
+    async def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return JsonResponse({"error": {"message": "Unauthorized"}}, status=401)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": {"message": "Invalid JSON"}}, status=400)
+
+        # No thinking-variant handling: reasoning text in an editor buffer is
+        # worse than no completion, so "-thinking" names are not accepted here.
+        model_name = data.get("model")
+        # Tool calling is irrelevant to completion, so don't filter on it.
+        deploy = await asyncio.to_thread(
+            _resolve_deploy_by_model_name, model_name, False
+        )
+        if deploy is None:
+            return JsonResponse(
+                {"error": {"message": f"No running model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=404,
+            )
+
+        auth_token = token_for(deploy.get("jwt_secret"))
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id, auth_token=auth_token
+        )
+
+        # Same 75%-of-context ceiling the chat surface applies.
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
+            deploy["model_impl"].param_count
+        )
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # internal_url carries the model's own service route (e.g.
+        # "container:7000/v1/chat/completions"), so the completions endpoint is
+        # rebuilt from its host:port.
+        internal_url = (
+            "http://" + deploy["internal_url"].split("/")[0] + "/v1/completions"
+        )
+
+        if bool(data.get("stream", False)):
+            async def generate():
+                try:
+                    async for chunk in stream_openai_passthrough(internal_url, data, auth_token=auth_token):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"OpenAICompletionsView stream error: {e}")
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+            response["Cache-Control"] = "no-cache"
+            response["X-Accel-Buffering"] = "no"
+            return response
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        try:
+            upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
+            return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
+        except Exception as e:
+            logger.error(f"OpenAICompletionsView non-stream error: {e}")
+            return JsonResponse({"error": {"message": str(e)}}, status=502)
+
+
 class OpenAIModelsView(APIView):
     """OpenAI-compatible /v1/models listing of deployed chat models.
 
@@ -2025,6 +2114,8 @@ class CodingAgentsView(APIView):
                         "type": mtype,
                         "context_window": context_window,
                         "max_tokens": max_tokens,
+                        # Autocomplete is only offered for models that can FIM; thinking variants never can.
+                        "supports_fim": supports_fim(exposed),
                     })
                 else:
                     unavailable.append({
@@ -2043,6 +2134,10 @@ class CodingAgentsView(APIView):
                 "gateway_port": LITELLM_PORT,
                 "openai_base_path": "/v1",
                 "master_key": LITELLM_MASTER_KEY,
+                # Autocomplete bypasses the gateway, so guides need this surface and its key.
+                "backend_port": BACKEND_HOST_PORT,
+                "backend_openai_base_path": "/models/openai/v1",
+                "upstream_key": LITELLM_UPSTREAM_KEY,
                 "models": models,
                 "unavailable": unavailable,
             },

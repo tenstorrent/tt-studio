@@ -127,12 +127,15 @@ export default function AppsPage() {
   }, [load]);
 
   // Host- and protocol-aware so port-forwarded / remote / HTTPS access works.
-  const { openaiBase, anthropicBase } = useMemo(() => {
+  const { openaiBase, anthropicBase, completionsBase } = useMemo(() => {
     const scheme = window.location.protocol === "https:" ? "https" : "http";
-    const origin = `${scheme}://${window.location.hostname}:${gateway?.gateway_port ?? 4000}`;
+    const host = `${scheme}://${window.location.hostname}`;
+    const origin = `${host}:${gateway?.gateway_port ?? 4000}`;
     return {
       openaiBase: `${origin}${gateway?.openai_base_path ?? "/v1"}`,
       anthropicBase: origin,
+      // Autocomplete talks to the backend directly rather than the gateway.
+      completionsBase: `${host}:${gateway?.backend_port ?? 8000}${gateway?.backend_openai_base_path ?? "/models/openai/v1"}`,
     };
   }, [gateway]);
 
@@ -198,8 +201,18 @@ export default function AppsPage() {
       apiKey: gateway?.master_key || "<your-api-key>",
       models: models.length ? models : [{ name: PLACEHOLDER_MODEL }],
       activeModel,
+      completionsBase,
+      completionsKey: gateway?.upstream_key || "<your-upstream-key>",
     });
-  }, [guideApp, openaiBase, anthropicBase, gateway, models, activeModel]);
+  }, [
+    guideApp,
+    openaiBase,
+    anthropicBase,
+    completionsBase,
+    gateway,
+    models,
+    activeModel,
+  ]);
 
   return (
     // Full-width root stays transparent so MainLayout's grid shows in the

@@ -758,6 +758,8 @@ export interface CodingAgentModel {
   type: string;
   context_window?: number;
   max_tokens?: number;
+  // Trained with fill-in-the-middle tokens, so it can serve editor autocomplete.
+  supports_fim?: boolean;
 }
 
 // Coding-eligible but launched without vLLM tool-calling support, so unusable
@@ -773,6 +775,11 @@ export interface CodingAgentsInfo {
   gateway_port: number;
   openai_base_path: string;
   master_key: string;
+  // TT-Studio's own OpenAI surface — where autocomplete goes, since the gateway
+  // cannot route /v1/completions.
+  backend_port?: number;
+  backend_openai_base_path?: string;
+  upstream_key?: string;
   models: CodingAgentModel[];
   unavailable?: UnavailableCodingAgentModel[];
 }
