@@ -16,6 +16,7 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.1-8B-Instruct",
     "Llama-3.3-70B-Instruct",
     "Qwen3.6-27B",
+    "Qwen3.8-27B",
     "gemma-4-31B-it"
 }
 
@@ -27,6 +28,8 @@ CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 REASONING_MODELS = {
     "Qwen3-32B": "qwen3",
     "Qwen3.5-9B": "qwen3",
+    "Qwen3.6-27B": "qwen3",
+    "Qwen3.8-27B": "qwen3",
     "gemma-4-31B-it": "gemma4",
 }
 
