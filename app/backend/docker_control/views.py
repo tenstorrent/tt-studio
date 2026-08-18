@@ -37,6 +37,7 @@ from .docker_utils import (
     map_board_type_to_device_name,
     infer_inference_server_device,
     deploys_whole_board,
+    resolve_media_override_image,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
@@ -886,7 +887,16 @@ class DeployView(APIView):
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
-                deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
+                # Per-model pins win over the model_spec resolution so the image
+                # pulled here (with UI progress) is the one run_container deploys —
+                # the spec may pin an image that cannot run the model (see
+                # _MEDIA_IMAGE_OVERRIDES in docker_utils). Mirrors the chat path,
+                # which checks override_docker_image before resolve_deploy_image.
+                deploy_image = (
+                    resolve_media_override_image(impl)
+                    or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
+                    or impl.image_version
+                )
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:
