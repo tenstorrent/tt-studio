@@ -1357,7 +1357,7 @@
       "param_count": 9,
       "requires_dev_catalog": true,
       "inference_artifact_ref": {
-        "P150": "stisi/feat-qwen35-9b-blackhole-devicespec"
+        "P150": "tt-studio/qwen3.5-9b-p150"
       }
     },
     {
