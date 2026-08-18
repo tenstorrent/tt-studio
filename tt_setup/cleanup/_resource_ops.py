@@ -6,6 +6,7 @@ host paths, byte accounting, daemon/port probes. Pure operations — no console
 output beyond plain warnings, no orchestration."""
 
 import os
+import shlex
 import subprocess
 import time
 import shutil
@@ -13,7 +14,12 @@ import json
 import re
 import fnmatch
 from tt_setup.constants import *
-from tt_setup.constants import _CLEANUP_IMAGE_REFS, _CLEANUP_VOLUME_PREFIX
+from tt_setup.constants import (
+    _CLEANUP_APP_VOLUME_PREFIX,
+    _CLEANUP_APP_VOLUME_SUFFIX,
+    _CLEANUP_IMAGE_REFS,
+    _CLEANUP_VOLUME_PREFIX,
+)
 
 
 def _format_bytes(size):
@@ -53,6 +59,60 @@ def _path_size(path):
         return 0
 
 
+def _hf_cache_hub_dir():
+    """HuggingFace hub cache dir TT Studio downloads model weights into — mirrors
+    inference-api's _default_hf_home: HOST_HF_HOME → HF_HOME → ~/.cache/huggingface."""
+    from tt_setup.env_config import get_env_var
+    base = os.path.normpath(
+        get_env_var("HOST_HF_HOME") or get_env_var("HF_HOME")
+        or os.path.expanduser("~/.cache/huggingface")
+    )
+    # HF_HOME points at the cache root (hub lives under it); tolerate it already
+    # pointing at the hub dir so we don't append a second /hub.
+    return base if os.path.basename(base) == "hub" else os.path.join(base, "hub")
+
+
+def _tt_studio_hf_repo_ids():
+    """HF repo ids TT Studio can deploy, read from the backend model catalog."""
+    catalog = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config",
+        "models_from_inference_server.json",
+    )
+    try:
+        with open(catalog) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    ids, stack = set(), [data]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            hid = node.get("hf_model_id")
+            if isinstance(hid, str) and "/" in hid:
+                ids.add(hid)
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return sorted(ids)
+
+
+def _hf_cache_model_dirs():
+    """(repo_id, path, size) for each catalog model present in the HF hub cache.
+
+    Scoped to TT Studio's catalog so --purge-all clears the models it downloaded
+    without touching the user's other HuggingFace-cached models (the same way it
+    only removes `volume_id_*` volumes, not every Docker volume)."""
+    hub = _hf_cache_hub_dir()
+    if not os.path.isdir(hub):
+        return []
+    out = []
+    for repo_id in _tt_studio_hf_repo_ids():
+        path = os.path.join(hub, "models--" + repo_id.replace("/", "--"))
+        if os.path.isdir(path):
+            out.append((repo_id, path, _path_size(path)))
+    return out
+
+
 def _remove_path_with_docker(path):
     """Remove a path via an ephemeral root container, using the user's Docker
     access instead of host sudo. Handles files left owned by container users
@@ -84,6 +144,30 @@ def _remove_path_with_docker(path):
         print(f"{C_YELLOW}⚠️  Container cleanup failed for {path}: {e}{C_RESET}")
         return False
     return not os.path.exists(path)
+
+
+def _write_file_with_docker(path, content):
+    """Overwrite `path` with `content` via an ephemeral root container, for
+    files the host user can't write (left owned by a container user — e.g. the
+    backend's deployments.json). Write-then-rename inside the container keeps
+    the same atomic-replace behavior as the direct path. Returns True on
+    success."""
+    abs_path = os.path.abspath(path)
+    parent, name = os.path.dirname(abs_path), os.path.basename(abs_path)
+    if not parent or name in ("", ".", ".."):
+        return False
+    target, tmp = shlex.quote(f"/target/{name}"), shlex.quote(f"/target/{name}.tmp")
+    try:
+        subprocess.run(
+            ["docker", "run", "--rm", "-i", "-v", f"{parent}:/target",
+             "alpine", "sh", "-c", f"cat > {tmp} && mv {tmp} {target}"],
+            input=content, text=True, check=True, capture_output=True,
+        )
+        return True
+    except Exception as e:
+        detail = getattr(e, "stderr", "") or str(e)
+        print(f"{C_YELLOW}⚠️  Container write failed for {path}: {detail.strip()}{C_RESET}")
+        return False
 
 
 def _remove_path(path, no_sudo=False):
@@ -169,14 +253,15 @@ def _docker_reclaimable_bytes(has_docker_access):
     sizes) and sums the images and volumes cleanup-all actually deletes:
       - images whose Repository matches `_CLEANUP_IMAGE_REFS`
         (same set `_remove_local_tt_studio_images` removes),
-      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`)
+      - `volume_id_*` model-weight volumes (`_remove_tt_studio_model_volumes`),
+        `tt_studio_*_data` app volumes (`_remove_marketplace_app_volumes`),
         plus dangling anonymous volumes (`_prune_anonymous_volumes`).
     Build cache is intentionally excluded — cleanup-all does not prune it.
-    Returns {"images", "model_volumes", "anon_volumes"} byte counts; zeros if
-    docker is unavailable, so the reclaim total degrades to the host-side paths
-    just like before.
+    Returns {"images", "model_volumes", "app_volumes", "anon_volumes"} byte
+    counts; zeros if docker is unavailable, so the reclaim total degrades to the
+    host-side paths just like before.
     """
-    zero = {"images": 0, "model_volumes": 0, "anon_volumes": 0}
+    zero = {"images": 0, "model_volumes": 0, "app_volumes": 0, "anon_volumes": 0}
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
         result = subprocess.run(
@@ -195,8 +280,10 @@ def _docker_reclaimable_bytes(has_docker_access):
 
     for vol in data.get("Volumes") or []:
         name = vol.get("Name", "")
-        if name.startswith(_CLEANUP_VOLUME_PREFIX):
+        if _is_model_volume(name):
             sizes["model_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
+        elif _is_marketplace_app_volume(name):
+            sizes["app_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
         elif "com.docker.volume.anonymous" in (vol.get("Labels") or ""):
             sizes["anon_volumes"] += _parse_size_to_bytes(vol.get("Size", ""))
 
@@ -238,18 +325,52 @@ def _remove_tt_studio_model_volumes(has_docker_access):
     containers using them first or `volume rm` will fail with "in use".
     Returns count removed.
     """
+    return _remove_named_volumes(has_docker_access, _is_model_volume,
+                                 _CLEANUP_VOLUME_PREFIX)
+
+
+def _remove_marketplace_app_volumes(has_docker_access):
+    """Remove the named volumes marketplace apps store their state in.
+
+    Created implicitly by `docker run -v <name>:<path>` from the backend, so they
+    are declared in neither docker-compose.yml nor the model-weight naming scheme
+    and survive every other sweep. Leaving them behind outlasts the `.env`
+    --purge-all deletes, so an app would boot with the old LITELLM_MASTER_KEY
+    baked into its own config and fail to reach the gateway. Callers must remove
+    the app containers first or `volume rm` will fail with "in use".
+    Returns count removed.
+    """
+    return _remove_named_volumes(has_docker_access, _is_marketplace_app_volume,
+                                 _CLEANUP_APP_VOLUME_PREFIX)
+
+
+def _is_model_volume(name):
+    """True for a model-weight volume (`volume_id_*`)."""
+    return name.startswith(_CLEANUP_VOLUME_PREFIX)
+
+
+def _is_marketplace_app_volume(name):
+    """True for a marketplace app state volume (`tt_studio_*_data`)."""
+    return (name.startswith(_CLEANUP_APP_VOLUME_PREFIX)
+            and name.endswith(_CLEANUP_APP_VOLUME_SUFFIX)
+            and len(name) > len(_CLEANUP_APP_VOLUME_PREFIX) + len(_CLEANUP_APP_VOLUME_SUFFIX))
+
+
+def _remove_named_volumes(has_docker_access, matches, name_filter):
+    """Force-remove every docker volume `matches` accepts. Returns count removed.
+
+    `name_filter` only narrows what the daemon lists — it is a substring match,
+    so `matches` is re-applied in Python and an unrelated volume that merely
+    contains the filter mid-name is never deleted.
+    """
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
         result = subprocess.run(
-            sudo_prefix + ["docker", "volume", "ls", "--filter",
-                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            sudo_prefix + ["docker", "volume", "ls", "--filter", f"name={name_filter}", "-q"],
             capture_output=True, text=True, check=False,
         )
-        # `--filter name=foo` is substring match; double-check the prefix in
-        # Python so we never delete an unrelated volume that happens to contain
-        # "volume_id_" mid-name.
         names = [n for n in (line.strip() for line in result.stdout.splitlines())
-                 if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+                 if matches(n)]
         if not names:
             return 0
         subprocess.run(
@@ -374,6 +495,205 @@ def _deployed_model_names(has_docker_access):
         return names
     except Exception:
         return None
+
+
+def _running_container_names(has_docker_access):
+    """Names of ALL running containers, no image filter — used to verify
+    deployment records against reality (a record's `status: "running"` may be
+    stale if a purge or crash couldn't write the store back). Runs `docker ps`
+    WITHOUT sudo so it never triggers a password prompt. Returns None if docker
+    can't be queried, so callers fall back to trusting the records."""
+    if not has_docker_access:
+        return None
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except Exception:
+        return None
+
+
+def _docker_volume_names(has_docker_access):
+    """Names of the docker named volumes that hold model weights (volume_id_*).
+    Read-only counterpart of `_remove_tt_studio_model_volumes` — same listing
+    and prefix re-check, no removal. Returns [] on any error."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "--filter",
+                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        return [n for n in (line.strip() for line in result.stdout.splitlines())
+                if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+    except Exception:
+        return []
+
+
+def _docker_volume_mountpoints(names, has_docker_access):
+    """{volume name: host mountpoint} via `docker volume inspect`, so listings
+    can show WHERE a named volume's data actually lives (usually under
+    /var/lib/docker/volumes/<name>/_data). Best-effort: {} on any error."""
+    names = [n for n in names if n]
+    if not names:
+        return {}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "inspect", "--format",
+                           "{{.Name}}\t{{.Mountpoint}}", *names],
+            capture_output=True, text=True, check=False,
+        )
+        points = {}
+        for line in result.stdout.splitlines():
+            if "\t" in line:
+                name, mountpoint = line.split("\t", 1)
+                if name.strip() and mountpoint.strip():
+                    points[name.strip()] = mountpoint.strip()
+        return points
+    except Exception:
+        return {}
+
+
+def _docker_object_sizes(has_docker_access):
+    """Per-object sizes from `docker system df -v`: ({volume_name: bytes},
+    {"repo:tag": bytes}). Best-effort — empty dicts if docker is unavailable."""
+    volumes, images = {}, {}
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "system", "df", "-v", "--format", "json"],
+            capture_output=True, text=True, check=False,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return volumes, images
+    for vol in data.get("Volumes") or []:
+        name = vol.get("Name", "")
+        if name:
+            volumes[name] = _parse_size_to_bytes(vol.get("Size", ""))
+    for img in data.get("Images") or []:
+        repo, tag = img.get("Repository", ""), img.get("Tag", "")
+        if repo and tag:
+            images[f"{repo}:{tag}"] = _parse_size_to_bytes(img.get("Size", ""))
+    return volumes, images
+
+
+def _remove_docker_containers(ids, has_docker_access):
+    """Force-remove specific containers (+ their anonymous volumes). Accepts
+    names or ids; already-gone containers are harmless. Returns the count
+    actually removed (docker echoes each removed container on stdout), so
+    callers never report stopping containers that no longer existed."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return 0
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "rm", "-fv", *ids],
+            capture_output=True, text=True, check=False,
+        )
+        return len([line for line in result.stdout.splitlines() if line.strip()])
+    except Exception:
+        return 0
+
+
+def _containers_using_volume(name, has_docker_access):
+    """Ids of ALL containers — running or stopped — that mount the named
+    volume. Read-only. Returns [] on any error."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "ps", "-aq", "--filter", f"volume={name}"],
+            capture_output=True, text=True, check=False,
+        )
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except Exception:
+        return []
+
+
+def _remove_docker_volumes(names, has_docker_access):
+    """Force-remove specific named volumes. `docker volume rm` refuses while
+    ANY container references the volume — stopped/exited ones included — so on
+    "in use" the referencing containers are force-removed (anything mounting a
+    purged model's weight volume is a deployment container for that model) and
+    the rm is retried once. Returns (removed_names, in_use_names); in_use
+    means the retry still failed."""
+    names = [n for n in names if n]
+    removed, in_use = [], []
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+
+    def volume_rm(name):
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "rm", "-f", name],
+            capture_output=True, text=True, check=False,
+        )
+        return result.returncode == 0, (result.stderr or "").lower()
+
+    for name in names:
+        try:
+            ok, err = volume_rm(name)
+            if not ok and "in use" in err:
+                holders = _containers_using_volume(name, has_docker_access)
+                if holders:
+                    subprocess.run(
+                        sudo_prefix + ["docker", "rm", "-fv", *holders],
+                        capture_output=True, check=False,
+                    )
+                    ok, err = volume_rm(name)
+            if ok:
+                removed.append(name)
+            elif "in use" in err:
+                in_use.append(name)
+        except Exception:
+            continue
+    return removed, in_use
+
+
+def _image_present(repo_tag, has_docker_access):
+    """Whether an image with this exact repo:tag exists locally. The catalog's
+    docker_image is what a model WOULD run, not proof it was ever pulled — a
+    purge inventory must only offer images that are actually on disk."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "image", "ls", "--filter",
+                           f"reference={repo_tag}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _remove_image_ref(repo_tag, has_docker_access):
+    """Remove the image matching one exact repo:tag reference. Unlike
+    `_remove_local_tt_studio_images` this never uses the `_CLEANUP_IMAGE_REFS`
+    globs — model images are shared across models, so purge-model callers must
+    reference-count first and pass only tags no kept model still needs.
+    Returns True if an image was removed."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "image", "ls", "--filter",
+                           f"reference={repo_tag}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = list(dict.fromkeys(
+            line.strip() for line in result.stdout.splitlines() if line.strip()))
+        if not ids:
+            return False
+        result = subprocess.run(
+            sudo_prefix + ["docker", "image", "rm", "-f", *ids],
+            capture_output=True, check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def _port_owned_by_root(port):

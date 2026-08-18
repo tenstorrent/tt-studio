@@ -66,6 +66,9 @@ MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
 DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
+# Previous instances' logs, archived per restart the same way model_run_logs/
+# keeps per-deployment logs: docker-control-service_<YYYY-MM-DD_HH-MM-SS>.log.
+DOCKER_CONTROL_LOGS_DIR = os.path.join(LOGS_DIR, "docker_control_logs")
 # Consolidated launcher config store (issue #807): one namespaced JSON at the
 # repo root. The two dotfiles below are legacy sources, read only by the
 # one-time migration and removed by --purge-all.
@@ -91,6 +94,19 @@ _CLEANUP_IMAGE_REFS = (
     "chromadb/chroma",
 )
 _CLEANUP_VOLUME_PREFIX = "volume_id_"
+# Sentinel injected by the CLI when --purge-model is passed with no model name,
+# meaning "open the interactive picker" (typer can't express optional values).
+_PURGE_MODEL_PICKER = "__picker__"
+# Marketplace apps (Open WebUI, AnythingLLM, Vane, …) keep their state in named
+# volumes declared in shared_config/marketplace_config.py. Matched by shape
+# rather than an app list so volumes left by apps since removed from the
+# marketplace are cleaned up too.
+_CLEANUP_APP_VOLUME_PREFIX = "tt_studio_"
+_CLEANUP_APP_VOLUME_SUFFIX = "_data"
+
+# Having this compose label helps identify the containers that belong to the tt_studio stack vs marketplace apps,
+# and it is also used to give the containers mode-independent names in the diagnostics.
+_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
 BROWSER_CLEANUP_SENTINEL = os.path.join(
     TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"

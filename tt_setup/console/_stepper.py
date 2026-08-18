@@ -41,7 +41,7 @@ SETUP_PHASES = [
     ("Checks",    "system, hardware, Docker & update freshness"),
     ("Configure", "environment, secrets, network & ports"),
     ("Services",  "Docker-control & the inference-server artifact"),
-    ("Build",     "build & start the containers"),
+    ("Build",     "pull or build & start the containers"),
     ("Launch",    "inference-server env & process start"),
 ]
 
@@ -82,6 +82,7 @@ class _ChecklistController:
         self._cols = 0
         self._rows = 0
         self._build_last = {}     # svc -> last friendly label printed (dedupe)
+        self._log_seen = set()    # compose status lines already shown (dedupe)
         self._cleared_once = False  # collapse: clear the body on every phase after the first
         self._pulse_frame = 0       # rotating-spinner frame for the active node
         self._pulse_active = False  # animate the active node (during the build)
@@ -281,6 +282,15 @@ class _ChecklistController:
             # Fallback (non-TTY / --verbose): print the stepper inline.
             console.print(self._stepper_line())
 
+    def set_title(self, index, title):
+        """Retitle a phase node. The phase COUNT is fixed (k/N must never drift),
+        but the word can follow what the run actually decided to do — e.g. Build
+        vs Pull, known only once the image source is resolved."""
+        p = self._by_index.get(index)
+        if p is not None and title and p.title != title:
+            p.title = title
+            self._paint()
+
     def set_activity(self, index, text):
         p = self._by_index.get(index)
         if p is not None and p.status == "active":
@@ -330,9 +340,18 @@ class _ChecklistController:
                 self._build_last[svc] = label
                 with self._paint_lock:
                     console.print(f"  [dim]{svc}[/dim] · [info]{label}…[/info]")
-        elif kind == "built" and svc:
+        elif kind in ("built", "pulled", "started") and svc:
             with self._paint_lock:
-                console.print(f"  [success]✓ {svc} built[/success]")
+                console.print(f"  [success]✓ {svc} {kind}[/success]")
+
+    def build_note(self, text, marker="○", style="muted"):
+        """A short note in the same gutter as the build events (e.g. why the
+        image pull was skipped). Rendered as a Text (not markup) since the note
+        carries image refs, and padded so a wrapped line keeps the indent."""
+        from rich.padding import Padding
+        prefix = f"{marker} " if marker else "  "
+        with self._paint_lock:
+            console.print(Padding(Text(f"{prefix}{text}", style=style), (0, 0, 0, 2)))
 
     def build_log(self, line):
         """Show only meaningful compose status transitions (Started/Healthy/errors)
@@ -342,6 +361,11 @@ class _ChecklistController:
         if not line or line.startswith("#"):
             return
         if any(k in line for k in (" Started", " Healthy", " Error", " Failed", "error", "failed")):
+            # Compose restates the same transition on every poll ("… Healthy" x3);
+            # show each distinct line once so the body doesn't stutter.
+            if line in self._log_seen:
+                return
+            self._log_seen.add(line)
             with self._paint_lock:
                 console.print(f"  [dim]{line}[/dim]", highlight=False)
 
@@ -489,6 +513,7 @@ def begin_phase(index, total, title):
     global _IN_PHASE, _active_phase
     if not _checklist.phases:
         _checklist.register([(index, total, title)])
+    _checklist.set_title(index, title)   # the caller's title wins over the roadmap's
     _checklist.start_phase(index)
     handle = _PhaseHandle(index)
     _IN_PHASE = True
@@ -507,6 +532,12 @@ def end_phase(handle=None):
     _active_phase = None
 
 
+def rename_phase(index, title):
+    """Retitle a phase mid-run when the plan changes (e.g. a pull that fell back
+    to a local build), so the stepper and the final record say what happened."""
+    _checklist.set_title(index, title)
+
+
 def end_run():
     """Clear the pinned checklist at the end of a normal run (ready panel follows)."""
     _checklist.end_run()
@@ -520,6 +551,12 @@ def build_event(kind, svc=None, x=None, y=None, label=None):
 def build_log(line):
     """Feed a raw build-output line into the Build row's rolling tail."""
     _checklist.build_log(line)
+
+
+def build_note(text, marker="○", style="muted"):
+    """Print a calm note in the build body's gutter (aligned with ✓ <svc> lines).
+    Pass marker="" for a continuation/hint line under a previous note."""
+    _checklist.build_note(text, marker=marker, style=style)
 
 
 def build_activity(text):

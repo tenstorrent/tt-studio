@@ -1,114 +1,78 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import axios from "axios";
-import { InferenceRequest, RagDataSource } from "./types.ts";
+import {
+  ChatMessage,
+  InferenceRequest,
+  RagDataSource,
+  RetrieveResponse,
+} from "./types.ts";
+
+const MAX_HISTORY_TURNS = 4;
+const MAX_HISTORY_CHARS = 500;
+
+// Recent conversation turns, oldest first, for server-side query rewriting.
+// The trailing turn duplicating the current query is dropped.
+const buildChatHistory = (
+  chatHistory: Pick<ChatMessage, "sender" | "text">[] | undefined,
+  currentText: string,
+) => {
+  if (!chatHistory?.length) return undefined;
+  const turns = chatHistory
+    .filter((m) => m.text && m.text.trim())
+    .map((m) => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.text.slice(0, MAX_HISTORY_CHARS),
+    }));
+  if (turns.length && turns[turns.length - 1].content === currentText.slice(0, MAX_HISTORY_CHARS)) {
+    turns.pop();
+  }
+  const recent = turns.slice(-MAX_HISTORY_TURNS);
+  return recent.length ? recent : undefined;
+};
 
 export const getRagContext = async (
   request: InferenceRequest,
-  ragDatasource: RagDataSource | undefined
-) => {
+  ragDatasource: RagDataSource | undefined,
+  chatHistory?: Pick<ChatMessage, "sender" | "text">[],
+): Promise<{ documents: string[] }> => {
   const ragContext: { documents: string[] } = { documents: [] };
-  console.log(
-    "2^^^Fetching RAG context for the given request...",
-    request,
-    ragDatasource
-  );
 
   if (!ragDatasource) return ragContext;
 
+  // This must never throw: the voice pipeline advances on this call resolving,
+  // so any retrieval failure degrades to an ungrounded answer instead.
   try {
-    // Get browser ID from localStorage
     const browserId = localStorage.getItem("tt_studio_browser_id");
-    console.log(`Browser ID: ${browserId}`);
+    const response = await axios.post<RetrieveResponse>(
+      "/collections-api/retrieve",
+      {
+        query_text: request.text,
+        // "special-all" is keyed by id — the voice picker names it differently.
+        collection:
+          ragDatasource.id === "special-all" ? null : ragDatasource.name,
+        chat_history: buildChatHistory(chatHistory, request.text),
+      },
+      { headers: { "X-Browser-ID": browserId } },
+    );
 
-    // If special-all is specified, query across all collections
-    if (ragDatasource.id === "special-all") {
-      console.log("Querying across all collections");
-      try {
-        const response = await axios.get(`/collections-api/query-all`, {
-          params: { query_text: request.text, limit: 5 },
-          headers: {
-            "X-Browser-ID": browserId,
-          },
-        });
-
-        console.log("Query-all response:", response);
-
-        if (response?.data?.results) {
-          // Format results to include collection name
-          ragContext.documents = response.data.results.map(
-            (result: any) =>
-              `[From ${result.collection.name}]\n${result.document}`
-          );
-          console.log("Processed documents:", ragContext.documents.length);
-        } else {
-          console.warn(
-            "No results found in query-all response:",
-            response.data
-          );
-        }
-      } catch (error: any) {
-        console.error(`Error querying all collections: ${error.message}`);
-        console.error(
-          "Error details:",
-          error.response?.data || "No response data"
-        );
-      }
-    } else {
-      // Standard single collection query
-      console.log(`Querying single collection: ${ragDatasource.name}`);
-      try {
-        const response = await axios.get(
-          `/collections-api/${ragDatasource.name}/query`,
-          {
-            params: { query_text: request.text },
-            headers: {
-              "X-Browser-ID": browserId,
-            },
-          }
-        );
-
-        console.log("Single collection response:", response);
-
-        if (response?.data) {
-           const docs = response.data.documents;
-          if (Array.isArray(docs)) {
-            const items = docs.flat(Infinity);
-            ragContext.documents = items.map((d: any) => {
-	              if (typeof d === "string") {
-	                return d;
-	              } else if (d?.document) {
-	                return d.document;
-	              } else if (d?.text) {
-	                return d.text;
-	              } else {
-	                console.warn("Unrecognized document format in RAG response:", d);
-	                return "[Unrecognized document format]";
-	              }
-	            });
-          } else {
-            // If it's not an array, fall back to empty array for safety.
-            ragContext.documents = [];
-          }
-          console.log("Processed documents:", ragContext.documents.length);
-        } else {
-          console.warn(
-            "No results found in single collection response:",
-            response.data
-          );
-        }
-      } catch (error: any) {
-        console.error(
-          `Error querying collection ${ragDatasource.name}: ${error.message}`
-        );
-        console.error(
-          "Error details:",
-          error.response?.data || "No response data"
-        );
-      }
+    const data = response?.data;
+    if (Array.isArray(data?.documents)) {
+      ragContext.documents = data.documents.filter(
+        (d): d is string => typeof d === "string",
+      );
+    } else if (Array.isArray(data?.results)) {
+      ragContext.documents = data.results
+        .map((r) => r?.text)
+        .filter((t): t is string => typeof t === "string");
     }
-  } catch (e) {
-    console.error(`Error fetching RAG context: ${e}`);
+    if (data?.query?.rewritten) {
+      console.log(
+        `RAG query rewritten: "${data.query.original}" -> "${data.query.effective}"`,
+      );
+    }
+  } catch (error) {
+    console.error("Error fetching RAG context:", error);
   }
 
   return ragContext;

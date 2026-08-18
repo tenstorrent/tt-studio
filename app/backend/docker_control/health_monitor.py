@@ -7,13 +7,23 @@ import time
 from django.utils import timezone
 from shared_config.logger_config import get_logger
 from docker_control.models import ModelDeployment
-from docker_control.docker_control_client import get_docker_client
+from docker_control.docker_control_client import (
+    ContainerNotFound,
+    get_docker_client,
+    http_status_of,
+    is_service_unreachable,
+)
 
 logger = get_logger(__name__)
 
 # Global variable to track if monitoring is running
 _monitoring_thread = None
 _stop_monitoring = False
+
+# Whether the last poll found docker-control-service unreachable. Used purely to
+# log the outage once on each transition instead of once per container per poll
+# (a 5s poll over an overnight outage produced ~16k identical ERROR lines).
+_service_unreachable = False
 
 
 def _cleanup_stale_starting_records():
@@ -73,10 +83,86 @@ def _cleanup_stale_starting_records():
         logger.error(f"Error cleaning up stale starting records: {e}")
 
 
-def check_container_health():
-    """Check for containers that died unexpectedly and clean up stale records"""
+def _service_is_back():
+    """Probe docker-control-service — only called while an outage is already known.
+
+    This adds no polling in the healthy case: reachability is learned for free
+    from the container lookups the loop already performs, and this probe runs
+    only once ``_service_unreachable`` is set. During an outage it replaces one
+    failing lookup *per deployment* with a single cheap unauthenticated GET, so
+    an outage costs less traffic than it did before, not more.
+
+    Only a transport-level outage keeps us out. Any other failure returns True so
+    monitoring resumes: the per-container logic already acts only on definitive
+    signals, and reporting a real crash late is worse than tolerating an odd
+    health response. Note ``/api/v1/health`` answers 200 even when it reports
+    ``unhealthy``/``degraded`` in its body, and that body is deliberately ignored
+    — the question is only whether the service answered at all.
+    """
     try:
-        # Clean up stale pending records that block chip slots
+        get_docker_client().health()
+    except Exception as e:
+        if is_service_unreachable(e):
+            return False
+        logger.error(f"docker-control-service health check failed: {e}")
+        return True
+    _note_service_reachable()
+    return True
+
+
+def _note_service_unreachable(exc):
+    """Log a docker-control-service outage once per transition into the outage."""
+    global _service_unreachable
+    if not _service_unreachable:
+        _service_unreachable = True
+        logger.warning(
+            "docker-control-service is unreachable (%s). Container statuses cannot "
+            "be determined and will be left untouched until it responds again; "
+            "deployment records keep their last known status.",
+            exc,
+        )
+
+
+def _note_service_reachable():
+    """Log recovery once, the first time the service answers after an outage."""
+    global _service_unreachable
+    if _service_unreachable:
+        _service_unreachable = False
+        logger.info(
+            "docker-control-service is reachable again; resuming container health checks"
+        )
+
+
+def check_container_health():
+    """Check for containers that died unexpectedly and clean up stale records.
+
+    A record is only ever demoted on a definitive signal from a
+    docker-control-service that actually answered:
+
+    * it reported a non-running Docker status (``exited``, ``dead``, …), or
+    * it answered 404, meaning the container no longer exists (the normal case
+      for the ``--rm`` containers TT Inference Server launches).
+
+    Both are detected on the very next poll, so a genuine crash is still
+    reported within ``_HEALTH_POLL_INTERVAL_SECONDS``. Anything else — most
+    importantly the service being unreachable — carries no information about the
+    container and must never change a record's status.
+    """
+    try:
+        # Nothing to conclude about, so don't even probe — keeps an idle system
+        # from issuing a health request every poll.
+        if not ModelDeployment.objects.filter(status__in=["starting", "running"]).exists():
+            return
+
+        # Already known to be down — one cheap probe to see if it's back beats one
+        # failing lookup per deployment. In the healthy case this is skipped
+        # entirely, so the poll costs exactly what it did before.
+        if _service_unreachable and not _service_is_back():
+            return
+
+        # Clean up stale pending records that block chip slots. Safe during an
+        # outage: both branches decide purely on record age, never on a Docker
+        # lookup, and the stop_container attempt is already best-effort.
         _cleanup_stale_starting_records()
 
         # Get all running deployments from database
@@ -94,6 +180,7 @@ def check_container_health():
             try:
                 # Get container info from docker-control-service
                 container_info = docker_client.get_container(deployment.container_id)
+                _note_service_reachable()
                 actual_status = container_info.get("status", "unknown")  # running, exited, dead, etc.
 
                 # If container is not running but we didn't mark it as stopped by user
@@ -109,10 +196,13 @@ def check_container_health():
                     logger.info(f"Updated deployment record for unexpected death: {deployment.container_name}")
 
             except Exception as e:
-                # Check if it's a 404 (container not found)
-                error_msg = str(e).lower()
-                if "not found" in error_msg or "404" in error_msg:
-                    # Container doesn't exist anymore - it died
+                # A 404 is the definitive "container is gone" answer, and is the
+                # normal outcome for the --rm containers TT Inference Server
+                # launches. Accept it either pre-translated by the client or as a
+                # raw 404 response, so detecting a real death never hinges on one
+                # translation point.
+                if isinstance(e, ContainerNotFound) or http_status_of(e) == 404:
+                    _note_service_reachable()
                     if not deployment.stopped_by_user:
                         logger.warning(f"Container {deployment.container_name} not found - marking as dead")
                         deployment.status = "dead"
@@ -121,9 +211,15 @@ def check_container_health():
 
                         # TODO: Emit event for frontend notification
                         logger.info(f"Updated deployment record for missing container: {deployment.container_name}")
+
+                # No definitive answer about this container — leave the record
+                # alone. Demoting it here would report a false death for a model
+                # that is still happily serving.
+                elif is_service_unreachable(e):
+                    _note_service_unreachable(e)
                 else:
                     logger.error(f"Error checking container {deployment.container_id}: {e}")
-                
+
     except Exception as e:
         logger.error(f"Error in check_container_health: {e}")
 

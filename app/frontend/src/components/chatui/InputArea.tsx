@@ -2,134 +2,26 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React from "react";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
-import { FileUpload } from "../ui/file-upload";
-import {
-  Paperclip,
-  Send,
-  X,
-  File,
-  Plus,
-  ExternalLink,
-  FileText,
-  FileIcon,
-  Globe,
-  Check,
-  Info as InfoIcon,
-} from "lucide-react";
+import { Send, X, Plus, Globe, Check } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
-import {
-  isImageFile,
-  validateFile,
-  encodeFile,
-  isTextFile,
-  isPdfFile,
-} from "./fileUtils";
 import { cn } from "../../lib/utils";
-import type { FileData } from "./types";
-import { customToast } from "../CustomToaster";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { useNavigate } from "react-router-dom";
 import { TypingAnimation } from "../ui/typing-animation";
-
-interface PdfDetectionDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  pdfFileName: string;
-  onNavigate: () => void;
-}
-
-function PdfDetectionDialog({
-  open,
-  onOpenChange,
-  pdfFileName,
-  onNavigate,
-}: PdfDetectionDialogProps) {
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black opacity-75"
-        onClick={() => onOpenChange(false)}
-      />
-      <div className="relative max-w-md w-full bg-[#0A0A13] rounded-lg border border-TT-purple-accent shadow-xl z-[101] mx-4">
-        <div className="p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="bg-[#1E3A8A] p-2 rounded-full shrink-0">
-              <FileText className="h-6 w-6 text-TT-red-accent" />
-            </div>
-            <h2 className="text-xl font-bold text-blue-100 m-0">
-              PDF Upload Detected
-            </h2>
-          </div>
-          <div className="space-y-4">
-            <p className="text-gray-300 text-base">
-              PDFs need to be uploaded to the RAG management page for
-              processing.
-            </p>
-            {pdfFileName && (
-              <div className="bg-[#1F2937] rounded-lg p-3 border border-gray-700">
-                <p className="text-sm text-gray-400 mb-1">File detected:</p>
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <FileIcon className="h-5 w-5 shrink-0 text-red-400" />
-                  <span className="text-blue-200 font-medium truncate">
-                    {pdfFileName}
-                  </span>
-                </div>
-              </div>
-            )}
-            <div className="text-sm text-gray-400 flex items-center gap-2">
-              <InfoIcon className="h-4 w-4 shrink-0 text-TT-purple-tint2" />
-              <span>PDFs require special processing.</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-[#111827] px-5 py-4 rounded-b-lg flex justify-end gap-3">
-          <button
-            onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-md bg-TT-purple-accent border border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onNavigate}
-            className="px-4 py-2 rounded-md bg-TT-purple-accent hover:bg-gray-700 text-white font-medium transition-colors flex items-center gap-2"
-          >
-            Go to RAG Management
-            <ExternalLink className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface InputAreaProps {
   textInput: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
-  handleInference: (input?: string, files?: FileData[]) => void;
+  handleInference: () => void;
   isStreaming: boolean;
   isListening: boolean;
   setIsListening: (isListening: boolean) => void;
-  files?: FileData[];
-  setFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
@@ -137,6 +29,9 @@ interface InputAreaProps {
   isAgentSelected?: boolean;
   setIsAgentSelected?: (value: boolean) => void;
   isAgentAvailable?: boolean;
+  /** Voice input is only shown when a speech recognition path is available. */
+  voiceInputAvailable?: boolean;
+  sttDeployId?: string | null;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -154,8 +49,6 @@ export default function InputArea({
   isStreaming,
   isListening,
   setIsListening,
-  files = [],
-  setFiles = () => { },
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
@@ -163,25 +56,18 @@ export default function InputArea({
   isAgentSelected = false,
   setIsAgentSelected,
   isAgentAvailable = false,
+  voiceInputAvailable = false,
+  sttDeployId = null,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const plusMenuRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [showProgressBar, setShowProgressBar] = useState(false);
-  const [showErrorIndicator, setShowErrorIndicator] = useState(false);
-  const [showReplaceDialog, setShowReplaceDialog] = useState(false);
-  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isTouched, setIsTouched] = useState(false);
   const [showBanner, setShowBanner] = useState(true);
   const [touchFeedback, setTouchFeedback] = useState("");
-  const [showPdfDialog, setShowPdfDialog] = useState(false);
-  const [pdfFileName, setPdfFileName] = useState("");
-  const navigate = useNavigate();
 
   // Close plus menu on outside click
   useEffect(() => {
@@ -257,8 +143,8 @@ export default function InputArea({
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
       e.preventDefault();
-      if (textInput.trim() !== "" || files.length > 0) {
-        handleInference(textInput, files);
+      if (textInput.trim() !== "") {
+        handleInference();
         setTextInput("");
       }
     }
@@ -285,177 +171,6 @@ export default function InputArea({
     setTimeout(() => setTouchFeedback(""), 500);
   };
 
-  const handleNavigateToRagManagement = () => {
-    navigate("/rag-management");
-    setShowPdfDialog(false);
-  };
-
-  const processFile = useCallback(async (file: File) => {
-    try {
-      setShowProgressBar(true);
-      const validation = validateFile(file);
-      if (!validation.valid) {
-        throw new Error(validation.error);
-      }
-
-      const base64 = await encodeFile(file, true);
-      if (isImageFile(file)) {
-        return {
-          type: "image_url" as const,
-          image_url: { url: `data:${file.type};base64,${base64}` },
-          name: file.name,
-        };
-      }
-
-      return {
-        type: "text" as const,
-        text: base64,
-        name: file.name,
-      };
-    } catch (error) {
-      console.error("File processing error:", error);
-      throw error;
-    }
-  }, []);
-
-  const handleFileUpload = useCallback(
-    async (uploadedFiles: File[]) => {
-      try {
-        setIsDragging(false);
-        setShowProgressBar(true);
-
-        const pdfFiles = uploadedFiles.filter(isPdfFile);
-        if (pdfFiles.length > 0) {
-          setPdfFileName(pdfFiles[0].name);
-          setShowPdfDialog(true);
-          setShowProgressBar(false);
-
-          const nonPdfFiles = uploadedFiles.filter((file) => !isPdfFile(file));
-          if (nonPdfFiles.length > 0) {
-            await handleNonPdfFiles(nonPdfFiles);
-          }
-          return;
-        }
-
-        await handleNonPdfFiles(uploadedFiles);
-      } catch (error) {
-        console.error("File upload error:", error);
-        customToast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to upload file(s). Please try again."
-        );
-        setShowErrorIndicator(true);
-        setTimeout(() => setShowErrorIndicator(false), 3000);
-      } finally {
-        setShowProgressBar(false);
-      }
-    },
-    [files, processFile, setFiles]
-  );
-
-  const handleNonPdfFiles = async (uploadedFiles: File[]) => {
-    const unsupportedFiles = uploadedFiles.filter(
-      (file) => !isImageFile(file) && !isTextFile(file)
-    );
-
-    if (unsupportedFiles.length > 0) {
-      const fileNames = unsupportedFiles.map((f) => f.name).join(", ");
-      customToast.error(
-        `Unsupported file type(s): ${fileNames}. Only images (PNG, JPG, GIF) and text files are supported.`
-      );
-    }
-
-    const validFiles = uploadedFiles.filter(
-      (file) => isImageFile(file) || isTextFile(file)
-    );
-
-    const imageFiles = validFiles.filter(isImageFile);
-    const textFiles = validFiles.filter(isTextFile);
-
-    if (imageFiles.length > 0) {
-      const existingImages = files.filter((f) => f.type === "image_url");
-      if (existingImages.length > 0) {
-        setPendingImageFile(imageFiles[0]);
-        setShowReplaceDialog(true);
-
-        if (textFiles.length > 0) {
-          const encodedTextFiles = await Promise.all(
-            textFiles.map(processFile)
-          );
-          setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
-          customToast.success(
-            `Successfully uploaded ${textFiles.length} text file(s)!`
-          );
-        }
-        return;
-      }
-
-      const encodedImage = await processFile(imageFiles[0]);
-      const encodedTextFiles = await Promise.all(textFiles.map(processFile));
-
-      setFiles((prevFiles) => [
-        ...prevFiles,
-        encodedImage,
-        ...encodedTextFiles,
-      ]);
-      customToast.success(
-        `Successfully uploaded ${imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
-        }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`
-      );
-    } else if (textFiles.length > 0) {
-      const encodedFiles = await Promise.all(textFiles.map(processFile));
-      setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
-      customToast.success(
-        `Successfully uploaded ${textFiles.length} text file(s)!`
-      );
-    }
-  };
-
-  const handleReplaceConfirm = async () => {
-    if (pendingImageFile) {
-      try {
-        const encodedImage = await processFile(pendingImageFile);
-        setFiles((prevFiles) => [
-          ...prevFiles.filter((f) => f.type !== "image_url"),
-          encodedImage,
-        ]);
-        customToast.success("Image replaced successfully!");
-      } catch (error) {
-        console.error("Error replacing image:", error);
-        customToast.error("Failed to replace image. Please try again.");
-      }
-      setPendingImageFile(null);
-    }
-    setShowReplaceDialog(false);
-  };
-
-  const handleReplaceCancel = () => {
-    setPendingImageFile(null);
-    setShowReplaceDialog(false);
-  };
-
-  const removeFile = (index: number) => {
-    setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
-    customToast.success("File removed successfully!");
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (_e: React.DragEvent<HTMLDivElement>) => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = e.dataTransfer?.files;
-    if (files) handleFileUpload(Array.from(files));
-  };
-
   useEffect(() => {
     adjustTextareaHeight();
     window.addEventListener("resize", adjustTextareaHeight);
@@ -464,38 +179,6 @@ export default function InputArea({
 
   return (
     <>
-      <PdfDetectionDialog
-        open={showPdfDialog}
-        onOpenChange={setShowPdfDialog}
-        pdfFileName={pdfFileName}
-        onNavigate={handleNavigateToRagManagement}
-      />
-
-      <AlertDialog open={showReplaceDialog} onOpenChange={setShowReplaceDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace Existing Image?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You can only have one image at a time. Do you want to replace the
-              existing image with the new one?
-              {pendingImageFile && (
-                <div className="mt-2 text-sm">
-                  New image: {pendingImageFile.name}
-                </div>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleReplaceCancel}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleReplaceConfirm}>
-              Replace
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {touchFeedback && (
         <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 text-white text-sm rounded-lg px-4 py-2 z-50 opacity-80">
           {touchFeedback}
@@ -514,9 +197,6 @@ export default function InputArea({
                   ? "border-gray-400/70 dark:border-white/30"
                   : "border-gray-200 dark:border-[#7C68FA]/20",
           )}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           onTouchStart={() => setIsTouched(true)}
@@ -524,57 +204,6 @@ export default function InputArea({
             setTimeout(() => setIsTouched(false), 300);
           }}
         >
-          {isDragging && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50 overflow-hidden rounded-lg">
-              <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
-                <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
-                <span className="text-2xl animate-pulse">
-                  Drop files to upload
-                </span>
-                <span className="text-sm mt-2">
-                  Limited to one image, multiple text files allowed
-                </span>
-              </div>
-            </div>
-          )}
-
-          {files.length > 0 && (
-            <>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {files.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-800 p-2 rounded-md shadow-sm"
-                  >
-                    <div className="shrink-0">
-                      {file.type === "image_url" ? (
-                        <img
-                          src={file.image_url?.url || "/placeholder.svg"}
-                          alt={file.name}
-                          className="w-6 h-6 object-cover rounded"
-                        />
-                      ) : (
-                        <File className="w-6 h-6 text-gray-500 dark:text-gray-400" />
-                      )}
-                    </div>
-                    <span className="text-sm truncate max-w-[150px]">
-                      {file.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-red-500 hover:text-red-700"
-                      onClick={() => removeFile(index)}
-                      aria-label="Remove file"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="border-t border-gray-200 dark:border-gray-700 mb-2" />
-            </>
-          )}
-
           <div className="relative">
             <textarea
               ref={textareaRef}
@@ -617,47 +246,35 @@ export default function InputArea({
           <div className="flex justify-between items-center mt-2">
             <div className="flex gap-2 items-center">
               {/* ChatGPT-style plus menu */}
-              <div className="relative" ref={plusMenuRef}>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size={isMobileView ? "sm" : "default"}
-                        className={cn(
-                          "p-1 sm:p-2 rounded-full flex items-center justify-center transition-all duration-200",
-                          isPlusMenuOpen
-                            ? "bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] rotate-45"
-                            : "text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-                        )}
-                        onClick={() => setIsPlusMenuOpen((prev) => !prev)}
-                        aria-label="More options"
-                      >
-                        <Plus className={isMobileView ? "h-4 w-4" : "h-5 w-5"} />
-                      </Button>
-                    </TooltipTrigger>
-                    {!isPlusMenuOpen && (
-                      <TooltipContent><p>More options</p></TooltipContent>
-                    )}
-                  </Tooltip>
-                </TooltipProvider>
+              {isAgentAvailable && setIsAgentSelected && (
+                <div className="relative" ref={plusMenuRef}>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size={isMobileView ? "sm" : "default"}
+                          className={cn(
+                            "p-1 sm:p-2 rounded-full flex items-center justify-center transition-all duration-200",
+                            isPlusMenuOpen
+                              ? "bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] rotate-45"
+                              : "text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                          )}
+                          onClick={() => setIsPlusMenuOpen((prev) => !prev)}
+                          aria-label="More options"
+                        >
+                          <Plus className={isMobileView ? "h-4 w-4" : "h-5 w-5"} />
+                        </Button>
+                      </TooltipTrigger>
+                      {!isPlusMenuOpen && (
+                        <TooltipContent><p>More options</p></TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
 
-                {isPlusMenuOpen && (
-                  <div className="absolute bottom-full left-0 mb-2 z-30 w-56 rounded-xl bg-white dark:bg-[#1E1E2E] border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
-                    <button
-                      type="button"
-                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#7C68FA]/10 transition-colors"
-                      onClick={() => {
-                        setIsFileUploadOpen((prev) => !prev);
-                        setIsPlusMenuOpen(false);
-                      }}
-                    >
-                      <Paperclip className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                      <span>Attach files</span>
-                    </button>
-
-                    {isAgentAvailable && setIsAgentSelected && (
+                  {isPlusMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 z-30 w-56 rounded-xl bg-white dark:bg-[#1E1E2E] border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
                       <button
                         type="button"
                         className={cn(
@@ -675,10 +292,10 @@ export default function InputArea({
                         <span className="flex-1 text-left">Web search</span>
                         {isAgentSelected && <Check className="h-4 w-4" />}
                       </button>
-                    )}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Web search active pill */}
               {isAgentSelected && isAgentAvailable && (
@@ -693,29 +310,32 @@ export default function InputArea({
                 </button>
               )}
 
-              <div className="relative group">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <VoiceInput
-                          onTranscript={handleVoiceInput}
-                          isListening={isListening}
-                          setIsListening={setIsListening}
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Voice input</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    {isListening ? "Stop recording" : "Voice input"}
-                  </div>
-                )}
-              </div>
+              {voiceInputAvailable && (
+                <div className="relative group">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <VoiceInput
+                            onTranscript={handleVoiceInput}
+                            isListening={isListening}
+                            setIsListening={setIsListening}
+                            deployId={sttDeployId}
+                          />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Voice input</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      {isListening ? "Stop recording" : "Voice input"}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -764,9 +384,9 @@ export default function InputArea({
                     onTouchStart={() => handleTouchStart("Stopping generation")}
                     onTouchEnd={handleTouchEnd}
                     className={`
-                      bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
+                      bg-red-500 hover:bg-red-600 active:bg-red-700 text-white
                       dark:bg-red-500 dark:hover:bg-red-600 dark:active:bg-red-700
-                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"}
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                     `}
                     aria-label="Stop generation"
@@ -790,34 +410,26 @@ export default function InputArea({
                 <div className="relative group">
                   <Button
                     onClick={() => {
-                      if (
-                        (textInput.trim() !== "" || files.length > 0) &&
-                        !isStreaming
-                      ) {
+                      if (textInput.trim() !== "" && !isStreaming) {
                         handleTouchStart("Sending message");
-                        handleInference(textInput, files);
+                        handleInference();
                         setTextInput("");
                         handleTouchEnd();
                       }
                     }}
                     onTouchStart={() => {
-                      if (
-                        (textInput.trim() !== "" || files.length > 0) &&
-                        !isStreaming
-                      ) {
+                      if (textInput.trim() !== "" && !isStreaming) {
                         handleTouchStart("Sending message");
                       }
                     }}
                     onTouchEnd={handleTouchEnd}
-                    disabled={
-                      isStreaming || (!textInput.trim() && files.length === 0)
-                    }
+                    disabled={isStreaming || !textInput.trim()}
                     className={`
-                      ${(!textInput.trim() && files.length === 0) || isStreaming
+                      ${!textInput.trim() || isStreaming
                         ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
                         : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
                       }
-                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"}
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                       border-0 outline-none focus:outline-none focus:ring-0
                     `}
@@ -849,13 +461,6 @@ export default function InputArea({
               <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-[#7C68FA] to-[#7C68FA] animate-pulse-ripple-x" />
             </div>
           )}
-
-          {showProgressBar && (
-            <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500 animate-progress" />
-          )}
-          {showErrorIndicator && (
-            <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
-          )}
         </div>
 
         {showBanner && (
@@ -881,7 +486,6 @@ export default function InputArea({
             </div>
           </div>
         )}
-        {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
       </div>
     </>
   );

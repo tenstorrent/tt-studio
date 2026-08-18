@@ -35,12 +35,21 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     s = f"{hf_model_id} {model_name}".lower()
     if "llama-3" in s or "llama3" in s:
         return "llama3_json"
+    # Qwen3.5 / Qwen3.6 / Qwen3.8 blackhole builds ship with the qwen3_coder
+    # parser; older Qwen families use hermes.
+    if (
+        "qwen3.5" in s or "qwen3.6" in s or "qwen3.8" in s
+        or "qwen35" in s or "qwen36" in s or "qwen38" in s
+    ):
+        return "qwen3_coder"
     if "qwen" in s or "qwq" in s:
         return "hermes"
     if "mistral" in s:
         return "mistral"
     if "deepseek" in s:
         return "deepseek_v3"
+    if "gemma-4-" in s:
+        return "gemma4"
     return None
 
 
@@ -82,23 +91,36 @@ def resolve_deploy_image(
         fastapi_base_url or backend_config.tt_inference_api_url
     ).rstrip("/")
     try:
-        params = {"model": model_name}
+        base_params = {"model": model_name}
         if device:
-            params["device"] = device
+            base_params["device"] = device
+
+        # Try impl-qualified first, then fall back to a plain lookup. An impl the
+        # server can't match (e.g. a spec outside the prod tier) 404s the qualified
+        # request even when the plain one would resolve, so a redundant impl must
+        # not block resolution. The catalog now records impl only when it truly
+        # disambiguates, making this a defensive backstop.
+        attempts = []
         if impl:
-            params["impl"] = impl
-        r = requests.get(
-            f"{fastapi_base_url}/resolve-image",
-            params=params,
-            timeout=timeout_seconds,
-        )
-        if r.status_code != 200:
-            logger.warning(
-                f"resolve-image for model={model_name} device={device} returned HTTP {r.status_code}: {r.text[:200]}"
+            attempts.append({**base_params, "impl": impl})
+        attempts.append(base_params)
+
+        for params in attempts:
+            r = requests.get(
+                f"{fastapi_base_url}/resolve-image",
+                params=params,
+                timeout=timeout_seconds,
             )
-            return None
-        image = (r.json() or {}).get("docker_image")
-        return image or None
+            if r.status_code != 200:
+                logger.warning(
+                    f"resolve-image for model={model_name} device={device} "
+                    f"impl={params.get('impl')} returned HTTP {r.status_code}: {r.text[:200]}"
+                )
+                continue
+            image = (r.json() or {}).get("docker_image")
+            if image:
+                return image
+        return None
     except requests.exceptions.RequestException as e:
         logger.warning(f"resolve-image request failed for model={model_name}: {e}")
         return None
@@ -121,6 +143,8 @@ def start_chat_deployment(
     override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
     host_weights_dir: Optional[str] = None,
+    artifact_ref: Optional[str] = None,
+    disable_metal_timeout: bool = False,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -150,9 +174,13 @@ def start_chat_deployment(
         payload["override_docker_image"] = override_docker_image
     if host_weights_dir:
         payload["host_weights_dir"] = host_weights_dir
-        
+
         from docker_control.docker_utils import derive_custom_weights_label
         payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
+    if artifact_ref is not None:
+        payload["artifact_ref"] = artifact_ref
+    if disable_metal_timeout:
+        payload["disable_metal_timeout"] = True
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend

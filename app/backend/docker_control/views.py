@@ -17,6 +17,7 @@ import subprocess
 import signal
 import os
 from pathlib import Path
+from typing import Optional
 
 import re
 import os
@@ -43,10 +44,15 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
-from .docker_control_client import get_docker_client
-from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
+from .docker_control_client import (
+    ContainerNotFound,
+    get_docker_client,
+    http_status_of,
+    is_service_unreachable,
+)
+from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
-from shared_config.model_config import model_implmentations, infer_chips_required
+from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -109,6 +115,116 @@ _LLAMA_V014_MODELS = {
     "Llama-3.1-70B-Instruct",
     "Llama-3.3-70B-Instruct",
 }
+
+
+def _resolve_override_docker_image(impl) -> Optional[str]:
+    """Pin an explicit docker image where the inference server can't infer one.
+
+    Two independent reasons a model needs this:
+    - _LLAMA_V014_MODELS: the inference server's own model_spec default is an
+      older image that's rejected on P300x2 (PR #815) -- unrelated to catalog tier.
+    - requires_dev_catalog: "dev" tier catalog entries don't pin a docker_image
+      (unlike "prod"), so run.py refuses to guess one and requires
+      --override-docker-image whenever --dev-mode is combined with
+      --docker-server. The catalog's own image_version is exactly what's needed.
+    """
+    if impl.model_name in _LLAMA_V014_MODELS:
+        return _LLAMA_V014_IMAGE
+    if impl.requires_dev_catalog:
+        return impl.image_version
+    return None
+
+
+def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
+    """Pick this entry's tt-inference-server build for the board being deployed to.
+
+    The catalog field is keyed by device because one entry usually covers several
+    boards (47 of 56 entries do) and only some may need a non-default build.
+
+    Returns None -- meaning "use the globally pinned artifact" -- for every case
+    except an explicit, matched, eligible pin. Callers need no other fallback.
+    """
+    ref_map = getattr(impl, "inference_artifact_ref", None)
+    if not ref_map:
+        return None
+
+    # Only dev-catalog deploys run run.py as a subprocess, which is the only path
+    # that can be pointed at a different artifact directory. The in-process path
+    # is bound to the artifact imported at inference-api boot, so honouring a ref
+    # there would silently deploy against the wrong build.
+    if not impl.requires_dev_catalog:
+        logger.warning(
+            f"{impl.model_name}: ignoring inference_artifact_ref -- it only applies to "
+            f"models with requires_dev_catalog=true. Using the globally pinned artifact."
+        )
+        return None
+
+    # Match the resolved runtime device first ("p150"), then the detected board
+    # type ("P300x2"). These differ on multi-chip boards: _BOARD_TO_SINGLE_CHIP_DEVICE
+    # maps P300x2 -> p150, so a P300x2 box actually deploys with --tt-device p150.
+    # Accept either spelling so a catalog author can key on what they see.
+    lookup = {str(k).strip().lower(): v for k, v in ref_map.items()}
+    for candidate in (device, board_type):
+        if not candidate:
+            continue
+        ref = lookup.get(str(candidate).strip().lower())
+        if ref:
+            logger.info(
+                f"{impl.model_name}: using tt-inference-server ref '{ref}' "
+                f"(matched '{candidate}')"
+            )
+            return ref
+
+    # A pin exists but nothing matched -- almost always a typo'd key. Say so
+    # rather than silently falling back to a build that lacks this model.
+    logger.warning(
+        f"{impl.model_name}: inference_artifact_ref has no entry for device "
+        f"'{device}' or board '{board_type}' (keys: {sorted(ref_map)}). "
+        f"Using the globally pinned artifact."
+    )
+    return None
+
+
+# Models whose tt-metal implementation ignores the HF_MODEL env var and instead
+# derives its weights path from vLLM's --model value (hf_config._name_or_path).
+# For these, a repo ID means the loader globs a non-existent relative directory,
+# finds no safetensors, and falls back to AutoModelForCausalLM.from_pretrained(),
+# re-downloading the full weights into the container's ephemeral HF cache on
+# every start -- even though run.py already placed them on the persistent volume.
+_LOCAL_WEIGHTS_MODEL_ARG = {"gemma-4-31B-it"}
+
+_CONTAINER_WEIGHTS_SYMLINK_ROOT = "/home/container_app_user/cache_root/model_file_symlinks_map"
+
+
+def _local_weights_overrides(impl) -> dict:
+    """vLLM args that point an HF_MODEL-ignoring model at its in-container weights.
+
+    Sets --model to the weights symlink so the loader takes its fast safetensors
+    path, and pins --served-model-name back to the HF repo ID so the API identity
+    (and every client referencing it) is unchanged.
+
+    Only effective for requires_dev_catalog models: this rides in via
+    --vllm-override-args, whose "model" key run_docker_server rejects as a
+    reserved wrapper flag. It lands instead through the model spec merge, which
+    the container only reads when dev mode mounts the resolved runtime spec.
+    """
+    if impl.model_name not in _LOCAL_WEIGHTS_MODEL_ARG:
+        return {}
+    if not impl.requires_dev_catalog:
+        logger.warning(
+            f"{impl.model_name}: needs a local --model path to avoid re-downloading "
+            f"weights, but that only applies to requires_dev_catalog deploys. "
+            f"Skipping; expect a duplicate weights download."
+        )
+        return {}
+    hf_model_id = getattr(impl, "hf_model_id", "") or impl.model_name
+    # model_setup() names the symlink after the HF repo basename, not model_name.
+    symlink_name = hf_model_id.split("/")[-1]
+    return {
+        "model": f"{_CONTAINER_WEIGHTS_SYMLINK_ROOT}/{symlink_name}",
+        "served-model-name": hf_model_id,
+    }
+
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
@@ -588,13 +704,11 @@ class DeployView(APIView):
                     reasoning_parser = get_reasoning_parser(impl.model_name)
                     if reasoning_parser:
                         overrides["reasoning-parser"] = reasoning_parser
+                    overrides.update(_local_weights_overrides(impl))
                     if overrides:
                         vllm_override_args = json.dumps(overrides)
-                # Some Llama models need a newer image than the inference server's model_spec default
-                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
-                override_docker_image = (
-                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
-                )
+                override_docker_image = _resolve_override_docker_image(impl)
+                artifact_ref = _resolve_artifact_ref(impl, device, board_type)
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -606,7 +720,13 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
                     host_weights_dir=host_weights_dir,
-                    dev_mode=False,
+                    dev_mode=impl.requires_dev_catalog,
+                    artifact_ref=artifact_ref,
+                    # First-load weight remaps on experimental blackhole builds can
+                    # exceed the default 5s metal op timeout and abort a healthy deploy.
+                    disable_metal_timeout=bool(
+                        impl.requires_dev_catalog or artifact_ref
+                    ),
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
@@ -767,7 +887,9 @@ class DeployView(APIView):
 
                 # Pre-pull the media image first so the UI shows real progress.
                 media_device = infer_inference_server_device(impl)
-                inference_impl = getattr(impl, "inference_impl", None)
+                # resolve-image declares `impl: Optional[str]` and matches on
+                # impl_name. See the matching guard in docker_utils.run_container.
+                inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
                 deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
@@ -865,6 +987,13 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         Path(tt_studio_root) / ".artifacts" / "tt-inference-server" / "workflow_logs" / "docker_server",
         Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
     ]
+    # Per-model artifact refs (e.g. Qwen3.5-9B) write under .artifacts/refs/<ref>/...
+    refs_root = Path(tt_studio_root) / ".artifacts" / "refs"
+    if refs_root.is_dir():
+        for ref_dir in sorted(refs_root.iterdir()):
+            ref_logs = ref_dir / "workflow_logs" / "docker_server"
+            if ref_logs.is_dir():
+                candidate_dirs.append(ref_logs)
 
     # Pass 1: exact timestamp match — try common prefixes (vllm, media, and bare model name)
     for prefix in ("vllm", "media", model.lower()):
@@ -993,6 +1122,52 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
         logger.warning(f"_sync_chat_deployment_record failed for job {job_id}: {e}")
 
 
+class CancelDeploymentView(APIView):
+    """Cancel an in-flight deployment during image pull or weight download.
+
+    Tells any pre-pull worker to bail before starting the container, asks
+    inference-api to kill the in-flight download, and frees the reserved chip slot
+    by marking the placeholder deployment record stopped. Partial weight files are
+    left on disk so a later deploy resumes them.
+    """
+
+    def post(self, request, job_id: str):
+        from docker_control.models import ModelDeployment
+
+        # job_id may be a pre-pull id or the real inference job id; target both.
+        targets = {job_id}
+        pull_job = get_pull_job(job_id)
+        if pull_job is not None:
+            request_pull_cancel(job_id)
+            real = pull_job.get("real_job_id")
+            if real:
+                targets.add(real)
+
+        for target in targets:
+            # The pre-pull id isn't an inference job — request_pull_cancel() above
+            # handles it; only forward the real inference job id to inference-api.
+            if pull_job is not None and target == job_id:
+                continue
+            try:
+                requests.post(_build_fastapi_url(f"run/cancel/{target}"), timeout=5)
+            except Exception as e:
+                logger.warning(f"cancel: inference-api cancel failed for {target}: {e}")
+
+        stopped = 0
+        for target in targets:
+            try:
+                dep = ModelDeployment.objects.filter(container_id=target).first()
+                if dep and dep.status not in ("stopped", "dead"):
+                    dep.status = "stopped"
+                    dep.stopped_by_user = True
+                    dep.save()
+                    stopped += 1
+            except Exception as e:
+                logger.warning(f"cancel: could not mark deployment {target} stopped: {e}")
+
+        return Response({"status": "cancelled", "job_id": job_id, "stopped_records": stopped})
+
+
 class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
@@ -1010,13 +1185,15 @@ class DeploymentProgressView(APIView):
                 if real_job_id:
                     # Pull finished and /run dispatched — track the real job from here on.
                     job_id = real_job_id
-                elif pull_job.get("status") == "error":
+                elif pull_job.get("status") in ("error", "cancelled"):
+                    is_cancelled = pull_job.get("status") == "cancelled"
                     return Response(
                         {
-                            "status": "error",
-                            "stage": "error",
+                            "status": "cancelled" if is_cancelled else "error",
+                            "stage": "cancelled" if is_cancelled else "error",
                             "progress": 0,
-                            "message": pull_job.get("message") or "Image pull failed",
+                            "message": pull_job.get("message")
+                            or ("Deployment cancelled by user" if is_cancelled else "Image pull failed"),
                         },
                         status=status.HTTP_200_OK,
                     )
@@ -2615,12 +2792,22 @@ class WorkflowLogStreamView(View):
             logger.info(f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}")
             
             if not deployment.workflow_log_path:
-                logger.warning(f"No workflow log path for deployment {deployment_id}")
-                return HttpResponse(
-                    status=404,
-                    content="No workflow log file available for this deployment"
-                )
-            
+                found_path = _find_workflow_log_for_deployment(deployment)
+                if found_path:
+                    deployment.workflow_log_path = found_path
+                    try:
+                        deployment.save(update_fields=["workflow_log_path"])
+                    except Exception as save_err:
+                        logger.warning(
+                            f"Could not save workflow_log_path for deployment {deployment_id}: {save_err}"
+                        )
+                else:
+                    logger.warning(f"No workflow log path for deployment {deployment_id}")
+                    return HttpResponse(
+                        status=404,
+                        content="No workflow log file available for this deployment"
+                    )
+
             log_file_path = deployment.workflow_log_path
             
             # Check if file exists
@@ -2719,15 +2906,38 @@ async def _astream_stop_remove_container(container_id, truncated):
             return "No deployment record found — continuing"
         # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
         # The only reliable signal is whether the container is actually alive right now.
-        alive = False
+        # Tri-state: True = still running, False = confirmed gone, None = we
+        # could not find out (docker-control-service unreachable). Only a
+        # confirmed death may be recorded as one.
+        alive = None
         try:
             info = get_docker_client().get_container(container_id)
             alive = (info or {}).get("status") in ("running", "restarting")
-        except Exception:
-            alive = False  # container gone / 404 → it died unexpectedly
+        except ContainerNotFound:
+            alive = False  # the service answered 404 → it died unexpectedly
+        except Exception as e:
+            if not is_service_unreachable(e):
+                logger.warning(f"Could not determine liveness of {truncated}: {e}")
 
-        # Acknowledge so the Models Deployed page hides the row
+        # The user pressed stop — that much is a fact regardless of what we can
+        # observe, and it keeps a later death from being reported as unexpected.
         deployment.stopped_by_user = True
+
+        if alive is None:
+            # We could not observe the container, and the stop below may fail for
+            # the same reason. Writing a terminal status here would free the chip
+            # slot while the container may still hold that chip and port — exactly
+            # the collision this change exists to prevent. Leave the status alone:
+            # if the stop does succeed, the canonical reconcile demotes the record
+            # once the container is actually gone, and if it fails the record still
+            # reflects a model that is really there.
+            logger.info(
+                f"Liveness of {truncated} could not be determined; leaving status "
+                f"'{deployment.status}' until the container can be observed"
+            )
+            deployment.save()
+            return f"Recorded stop intent for {truncated} (status unchanged — Docker unreachable)"
+
         if alive:
             # The user stopped a still-running model.
             deployment.status = "stopped"
@@ -2750,13 +2960,14 @@ async def _astream_stop_remove_container(container_id, truncated):
     try:
         stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
     except Exception as e:
-        # 404 / "Not Found" means the container is already gone — not an error.
-        error_str = str(e)
-        if "404" in error_str or "Not Found" in error_str:
+        # A genuine 404 means the container is already gone — not an error. Match
+        # on the response status, never on str(e): connection-error reprs embed a
+        # memory address that can contain "404" by chance.
+        if http_status_of(e) == 404:
             container_gone = True
             yield "Container already stopped"
         else:
-            yield f"Error stopping container: {error_str}"
+            yield f"Error stopping container: {e}"
             raise _StopFailed(f"Failed to stop container {truncated}")
     else:
         stop_status = stop_result.get("status", "unknown")

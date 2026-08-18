@@ -25,17 +25,14 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
   const [deploymentFailed, setDeploymentFailed] = useState<boolean>(false);
-  const [displayText, setDisplayText] = useState<React.ReactElement | string>(initialText);
 
   const reset = () => {
     setIsDeploying(false);
     setIsRocketFlying(false);
-    setDisplayText(initialText);
   };
 
   const fail = () => {
     setDeploymentFailed(true);
-    setDisplayText(<span>Deployment Failed</span>);
     setIsDeploying(false);
     setIsRocketFlying(false);
   };
@@ -44,7 +41,6 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     if (disabled || isDeploying) return;
 
     setIsDeploying(true);
-    setDisplayText(changeText);
     setIsRocketFlying(true);
     setDeploymentFailed(false);
 
@@ -115,10 +111,14 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
             {isDeploying ? (
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                <span>Starting Deployment...</span>
+                {changeText}
               </div>
+            ) : deploymentFailed ? (
+              <span>Deployment Failed</span>
             ) : (
-              displayText
+              // Render the live prop, not captured state, so the label always tracks
+              // the current deploy availability (e.g. re-enabling after a cancel frees devices).
+              initialText
             )}
             <AnimatePresence mode="wait">
               {!isDeploying && !deploymentFailed && (

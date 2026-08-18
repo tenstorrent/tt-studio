@@ -136,6 +136,13 @@ export interface CanonicalDeployment {
   stopped_by_user: boolean;
   deployment_id?: number;
   deployment_model_name?: string;
+  /**
+   * Set when the backend could not reach docker-control-service and served this
+   * entry from its last known good state. The model itself is unaffected —
+   * inference and the readiness probe go straight to the container — but
+   * container management (deploy/stop/logs) is unavailable until it recovers.
+   */
+  status_stale?: boolean;
 }
 
 // Fetch the current deployed models from the canonical endpoint, which is the single source of truth for current deployed models.
@@ -454,6 +461,18 @@ export const deployModel = async (
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: payload,
+  });
+  return response.json();
+};
+
+// Cancel an in-flight deployment (during image pull or weight download). Stops the
+// download and frees the reserved board; partial weight files are kept for resume.
+export const cancelDeployment = async (
+  jobId: string,
+): Promise<{ status?: string; job_id?: string; stopped_records?: number }> => {
+  const response = await fetch(`/docker-api/deploy/cancel/${jobId}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
   });
   return response.json();
 };

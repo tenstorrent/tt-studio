@@ -8,6 +8,7 @@ httpx>=0.24.0
 
 # Dependencies required by api.py
 docker
+psutil>=5.9.0
 pydantic>=1.8.0,<2.0.0
 python-multipart>=0.0.5,<0.1.0
 PyYAML
@@ -15,3 +16,6 @@ PyYAML
 # Note: tt-inference-server code is provided as an artifact (tarball/zip)
 # and extracted to a path specified by TT_INFERENCE_ARTIFACT_PATH
 # The artifact contains run.py and workflows/ which are imported by api.py
+
+# Dev/test only
+pytest==9.0.3

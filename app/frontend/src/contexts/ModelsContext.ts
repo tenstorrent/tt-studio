@@ -28,6 +28,12 @@ export interface ModelsContextType {
   setUserStoppedModel: React.Dispatch<React.SetStateAction<boolean>>;
   isDeleteInFlight: boolean;
   setIsDeleteInFlight: React.Dispatch<React.SetStateAction<boolean>>;
+  /**
+   * docker-control-service is unreachable, so container management is paused.
+   * Deployed models keep serving; this only gates deploy/stop and tells the UI
+   * to explain why. Clears on its own once the service answers again.
+   */
+  controlPlaneDegraded: boolean;
 }
 
 export const ModelsContext = createContext<ModelsContextType | undefined>(

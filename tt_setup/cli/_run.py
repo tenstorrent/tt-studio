@@ -10,18 +10,19 @@ import subprocess
 import time
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, add_note, begin_phase, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, show_detail, step, steps_panel, stop_active_phase
+from tt_setup.console import _fmt_duration, add_note, begin_phase, build_note, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, rename_phase, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
-from tt_setup.docker_diag import handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
+from tt_setup.docker_diag import classify_pull_failure, handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
 from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY, decide_image_source, describe_pull_fallback, frontend_config_drift, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
-from tt_setup.cleanup import cleanup_resources
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.cleanup import cleanup_resources, purge_models
+from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -151,6 +152,19 @@ def _run(args):
                                       (branch selection only — hardware is
                                       governed by IS_QB2, not this)
 
+{C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}TT_STUDIO_IMAGE_TAG{C_RESET}                 Image tag pinned to this checkout. Written
+                                      automatically on every start (release tag,
+                                      else sha-<12>, else latest) — no need to
+                                      set it by hand.
+  {C_YELLOW}TT_STUDIO_IMAGE_REGISTRY{C_RESET}            Registry prefix for the prebuilt images
+                                      (default ghcr.io/tenstorrent/tt-studio).
+                                      Override for mirrors, air-gapped setups,
+                                      or a local test registry. When a pull
+                                      fails, run.py builds locally; force that
+                                      with --build-images.
+
 {C_CYAN}{C_BOLD}QB2 hardware verification (only when IS_QB2=true):{C_RESET}
 {'=' * 80}
   {C_GREEN}tt-smi confirms QB2 (P300x2){C_RESET}        {C_GREEN}✓{C_RESET} proceed — labeled "QuietBox (QB2)"
@@ -185,6 +199,7 @@ def _run(args):
   {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
   {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
+  {C_CYAN}python run.py --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
   {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
   {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
   {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
@@ -233,6 +248,11 @@ def _run(args):
 
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
+
+        # Must dispatch before the cleanup branches: purging one model must
+        # never fall through to the full-stack teardown.
+        if getattr(args, "purge_model", None):
+            sys.exit(purge_models(args))
 
         # Must dispatch before the generic cleanup branch: --uninstall implies
         # cleanup_all. All-or-nothing — declining the purge prompt keeps the
@@ -627,7 +647,11 @@ def _run(args):
                 startup_log.step("docker_control_service", "OK")
             else:
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
-                console.print("[warning]Note: Backend will not be able to manage Docker containers.[/warning]")
+                report_service_failure(
+                    "Docker Control service", DOCKER_CONTROL_LOG_FILE, port=8002,
+                    consequence="Startup continues — the backend falls back to the Docker SDK, "
+                                "so model containers still deploy.",
+                )
         else:
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             console.print("[warning]⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used)[/warning]")
@@ -671,18 +695,32 @@ def _run(args):
             startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
             console.print("[muted]AI Playground mode — using cloud models; local inference server not needed[/muted]")
 
-        # Pre-create workflow_logs before docker compose up.
-        # docker-compose.yml bind-mounts this directory; if Docker creates it first, it
-        # does so as root, which blocks the FastAPI server (running as the current user)
-        # from writing logs on the first deploy. Also fix ownership if already root-owned
-        # from a previous run.
-        for _subdir in ["workflow_logs", os.path.join("workflow_logs", "run_logs")]:
-            _log_dir = os.path.join(INFERENCE_ARTIFACT_DIR, _subdir)
+        # Pre-create the host dirs docker-compose.yml bind-mounts, before compose up.
+        # Docker creates a missing bind-mount path itself, as root, which then blocks
+        # the FastAPI server (running as the current user) from writing there on the
+        # first deploy. Creating them first keeps them owned by the current user.
+        for _mount_dir in [
+            os.path.join(INFERENCE_ARTIFACT_DIR, "workflow_logs"),
+            os.path.join(INFERENCE_ARTIFACT_DIR, "workflow_logs", "run_logs"),
+            # Per-model artifact refs (e.g. Qwen3.5-9B) are downloaded here by the
+            # FastAPI server at deploy time, and bind-mounted read-only so the UI can
+            # stream their workflow logs. Without this, Docker wins the race and the
+            # ref download fails with EACCES before the model ever reaches hardware.
+            os.path.join(TT_STUDIO_ROOT, ".artifacts", "refs"),
+        ]:
             try:
-                os.makedirs(_log_dir, exist_ok=True)
+                os.makedirs(_mount_dir, exist_ok=True)
             except PermissionError:
-                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
-                os.makedirs(_log_dir, exist_ok=True)
+                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _mount_dir], check=False)
+                os.makedirs(_mount_dir, exist_ok=True)
+            # An earlier run may have let Docker create it first. makedirs(exist_ok=True)
+            # accepts an existing root-owned dir silently, so repair ownership explicitly
+            # rather than leaving a directory we cannot write to.
+            if not os.access(_mount_dir, os.W_OK):
+                subprocess.run(
+                    ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", _mount_dir],
+                    check=False,
+                )
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.
@@ -690,11 +728,25 @@ def _run(args):
 
         end_phase(ph)  # ── end Phase 3 · Services
 
-        # ── Phase 4 · Build ──────────────────────────────────────────────────
-        # Start Docker services with streaming output and comprehensive error reporting
-        ph = begin_phase(4, 5, "Build")
+        # ── Phase 4 · Pull or Build ──────────────────────────────────────────
+        # Prefer the prebuilt images CI published for this exact checkout; any
+        # pull that can't succeed (unpublished sha, offline, custom config)
+        # falls back to the compose build: contexts — never a hard failure.
+        # Resolved BEFORE the phase opens so the phase is named for what it will
+        # actually do — a phase titled "Build" while it pulls is a lie the user
+        # has to decode (the count stays 5, only the word changes).
+        image_tag = get_env_var("TT_STUDIO_IMAGE_TAG", "latest")
+        image_registry = get_env_var("TT_STUDIO_IMAGE_REGISTRY", DEFAULT_IMAGE_REGISTRY)
+        frontend_drift = frontend_config_drift(get_env_var)
+        image_src, build_reason = decide_image_source(
+            build_images=args.build_images,
+            worktree_dirty=is_worktree_dirty(),
+            dev_mode=args.dev,
+            frontend_stock=not frontend_drift,
+        )
+
+        ph = begin_phase(4, 5, "Pull" if image_src == "pull" else "Build")
         startup_log.step("docker_compose_up", "START")
-        ph.set("building containers")
 
         # Check Docker access to determine if sudo is needed
         has_docker_access = check_docker_access()
@@ -703,13 +755,54 @@ def _run(args):
         # Set up the Docker Compose command (quiet — build progress folds into
         # the checklist's Build row, not a separate display).
         docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, quiet=True)
-        docker_compose_cmd.extend(["up", "--build", "-d"])
+        app_dir = os.path.join(TT_STUDIO_ROOT, "app")
+        use_pulled = False
+        if image_src == "pull":
+            ph.set(f"pulling prebuilt images ({image_tag})")
+            startup_log.step("image_pull", "START", image_tag)
+            pull_cmd = docker_compose_cmd + ["pull"]
+            pull_cmd = (["sudo"] + pull_cmd) if use_sudo else pull_cmd
+            pull_rc, _pull_output = run_docker_compose_with_progress(
+                pull_cmd, cwd=app_dir, dev_mode=args.dev,
+            )
+            if pull_rc == 0:
+                use_pulled = True
+                startup_log.step("image_pull", "OK", image_tag)
+            else:
+                # A pull that can't succeed is routine (unpublished branch,
+                # offline, private registry) — say why in one line and carry on
+                # with whatever is already here, or a local build.
+                fail_kind = classify_pull_failure(_pull_output)
+                use_pulled = images_present_locally(
+                    required_image_refs(args.dev, image_registry, image_tag), use_sudo=use_sudo
+                )
+                startup_log.step("image_pull", "CACHED" if use_pulled else "FALLBACK",
+                                 f"{fail_kind} exit={pull_rc}")
+                if not use_pulled:
+                    rename_phase(4, "Build")
+                note, hint = describe_pull_fallback(fail_kind, image_tag, use_pulled)
+                build_note(note)
+                if hint:
+                    build_note(hint, marker="")
+        else:
+            startup_log.step("image_pull", "SKIP", build_reason)
+            build_note(f"Building images locally · {build_reason}")
+            if build_reason == BUILD_REASON_FRONTEND:
+                # Name the setting: "custom frontend settings" alone leaves the
+                # reader guessing which of their vars costs them the pull.
+                build_note(f"{', '.join(frontend_drift)} differs from the published build — "
+                           f"match .env.default to pull instead", marker="")
+
+        ph.set("starting containers" if use_pulled else "building containers")
+        docker_compose_cmd.extend(
+            ["up", "-d", "--no-build"] if use_pulled else ["up", "--build", "-d"]
+        )
 
         # Stream the build; per-service events fold into the active Build row.
         compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
-            cwd=os.path.join(TT_STUDIO_ROOT, "app"),
+            cwd=app_dir,
             dev_mode=args.dev,
         )
 
@@ -750,8 +843,10 @@ def _run(args):
                         s.fail()
                 if not fastapi_ok:
                     startup_log.step("fastapi_server", "FAIL", f"see {MODEL_RUN_LOG_FILE}")
-                    console.print("[error]⛔ Cannot start TT Studio: inference server failed to start. Exiting.[/error]")
-                    console.print(f"[muted]   Check logs: tail -50 {MODEL_RUN_LOG_FILE}[/muted]")
+                    report_service_failure(
+                        "Inference server", MODEL_RUN_LOG_FILE, port=8001,
+                        consequence="TT Studio can't start without it — stopping here.",
+                    )
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)

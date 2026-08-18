@@ -3,8 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal, time
-import re
+import socket, os, subprocess, json, signal, time, re
 import copy
 from pathlib import Path
 from typing import Optional
@@ -14,14 +13,17 @@ from django.core.cache import caches
 
 from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
-from shared_config.model_config import model_implmentations
+from shared_config.model_config import model_implmentations, _impl_selector
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tavily_api_key
 from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
-from docker_control.docker_control_client import get_docker_client
+from docker_control.docker_control_client import (
+    get_docker_client,
+    is_service_unreachable,
+)
 
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
@@ -473,7 +475,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
         # spec on P150); without an impl the server defaults to the wrong engine and
         # pulls the wrong image. `impl.inference_impl` comes from the catalog.
-        inference_impl = getattr(impl, "inference_impl", None)
+        # The server declares `impl: Optional[str]` and matches it against
+        # spec.impl.impl_name, so send the hyphenated impl_name. _impl_selector()
+        # is belt-and-braces: the catalog loader already reduces this field, but a
+        # directly-constructed ModelImpl would otherwise 422 here.
+        inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
         if inference_impl:
             payload["impl"] = inference_impl
 
@@ -1048,6 +1054,172 @@ _CANONICAL_RUNNING_GRACE_SECONDS = 30
 _running_missing_since: dict = {}
 
 
+_CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{12,64}$")
+
+# Whether the last canonical read fell back to cache because docker-control-service
+# was unreachable. Used only to log the outage once per transition.
+_canonical_outage_logged = False
+
+
+def _looks_like_container_id(value) -> bool:
+    """True if ``value`` is a Docker container ID rather than a placeholder.
+
+    Deployment records hold one of two things in ``container_id``: a real Docker
+    ID (hex), or a placeholder during the deploy window — a FastAPI ``job_id`` or
+    a ``pending_*`` string. Telling them apart decides whether a name-based
+    container match is trustworthy.
+    """
+    return bool(_CONTAINER_ID_RE.match(str(value or "").strip()))
+
+
+def _readopt_recency_key(dep):
+    """Sortable recency for a deployment record, never raising on odd timestamps.
+
+    Comparing ``deployed_at`` values directly is unsafe: a missing timestamp, or a
+    legacy naive one mixed with timezone-aware ones, raises TypeError mid-sort.
+    Reducing to a float (with the record id as a last resort) keeps ordering total
+    for any data the store happens to hold.
+    """
+    dt = getattr(dep, "deployed_at", None)
+    try:
+        return (1, dt.timestamp())
+    except Exception:
+        try:
+            return (0, float(getattr(dep, "id", 0) or 0))
+        except Exception:
+            return (0, 0.0)
+
+
+def _readopt_live_containers(live_containers: dict, live_by_name: dict) -> None:
+    """Flip records marked dead/exited back to running when their container is alive.
+
+    Marking a record dead used to be a one-way door: only starting/running rows are
+    ever read back, so a healthy model vanished from the UI while its chip slot read
+    as free — and the next deploy was handed that slot and collided with the
+    container still holding the chip and port. A user-initiated stop is left alone.
+    """
+    # Healing is best-effort and must never break the read it runs inside: this is
+    # called on every deployments fetch, so an exception here would take the whole
+    # Models Deployed page down rather than just skip a recovery.
+    try:
+        from docker_control.models import ModelDeployment
+        stale = list(ModelDeployment.objects.filter(status__in=["dead", "exited"]))
+        if not stale:
+            return
+        active = list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
+
+        # Containers already accounted for by a live record — never hand one to a
+        # second record, or a duplicate row would become a phantom running entry.
+        claimed_ids, claimed_names = set(), set()
+        for dep in active:
+            if dep.container_id:
+                claimed_ids.add(dep.container_id)
+                claimed_ids.add(dep.container_id[:12])
+            if dep.container_name:
+                claimed_names.add(dep.container_name)
+
+        # Newest first, so when several records could match, the most recent wins.
+        stale.sort(key=_readopt_recency_key, reverse=True)
+
+        for dep in stale:
+            if getattr(dep, "stopped_by_user", False):
+                continue
+
+            full_id = dep.container_id or ""
+            live_key = None
+            live = None
+            matched_by_name = False
+
+            if full_id and full_id in live_containers:
+                live_key, live = full_id, live_containers[full_id]
+            elif full_id[:12] and full_id[:12] in live_containers:
+                live_key, live = full_id[:12], live_containers[full_id[:12]]
+            elif dep.container_name and not _looks_like_container_id(full_id):
+                # Deploy-window placeholder: the container exists under its name
+                # while the record still holds a job_id. Safe to match by name
+                # here because the record was never bound to a real container ID.
+                live_key, live = live_by_name.get(dep.container_name) or (None, None)
+                matched_by_name = live is not None
+
+            if live is None or live.get("status") not in ("running", "restarting"):
+                continue
+            if live_key in claimed_ids:
+                continue
+            # Only a name match has to defer to a live record holding that name.
+            # An ID match is authoritative — IDs are unique and never reused — so a
+            # coincidental name clash must not block healing.
+            if matched_by_name and dep.container_name in claimed_names:
+                continue
+
+            logger.info(
+                f"Re-adopting {dep.container_name}: record was '{dep.status}' but the "
+                f"container is {live.get('status')}"
+            )
+            if matched_by_name and live_key:
+                # Bind the record to the real container. It was matched by name
+                # because its container_id is still a deploy-window placeholder,
+                # and every later lookup — stop, remove, logs — resolves by
+                # container_id, so leaving the placeholder in place would revive a
+                # row that no operation can find. This is the same swap
+                # deployment_sync performs when a job resolves.
+                logger.info(
+                    f"Re-adopting {dep.container_name}: binding placeholder "
+                    f"container_id '{dep.container_id}' to {live_key[:12]}"
+                )
+                dep.container_id = live_key
+            dep.status = "running"
+            dep.stopped_at = None
+            dep.save()
+            claimed_ids.add(live_key)
+    except Exception as e:
+        logger.warning(f"get_canonical_deployments: orphan re-adoption skipped: {e}")
+
+
+def _last_known_good_deployments(exc):
+    """Canonical view rebuilt from the deploy cache when Docker can't be reached.
+
+    Returns the cached entry for every deployment the store still considers
+    active, so a docker-control-service outage degrades to a slightly stale view
+    rather than an empty Models Deployed page or a wave of false deaths. Marks
+    each entry ``status_stale`` so callers can tell this apart from a live read.
+    """
+    # Logged once per transition into the outage, not once per read. This runs on
+    # every deployments fetch, and the UI polls every 5s, so an unguarded warning
+    # here buries the rest of the log during a long outage.
+    global _canonical_outage_logged
+    if not _canonical_outage_logged:
+        _canonical_outage_logged = True
+        logger.warning(
+            "get_canonical_deployments: docker-control-service unreachable (%s); "
+            "serving last known good deployments from cache until it responds",
+            exc,
+        )
+    else:
+        logger.debug("get_canonical_deployments: still unreachable (%s)", exc)
+
+    try:
+        from docker_control.models import ModelDeployment
+        active_deployments = list(
+            ModelDeployment.objects.filter(status__in=["starting", "running"])
+        )
+    except Exception as store_err:
+        logger.warning(f"_last_known_good_deployments: deployment_store unavailable: {store_err}")
+        return {}
+
+    cache = caches[backend_config.django_deploy_cache_name]
+    result = {}
+    for dep in active_deployments:
+        full_id = dep.container_id or ""
+        for key in (full_id, full_id[:12]):
+            cached = cache.get(key) if key else None
+            if cached is not None:
+                entry = dict(cached)
+                entry["status_stale"] = True
+                result[key] = entry
+                break
+    return result
+
+
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
 
@@ -1055,16 +1227,34 @@ def get_canonical_deployments():
     The name match fallback is load-bearing for the CHAT-model placeholder window: until
     deployment_sync swaps the real container_id in, the store's container_id is the FastAPI job_id, but the actual container exists under its name.
     Records with status="running" or status="starting" beyond the grace window that have no matching live container are reconciled to status="stopped".
+    Conversely, records marked dead/exited whose container is still alive are re-adopted as running.
     """
     from datetime import datetime as _dt
     from datetime import timezone as _dt_timezone
 
-    live_containers = get_container_status()
+    try:
+        live_containers = get_container_status()
+    except Exception as e:
+        if is_service_unreachable(e):
+            # No container listing means no evidence about anything. Serve the last 
+            # known good view and leave the store untouched until the service is back.
+            return _last_known_good_deployments(e)
+        raise
     live_by_name = {
         data.get("name"): (cid, data)
         for cid, data in live_containers.items()
         if data.get("name")
     }
+
+    global _canonical_outage_logged
+    if _canonical_outage_logged:
+        _canonical_outage_logged = False
+        logger.info(
+            "get_canonical_deployments: docker-control-service reachable again; "
+            "serving live deployment state"
+        )
+
+    _readopt_live_containers(live_containers, live_by_name)
 
     try:
         from docker_control.models import ModelDeployment

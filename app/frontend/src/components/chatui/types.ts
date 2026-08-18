@@ -80,6 +80,24 @@ export interface RagDataSource {
   };
 }
 
+// One ranked chunk from POST /collections-api/retrieve
+export interface RetrieveResultItem {
+  id: string;
+  text: string;
+  collection: string;
+  source?: string | null;
+  score?: number;
+  distance?: number | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface RetrieveResponse {
+  documents: string[];
+  results: RetrieveResultItem[];
+  query?: { original: string; effective: string; rewritten: boolean };
+  meta?: { reranker_used?: boolean; latency_ms?: number };
+}
+
 // Timing breakdown for a single inference request
 export interface TimingInfo {
   httpResponse: number;      // ms: send → HTTP 200
@@ -246,6 +264,8 @@ export interface VoiceInputProps {
   onTranscript: (transcript: string) => void;
   isListening: boolean;
   setIsListening: (isListening: boolean) => void;
+  /** Deploy ID of the speech recognition model; null routes to the cloud endpoint. */
+  deployId?: string | null;
 }
 
 // Model Types
@@ -258,6 +278,7 @@ export interface Model {
   baseModel?: string;
   task?: string;
   status?: string;
+  model_type?: string;
 }
 
 // Global Type Declarations
