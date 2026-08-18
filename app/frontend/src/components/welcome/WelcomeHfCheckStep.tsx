@@ -27,8 +27,8 @@ export default function WelcomeHfCheckStep({ onBack, onNext }: Props) {
         <h2 className="text-2xl font-semibold">Verify model access</h2>
         <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
           Confirm your Hugging Face token can reach the gated models TT Studio
-          uses out of the box. You can request access in a new tab and continue
-          anyway — this is a soft check.
+          uses out of the box. This is a soft check, so you can request access
+          in a new tab and continue anyway.
         </p>
       </div>
 
@@ -50,7 +50,7 @@ export default function WelcomeHfCheckStep({ onBack, onNext }: Props) {
             </Button>
           )}
           <Button onClick={onNext} disabled={!hasChecked}>
-            {hasChecked && allGranted ? "Continue" : "Continue"}
+            Continue
           </Button>
         </div>
       </div>
