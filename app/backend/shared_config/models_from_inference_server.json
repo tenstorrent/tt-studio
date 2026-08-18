@@ -1462,7 +1462,7 @@
       "param_count": 27,
       "requires_dev_catalog": true,
       "inference_artifact_ref": {
-        "P300x2": "stisi/feat-qwen38-27b-dev-spec"
+        "P300x2": "tt-studio/qwen3.8-27b-p300x2"
       }
     },
     {
