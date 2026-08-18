@@ -14,14 +14,14 @@ export default function WelcomeIntroStep({ onNext }: Props) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-6"
+      className="space-y-6 text-left"
     >
       <div>
         <h2 className="text-2xl font-semibold">Welcome to TT Studio</h2>
         <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
           A quick setup to get your AI models running on Tenstorrent hardware.
-          You can paste API keys now or skip and configure them later from
-          Settings — everything is editable any time.
+          All you need is a Hugging Face token, and even that can wait until
+          later.
         </p>
       </div>
 
@@ -29,29 +29,15 @@ export default function WelcomeIntroStep({ onNext }: Props) {
         <li className="flex items-start gap-2">
           <span className="text-TT-purple">•</span>
           <span>
-            <span className="font-medium">Hugging Face token</span> — used to
-            download gated models like Llama 3 and Qwen.
+            A <span className="font-medium">Hugging Face token</span> gives you
+            faster model weight downloads, and unlocks gated models like
+            the Llama family and FLUX.1-dev.
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="text-TT-purple">•</span>
           <span>
-            <span className="font-medium">TTS API key</span> — auto-managed;
-            authenticates media / voice (TTS &amp; STT) models for you.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="text-TT-purple">•</span>
-          <span>
-            <span className="font-medium">Tavily API key</span> — optional;
-            powers the search-enabled agent.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="text-TT-purple">•</span>
-          <span>
-            <span className="font-medium">JWT secret</span> — auto-generated and
-            persisted for you.
+            You can add or change it any time from Settings.
           </span>
         </li>
       </ul>
