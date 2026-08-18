@@ -3,7 +3,7 @@
     "artifact_version": "0.18.0",
     "generated_at": "2026-07-23T20:22:38.003837+00:00"
   },
-  "total_models": 55,
+  "total_models": 59,
   "models": [
     {
       "model_name": "distil-large-v3",
@@ -1351,6 +1351,55 @@
       },
       "requires_dev_catalog": true,
       "param_count": 31
+    },
+    {
+      "model_name": "Qwen3.8-27B",
+      "hand_owned": true,
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "Qwen/Qwen3.8-27B",
+      "inference_engine": "vLLM",
+      "status": "EXPERIMENTAL",
+      "version": "0.20.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:qwen38-27b-blackhole-20260814-0.20.0-9a04829-c127c17",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "TT_QWEN35_TEXT_VER": "qwen36_blackhole",
+        "HF_MODEL": "Qwen/Qwen3.8-27B",
+        "MESH_DEVICE": "(1, 4)",
+        "TT_MESH_GRAPH_DESC_PATH": "../../tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_x2_mesh_graph_descriptor.textproto",
+        "QWEN36_MAX_TOKENS_ALL_USERS": "525312"
+      },
+      "param_count": 27,
+      "requires_dev_catalog": true,
+      "inference_artifact_ref": {
+        "P300x2": "stisi/feat-qwen38-27b-dev-spec"
+      }
+    },
+    {
+      "model_name": "Z-Image-Turbo",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
+      "inference_engine": "media",
+      "status": "FUNCTIONAL",
+      "version": "0.17.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
+      "service_route": "/v1/images/generations",
+      "health_route": "/health",
+      "env_vars": {},
+      "param_count": null
     }
   ]
 }
