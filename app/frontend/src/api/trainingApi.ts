@@ -295,3 +295,48 @@ export function getCheckpointDownloadUrl(
 ): string {
   return `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/`;
 }
+
+// ---------------------------------------------------------------------------
+// Adapter merge / merged checkpoints
+// ---------------------------------------------------------------------------
+
+// A LoRA adapter checkpoint merged into its base model, discovered on disk from
+// its merge_info.json sidecar. `path` is a host path passed to a later inference
+// deploy as `host_weights_dir`.
+export interface MergedCheckpoint {
+  merge_id: string;
+  model: string | null;
+  source_job_id?: string | null;
+  checkpoint_id?: string | null;
+  created_at?: number | null;
+  path: string;
+  valid: boolean;
+}
+
+// Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint the
+// inference container can serve. Returns the created merge job.
+export async function promoteCheckpoint(
+  jobId: string,
+  ckptId: string,
+): Promise<{ id?: string; status?: string; [key: string]: unknown }> {
+  const { data } = await axios.post(
+    `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
+  );
+  return data;
+}
+
+// Discover merged checkpoints available for deploying a given model. When
+// `modelId` is given, only checkpoints merged from that model's base weights are
+// returned (matched server-side on hf_model_id). Omit it to scan the whole
+// training host volume — used to tell which checkpoints of a job are already
+// promoted, regardless of base model.
+export async function fetchMergedCheckpoints(
+  modelId?: string,
+): Promise<MergedCheckpoint[]> {
+  const { data } = await axios.get(`${TRAINING_API}/merged-checkpoints/`, {
+    params: modelId ? { model_id: modelId } : undefined,
+  });
+  if (Array.isArray(data)) return data;
+  if (data?.merged_checkpoints) return data.merged_checkpoints;
+  return [];
+}

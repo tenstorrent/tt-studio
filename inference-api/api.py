@@ -716,6 +716,71 @@ def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
 
 
+# Kept in sync with tt-media-server's MERGE_INFO_FILE_NAME.
+_MERGE_INFO_FILE_NAME = "merge_info.json"
+
+
+def _is_hf_weights_dir(path: Path) -> bool:
+    """
+    True if *path* looks like a loadable HF checkpoint.
+    """
+    try:
+        if not path.is_dir():
+            return False
+        has_config = (path / "config.json").exists() or (path / "params.json").exists()
+        has_tokenizer = (
+            (path / "tokenizer.json").exists()
+            or (path / "tokenizer_config.json").exists()
+            or (path / "tokenizer.model").exists()
+        )
+        has_weights = bool(list(path.glob("*.safetensors")))
+        return has_config and has_tokenizer and has_weights
+    except OSError:
+        return False
+
+
+def _scan_merged_checkpoints(
+    host_volume: str, hf_model_id: Optional[str] = None
+) -> list[Dict[str, Any]]:
+    """Scan a host-volume root for merged LoRA checkpoints on disk.
+
+    Merged checkpoints produced by the training container land at
+    ``<host_volume>/volume_id_<impl>-<model>-v<ver>/merged_models/<merge_id>/`` with
+    a ``merge_info.json`` sidecar. We read that sidecar directly rather than calling
+    a training-server endpoint, so discovery works even after the training container
+    is gone. When *hf_model_id* is given, only checkpoints merged from that base
+    model are returned.
+    """
+    base = Path(host_volume).expanduser()
+    results: list[Dict[str, Any]] = []
+    if not base.is_dir():
+        return results
+
+    for info_path in base.glob(f"volume_id_*/merged_models/*/{_MERGE_INFO_FILE_NAME}"):
+        try:
+            info = json.loads(info_path.read_text())
+        except (OSError, ValueError):
+            continue
+        if hf_model_id and info.get("model") != hf_model_id:
+            continue
+        merged_dir = info_path.parent
+        results.append(
+            {
+                "merge_id": info.get("merge_id", merged_dir.name),
+                "model": info.get("model"),
+                "source_job_id": info.get("source_job_id"),
+                "checkpoint_id": info.get("checkpoint_id"),
+                "created_at": info.get("created_at"),
+                # Host path, ready to pass straight to --host-weights-dir.
+                "path": str(merged_dir),
+                "valid": _is_hf_weights_dir(merged_dir),
+            }
+        )
+
+    results.sort(key=lambda c: c.get("created_at") or 0, reverse=True)
+    return results
+
+
 # ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
 def _stage_preloaded_version_symlink(model, device, impl, override_dir, root, job_id):
     """Link volume_id_<impl>-<model>-v{model_spec.version} -> the preloaded
@@ -1836,6 +1901,11 @@ class RunRequest(BaseModel):
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
     disable_metal_timeout: Optional[bool] = False
+    host_volume: Optional[str] = None
+    host_weights_dir: Optional[str] = None
+    # Fine-tuning case: label identifying custom weights, paired with host_weights_dir
+    # so the weights are read from local disk instead of HuggingFace.
+    custom_weights: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2304,12 +2374,42 @@ async def run_inference(request: RunRequest):
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
 
+        # Explicit host-mount flags from the deploy request (LoRA merge workflow)
+        # take precedence over the model-name-based auto host-volume / host-hf-cache
+        # logic below.
+        explicit_host_mount = False
+        if request.host_weights_dir:
+            base_argv.extend(["--host-weights-dir", request.host_weights_dir])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using explicit --host-weights-dir %s (auto host-volume/hf-cache disabled)",
+                job_id,
+                request.host_weights_dir,
+            )
+        elif request.host_volume:
+            base_argv.extend(["--host-volume", request.host_volume])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using explicit --host-volume %s (auto host-volume/hf-cache disabled)",
+                job_id,
+                request.host_volume,
+            )
+
+        if request.custom_weights:
+            base_argv.extend(["--custom-weights", request.custom_weights])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using --custom-weights %s (identity re-keyed; auto host-volume disabled)",
+                job_id,
+                request.custom_weights,
+            )
+
         preferred_host_volume = None
         expected_host_volume_dir: Optional[Path] = None
         expected_host_weights_dir: Optional[Path] = None
         expected_host_tt_metal_cache_dir: Optional[Path] = None
         host_volume_resolution_reason = "model not in host-volume allowlist"
-        if _model_uses_preferred_host_volume(request.model):
+        if not explicit_host_mount and _model_uses_preferred_host_volume(request.model):
             (
                 preferred_host_volume,
                 expected_host_volume_dir,
@@ -2358,8 +2458,10 @@ async def run_inference(request: RunRequest):
         # Audio/whisper/TTS runners load via from_pretrained into the container's own HF
         # cache, so --host-hf-cache would only cause a wasteful whole-repo host download —
         # keep them on the in-container/volume download.
+        # Explicit host mounts (LoRA merge / custom-weights deploys) also take
+        # precedence and disable the auto hf-cache path.
         _in_container_dl = _model_downloads_in_container(request.model, normalized_device, request.impl)
-        if "--host-volume" not in initial_argv and not _in_container_dl:
+        if not explicit_host_mount and "--host-volume" not in initial_argv and not _in_container_dl:
             host_hf_cache_path = str(_default_hf_home())
             # Ensure the HF cache dir exists. tt-inference-server's
             # validate_bind_mount_permissions() ValueErrors on a non-existent
@@ -2897,6 +2999,26 @@ async def resolve_image(model: str, device: str, impl: Optional[str] = None):
         return {"status": "success", "model": model, "device": device, "docker_image": model_spec.docker_image}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Could not resolve image for model={model}, device={device}: {e}")
+
+
+@app.get("/merged_checkpoints")
+async def list_merged_checkpoints(host_volume: str, hf_model_id: Optional[str] = None):
+    """List merged LoRA checkpoints found on disk under a host-volume root.
+
+    Discovery is done by scanning ``host_volume`` for ``merge_info.json`` sidecars
+    rather than querying the training server, so it works regardless of whether the
+    producing training container is still running. Each returned ``path`` is a host
+    path suitable for passing to /run as ``host_weights_dir``. Optionally filtered to
+    a single base model via ``hf_model_id``.
+    """
+    try:
+        checkpoints = _scan_merged_checkpoints(host_volume, hf_model_id)
+    except Exception as e:  # noqa: BLE001 - surface a clean 500 to the caller
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to scan merged checkpoints under {host_volume}: {e}",
+        )
+    return {"merged_checkpoints": checkpoints}
 
 
 @app.get("/models")

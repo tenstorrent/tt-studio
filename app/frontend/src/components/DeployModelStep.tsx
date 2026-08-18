@@ -11,11 +11,27 @@ import { DeploymentProgress } from "./ui/DeploymentProgress";
 import { cancelDeployment } from "../api/modelsDeployedApis";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
-import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
+import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import type { ChipStatus } from "../types/chipStatus";
+import {
+  fetchMergedCheckpoints,
+  formatTrainingTimestamp,
+  type MergedCheckpoint,
+} from "../api/trainingApi";
+
+// Sentinel Select value for "use base model" (no adapter). SelectItem rejects an
+// empty-string value, so we use an explicit sentinel and treat it as "no adapter".
+const BASE_MODEL_VALUE = "__base_model__";
 
 export function DeployModelStep({
   handleDeploy,
@@ -35,6 +51,7 @@ export function DeployModelStep({
   handleDeploy: (options?: {
     device_id?: number | string;
     host_port?: number | null;
+    host_weights_dir?: string;
   }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceIds?: number[];
   chipsRequired?: number;
@@ -66,6 +83,10 @@ export function DeployModelStep({
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
+  // Merged LoRA checkpoints available for this model (empty when none exist).
+  const [mergedCheckpoints, setMergedCheckpoints] = useState<MergedCheckpoint[]>([]);
+  // Selected merged-checkpoint host path, or BASE_MODEL_VALUE for the base model.
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>(BASE_MODEL_VALUE);
 
   const slotInfo = useMemo(() => {
     if (!chipStatus) {
@@ -104,6 +125,27 @@ export function DeployModelStep({
     fetchModelName();
   }, [selectedModel]);
 
+  // Discover merged LoRA checkpoints (adapters promoted for inference) for the
+  // selected model. Only valid HF checkpoints are offered; if none exist the
+  // picker is hidden and deployment uses the base model as before.
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedCheckpoint(BASE_MODEL_VALUE);
+    setMergedCheckpoints([]);
+    if (!selectedModel) return;
+    (async () => {
+      try {
+        const all = await fetchMergedCheckpoints(selectedModel);
+        if (!cancelled) setMergedCheckpoints(all.filter((c) => c.valid));
+      } catch (error) {
+        console.error("Error fetching merged checkpoints:", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModel]);
+
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
   // placementBlocked: the parent already determined no valid configuration is free.
@@ -132,13 +174,22 @@ export function DeployModelStep({
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
 
-    const deployOptions: { device_id?: number | string; host_port?: number | null } = {};
+    const deployOptions: {
+      device_id?: number | string;
+      host_port?: number | null;
+      host_weights_dir?: string;
+    } = {};
     if (selectedDeviceIds !== undefined && selectedDeviceIds.length > 0) {
       const sorted = selectedDeviceIds.slice().sort((a, b) => a - b);
       deployOptions.device_id = sorted.length === 1 ? sorted[0] : sorted.join(",");
     }
+    // A selected merged checkpoint loads its weights via --host-weights-dir; the
+    // base-model sentinel deploys the base weights (no flag passed).
+    if (selectedCheckpoint && selectedCheckpoint !== BASE_MODEL_VALUE) {
+      deployOptions.host_weights_dir = selectedCheckpoint;
+    }
     return handleDeploy(deployOptions);
-  }, [handleDeploy, isDeployDisabled, selectedDeviceIds]);
+  }, [handleDeploy, isDeployDisabled, selectedDeviceIds, selectedCheckpoint]);
 
   // Hand a fired deploy to the session tracker, then let refresh hooks update
   // the rest of the app (models list / hardware view) in the background.
@@ -389,6 +440,47 @@ export function DeployModelStep({
               </div>
             )}
         </div>
+
+        {/* Fine-tuned weights picker — only shown when merged LoRA checkpoints
+            exist for this model. Defaults to the base model (no adapter). */}
+        {mergedCheckpoints.length > 0 && (
+          <div className="mt-6 w-full max-w-md">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="h-4 w-4 text-TT-purple-accent" />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                Fine-tuned weights
+              </span>
+            </div>
+            <Select
+              value={selectedCheckpoint}
+              onValueChange={setSelectedCheckpoint}
+              disabled={isDeployDisabled}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Use base model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={BASE_MODEL_VALUE}>
+                  Base model (no adapter)
+                </SelectItem>
+                {mergedCheckpoints.map((ckpt) => (
+                  <SelectItem key={ckpt.path} value={ckpt.path}>
+                    {ckpt.checkpoint_id || ckpt.merge_id}
+                    {ckpt.source_job_id
+                      ? ` · job ${ckpt.source_job_id.slice(0, 6)}`
+                      : ""}
+                    {ckpt.created_at
+                      ? ` · ${formatTrainingTimestamp(ckpt.created_at)}`
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Deploy the base model, or a checkpoint promoted from a training job.
+            </p>
+          </div>
+        )}
       </div>
       <StepperFormActions removeDynamicSteps={() => { }} />
     </>

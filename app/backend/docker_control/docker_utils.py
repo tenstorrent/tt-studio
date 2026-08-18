@@ -6,6 +6,7 @@
 import socket, os, subprocess, json, signal, time, re
 import copy
 from pathlib import Path
+from typing import Optional
 
 import requests
 from django.core.cache import caches
@@ -33,6 +34,33 @@ logger.info(f"importing {__name__}")
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
+
+# Shared host-volume subdirectory (under the TT-Studio persistent volume) that
+# training deploys bind-mount via --host-volume. 
+TRAINING_HOST_VOLUME_SUBDIR = "training_volume"
+
+
+def get_training_host_volume() -> str:
+    """
+    Host path passed to run.py as --host-volume for training deploys.
+    """
+    internal_dir = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            # Dir is created root-owned, but the host user (run.py) and container
+            # (uid 1000) also write here. Sticky world-writable 01777 lets both
+            # write while blocking cross-user deletes.
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create training host-volume dir %s: %s", internal_dir, e
+            )
+    return os.path.join(
+        backend_config.host_peristent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -276,6 +304,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
+                    model_id=impl.model_id,
                     device=f"device_{device_id}",
                     device_id=deployment_device_ids[0],
                     device_ids=deployment_device_ids,
@@ -342,7 +371,26 @@ def deploys_whole_board(impl, board_type=None):
     return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+
+CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
+
+
+def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
+    """Namespace a merged-checkpoint directory into a --custom-weights label.
+
+    Uniqueness already comes from the directory name (a merge-job uuid4), so this
+    only prefixes the namespace and clamps the charset. The clamp matters because
+    the inference server turns the label's basename into model_name and builds the
+    docker volume name from it — and merged_models/ entries can be renamed by hand.
+    """
+    if not host_weights_dir:
+        return None
+    dir_name = os.path.basename(os.path.normpath(str(host_weights_dir)))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", dir_name)
+    return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, host_weights_dir=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -435,6 +483,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if inference_impl:
             payload["impl"] = inference_impl
 
+        if impl.model_type == ModelTypes.TRAINING:
+            payload["host_volume"] = get_training_host_volume()
+        elif host_weights_dir:
+            payload["host_weights_dir"] = host_weights_dir
+            payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
+
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
         # container (root) wrote it, so the request payload is its reliable source.
@@ -494,6 +548,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         container_id=job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=primary_device_id,
                         device_ids=deployment_device_ids,
@@ -882,14 +937,24 @@ def _enrich_container_with_model_impl(con, con_id):
                 deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                 if deployment:
-                    for _k, v in model_implmentations.items():
-                        if v.model_name == deployment.model_name:
-                            model_impl = v
-                            logger.info(
-                                f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                            )
-                            deployment_found = True
-                            break
+                    # model_name alone is ambiguous when two model specs share a name
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B")
+                    stored_model_id = getattr(deployment, "model_id", "") or ""
+                    if stored_model_id and stored_model_id in model_implmentations:
+                        model_impl = model_implmentations[stored_model_id]
+                        logger.info(
+                            f"Matched TT Inference Server container to model_impl by id: {model_impl.model_id}"
+                        )
+                        deployment_found = True
+                    if not model_impl:
+                        for _k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(
+                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
+                                )
+                                deployment_found = True
+                                break
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -1239,7 +1304,8 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
+            _stored_model_id = getattr(dep, "model_id", "") or ""
+            _impl = model_implmentations.get(_stored_model_id) or next(
                 (v for v in model_implmentations.values() if v.model_name == dep.model_name),
                 None,
             )

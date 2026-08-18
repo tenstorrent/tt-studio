@@ -144,6 +144,7 @@ def start_chat_deployment(
     override_docker_image: Optional[str] = None,
     artifact_ref: Optional[str] = None,
     disable_metal_timeout: bool = False,
+    host_weights_dir: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -175,6 +176,11 @@ def start_chat_deployment(
         payload["artifact_ref"] = artifact_ref
     if disable_metal_timeout:
         payload["disable_metal_timeout"] = True
+    if host_weights_dir:
+        payload["host_weights_dir"] = host_weights_dir
+
+        from docker_control.docker_utils import derive_custom_weights_label
+        payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend

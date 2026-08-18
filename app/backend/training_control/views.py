@@ -11,7 +11,9 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from model_control.model_utils import get_deploy_cache
+from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
+from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
 
 logger = get_logger(__name__)
@@ -263,3 +265,67 @@ class TrainingCheckpointDownloadView(View):
             return err
         url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints/{ckpt_id}"
         return _proxy_get(url, params=request.GET, stream=True)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class TrainingCheckpointMergeView(View):
+    """POST /training/jobs/<job_id>/checkpoints/<ckpt_id>/merge/ → Container merge.
+
+    Promotes a LoRA adapter checkpoint into a full HF checkpoint the inference
+    container can serve. 
+    """
+
+    def post(self, request, job_id, ckpt_id, *args, **kwargs):
+        try:
+            body = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            body = {}
+        deploy_id = body.pop("deploy_id", None) or request.GET.get("deploy_id")
+        entry, err = _find_training_container(deploy_id)
+        if err:
+            return err
+        url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints/{ckpt_id}/merge"
+        return _proxy_post(url, body=body)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class MergedCheckpointsView(View):
+    """GET /training/merged-checkpoints/?model_id=<id> → inference-api scan.
+
+    Discovers merged LoRA checkpoints by scanning the shared training host volume
+    on disk 
+    """
+
+    def get(self, request, *args, **kwargs):
+        model_id = request.GET.get("model_id")
+        impl = model_implmentations.get(model_id) if model_id else None
+        if model_id and impl is None:
+            return JsonResponse(
+                {"error": f"Unknown model_id={model_id}."}, status=404
+            )
+
+        if impl is not None and getattr(impl, "model_type", None) == ModelTypes.TRAINING:
+            return JsonResponse({"merged_checkpoints": []}, status=200)
+
+        from docker_control.docker_utils import get_training_host_volume
+
+        params = {"host_volume": get_training_host_volume()}
+        hf_model_id = getattr(impl, "hf_model_id", None) if impl else None
+        if hf_model_id:
+            params["hf_model_id"] = hf_model_id
+
+        url = f"{backend_config.tt_inference_api_url}/merged_checkpoints"
+        try:
+            resp = requests.get(url, params=params, timeout=PROXY_TIMEOUT)
+            return JsonResponse(resp.json(), status=resp.status_code, safe=False)
+        except requests.ConnectionError:
+            return JsonResponse(
+                {"error": "Inference server is not reachable."}, status=502
+            )
+        except requests.Timeout:
+            return JsonResponse(
+                {"error": "Inference server request timed out."}, status=504
+            )
+        except Exception as e:
+            logger.exception("Unexpected error scanning merged checkpoints via %s", url)
+            return JsonResponse({"error": str(e)}, status=500)

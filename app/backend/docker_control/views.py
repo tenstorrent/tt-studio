@@ -460,6 +460,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
             force_full_board_requested = serializer.validated_data.get("force_full_board", False)
+            host_weights_dir = serializer.validated_data.get("host_weights_dir") or None
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -718,6 +719,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
+                    host_weights_dir=host_weights_dir,
                     dev_mode=impl.requires_dev_catalog,
                     artifact_ref=artifact_ref,
                     # First-load weight remaps on experimental blackhole builds can
@@ -753,6 +755,7 @@ class DeployView(APIView):
                             container_id=pull_id,
                             container_name=impl.model_name,
                             model_name=impl.model_name,
+                            model_id=impl.model_id,
                             device=device,
                             device_id=device_id,
                             device_ids=occupied_device_ids,
@@ -850,6 +853,7 @@ class DeployView(APIView):
                         container_id=result.job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=device_id,
                         device_ids=occupied_device_ids,
@@ -900,7 +904,7 @@ class DeployView(APIView):
                     pull_id = f"imgpull_{uuid4().hex}"
 
                     def deploy_fn(_host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             return None, resp.get("message", "Deployment failed")
@@ -923,7 +927,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
