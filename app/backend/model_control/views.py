@@ -361,6 +361,22 @@ class ModelHealthView(APIView):
                 # the container's stdout. Best-effort: if anything fails we still
                 # return the basic 202 so the badge logic is unaffected.
                 content["phase"] = _get_startup_phase(deploy_id)
+                # Anchor the frontend's warmup clock to the deploy start time so
+                # it survives page refreshes. Server-computed to avoid client
+                # clock skew; omitted if deployed_at is missing/unparseable.
+                if content["phase"] is not None:
+                    deployed_at = deploy.get("deployed_at")
+                    if deployed_at:
+                        try:
+                            started = datetime.datetime.fromisoformat(deployed_at)
+                            if started.tzinfo is None:
+                                started = started.replace(tzinfo=datetime.timezone.utc)
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            content["phase"]["elapsed_seconds"] = max(
+                                0.0, (now - started).total_seconds()
+                            )
+                        except (ValueError, TypeError):
+                            pass
                 # Bound the per-deploy progress state to currently-tracked deploys so it can't accumulate.
                 from .download_progress import prune_state
                 prune_state(set(get_deploy_cache().keys()))
