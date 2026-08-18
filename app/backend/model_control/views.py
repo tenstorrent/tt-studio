@@ -261,6 +261,23 @@ class AgentView(View):
         return response
 
 
+class AgentAuthTokenView(APIView):
+    """Mint the bearer token the agent uses to call a deployed model's OpenAI API.
+
+    The agent cannot resolve the JWT secret itself: when JWT_SECRET is unset in .env
+    the backend keeps it in the UI-managed config, which is root-owned and 0600 while
+    the agent runs non-root. Handing over a signed token keeps one source of truth.
+
+    No new exposure: GET /models/api-info/ already returns jwt_secret and jwt_token
+    over the same proxies, so this is strictly less sensitive. Returns the shared
+    backend token; a registered external container running its own secret still needs
+    the per-model token from auth_headers().
+    """
+
+    def get(self, request, *args, **kwargs):
+        return Response({"token": token_for()}, status=status.HTTP_200_OK)
+
+
 class AgentStatusView(APIView):
     def get(self, request, *args, **kwargs):
         """Get agent status and discovery information"""
