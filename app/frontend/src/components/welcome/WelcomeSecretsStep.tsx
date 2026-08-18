@@ -12,7 +12,6 @@ import type { SettingsResponse } from "../../api/settingsApi";
 
 export interface WelcomeSecrets {
   hf_token: string;
-  tavily_api_key: string;
 }
 
 interface Props {
@@ -90,8 +89,6 @@ export default function WelcomeSecretsStep({
   isSaving,
 }: Props) {
   const loading = !current;
-  const jwtMasked = current?.jwt_secret.masked;
-  const ttsMasked = current?.tts_api_key.masked;
   const artifact = current?.artifact;
 
   return (
@@ -99,13 +96,13 @@ export default function WelcomeSecretsStep({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-5"
+      className="space-y-5 text-left"
     >
       <div>
-        <h2 className="text-2xl font-semibold">Set your secrets</h2>
+        <h2 className="text-2xl font-semibold">Add your Hugging Face token</h2>
         <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-          All values persist on the server. Leave a field blank to skip it for
-          now or keep the existing value.
+          The token is stored on the server. Leave it blank to set it up later
+          or to keep the existing value.
         </p>
       </div>
 
@@ -126,7 +123,7 @@ export default function WelcomeSecretsStep({
           )}
         />
         <p className="text-xs text-stone-500">
-          Required to download gated models.{" "}
+          Speeds up model weight downloads and unlocks gated models.{" "}
           <a
             href="https://huggingface.co/settings/tokens"
             target="_blank"
@@ -135,55 +132,6 @@ export default function WelcomeSecretsStep({
           >
             Generate a token <ExternalLink className="w-3 h-3" />
           </a>
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="flex items-center gap-1">
-          <Lock className="w-3.5 h-3.5" /> TTS API key
-        </Label>
-        <Input readOnly disabled value={ttsMasked || "Auto-managed"} />
-        <p className="text-xs text-stone-500">
-          Auto-managed for media / voice (TTS &amp; STT) model auth.
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Label htmlFor="tavily_api_key">Tavily API key</Label>
-          {current?.tavily_api_key.set && <SavedBadge />}
-        </div>
-        <RevealInput
-          id="tavily_api_key"
-          value={values.tavily_api_key}
-          onChange={(v) => onChange({ ...values, tavily_api_key: v })}
-          placeholder={fieldPlaceholder(
-            loading,
-            current?.tavily_api_key.set,
-            current?.tavily_api_key.masked,
-            "tvly-..."
-          )}
-        />
-        <p className="text-xs text-stone-500">
-          Optional. Used by the search agent.{" "}
-          <a
-            href="https://tavily.com"
-            target="_blank"
-            rel="noreferrer"
-            className="text-TT-purple inline-flex items-center gap-0.5 hover:underline"
-          >
-            tavily.com <ExternalLink className="w-3 h-3" />
-          </a>
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="flex items-center gap-1">
-          <Lock className="w-3.5 h-3.5" /> JWT secret
-        </Label>
-        <Input readOnly disabled value={jwtMasked || "Auto-managed"} />
-        <p className="text-xs text-stone-500">
-          Auto-generated and stored for you.
         </p>
       </div>
 

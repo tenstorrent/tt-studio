@@ -34,10 +34,10 @@ const GATED_MODELS_PLACEHOLDER: HfCheckResult[] = [
     url: "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct",
   },
   {
-    label: "Qwen3-32B",
-    repo: "Qwen/Qwen3-32B",
+    label: "FLUX.1-dev",
+    repo: "black-forest-labs/FLUX.1-dev",
     status: "no_token" as HfCheckStatus,
-    url: "https://huggingface.co/Qwen/Qwen3-32B",
+    url: "https://huggingface.co/black-forest-labs/FLUX.1-dev",
   },
 ];
 

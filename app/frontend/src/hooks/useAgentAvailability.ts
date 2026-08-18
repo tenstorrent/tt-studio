@@ -64,8 +64,8 @@ export function useAgentAvailability(modelID: string | null | undefined): {
 
       if (modelHasToolCalling && !tavilyConfigured) {
         console.warn(
-          "[TT Studio] Search Agent is disabled — TAVILY_API_KEY is not configured.\n" +
-          "To enable the Search Agent, set a valid TAVILY_API_KEY in your .env file.\n" +
+          "[TT Studio] Search Agent is disabled: no Tavily API key is configured.\n" +
+          "To enable the Search Agent, add a Tavily API key in Settings (gear icon).\n" +
           "Get your API key from: https://app.tavily.com"
         );
       }

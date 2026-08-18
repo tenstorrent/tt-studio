@@ -140,7 +140,7 @@ from model_control.model_utils import (
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
-from shared_config.user_config import get_tts_api_key
+from shared_config.user_config import get_tts_api_key, get_tavily_api_key
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -283,7 +283,9 @@ class AgentStatusView(APIView):
         """Get agent status and discovery information"""
         import time
 
-        tavily_raw = os.environ.get("TAVILY_API_KEY", "")
+        # Read via user_config so a key saved from the Settings dialog takes
+        # effect without restarting the backend container.
+        tavily_raw = get_tavily_api_key() or ""
         tavily_configured = bool(tavily_raw) and tavily_raw != "tavily-api-key-not-configured"
 
         try:
