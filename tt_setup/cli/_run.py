@@ -10,7 +10,7 @@ import subprocess
 import time
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import _fmt_duration, add_note, begin_phase, build_note, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, rename_phase, show_detail, step, steps_panel, stop_active_phase
+from tt_setup.console import _fmt_duration, add_note, begin_phase, build_note, confirm, console, end_phase, end_run, events, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, rename_phase, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
@@ -218,6 +218,10 @@ def _run(args):
             return
         
         if args.status:
+            if getattr(args, "status_json", False):
+                # One-shot machine-readable state dump — bypasses the TUI entirely.
+                from tt_setup.monitor import run_status_json
+                sys.exit(run_status_json())
             from tt_setup.monitor import run_status
             sys.exit(run_status(dev_mode=args.dev))
 
@@ -860,6 +864,15 @@ def _run(args):
         # Ready summary — same panel re-viewable later via `python run.py --info`.
         show_ready_panel(args, run_start=run_start, hardware_label=hardware_label,
                          is_deployed_mode=is_deployed_mode)
+
+        # Machine-readable counterpart of the ready panel (--json-events).
+        ready_urls = {"app": "http://localhost:3000"}
+        if not args.skip_fastapi and not is_deployed_mode:
+            ready_urls["fastapi"] = "http://localhost:8001"
+        if not args.skip_docker_control:
+            ready_urls["docker_control"] = "http://localhost:8002"
+        events.emit_ready(urls=ready_urls,
+                          hardware=hardware_label or "No accelerator (remote/cloud mode)")
 
         # Recap actionable notes (HF-access blocks, warnings) that per-phase
         # collapse cleared from the scroll, so they're easy to get back. Full

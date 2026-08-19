@@ -36,6 +36,7 @@ def _entry(
     # ── Lifecycle ────────────────────────────────────────────────────────────
     stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
     status: bool = typer.Option(False, "--status", help="Open the live monitor TUI for a running stack.", rich_help_panel="Lifecycle"),
+    status_json: bool = typer.Option(False, "--json", help="With --status: print a one-shot machine-readable status dump (NDJSON) instead of the TUI.", rich_help_panel="Lifecycle"),
     logs: bool = typer.Option(False, "--logs", help="Stream all container logs (docker compose logs -f).", rich_help_panel="Lifecycle"),
     info: bool = typer.Option(False, "--info", help="Re-show the 'TT Studio is ready' summary (URLs, mode, hardware).", rich_help_panel="Lifecycle"),
     # ── Reset (--purge-all) ──────────────────────────────────────────────────
@@ -53,6 +54,7 @@ def _entry(
     no_sudo: bool = typer.Option(False, "--no-sudo", help="Skip sudo usage (may limit functionality).", rich_help_panel="Advanced"),
     no_browser: bool = typer.Option(False, "--no-browser", help="Skip automatic browser opening.", rich_help_panel="Advanced"),
     wait_for_services: bool = typer.Option(False, "--wait-for-services", help="Wait for all services to be healthy.", rich_help_panel="Advanced"),
+    json_events: bool = typer.Option(False, "--json-events", help="Emit machine-readable NDJSON events on stdout (for a wrapping program, e.g. a desktop launcher). Implies non-interactive: prompts become prompt_blocked events; human output moves to stderr.", rich_help_panel="Advanced"),
     browser_timeout: int = typer.Option(60, "--browser-timeout", help="Seconds to wait for frontend before opening browser.", rich_help_panel="Advanced"),
     # ── Developer Tools ──────────────────────────────────────────────────────
     add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend).", rich_help_panel="Developer Tools"),
@@ -72,6 +74,14 @@ def _entry(
     set_verbose(verbose or no_clear)   # --no-clear shows full step detail too
     set_no_clear(no_clear)
 
+    if status_json and not status:
+        raise typer.BadParameter("--json requires --status")
+    # Machine-readable modes: stdout becomes pure NDJSON (one JSON object per
+    # line); raw print() and the Rich consoles are re-pointed at stderr.
+    if json_events or (status and status_json):
+        from tt_setup.console import events
+        events.enable()
+
     # --cleanup/--cleanup-all are deprecated aliases for --stop/--purge-all.
     # Warn, then normalize all four onto the internal cleanup/cleanup_all flags.
     if cleanup or cleanup_all:
@@ -90,7 +100,8 @@ def _entry(
         wait_for_services=wait_for_services, browser_timeout=browser_timeout,
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
         device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
-        status=status, logs=logs, info=info, report_bug=report_bug,
+        status=status, status_json=status_json, json_events=json_events,
+        logs=logs, info=info, report_bug=report_bug,
         install_shortcut=install_shortcut, accept_terms=accept_terms,
         switch=switch, uninstall=uninstall, purge_model=list(purge_model or []),
     )
