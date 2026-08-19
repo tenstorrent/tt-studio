@@ -132,5 +132,83 @@ class TestEventEmitter(unittest.TestCase):
         self.assertEqual(events.plain("no markup"), "no markup")
 
 
+class TestStepperEventTaps(unittest.TestCase):
+    """The phase-lifecycle taps in tt_setup/console/_stepper.py."""
+
+    def setUp(self):
+        from tt_setup.console import _stepper as stepper
+        self.stepper = stepper
+        self.buf = io.StringIO()
+        events.enable(stream=self.buf)
+
+    def tearDown(self):
+        events.disable()
+
+    def _records(self):
+        return [json.loads(line) for line in self.buf.getvalue().splitlines()]
+
+    def test_phase_lifecycle_emits_begin_progress_end(self):
+        ph = self.stepper.begin_phase(1, 5, "Checks")
+        ph.set("tt-smi")
+        self.stepper.end_phase(ph)
+        recs = self._records()
+        self.assertEqual([r["event"] for r in recs],
+                         ["phase_begin", "progress", "phase_end"])
+        self.assertTrue(all(r["phase"] == "Checks" for r in recs))
+        self.assertEqual(recs[0]["detail"], {"index": 1, "total": 5})
+        self.assertEqual(recs[1]["detail"], {"activity": "tt-smi"})
+        self.assertEqual(recs[2]["detail"]["status"], "ok")
+        self.assertIn("duration_s", recs[2]["detail"])
+
+    def test_failed_phase_reports_failed_status(self):
+        ph = self.stepper.begin_phase(2, 5, "Configure")
+        ph.fail()
+        self.stepper.end_phase(ph)
+        recs = self._records()
+        self.assertEqual(recs[-1]["event"], "phase_end")
+        self.assertEqual(recs[-1]["detail"]["status"], "failed")
+
+    def test_stop_active_phase_emits_failed_end(self):
+        self.stepper.begin_phase(4, 5, "Build")
+        self.stepper.stop_active_phase()
+        recs = self._records()
+        self.assertEqual(recs[-1]["event"], "phase_end")
+        self.assertEqual(recs[-1]["phase"], "Build")
+        self.assertEqual(recs[-1]["detail"]["status"], "failed")
+
+    def test_stop_with_no_active_phase_emits_nothing(self):
+        self.stepper.stop_active_phase()
+        self.assertEqual(self.buf.getvalue(), "")
+
+    def test_add_note_emits_plain_text_warn(self):
+        self.stepper.add_note("[warning]⚠  tt-smi not installed[/warning]")
+        recs = self._records()
+        self.assertEqual(recs[-1]["event"], "warn")
+        self.assertEqual(recs[-1]["detail"]["text"], "⚠  tt-smi not installed")
+
+    def test_rename_phase_emits_progress(self):
+        self.stepper.begin_phase(4, 5, "Pull")
+        self.stepper.rename_phase(4, "Build")
+        recs = self._records()
+        self.assertEqual(recs[-1]["event"], "progress")
+        self.assertEqual(recs[-1]["phase"], "Build")
+        self.assertEqual(recs[-1]["detail"]["kind"], "phase_renamed")
+        self.stepper.stop_active_phase()
+
+    def test_build_event_emits_progress(self):
+        ph = self.stepper.begin_phase(4, 5, "Build")
+        self.stepper.build_event("built", svc="frontend")
+        self.stepper.end_phase(ph)
+        recs = self._records()
+        built = [r for r in recs if r["event"] == "progress"]
+        self.assertEqual(built[-1]["detail"], {"kind": "built", "service": "frontend"})
+
+    def test_taps_are_silent_when_disabled(self):
+        events.disable()
+        ph = self.stepper.begin_phase(1, 5, "Checks")   # must not raise
+        self.stepper.end_phase(ph)
+        self.assertEqual(self.buf.getvalue(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
