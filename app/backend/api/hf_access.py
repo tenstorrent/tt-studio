@@ -11,12 +11,12 @@ import requests
 from typing import List, Dict, Optional
 
 
-# diffusers repos (Wan/FLUX) have no root config.json — check model_index.json instead
+# Only repos that are actually gated on Hugging Face belong here (Qwen and Wan
+# are public). Diffusers repos (FLUX) have no root config.json, so check
+# model_index.json instead.
 HF_GATED_MODELS = [
     ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1", "config.json"),
     ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3", "config.json"),
-    ("Qwen/Qwen3-32B", "Qwen3-32B", "config.json"),
-    ("Wan-AI/Wan2.2-T2V-A14B-Diffusers", "Wan2.2-T2V", "model_index.json"),
     ("black-forest-labs/FLUX.1-dev", "FLUX.1-dev", "model_index.json"),
 ]
 
