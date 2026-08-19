@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Loader2,
   Copy,
@@ -12,10 +12,13 @@ import {
   Clock,
   Pencil as Edit,
   Play,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
+import { FileUpload } from "../ui/file-upload";
 import { cn } from "../../lib/utils";
 import {
   Tooltip,
@@ -23,14 +26,39 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { sendAudioRecording } from "./lib/apiClient";
+import {
+  sendAudioRecording,
+  transcribeLongAudio,
+  type LongAudioProgress,
+  type TranscriptSegment,
+} from "./lib/apiClient";
 import { useTheme } from "../../hooks/useTheme";
+import { customToast } from "../CustomToaster";
+
+// Formats AudioContext.decodeAudioData can handle across browsers.
+const ACCEPTED_AUDIO =
+  ".wav,.mp3,.m4a,.mp4,.aac,.flac,.ogg,.oga,.opus,.webm,audio/*";
+// Matches the server's own MAX_AUDIO_SIZE_BYTES, and doubles as the browser
+// memory guard: decoding holds the whole file as 32-bit float samples.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+// Survives a refresh mid-run so a long transcription isn't lost.
+const PARTIAL_RUN_KEY = "speechToText.partialRun";
+
+interface PartialRun {
+  sourceName: string;
+  text: string;
+  done: number;
+  total: number;
+}
 
 interface Transcription {
   id: string;
   text: string;
   date: Date;
   audioBlob?: Blob;
+  segments?: TranscriptSegment[];
+  sourceName?: string;
+  durationSec?: number;
 }
 
 interface Conversation {
@@ -43,7 +71,15 @@ interface Conversation {
 interface MainContentProps {
   conversations: Conversation[];
   selectedConversation: string | null;
-  onNewTranscription: (text: string, audioBlob: Blob) => string;
+  onNewTranscription: (
+    text: string,
+    audioBlob?: Blob,
+    meta?: {
+      segments?: TranscriptSegment[];
+      sourceName?: string;
+      durationSec?: number;
+    }
+  ) => string;
   isRecording: boolean;
   setIsRecording: (isRecording: boolean) => void;
   showRecordingInterface: boolean;
@@ -63,7 +99,7 @@ export function MainContent({
   setShowRecordingInterface,
   modelID,
 }: MainContentProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState<LongAudioProgress | null>(null);
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [_audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -71,12 +107,24 @@ export function MainContent({
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
   const [forceShowTranscription, setForceShowTranscription] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [showUpload, setShowUpload] = useState(true);
+  const [partialRun, setPartialRun] = useState<PartialRun | null>(null);
   const { theme } = useTheme();
+
+  // Anything that blocks starting new work.
+  const isProcessing = progress !== null;
 
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  // Last progress seen, so a cancelled or failed run can still hand back the
+  // segments it completed.
+  const latestProgressRef = useRef<LongAudioProgress | null>(null);
+  // Blob URLs are created lazily and revoked on unmount; building them inline
+  // during render leaks one per re-render, which matters for uploaded files.
+  const audioUrlsRef = useRef<Map<string, string>>(new Map());
 
   const selectedConversationData = selectedConversation
     ? conversations.find((c) => c.id === selectedConversation)
@@ -126,8 +174,36 @@ export function MainContent({
     setForceShowTranscription(true);
   };
 
+  // Publish a finished transcription and switch to the conversation view.
+  const commitTranscription = (
+    text: string,
+    audioBlob?: Blob,
+    meta?: {
+      segments?: TranscriptSegment[];
+      sourceName?: string;
+      durationSec?: number;
+    }
+  ) => {
+    onNewTranscription(text, audioBlob, meta);
+    setJustSentRecording(true);
+    setShowRecordingInterface(false);
+
+    setTimeout(() => {
+      if (autoScrollEnabled) {
+        scrollToBottom();
+      }
+    }, 500);
+  };
+
+  const reportError = (error: unknown) => {
+    console.error("Error processing audio:", error);
+    customToast.error(
+      `Transcription failed: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  };
+
   const processAudioWithAPI = async (audioBlob: Blob) => {
-    setIsProcessing(true);
+    setProgress({ phase: "transcribing", done: 0, total: 1, text: "" });
 
     try {
       console.log("Processing audio with API, type:", audioBlob.type);
@@ -135,33 +211,141 @@ export function MainContent({
       // Use the sendAudioRecording function instead of direct fetch
       const data = await sendAudioRecording(audioBlob, { modelID });
 
-      // Create the new transcription and add it to the conversation
-      const transcriptionText = data.text;
-      onNewTranscription(transcriptionText, audioBlob);
+      if (!data.text) {
+        customToast.error("No speech was found in that recording.");
+        return;
+      }
 
-      // Set flag that we just sent a recording
-      setJustSentRecording(true);
-
-      // IMPORTANT: Switch to conversation view to show the transcription
-      setShowRecordingInterface(false);
-
-      // Ensure the view is scrolled to the new message
-      setTimeout(() => {
-        if (autoScrollEnabled) {
-          scrollToBottom();
-        }
-      }, 500); // Increased timeout for more reliable scrolling
-
-      console.log("Transcription successful:", transcriptionText);
+      commitTranscription(data.text, audioBlob);
+      // Length only: transcripts are user speech and don't belong in the console.
+      console.log("Transcription successful:", data.text.length, "chars");
     } catch (error) {
-      console.error("Error processing audio:", error);
-      alert(
-        `Transcription Error: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
+      reportError(error);
     } finally {
-      setIsProcessing(false);
+      setProgress(null);
     }
   };
+
+  // Uploaded files can run to hours, so they go through the chunked path:
+  // decoded once, split at quiet points, transcribed one chunk at a time.
+  const handleFileUpload = async (files: File[]) => {
+    const file = files[0];
+    if (!file || isProcessing) return;
+
+    if (file.size === 0) {
+      customToast.error("That file is empty - pick an audio file with content.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      customToast.error(
+        `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`
+      );
+      return;
+    }
+
+    // FileUpload keeps every pick in its own list, so hide it once one lands.
+    setShowUpload(false);
+    setPartialRun(null);
+    clearPartialRun();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setProgress({ phase: "decoding", done: 0, total: 0, text: "" });
+
+    try {
+      const result = await transcribeLongAudio(file, {
+        modelID,
+        fileName: file.name,
+        signal: controller.signal,
+        onProgress: (update) => {
+          setProgress(update);
+          latestProgressRef.current = update;
+          if (update.phase === "transcribing" && update.total > 1) {
+            savePartialRun({
+              sourceName: file.name,
+              text: update.text,
+              done: update.done,
+              total: update.total,
+            });
+          }
+        },
+      });
+
+      clearPartialRun();
+
+      if (!result.text) {
+        customToast.error("No speech was found in that file.");
+        return;
+      }
+
+      if (result.failedChunks > 0) {
+        customToast.warning(
+          `${result.failedChunks} of ${result.segments.length} segments could not be transcribed and were left out.`
+        );
+      }
+
+      commitTranscription(result.text, file, {
+        segments: result.segments,
+        sourceName: file.name,
+        durationSec: result.durationSec,
+      });
+      setHasRecordedBefore(true);
+      setForceShowTranscription(true);
+    } catch (error) {
+      // Whatever finished before the failure is still worth offering back.
+      const last = latestProgressRef.current;
+      if (last?.text) {
+        setPartialRun({
+          sourceName: file.name,
+          text: last.text,
+          done: last.done,
+          total: last.total,
+        });
+      }
+
+      if (error instanceof Error && error.message === "Transcription cancelled") {
+        customToast.info("Transcription cancelled.");
+      } else {
+        reportError(error);
+      }
+    } finally {
+      abortRef.current = null;
+      latestProgressRef.current = null;
+      setProgress(null);
+      setShowUpload(true);
+    }
+  };
+
+  const cancelTranscription = () => {
+    abortRef.current?.abort();
+  };
+
+  const savePartialRun = (run: PartialRun) => {
+    try {
+      localStorage.setItem(PARTIAL_RUN_KEY, JSON.stringify(run));
+    } catch {
+      // Quota or private-mode failures shouldn't interrupt transcription.
+    }
+  };
+
+  const clearPartialRun = () => {
+    try {
+      localStorage.removeItem(PARTIAL_RUN_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Reuse one blob URL per transcription instead of minting a new one each
+  // render, and revoke them all on unmount.
+  const getAudioUrl = useCallback((id: string, blob?: Blob) => {
+    if (!blob) return undefined;
+    const cached = audioUrlsRef.current.get(id);
+    if (cached) return cached;
+    const url = URL.createObjectURL(blob);
+    audioUrlsRef.current.set(id, url);
+    return url;
+  }, []);
 
   // Copy transcription to clipboard
   const copyToClipboard = (text: string) => {
@@ -235,6 +419,52 @@ export function MainContent({
       date,
       items,
     }));
+  };
+
+  // Offer to recover a run that a refresh interrupted.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PARTIAL_RUN_KEY);
+      if (!saved) return;
+      const run = JSON.parse(saved) as PartialRun;
+      if (run?.text) {
+        setPartialRun(run);
+      }
+    } catch {
+      // A malformed entry is not worth surfacing.
+    }
+  }, []);
+
+  // Revoke every blob URL handed out during this mount.
+  useEffect(() => {
+    const urls = audioUrlsRef.current;
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.clear();
+    };
+  }, []);
+
+  const restorePartialRun = () => {
+    if (!partialRun) return;
+    commitTranscription(partialRun.text, undefined, {
+      sourceName: partialRun.sourceName,
+    });
+    setPartialRun(null);
+    clearPartialRun();
+  };
+
+  const dismissPartialRun = () => {
+    setPartialRun(null);
+    clearPartialRun();
+  };
+
+  // mm:ss, or h:mm:ss once the recording passes an hour.
+  const formatTimestamp = (seconds: number) => {
+    const total = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+    const secs = String(total % 60).padStart(2, "0");
+    return hours > 0 ? `${hours}:${minutes}:${secs}` : `${minutes}:${secs}`;
   };
 
   // Initialize the view when a conversation is loaded
@@ -373,10 +603,52 @@ export function MainContent({
                         : "text-TT-purple-shade"
                     )}
                   >
-                    Record your voice and convert it to text instantly. Follow
-                    the steps below to get started.
+                    Record your voice or upload an audio file and convert it to
+                    text instantly. Follow the steps below to get started.
                   </p>
                 </div>
+
+                {partialRun && !isProcessing && (
+                  <Card
+                    className={cn(
+                      "mb-4 sm:mb-6 p-3 sm:p-4 backdrop-blur-sm",
+                      theme === "dark"
+                        ? "bg-[#222222]/80 border-TT-yellow/40"
+                        : "bg-white/80 border-TT-yellow-shade/40"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-TT-purple truncate">
+                          Unfinished transcription of {partialRun.sourceName}
+                        </p>
+                        <p className="text-xs text-muted-foreground dark:text-gray-400">
+                          {partialRun.done} of {partialRun.total} segments were
+                          completed before the page reloaded.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={restorePartialRun}
+                          className="h-8 text-xs"
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Keep it
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={dismissPartialRun}
+                          className="h-8 text-xs text-muted-foreground"
+                        >
+                          Discard
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                )}
 
                 <Card
                   className={cn(
@@ -400,7 +672,7 @@ export function MainContent({
                     />
                   </div>
 
-                  {isProcessing && (
+                  {progress && (
                     <div
                       className={cn(
                         "mt-4 sm:mt-6 p-3 sm:p-4 rounded-md",
@@ -409,15 +681,75 @@ export function MainContent({
                           : "border-TT-purple-shade/30 bg-TT-purple-shade/10"
                       )}
                     >
-                      <div className="flex items-center">
-                        <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 animate-spin text-TT-purple" />
-                        <p className="text-sm sm:text-base font-medium text-TT-purple">
-                          Sending to API and processing your audio...
-                        </p>
+                      <div className="flex items-center justify-between gap-2 sm:gap-3">
+                        <div className="flex items-center min-w-0">
+                          <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 shrink-0 animate-spin text-TT-purple" />
+                          <p className="text-sm sm:text-base font-medium text-TT-purple truncate">
+                            {progress.phase === "decoding"
+                              ? "Reading the audio file..."
+                              : progress.total > 1
+                                ? `Transcribing segment ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`
+                                : "Sending to API and processing your audio..."}
+                          </p>
+                        </div>
+                        {progress.total > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={cancelTranscription}
+                            className="h-8 shrink-0 text-xs text-TT-red hover:bg-TT-red-shade/20"
+                          >
+                            <X className="h-3 w-3 mr-1" />
+                            Cancel
+                          </Button>
+                        )}
                       </div>
+
+                      {progress.total > 1 && (
+                        <>
+                          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-TT-purple-shade/20">
+                            <div
+                              className="h-full rounded-full bg-TT-purple-accent transition-all duration-300"
+                              style={{
+                                width: `${Math.round((progress.done / progress.total) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                          {progress.text && (
+                            <p className="mt-3 max-h-16 overflow-hidden text-xs sm:text-sm leading-relaxed text-muted-foreground dark:text-gray-400">
+                              {progress.text.slice(-400)}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                 </Card>
+
+                {!isProcessing && showUpload && (
+                  <Card
+                    className={cn(
+                      "mb-4 sm:mb-8 p-4 sm:p-6 backdrop-blur-sm shadow-lg shadow-TT-purple/5",
+                      "transition-colors duration-300",
+                      theme === "dark"
+                        ? "bg-[#222222]/80 border-TT-purple/30 hover:border-TT-purple/50"
+                        : "bg-white/80 border-TT-purple-shade/30 hover:border-TT-purple-shade/50"
+                    )}
+                  >
+                    <h2 className="text-lg sm:text-xl font-semibold text-TT-purple">
+                      Or upload an audio file
+                    </h2>
+                    <FileUpload
+                      onChange={handleFileUpload}
+                      accept={ACCEPTED_AUDIO}
+                    />
+                    <p className="text-xs sm:text-sm text-center text-muted-foreground dark:text-gray-400">
+                      wav, mp3, m4a, flac, ogg or webm, up to{" "}
+                      {MAX_UPLOAD_BYTES / 1024 / 1024} MB. Long recordings are
+                      split into segments automatically.
+                    </p>
+                  </Card>
+                )}
               </>
             ) : selectedConversation && selectedConversationData ? (
               <div className="flex flex-col">
@@ -628,13 +960,10 @@ export function MainContent({
                                         "[&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1",
                                         "[&::-webkit-media-controls-timeline]:accent-TT-purple"
                                       )}
-                                      src={
+                                      src={getAudioUrl(
+                                        transcription.id,
                                         transcription.audioBlob
-                                          ? URL.createObjectURL(
-                                              transcription.audioBlob
-                                            )
-                                          : undefined
-                                      }
+                                      )}
                                       controls
                                       ref={audioElementRef}
                                       style={{ height: "32px" }}
@@ -671,26 +1000,74 @@ export function MainContent({
                                   <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
                                   <div
                                     className={cn(
-                                      "text-xs opacity-80 font-medium tracking-wide",
+                                      "text-xs opacity-80 font-medium tracking-wide truncate",
                                       theme === "dark"
                                         ? "text-TT-purple-tint1"
                                         : "text-TT-purple"
                                     )}
                                   >
                                     Transcription
+                                    {transcription.sourceName
+                                      ? ` · ${transcription.sourceName}`
+                                      : ""}
+                                    {transcription.durationSec
+                                      ? ` · ${formatTimestamp(transcription.durationSec)}`
+                                      : ""}
                                   </div>
                                 </div>
 
-                                <div
-                                  className={cn(
-                                    "text-sm sm:text-base leading-relaxed",
-                                    theme === "dark"
-                                      ? "text-TT-purple-tint2"
-                                      : "text-gray-700"
-                                  )}
-                                >
-                                  {transcription.text}
-                                </div>
+                                {transcription.segments &&
+                                transcription.segments.length > 1 ? (
+                                  <div className="space-y-1.5">
+                                    {transcription.segments
+                                      .filter(
+                                        (segment) =>
+                                          segment.text || segment.failed
+                                      )
+                                      .map((segment) => (
+                                        <div
+                                          key={segment.startSec}
+                                          className="flex gap-2 sm:gap-3"
+                                        >
+                                          <span
+                                            className={cn(
+                                              "shrink-0 pt-0.5 font-mono text-xs opacity-60",
+                                              theme === "dark"
+                                                ? "text-TT-purple-shade"
+                                                : "text-gray-500"
+                                            )}
+                                          >
+                                            {formatTimestamp(segment.startSec)}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              "text-sm sm:text-base leading-relaxed",
+                                              theme === "dark"
+                                                ? "text-TT-purple-tint2"
+                                                : "text-gray-700",
+                                              segment.failed &&
+                                                "italic opacity-50"
+                                            )}
+                                          >
+                                            {segment.failed
+                                              ? "(this segment could not be transcribed)"
+                                              : segment.text}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                ) : (
+                                  <div
+                                    className={cn(
+                                      "text-sm sm:text-base leading-relaxed",
+                                      theme === "dark"
+                                        ? "text-TT-purple-tint2"
+                                        : "text-gray-700"
+                                    )}
+                                  >
+                                    {transcription.text}
+                                  </div>
+                                )}
 
                                 <div
                                   className={cn(
