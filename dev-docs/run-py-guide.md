@@ -66,6 +66,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | --- | --- |
 | `--stop` | Stop TT Studio: tear down Docker containers and networks, keep the persistent volume. (Deprecated alias: `--cleanup`.) |
 | `--status` | Open the live monitor TUI for a running stack (health, ports, hardware). |
+| `--status --json` | One-shot machine-readable state dump instead of the TUI: a single NDJSON `status` event on stdout with per-service health, the current HEAD, and the hardware label. See [json-events.md](json-events.md). |
 | `--logs` | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
 | `--info` | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
 
@@ -91,6 +92,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
 | `--no-browser` | Don't open the frontend in a browser automatically. |
 | `--wait-for-services` | Block until all services report healthy before returning. |
+| `--json-events` | Emit machine-readable NDJSON events on stdout for a wrapping program (e.g. a desktop launcher): phase lifecycle, progress, warnings, errors with remediation, and a final `ready` event. Implies non-interactive — prompts become `prompt_blocked` events — and moves human output to stderr. Schema: [json-events.md](json-events.md). |
 | `--browser-timeout N` | Seconds to wait for the frontend before opening the browser (default `60`). |
 
 ### Developer Tools
