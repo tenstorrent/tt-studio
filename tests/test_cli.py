@@ -26,6 +26,9 @@ class TestCli(unittest.TestCase):
         from tt_setup import console
         console.set_no_clear(False)
         console.set_verbose(False)
+        # --json-events / --status --json enable the global NDJSON emitter (and
+        # re-point stdout); make sure that never leaks into later tests.
+        console.events.disable()
 
     def test_help_lists_flags(self):
         result = runner.invoke(M.app, ["--help"])
@@ -33,7 +36,7 @@ class TestCli(unittest.TestCase):
         output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         for flag in ("--dev", "--stop", "--purge-all", "--purge-model", "--help-env",
                      "--no-sudo", "--logs", "--info", "--uninstall", "--switch",
-                     "--build-images", "--no-clear"):
+                     "--build-images", "--no-clear", "--json-events", "--json"):
             self.assertIn(flag, output_without_ansi)
 
     def test_info_flag_dispatches_to_ready_panel(self):
@@ -255,6 +258,45 @@ class TestCli(unittest.TestCase):
         run.assert_called_once()
         self.assertTrue(console.no_clear())
         self.assertTrue(console.is_verbose())
+
+    def test_json_without_status_is_a_usage_error(self):
+        result = runner.invoke(M.app, ["--json"])
+        self.assertEqual(result.exit_code, 2)
+
+    def test_status_json_dispatches_to_json_dump_not_the_tui(self):
+        import tt_setup.monitor as monitor
+        with patch.object(monitor, "run_status_json", return_value=0) as dump, \
+             patch.object(monitor, "run_status") as tui:
+            result = runner.invoke(M.app, ["--status", "--json"])
+        self.assertEqual(result.exit_code, 0)
+        dump.assert_called_once()
+        tui.assert_not_called()
+
+    def test_status_without_json_still_opens_the_tui(self):
+        import tt_setup.monitor as monitor
+        with patch.object(monitor, "run_status", return_value=0) as tui, \
+             patch.object(monitor, "run_status_json") as dump:
+            result = runner.invoke(M.app, ["--status"])
+        self.assertEqual(result.exit_code, 0)
+        tui.assert_called_once()
+        dump.assert_not_called()
+
+    def test_json_events_enables_emitter_and_threads_into_args(self):
+        from tt_setup.cli import _args
+        from tt_setup.console import events
+        with patch.object(_args, "_run") as run:
+            result = runner.invoke(M.app, ["--json-events"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertTrue(events.enabled())
+        ns = run.call_args.args[0]
+        self.assertTrue(ns.json_events)
+
+    def test_emitter_stays_off_without_the_flags(self):
+        from tt_setup.cli import _args
+        from tt_setup.console import events
+        with patch.object(_args, "_run"):
+            runner.invoke(M.app, ["--dev"])
+        self.assertFalse(events.enabled())
 
     def test_main_is_callable_entrypoint(self):
         self.assertTrue(callable(M.main))

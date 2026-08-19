@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import unittest
+from unittest.mock import patch
 
 from tt_setup.console import _events as events
 
@@ -208,6 +209,69 @@ class TestStepperEventTaps(unittest.TestCase):
         ph = self.stepper.begin_phase(1, 5, "Checks")   # must not raise
         self.stepper.end_phase(ph)
         self.assertEqual(self.buf.getvalue(), "")
+
+
+class TestPromptBlocking(unittest.TestCase):
+    """--json-events implies non-interactive: prompts must never hang the run."""
+
+    def tearDown(self):
+        events.disable()
+
+    def test_prompts_exit_with_prompt_blocked_event_in_machine_mode(self):
+        from tt_setup.console import _prompts
+        buf = io.StringIO()
+        events.enable(stream=buf)
+        attempts = (
+            lambda: _prompts.ask("Enter your HF token"),
+            lambda: _prompts.confirm("Continue?"),
+            lambda: _prompts.secret("Token: "),
+        )
+        for attempt in attempts:
+            with self.assertRaises(SystemExit) as ctx:
+                attempt()
+            self.assertEqual(ctx.exception.code, 2)
+        recs = [json.loads(line) for line in buf.getvalue().splitlines()]
+        self.assertEqual(len(recs), len(attempts))
+        for rec in recs:
+            self.assertEqual(rec["event"], "prompt_blocked")
+            self.assertTrue(rec["detail"]["prompt"])
+            self.assertIn("--json-events", rec["detail"]["remediation"])
+
+    def test_prompts_behave_normally_when_disabled(self):
+        from rich.prompt import Prompt
+        from tt_setup.console import _prompts
+        with patch.object(Prompt, "ask", return_value="answer"):
+            self.assertEqual(_prompts.ask("Question?"), "answer")
+
+
+class TestStatusJsonDump(unittest.TestCase):
+    """`--status --json`: a one-shot state dump through the same emitter."""
+
+    def tearDown(self):
+        events.disable()
+
+    def test_emits_one_status_event_with_services_head_and_hardware(self):
+        from tt_setup import monitor
+        buf = io.StringIO()
+        events.enable(stream=buf)
+        health = {s["health"]: s["name"] == "Frontend" for s in monitor.SERVICES}
+        with patch.object(monitor, "snapshot_health", return_value=health), \
+             patch.object(monitor, "_git_head", return_value="abc1234"), \
+             patch.object(monitor, "_hardware_label",
+                          return_value="QuietBox (QB2) · 2 chips"):
+            rc = monitor.run_status_json()
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        rec = json.loads(lines[0])
+        self.assertEqual(rec["event"], "status")
+        self.assertEqual(rec["detail"]["head"], "abc1234")
+        self.assertEqual(rec["detail"]["hardware"], "QuietBox (QB2) · 2 chips")
+        by_name = {s["name"]: s for s in rec["detail"]["services"]}
+        self.assertEqual(set(by_name), {s["name"] for s in monitor.SERVICES})
+        self.assertTrue(by_name["Frontend"]["healthy"])
+        self.assertFalse(by_name["Backend"]["healthy"])
+        self.assertEqual(by_name["Frontend"]["port"], 3000)
 
 
 if __name__ == "__main__":
