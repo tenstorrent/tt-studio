@@ -11,6 +11,7 @@ import threading
 import time
 from rich.rule import Rule
 from rich.text import Text
+from tt_setup.console import _events as events
 from tt_setup.console._theme import _fmt_duration, _real_console, console, is_verbose
 
 
@@ -409,6 +410,15 @@ class _ChecklistController:
 _checklist = _ChecklistController()
 
 
+def _phase_title(index=None):
+    """The registered title for a phase (defaults to the active one), or None.
+    Used to stamp the `phase` field on emitted events."""
+    if index is None:
+        index = _active_phase.index if _active_phase is not None else None
+    p = _checklist._by_index.get(index) if index is not None else None
+    return p.title if p is not None else None
+
+
 def _terminal_lock():
     """The RLock that serializes every raw escape write to the terminal (header
     repaints, the bottom activity row, and step()'s spinner frames), so a
@@ -439,6 +449,8 @@ class _PhaseHandle:
 
     def set(self, activity):
         _checklist.set_activity(self.index, activity)
+        events.emit("progress", phase=_phase_title(self.index),
+                    detail={"activity": activity})
 
     def fail(self):
         self.failed = True
@@ -500,6 +512,7 @@ def add_note(markup):
     """Record an actionable note (Rich markup) to re-show in the end-of-run
     'Needs attention' recap."""
     _notes.append(markup)
+    events.emit("warn", phase=_phase_title(), detail={"text": events.plain(markup)})
 
 
 def get_notes():
@@ -518,6 +531,7 @@ def begin_phase(index, total, title):
     handle = _PhaseHandle(index)
     _IN_PHASE = True
     _active_phase = handle
+    events.emit("phase_begin", phase=title, detail={"index": index, "total": total})
     return handle
 
 
@@ -528,6 +542,11 @@ def end_phase(handle=None):
     if handle is None:
         return
     _checklist.finish_phase(handle.index, handle.failed)
+    p = _checklist._by_index.get(handle.index)
+    detail = {"index": handle.index, "status": "failed" if handle.failed else "ok"}
+    if p is not None and p.start is not None and p.end is not None:
+        detail["duration_s"] = round(p.end - p.start, 3)
+    events.emit("phase_end", phase=_phase_title(handle.index), detail=detail)
     _IN_PHASE = False
     _active_phase = None
 
@@ -536,6 +555,8 @@ def rename_phase(index, title):
     """Retitle a phase mid-run when the plan changes (e.g. a pull that fell back
     to a local build), so the stepper and the final record say what happened."""
     _checklist.set_title(index, title)
+    events.emit("progress", phase=title,
+                detail={"kind": "phase_renamed", "index": index})
 
 
 def end_run():
@@ -546,6 +567,12 @@ def end_run():
 def build_event(kind, svc=None, x=None, y=None, label=None):
     """Feed a Docker build event into the active phase's folded build row."""
     _checklist.build_event(kind, svc=svc, x=x, y=y, label=label)
+    detail = {"kind": kind}
+    if svc:
+        detail["service"] = svc
+    if label:
+        detail["label"] = label
+    events.emit("progress", phase=_phase_title(), detail=detail)
 
 
 def build_log(line):
@@ -557,6 +584,7 @@ def build_note(text, marker="○", style="muted"):
     """Print a calm note in the build body's gutter (aligned with ✓ <svc> lines).
     Pass marker="" for a continuation/hint line under a previous note."""
     _checklist.build_note(text, marker=marker, style=style)
+    events.emit("note", phase=_phase_title(), detail={"text": events.plain(text)})
 
 
 def build_activity(text):
@@ -579,6 +607,9 @@ def stop_active_phase():
     """Reset the scroll region WITHOUT marking the phase — for error/interrupt
     paths, so the sticky header doesn't corrupt a following panel."""
     global _IN_PHASE, _active_phase
+    if _active_phase is not None:
+        events.emit("phase_end", phase=_phase_title(_active_phase.index),
+                    detail={"index": _active_phase.index, "status": "failed"})
     _checklist.stop()
     _IN_PHASE = False
     _active_phase = None
