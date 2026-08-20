@@ -27,7 +27,30 @@ const DEFAULT_SSH_PORT: u16 = 22;
 
 /// At most one tunnel supervisor runs at a time (one remote stack per window).
 #[derive(Default)]
-pub struct TunnelState(tokio::sync::Mutex<Option<Supervisor>>);
+pub struct TunnelState {
+    supervisor: tokio::sync::Mutex<Option<Supervisor>>,
+    /// The profile the running tunnels belong to. Drives the quit dialog:
+    /// while set, closing the window offers stop-vs-disconnect first.
+    active: std::sync::Mutex<Option<Profile>>,
+}
+
+impl TunnelState {
+    pub(crate) fn active_profile(&self) -> Option<Profile> {
+        self.active.lock().expect("active profile lock").clone()
+    }
+
+    fn set_active(&self, profile: Option<Profile>) {
+        *self.active.lock().expect("active profile lock") = profile;
+    }
+
+    /// Stop the supervisor (if any) and forget the active profile.
+    pub(crate) async fn shutdown(&self) {
+        if let Some(supervisor) = self.supervisor.lock().await.take() {
+            supervisor.stop().await;
+        }
+        self.set_active(None);
+    }
+}
 
 /// Build the dial target from a saved profile: agent auth is always tried
 /// first, then the profile's key file with the keychain passphrase if one
@@ -146,7 +169,7 @@ pub async fn start_ssh_tunnels(
         return_to_launcher_if_lost(&sink_app, &status);
     });
 
-    let mut guard = state.0.lock().await;
+    let mut guard = state.supervisor.lock().await;
     if let Some(previous) = guard.take() {
         previous.stop().await;
     }
@@ -155,14 +178,13 @@ pub async fn start_ssh_tunnels(
         connector,
         sink,
     ));
+    state.set_active(Some(profile));
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_ssh_tunnels(state: tauri::State<'_, TunnelState>) -> Result<(), SshError> {
-    if let Some(supervisor) = state.0.lock().await.take() {
-        supervisor.stop().await;
-    }
+    state.shutdown().await;
     Ok(())
 }
 
@@ -170,7 +192,32 @@ pub async fn stop_ssh_tunnels(state: tauri::State<'_, TunnelState>) -> Result<()
 pub async fn get_tunnel_status(
     state: tauri::State<'_, TunnelState>,
 ) -> Result<Option<TunnelStatus>, SshError> {
-    Ok(state.0.lock().await.as_ref().map(|s| s.status()))
+    Ok(state.supervisor.lock().await.as_ref().map(|s| s.status()))
+}
+
+/// Close-button interception: while an SSH connection is active and the
+/// window shows the remote stack, turn the close into the launcher's quit
+/// dialog (stop the remote stack vs just disconnect) instead of exiting.
+pub(crate) fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    if window.label() != "main" {
+        return;
+    }
+    let app = window.app_handle();
+    let active = app.state::<TunnelState>().active_profile().is_some();
+    if !active || !showing_remote_stack(app) {
+        return; // plain close: the process exit tears the tunnels down
+    }
+    api.prevent_close();
+    let Some(mut url) = launcher_url(app) else {
+        return;
+    };
+    url.set_query(Some("quit=1"));
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.navigate(url);
+        }
+    });
 }
 
 #[cfg(test)]

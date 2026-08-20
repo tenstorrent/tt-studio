@@ -17,6 +17,11 @@ pub fn run() {
         .manage(health::PollerState::default())
         .manage(ssh::commands::TunnelState::default())
         .manage(remote::RemoteState::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                ssh::commands::on_close_requested(window, api);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::open_stack,
             profiles::list_profiles,
@@ -33,6 +38,8 @@ pub fn run() {
             remote::classify_remote_stack,
             remote::start_remote_bring_up,
             remote::cancel_remote_bring_up,
+            remote::get_active_remote,
+            remote::quit_app,
             hardware::detect_hardware,
             health::check_stack_health,
             health::start_health_poll,

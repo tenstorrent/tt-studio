@@ -398,6 +398,68 @@ fn stderr_log_file(app: &tauri::AppHandle) -> Option<std::fs::File> {
     std::fs::File::create(dir.join(BRINGUP_STDERR_LOG)).ok()
 }
 
+// ---- quitting: optionally stop the remote stack on the way out ----
+
+/// Output lines from `run.py --stop` while the quit dialog streams it.
+pub const REMOTE_STOP_EVENT: &str = "remote-stop-line";
+
+/// The profile the current SSH connection belongs to, for the quit dialog's
+/// "Stop the stack on <host>" wording. `None` on local connections.
+#[tauri::command]
+pub fn get_active_remote(
+    tunnels: tauri::State<'_, crate::ssh::commands::TunnelState>,
+) -> Option<Profile> {
+    tunnels.active_profile()
+}
+
+/// Leave the app. With `stop_stack`, first run `run.py --stop` on the active
+/// remote machine, streaming its output as `remote-stop-line` events; a stop
+/// that fails returns the error WITHOUT quitting so the user can decide to
+/// quit anyway. Without it (or with no active remote), just disconnect.
+#[tauri::command]
+pub async fn quit_app(
+    app: tauri::AppHandle,
+    tunnels: tauri::State<'_, crate::ssh::commands::TunnelState>,
+    remote: tauri::State<'_, RemoteState>,
+    stop_stack: bool,
+) -> Result<(), SshError> {
+    // A quit aborts any in-flight bring-up either way.
+    remote.cancel().await;
+    if stop_stack {
+        if let Some(profile) = tunnels.active_profile() {
+            use tauri::Emitter;
+            let session = connect_session(&app, &profile).await?;
+            let command = stop_command(&repo_path(&profile));
+            let line_app = app.clone();
+            let exit = session
+                .exec_stream(
+                    &command,
+                    |line| {
+                        let _ = line_app.emit(REMOTE_STOP_EVENT, line);
+                    },
+                    |_| {},
+                )
+                .await;
+            session.close().await;
+            match exit {
+                Ok(Some(0)) => {}
+                Ok(code) => {
+                    return Err(SshError::Internal {
+                        message: match code {
+                            Some(code) => format!("run.py --stop exited with code {code}"),
+                            None => "run.py --stop ended without an exit code".to_string(),
+                        },
+                    })
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    tunnels.shutdown().await;
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

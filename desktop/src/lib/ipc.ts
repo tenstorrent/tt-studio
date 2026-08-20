@@ -190,6 +190,26 @@ export const onBringUpExit = (
 ): Promise<UnlistenFn> =>
   listen<BringUpExit>("bringup-exit", (event) => handler(event.payload));
 
+// ---- quitting (optionally stopping the remote stack first) ----
+
+/** The profile the current SSH connection belongs to, if any. */
+export const getActiveRemote = () =>
+  invoke<Profile | null>("get_active_remote");
+
+/**
+ * Exit the app. With stopStack, `run.py --stop` runs on the active remote
+ * first (rejecting instead of quitting when it fails, so the caller can
+ * offer "quit anyway").
+ */
+export const quitApp = (stopStack: boolean) =>
+  invoke<void>("quit_app", { stopStack });
+
+/** Output lines from the remote `run.py --stop` during a stopping quit. */
+export const onRemoteStopLine = (
+  handler: (line: string) => void,
+): Promise<UnlistenFn> =>
+  listen<string>("remote-stop-line", (event) => handler(event.payload));
+
 /** Narrow an unknown invoke() rejection into an SshErrorPayload if possible. */
 export function asSshError(e: unknown): SshErrorPayload | null {
   if (typeof e === "object" && e !== null && "code" in e) {

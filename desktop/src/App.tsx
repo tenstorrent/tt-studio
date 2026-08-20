@@ -7,6 +7,7 @@ import BringUpProgress from "./views/BringUpProgress";
 import ConnectErrorCard from "./views/ConnectErrorCard";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
+import QuitDialog from "./views/QuitDialog";
 import {
   describeSshError,
   TrustHostKeyDialog,
@@ -33,13 +34,16 @@ import {
   classifyRemoteStack,
   deleteProfile,
   detectHardware,
+  getActiveRemote,
   listProfiles,
   markProfileUsed,
   onBringUpExit,
   onBringUpLine,
+  onRemoteStopLine,
   onStackHealth,
   onTunnelStatus,
   openStack,
+  quitApp,
   saveProfile,
   setSshKeyPassphrase,
   startHealthPoll,
@@ -63,7 +67,8 @@ type Screen =
   | { name: "loading" }
   | { name: "picker" }
   | { name: "editor"; profile?: Profile }
-  | { name: "connecting"; target: Profile | null };
+  | { name: "connecting"; target: Profile | null }
+  | { name: "quit" };
 
 /**
  * Where an SSH connect currently is. Local connects skip this entirely
@@ -141,7 +146,14 @@ function HealthGate({
 }
 
 function App() {
-  const [screen, setScreen] = useState<Screen>({ name: "loading" });
+  // The Rust side intercepts the window close while an SSH connection is
+  // active and navigates here with ?quit=1 — the launcher then owns the
+  // stop-vs-disconnect decision (the stack page itself has no Tauri IPC).
+  const [screen, setScreen] = useState<Screen>(() =>
+    new URLSearchParams(window.location.search).has("quit")
+      ? { name: "quit" }
+      : { name: "loading" },
+  );
   const [hardware, setHardware] = useState<HardwareProbe | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [health, setHealth] = useState<StackHealth | null>(null);
@@ -153,6 +165,7 @@ function App() {
   const opening = useRef(false);
 
   useEffect(() => {
+    if (screen.name === "quit") return;
     Promise.all([detectHardware(), listProfiles()])
       .then(([hw, saved]) => {
         setHardware(hw);
@@ -347,6 +360,49 @@ function App() {
     setScreen({ name: "connecting", target });
   }, []);
 
+  // ---- quit dialog state (screen "quit" only) ----
+  const [quitTarget, setQuitTarget] = useState<Profile | null>(null);
+  const [quitStopping, setQuitStopping] = useState(false);
+  const [quitStopLines, setQuitStopLines] = useState<string[]>([]);
+  const [quitError, setQuitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (screen.name !== "quit") return;
+    getActiveRemote()
+      .then(setQuitTarget)
+      .catch(() => setQuitTarget(null));
+    let unlisten: (() => void) | undefined;
+    onRemoteStopLine((line) =>
+      setQuitStopLines((prev) => [...prev, line]),
+    ).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [screen.name]);
+
+  const handleStopAndQuit = useCallback(() => {
+    setQuitStopping(true);
+    setQuitError(null);
+    setQuitStopLines([]);
+    // On success the app exits before this promise settles visibly; only
+    // the failure path matters here.
+    quitApp(true).catch((e) => {
+      setQuitStopping(false);
+      const ssh = asSshError(e);
+      setQuitError(ssh ? describeSshError(ssh) : String(e));
+    });
+  }, []);
+
+  const handleDisconnectQuit = useCallback(() => {
+    quitApp(false).catch((e) => setQuitError(String(e)));
+  }, []);
+
+  const handleQuitCancel = useCallback(() => {
+    openStack(STACK_URL).catch((e) => setQuitError(String(e)));
+  }, []);
+
   /** Tear down whatever the connect flow has started and go back. */
   const cancelConnect = useCallback(() => {
     cancelRemoteBringUp().catch(() => {});
@@ -412,6 +468,20 @@ function App() {
       setError(String(e));
     }
   }, []);
+
+  if (screen.name === "quit") {
+    return (
+      <QuitDialog
+        machine={quitTarget?.name ?? null}
+        stopping={quitStopping}
+        lines={quitStopLines}
+        error={quitError}
+        onStopAndQuit={handleStopAndQuit}
+        onDisconnectQuit={handleDisconnectQuit}
+        onCancel={handleQuitCancel}
+      />
+    );
+  }
 
   if (screen.name === "loading") {
     return (
