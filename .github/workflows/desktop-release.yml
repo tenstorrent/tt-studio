@@ -160,6 +160,41 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building without updater artifacts"
           fi
 
+      # The tauri bundler codesigns when APPLE_CERTIFICATE (base64 .p12) +
+      # APPLE_SIGNING_IDENTITY are in the env, and notarizes when APPLE_ID /
+      # APPLE_PASSWORD / APPLE_TEAM_ID are too. It treats the variables as
+      # enabled the moment they exist — even empty — so absent secrets must
+      # not reach the build env: export them only when non-empty, and build
+      # unsigned otherwise instead of failing.
+      - name: Enable macOS code signing and notarization
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::APPLE_CERTIFICATE not set — building unsigned, unnotarized macOS bundles"
+            exit 0
+          fi
+          for VAR in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                     APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!VAR}" ]; then
+              {
+                echo "${VAR}<<TT_EOF"
+                echo "${!VAR}"
+                echo "TT_EOF"
+              } >> "$GITHUB_ENV"
+            fi
+          done
+          if [ -z "$APPLE_ID" ]; then
+            echo "::warning::APPLE_ID not set — signing but skipping notarization"
+          fi
+
       # tauri-action runs the bundler (beforeBuildCommand builds the launcher
       # bundle first) and, when tagName is set, uploads the installers to the
       # GitHub release for that tag — creating the release if the tag push got
