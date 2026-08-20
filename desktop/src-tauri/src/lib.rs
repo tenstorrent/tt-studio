@@ -4,6 +4,7 @@
 
 mod commands;
 mod hardware;
+mod health;
 mod profiles;
 mod secrets;
 
@@ -11,6 +12,7 @@ mod secrets;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
+        .manage(health::PollerState::default())
         .invoke_handler(tauri::generate_handler![
             commands::open_stack,
             profiles::list_profiles,
@@ -21,6 +23,9 @@ pub fn run() {
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,
             hardware::detect_hardware,
+            health::check_stack_health,
+            health::start_health_poll,
+            health::stop_health_poll,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
