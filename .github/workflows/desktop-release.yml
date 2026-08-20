@@ -160,6 +160,16 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building without updater artifacts"
           fi
 
+      # Releases are plain git tags with no version bumps committed to the
+      # tree (same philosophy as tt_setup/env_config/_version.py), so the
+      # checked-in desktop versions are dev placeholders. Sync them to the
+      # tag before bundling; dry runs off a tag keep the placeholder.
+      - name: Stamp version from release tag
+        if: needs.prepare.outputs.version != ''
+        shell: bash
+        working-directory: desktop
+        run: node scripts/stamp-version.mjs "${{ needs.prepare.outputs.version }}"
+
       # The tauri bundler codesigns when APPLE_CERTIFICATE (base64 .p12) +
       # APPLE_SIGNING_IDENTITY are in the env, and notarizes when APPLE_ID /
       # APPLE_PASSWORD / APPLE_TEAM_ID are too. It treats the variables as
