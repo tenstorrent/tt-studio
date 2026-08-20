@@ -64,11 +64,14 @@ and offers a manual "Check for updates" button whose failures are shown
 via the process plugin.
 
 **Signing key**: the `pubkey` in `tauri.conf.json` is a development
-placeholder. Release CI must generate the real keypair (`tauri signer
-generate`), keep the private key in CI secrets (`TAURI_SIGNING_PRIVATE_KEY`),
-replace the placeholder pubkey, and attach signed updater artifacts +
-`latest.json` to each release. Until then the updater will reject downloaded
-artifacts (signature mismatch) — by design, it fails closed.
+placeholder — a real keypair must be generated **once, by a maintainer**
+(`npm run tauri signer generate`; never commit the private key). The private
+key + password go into the repo secrets `TAURI_SIGNING_PRIVATE_KEY` /
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and the matching public key replaces
+the placeholder here. Release CI (`.github/workflows/desktop-release.yml`)
+then signs the updater artifacts and attaches them + `latest.json` to each
+release. Until the real key lands, the updater rejects downloaded artifacts
+(signature mismatch) — by design, it fails closed.
 
 ### Stack updates (the checkout `run.py` runs in)
 

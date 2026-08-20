@@ -140,18 +140,47 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      # tauri.conf.json sets createUpdaterArtifacts, which makes the bundler
+      # sign the update packages with TAURI_SIGNING_PRIVATE_KEY and fail hard
+      # if it's absent. Forks and dry runs without the secret still need green
+      # builds, so in that case updater artifacts are disabled via a config
+      # overlay (installers still build — they're just not updater-servable).
+      - name: Configure updater artifact signing
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            OVERLAY="${RUNNER_TEMP//\\//}/tauri-conf-overlay.json"
+            [ -f "$OVERLAY" ] || echo '{}' > "$OVERLAY"
+            jq '.bundle.createUpdaterArtifacts = false' "$OVERLAY" > "$OVERLAY.tmp"
+            mv "$OVERLAY.tmp" "$OVERLAY"
+            echo "TAURI_EXTRA_ARGS=--config $OVERLAY" >> "$GITHUB_ENV"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building without updater artifacts"
+          fi
+
       # tauri-action runs the bundler (beforeBuildCommand builds the launcher
       # bundle first) and, when tagName is set, uploads the installers to the
       # GitHub release for that tag — creating the release if the tag push got
       # here before run.py --merge-rc-branch created it. On a dry run tagName
       # is empty and nothing is uploaded.
+      #
+      # includeUpdaterJson makes each matrix job upload/merge latest.json on
+      # the release, so once all three finish it lists every platform. The
+      # tauri updater plugin in the app polls exactly that asset (endpoint in
+      # desktop/src-tauri/tauri.conf.json).
       - name: Build desktop app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           tagName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
           releaseName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
           releaseDraft: false
-          args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }} ${{ env.TAURI_EXTRA_ARGS }}
