@@ -16,6 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(health::PollerState::default())
         .manage(ssh::commands::TunnelState::default())
+        .manage(remote::RemoteState::default())
         .invoke_handler(tauri::generate_handler![
             commands::open_stack,
             profiles::list_profiles,
@@ -30,6 +31,8 @@ pub fn run() {
             ssh::commands::stop_ssh_tunnels,
             ssh::commands::get_tunnel_status,
             remote::classify_remote_stack,
+            remote::start_remote_bring_up,
+            remote::cancel_remote_bring_up,
             hardware::detect_hardware,
             health::check_stack_health,
             health::start_health_poll,

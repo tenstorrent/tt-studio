@@ -279,6 +279,119 @@ pub async fn classify_remote_stack(
     ))
 }
 
+// ---- remote bring-up: `run.py --json-events` streamed over ssh exec ----
+
+/// Raw NDJSON lines from the remote bring-up, one event payload per line —
+/// the same event name the native launcher path uses, so the frontend's
+/// parser/reducer (`lib/events.ts`) is shared unchanged.
+pub const BRINGUP_LINE_EVENT: &str = "bringup-line";
+/// Fired once when the remote bring-up command finishes (or dies).
+pub const BRINGUP_EXIT_EVENT: &str = "bringup-exit";
+/// Where the remote command's stderr (human display output) is kept.
+pub const BRINGUP_STDERR_LOG: &str = "remote-bringup.log";
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct BringUpExit {
+    /// Remote exit code; `None` when the channel closed without one (killed
+    /// session, network drop) — pair with `error` for the reason if known.
+    pub exit_code: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// At most one remote bring-up runs at a time. Holds the session so
+/// cancellation can close it, which ends the exec stream.
+#[derive(Default)]
+pub struct RemoteState {
+    bring_up: tokio::sync::Mutex<Option<BringUpHandle>>,
+}
+
+struct BringUpHandle {
+    session: std::sync::Arc<SshSession>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
+impl RemoteState {
+    /// Tear down any in-flight bring-up without emitting an exit event.
+    pub(crate) async fn cancel(&self) {
+        if let Some(handle) = self.bring_up.lock().await.take() {
+            handle.task.abort();
+            handle.session.close().await;
+        }
+    }
+}
+
+/// Start `python3 run.py --no-browser --json-events` on the remote machine
+/// and stream its stdout to the launcher as `bringup-line` events; stderr
+/// (the human-facing display output) goes to `remote-bringup.log` in the app
+/// log dir. Replaces any bring-up already running.
+#[tauri::command]
+pub async fn start_remote_bring_up(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, RemoteState>,
+    profile: Profile,
+) -> Result<(), SshError> {
+    let session = std::sync::Arc::new(connect_session(&app, &profile).await?);
+    let command = bring_up_command(&repo_path(&profile));
+    let mut stderr_log = stderr_log_file(&app);
+
+    let task_session = session.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        use std::io::Write;
+        use tauri::Emitter;
+        let line_app = app.clone();
+        let result = task_session
+            .exec_stream(
+                &command,
+                |line| {
+                    let _ = line_app.emit(BRINGUP_LINE_EVENT, line);
+                },
+                |chunk| {
+                    if let Some(f) = &mut stderr_log {
+                        let _ = f.write_all(chunk);
+                    }
+                },
+            )
+            .await;
+        task_session.close().await;
+        let exit = match result {
+            Ok(exit_code) => BringUpExit {
+                exit_code,
+                error: None,
+            },
+            Err(e) => BringUpExit {
+                exit_code: None,
+                error: Some(e.to_string()),
+            },
+        };
+        let _ = app.emit(BRINGUP_EXIT_EVENT, &exit);
+    });
+
+    let mut guard = state.bring_up.lock().await;
+    if let Some(previous) = guard.take() {
+        previous.task.abort();
+        previous.session.close().await;
+    }
+    *guard = Some(BringUpHandle { session, task });
+    Ok(())
+}
+
+/// Stop a running remote bring-up by closing its SSH session (ends the exec
+/// channel; sshd tears the remote process group down with it). Idempotent.
+#[tauri::command]
+pub async fn cancel_remote_bring_up(state: tauri::State<'_, RemoteState>) -> Result<(), SshError> {
+    state.cancel().await;
+    Ok(())
+}
+
+/// Fresh log file per bring-up; failures to create it degrade to discarding
+/// stderr rather than blocking the bring-up.
+fn stderr_log_file(app: &tauri::AppHandle) -> Option<std::fs::File> {
+    let dir = app.path().app_log_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::File::create(dir.join(BRINGUP_STDERR_LOG)).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,6 +561,25 @@ mod tests {
             stop_command("~/tt-studio"),
             "cd \"$HOME\"/'tt-studio' && python3 run.py --stop 2>&1"
         );
+    }
+
+    #[test]
+    fn bring_up_exit_serializes_for_the_ui() {
+        let json = serde_json::to_value(BringUpExit {
+            exit_code: Some(2),
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(json["exit_code"], 2);
+        assert!(json.get("error").is_none());
+
+        let json = serde_json::to_value(BringUpExit {
+            exit_code: None,
+            error: Some("connection lost".into()),
+        })
+        .unwrap();
+        assert!(json["exit_code"].is_null());
+        assert_eq!(json["error"], "connection lost");
     }
 
     #[test]
