@@ -43,11 +43,14 @@ pub struct SpawnSpec {
 }
 
 /// Full bring-up. `--no-browser` because the desktop window is the browser;
-/// `--json-events` for the machine-readable stream (implies non-interactive).
+/// `--json-events` for the machine-readable stream (implies non-interactive);
+/// `--no-sudo` because a GUI child can never answer a sudo password prompt —
+/// anything that genuinely needs root becomes a `prompt_blocked`/`error`
+/// event pointing the user at a one-time terminal run instead of a hang.
 pub fn bring_up_spec(checkout: &Path, stderr_log: PathBuf) -> SpawnSpec {
     SpawnSpec {
         program: PYTHON.to_string(),
-        args: ["run.py", "--no-browser", "--json-events"]
+        args: ["run.py", "--no-browser", "--json-events", "--no-sudo"]
             .map(String::from)
             .to_vec(),
         cwd: checkout.to_path_buf(),
@@ -264,7 +267,10 @@ mod tests {
     fn bring_up_spec_runs_run_py_with_json_events_from_the_checkout() {
         let spec = bring_up_spec(Path::new("/tmp/stack"), PathBuf::from("/tmp/log"));
         assert_eq!(spec.program, "python3");
-        assert_eq!(spec.args, ["run.py", "--no-browser", "--json-events"]);
+        assert_eq!(
+            spec.args,
+            ["run.py", "--no-browser", "--json-events", "--no-sudo"]
+        );
         // run.py derives TT_STUDIO_ROOT from cwd — this is the contract.
         assert_eq!(spec.cwd, Path::new("/tmp/stack"));
     }

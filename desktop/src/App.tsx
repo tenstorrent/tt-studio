@@ -8,6 +8,7 @@ import BringUpProgress from "./views/BringUpProgress";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
 import {
+  applyExit,
   initialBringUpState,
   parseEventLine,
   reduceEvent,
@@ -151,16 +152,25 @@ function App() {
   // shell), render its NDJSON stream natively instead of the bare checklist.
   useEffect(() => {
     if (screen.name !== "connecting") return;
-    let unlisten: (() => void) | undefined;
+    let unlistenLine: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
     listen<string>("bringup-line", ({ payload }) => {
       const event = parseEventLine(payload);
       if (!event) return;
       setBringUp((prev) => reduceEvent(prev ?? initialBringUpState(), event));
     }).then((fn) => {
-      unlisten = fn;
+      unlistenLine = fn;
+    });
+    // If the child dies without a terminal event (crash, kill, blocked
+    // prompt before the stream existed), surface that instead of spinning.
+    listen<number | null>("bringup-exit", ({ payload }) => {
+      setBringUp((prev) => applyExit(prev ?? initialBringUpState(), payload));
+    }).then((fn) => {
+      unlistenExit = fn;
     });
     return () => {
-      unlisten?.();
+      unlistenLine?.();
+      unlistenExit?.();
       setBringUp(null);
     };
   }, [screen.name]);
@@ -299,7 +309,12 @@ function App() {
   }
 
   if (screen.name === "connecting") {
-    if (bringUp && bringUp.phases.length > 0) {
+    if (
+      bringUp &&
+      (bringUp.phases.length > 0 ||
+        bringUp.errors.length > 0 ||
+        bringUp.promptBlocked)
+    ) {
       return <BringUpProgress state={bringUp} onReady={handleBringUpReady} />;
     }
     if (prep) {

@@ -210,6 +210,49 @@ export function reduceEvent(
   }
 }
 
+/** What the prompt-blocked card tells the user to run in a terminal. */
+export const ONE_TIME_SETUP_COMMAND = "python run.py";
+
+/**
+ * Fold the child's exit code into the state. A healthy stream carries its
+ * own terminal event (ready / error / prompt_blocked); this fills the gap
+ * when the process dies without one — a crash, a kill, or exit code 2 from
+ * a prompt hit before the event stream existed — so the UI never waits on a
+ * dead child. No-op when the stream already explained itself.
+ */
+export function applyExit(
+  state: BringUpState,
+  code: number | null,
+): BringUpState {
+  if (state.ready || code === 0) return state;
+  // Exit code 2 is the --json-events contract for "needed interactive input".
+  if (code === 2) {
+    return state.promptBlocked
+      ? state
+      : {
+          ...state,
+          promptBlocked: {
+            prompt: "The launcher needed interactive input before it could report why.",
+            remediation: ONE_TIME_SETUP_COMMAND,
+          },
+        };
+  }
+  if (state.errors.length > 0) return state;
+  return {
+    ...state,
+    errors: [
+      ...state.errors,
+      {
+        message:
+          code === null
+            ? "Bring-up was interrupted before it finished"
+            : `Bring-up exited with code ${code}`,
+        remediation: ONE_TIME_SETUP_COMMAND,
+      },
+    ],
+  };
+}
+
 /** Convenience for tests and replay: fold a whole NDJSON document. */
 export function reduceStream(ndjson: string): BringUpState {
   return ndjson

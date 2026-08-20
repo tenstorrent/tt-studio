@@ -6,8 +6,39 @@
 // phase stepper, notes/warnings, error cards with remediation, and the
 // ready → open-the-stack transition. Pure view over BringUpState.
 
-import { useEffect } from "react";
-import type { BringUpState, PhaseState } from "../lib/events";
+import { useEffect, useState } from "react";
+import {
+  ONE_TIME_SETUP_COMMAND,
+  type BringUpState,
+  type PhaseState,
+} from "../lib/events";
+
+/** A remediation command with a copy-to-clipboard affordance. */
+function Remediation({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(command)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {});
+  };
+  return (
+    <span className="inline-flex items-center gap-2">
+      <code className="rounded bg-zinc-900 px-1 py-0.5">{command}</code>
+      <button
+        type="button"
+        onClick={copy}
+        data-testid="copy-remediation"
+        className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
 
 function PhaseRow({ phase, total }: { phase: PhaseState; total: number | null }) {
   const icon =
@@ -107,10 +138,7 @@ function BringUpProgress({ state, onReady }: Props) {
           </p>
           {err.remediation && (
             <p className="mt-2 text-xs text-red-200/80">
-              Try:{" "}
-              <code className="rounded bg-zinc-900 px-1 py-0.5">
-                {err.remediation}
-              </code>
+              Try: <Remediation command={err.remediation} />
             </p>
           )}
           {err.log && (
@@ -130,14 +158,12 @@ function BringUpProgress({ state, onReady }: Props) {
           <p className="mt-1 text-xs text-amber-200/80">
             {state.promptBlocked.prompt}
           </p>
-          {state.promptBlocked.remediation && (
-            <p className="mt-2 text-xs text-amber-200/80">
-              Try:{" "}
-              <code className="rounded bg-zinc-900 px-1 py-0.5">
-                {state.promptBlocked.remediation}
-              </code>
-            </p>
-          )}
+          <p className="mt-2 text-xs text-amber-200/80">
+            Run the one-time setup in a terminal, then relaunch:{" "}
+            <Remediation
+              command={state.promptBlocked.remediation ?? ONE_TIME_SETUP_COMMAND}
+            />
+          </p>
         </section>
       )}
     </main>

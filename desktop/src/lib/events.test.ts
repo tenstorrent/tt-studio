@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  applyExit,
   initialBringUpState,
   parseEventLine,
   reduceEvent,
@@ -132,5 +133,30 @@ describe("reduceEvent / reduceStream", () => {
       `pre-bootstrap chatter\n${FAILURE_STREAM}\nmore chatter`,
     );
     expect(state.errors).toHaveLength(1);
+  });
+});
+
+describe("applyExit (child died — was the stream self-explanatory?)", () => {
+  it("leaves a ready or already-explained stream alone", () => {
+    const ready = reduceStream(SUCCESS_STREAM);
+    expect(applyExit(ready, 0)).toBe(ready);
+    const failed = reduceStream(FAILURE_STREAM);
+    expect(applyExit(failed, 1)).toBe(failed);
+    const blocked = reduceStream(PROMPT_BLOCKED_STREAM);
+    expect(applyExit(blocked, 2)).toBe(blocked);
+  });
+
+  it("turns a bare exit 2 into a prompt-blocked card", () => {
+    const state = applyExit(initialBringUpState(), 2);
+    expect(state.promptBlocked?.remediation).toBe("python run.py");
+  });
+
+  it("turns an unexplained crash or kill into an error card", () => {
+    const crashed = applyExit(initialBringUpState(), 1);
+    expect(crashed.errors[0].message).toContain("exited with code 1");
+    expect(crashed.errors[0].remediation).toBe("python run.py");
+
+    const killed = applyExit(initialBringUpState(), null);
+    expect(killed.errors[0].message).toContain("interrupted");
   });
 });
