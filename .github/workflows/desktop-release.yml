@@ -78,3 +78,80 @@ jobs:
             echo "publish=$PUBLISH"
           } >> "$GITHUB_OUTPUT"
           echo "tag='$TAG' publish=$PUBLISH"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ships one universal .dmg (aarch64 + x86_64 in a single
+          # binary) rather than per-arch installers.
+          - name: macos-universal
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - name: windows-x64
+            os: windows-latest
+            args: --bundles nsis
+          # ubuntu-22.04 (not -latest) keeps the AppImage/.deb glibc floor low
+          # enough for older distros. Shipping a .deb follows the precedent
+          # set by tt-local-generator's release-deb workflow.
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: --bundles appimage,deb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install launcher dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # tauri-action runs the bundler (beforeBuildCommand builds the launcher
+      # bundle first) and, when tagName is set, uploads the installers to the
+      # GitHub release for that tag — creating the release if the tag push got
+      # here before run.py --merge-rc-branch created it. On a dry run tagName
+      # is empty and nothing is uploaded.
+      - name: Build desktop app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
+          releaseName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
+          releaseDraft: false
+          args: ${{ matrix.args }}
