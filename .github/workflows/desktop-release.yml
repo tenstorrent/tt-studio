@@ -1,0 +1,80 @@
+name: Desktop release
+
+# Builds the TT-Studio desktop app (desktop/, Tauri v2) for macOS, Windows,
+# and Linux and attaches the installers + the updater manifest (latest.json)
+# to the GitHub release, so one v* tag drives both the GHCR service images
+# (publish-images.yml) and the desktop artifacts.
+#
+# Publishing is deliberately release-only: a v* tag push or a published GitHub
+# release uploads artifacts to the release for that tag. workflow_dispatch
+# builds everything as a dry run by default; its `publish` input allows an
+# explicit ad-hoc upload (only when dispatched on a v* tag ref). Nothing
+# publishes from dev or feature branches automatically.
+#
+# Caveat (same as publish-images.yml): tags/releases created by another
+# workflow using the default GITHUB_TOKEN do not trigger this workflow
+# (GitHub suppresses recursive triggers). Release tagging today is done from
+# a maintainer's machine (run.py --merge-rc-branch) with their credentials,
+# which does trigger it; if tagging is ever automated, that workflow must
+# call this one via workflow_call or push the tag with a PAT.
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload artifacts + latest.json to the GitHub release (off = dry-run build only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+# contents: write is required to upload assets to the release.
+permissions:
+  contents: write
+
+jobs:
+  # Resolves which release tag (if any) this run targets and whether artifacts
+  # should be uploaded, so every build job shares one publish decision.
+  prepare:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - name: Compute tag and publish decision
+        id: meta
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          TAG=""
+          case "$GITHUB_REF" in
+            refs/tags/v*) TAG="$GITHUB_REF_NAME" ;;
+          esac
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="$RELEASE_TAG"
+          fi
+
+          PUBLISH=true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PUBLISH="${DISPATCH_PUBLISH:-false}"
+          fi
+          # Without a v* tag there is no release to attach artifacts to.
+          [ -n "$TAG" ] || PUBLISH=false
+
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "publish=$PUBLISH"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag='$TAG' publish=$PUBLISH"
