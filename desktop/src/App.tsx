@@ -15,14 +15,19 @@ import {
 } from "./lib/events";
 import {
   asSecretError,
+  checkStackHealth,
   deleteProfile,
   detectHardware,
   listProfiles,
+  markLocalAttach,
   markProfileUsed,
   onStackHealth,
   openStack,
+  resolveStackCheckout,
+  restartStack,
   saveProfile,
   setSshKeyPassphrase,
+  startBringUp,
   startHealthPoll,
   stopHealthPoll,
   type HardwareProbe,
@@ -39,7 +44,9 @@ type Screen =
   | { name: "loading" }
   | { name: "picker" }
   | { name: "editor"; profile?: Profile }
-  | { name: "connecting"; target: Profile | null };
+  // bringUpOnly: a restart is in flight — services may briefly still look
+  // healthy, so only the bring-up's own ready event may open the stack.
+  | { name: "connecting"; target: Profile | null; bringUpOnly?: boolean };
 
 const STATUS_STYLE: Record<string, string> = {
   up: "bg-emerald-500",
@@ -98,6 +105,10 @@ function App() {
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [keychainWarning, setKeychainWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** One-line status while native mode prepares (checkout clone, --stop). */
+  const [prep, setPrep] = useState<string | null>(null);
+  /** Whether a local stack already answers its health checks (picker info). */
+  const [stackUp, setStackUp] = useState(false);
   const opening = useRef(false);
 
   useEffect(() => {
@@ -113,9 +124,18 @@ function App() {
       });
   }, []);
 
+  // On the picker, take one health snapshot so it can say whether a local
+  // stack is already running (read-only GETs).
+  useEffect(() => {
+    if (screen.name !== "picker") return;
+    checkStackHealth()
+      .then((h) => setStackUp(h.ready))
+      .catch(() => setStackUp(false));
+  }, [screen.name]);
+
   // While connecting: poll stack health, and navigate once everything is up.
   useEffect(() => {
-    if (screen.name !== "connecting") return;
+    if (screen.name !== "connecting" || screen.bringUpOnly) return;
     let unlisten: (() => void) | undefined;
     onStackHealth(setHealth).then((fn) => {
       unlisten = fn;
@@ -158,7 +178,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (screen.name !== "connecting" || !health?.ready || opening.current)
+    if (
+      screen.name !== "connecting" ||
+      screen.bringUpOnly ||
+      !health?.ready ||
+      opening.current
+    )
       return;
     opening.current = true;
     stopHealthPoll()
@@ -175,6 +200,49 @@ function App() {
     opening.current = false;
     if (target) markProfileUsed(target.id).catch(() => {});
     setScreen({ name: "connecting", target });
+  }, []);
+
+  // Native mode: attach if the stack is already healthy, otherwise resolve
+  // the checkout (cloning on first use) and spawn the bring-up.
+  const connectLocal = useCallback(async () => {
+    setHealth(null);
+    opening.current = false;
+    setScreen({ name: "connecting", target: null });
+    try {
+      const current = await checkStackHealth();
+      if (current.ready) {
+        // Already running: no bring-up — the health poller opens the stack.
+        await markLocalAttach();
+        return;
+      }
+      setPrep("Preparing the TT-Studio checkout (first run clones it)…");
+      const checkout = await resolveStackCheckout();
+      await startBringUp(checkout.path);
+    } catch (e) {
+      setError(String(e));
+      setScreen({ name: "picker" });
+    } finally {
+      setPrep(null);
+    }
+  }, []);
+
+  // Explicit "Restart stack": run.py --stop, then a fresh bring-up. Health
+  // polling is suppressed (bringUpOnly) so the old, still-draining services
+  // can't re-open the stack mid-restart.
+  const handleRestart = useCallback(async () => {
+    setHealth(null);
+    opening.current = false;
+    setScreen({ name: "connecting", target: null, bringUpOnly: true });
+    setPrep("Stopping the current stack…");
+    try {
+      const checkout = await resolveStackCheckout();
+      await restartStack(checkout.path);
+    } catch (e) {
+      setError(String(e));
+      setScreen({ name: "picker" });
+    } finally {
+      setPrep(null);
+    }
   }, []);
 
   const handleSave = useCallback(
@@ -234,6 +302,16 @@ function App() {
     if (bringUp && bringUp.phases.length > 0) {
       return <BringUpProgress state={bringUp} onReady={handleBringUpReady} />;
     }
+    if (prep) {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-950 px-6 text-zinc-100">
+          <span className="inline-block h-5 w-5 animate-spin rounded-full border border-zinc-500 border-t-transparent" />
+          <p data-testid="native-prep" className="text-sm text-zinc-400">
+            {prep}
+          </p>
+        </main>
+      );
+    }
     return <HealthGate health={health} target={screen.target} />;
   }
 
@@ -242,7 +320,9 @@ function App() {
       <ConnectionPicker
         hardware={hardware}
         profiles={profiles}
-        onConnectLocal={() => connect(null)}
+        stackUp={stackUp}
+        onConnectLocal={connectLocal}
+        onRestartStack={handleRestart}
         onConnectSsh={connect}
         onAddMachine={() => setScreen({ name: "editor" })}
         onEditProfile={(profile) => setScreen({ name: "editor", profile })}

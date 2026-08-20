@@ -117,6 +117,13 @@ export const stopBringUp = () => invoke<boolean>("stop_bring_up");
 
 export const bringUpRunning = () => invoke<boolean>("bring_up_running");
 
+/** Record that the UI attached to an already-running local stack. */
+export const markLocalAttach = () => invoke<void>("mark_local_attach");
+
+/** `run.py --stop`, then a fresh bring-up. Explicit user action only. */
+export const restartStack = (checkout: string) =>
+  invoke<number>("restart_stack", { checkout });
+
 /** Raw NDJSON lines from `run.py --json-events` (parse with events.ts). */
 export const onBringUpLine = (
   handler: (line: string) => void,

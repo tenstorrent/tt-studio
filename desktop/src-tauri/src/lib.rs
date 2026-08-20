@@ -35,6 +35,8 @@ pub fn run() {
             launcher::start_bring_up,
             launcher::stop_bring_up,
             launcher::bring_up_running,
+            launcher::mark_local_attach,
+            launcher::restart_stack,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

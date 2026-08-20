@@ -36,7 +36,9 @@ const older: Profile = {
 };
 
 const noop = {
+  stackUp: false,
   onConnectLocal: () => {},
+  onRestartStack: () => {},
   onConnectSsh: () => {},
   onAddMachine: () => {},
   onEditProfile: () => {},
@@ -72,6 +74,41 @@ describe("ConnectionPicker", () => {
     render(<ConnectionPicker hardware={noHardware} profiles={[]} {...noop} />);
     expect(screen.queryByTestId("connect-local")).toBeNull();
     expect(screen.getByTestId("picker-empty")).toBeTruthy();
+  });
+
+  it("offers restart only when a local stack is already up", () => {
+    const onRestartStack = vi.fn();
+    const { unmount } = render(
+      <ConnectionPicker
+        hardware={withHardware}
+        profiles={[]}
+        {...noop}
+        stackUp
+        onRestartStack={onRestartStack}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("restart-stack"));
+    expect(onRestartStack).toHaveBeenCalled();
+    expect(screen.getByText(/already running/)).toBeTruthy();
+    unmount();
+
+    // Stack down → no restart affordance.
+    const second = render(
+      <ConnectionPicker hardware={withHardware} profiles={[]} {...noop} />,
+    );
+    expect(screen.queryByTestId("restart-stack")).toBeNull();
+    second.unmount();
+
+    // No hardware → no restart even if something answers on the ports.
+    render(
+      <ConnectionPicker
+        hardware={noHardware}
+        profiles={[]}
+        {...noop}
+        stackUp
+      />,
+    );
+    expect(screen.queryByTestId("restart-stack")).toBeNull();
   });
 
   it("connects a saved ssh machine with one click", () => {

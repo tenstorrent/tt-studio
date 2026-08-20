@@ -35,7 +35,11 @@ export function describeAuth(profile: Profile): string {
 interface Props {
   hardware: HardwareProbe | null;
   profiles: Profile[];
+  /** A local stack already answers its health checks. */
+  stackUp: boolean;
   onConnectLocal: () => void;
+  /** Explicit stop-then-bring-up; never triggered automatically. */
+  onRestartStack: () => void;
   onConnectSsh: (profile: Profile) => void;
   onAddMachine: () => void;
   onEditProfile: (profile: Profile) => void;
@@ -45,7 +49,9 @@ interface Props {
 function ConnectionPicker({
   hardware,
   profiles,
+  stackUp,
   onConnectLocal,
+  onRestartStack,
   onConnectSsh,
   onAddMachine,
   onEditProfile,
@@ -80,13 +86,28 @@ function ConnectionPicker({
                 Run on this machine
               </span>
               <span className="block text-xs text-zinc-400">
-                Tenstorrent accelerator detected
+                {stackUp
+                  ? "Stack already running — connect attaches to it"
+                  : "Tenstorrent accelerator detected"}
               </span>
             </span>
             <span className="text-xs font-medium text-purple-400">
               Recommended
             </span>
           </button>
+        )}
+
+        {hardware?.accelerator_present && stackUp && (
+          <div className="flex items-center justify-end px-1">
+            <button
+              type="button"
+              onClick={onRestartStack}
+              data-testid="restart-stack"
+              className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            >
+              Restart stack
+            </button>
+          </div>
         )}
 
         {sshProfiles.map((profile) => (

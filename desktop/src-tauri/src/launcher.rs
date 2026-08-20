@@ -211,6 +211,51 @@ pub fn bring_up_running(state: tauri::State<'_, LauncherState>) -> bool {
     state.child.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
+/// The UI attached to an already-healthy local stack (no bring-up spawned).
+/// Recorded so quitting can still offer to stop that stack.
+#[tauri::command]
+pub fn mark_local_attach(state: tauri::State<'_, LauncherState>) {
+    state.local_stack.store(true, Ordering::SeqCst);
+}
+
+/// Explicit restart: `run.py --stop` (streamed as `stop-line` events), then
+/// a fresh bring-up. Never triggered automatically — only by the launcher
+/// UI's "Restart stack" action.
+#[tauri::command]
+pub async fn restart_stack(
+    app: tauri::AppHandle<Wry>,
+    state: tauri::State<'_, LauncherState>,
+    checkout: String,
+) -> Result<u32, String> {
+    let path = checked_checkout(&checkout)?;
+    let logs = log_dir(&app)?;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let line_app = app.clone();
+    spawn_streaming(
+        &stop_spec(&path, logs.join("stop.log")),
+        state.child.clone(),
+        move |line| {
+            let _ = line_app.emit(STOP_LINE_EVENT, &line);
+        },
+        move |code| {
+            let _ = tx.send(code);
+        },
+    )?;
+    let code = tauri::async_runtime::spawn_blocking(move || rx.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "run.py --stop ended without reporting an exit code".to_string())?;
+    if code != Some(0) {
+        return Err(format!(
+            "run.py --stop failed (exit {}) — not starting a new bring-up",
+            code.map_or("signal".to_string(), |c| c.to_string())
+        ));
+    }
+
+    spawn_bring_up(&app, &state, &path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
