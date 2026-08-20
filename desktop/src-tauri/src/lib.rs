@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 mod commands;
+mod hardware;
 mod profiles;
 mod secrets;
 
@@ -19,6 +20,7 @@ pub fn run() {
             secrets::set_ssh_key_passphrase,
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,
+            hardware::detect_hardware,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
