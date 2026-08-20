@@ -96,6 +96,39 @@ export const onStackHealth = (
 ): Promise<UnlistenFn> =>
   listen<StackHealth>("stack-health", (event) => handler(event.payload));
 
+// ---- native launcher (stack checkout + run.py child) ----
+
+export interface StackCheckout {
+  path: string;
+  source: "configured" | "managed" | "cloned";
+}
+
+/** May shallow-clone the latest release on first use — can take a while. */
+export const resolveStackCheckout = () =>
+  invoke<StackCheckout>("resolve_stack_checkout");
+
+export const setStackCheckoutPath = (path: string | null) =>
+  invoke<void>("set_stack_checkout_path", { path });
+
+export const startBringUp = (checkout: string) =>
+  invoke<number>("start_bring_up", { checkout });
+
+export const stopBringUp = () => invoke<boolean>("stop_bring_up");
+
+export const bringUpRunning = () => invoke<boolean>("bring_up_running");
+
+/** Raw NDJSON lines from `run.py --json-events` (parse with events.ts). */
+export const onBringUpLine = (
+  handler: (line: string) => void,
+): Promise<UnlistenFn> =>
+  listen<string>("bringup-line", (event) => handler(event.payload));
+
+/** Exit code of the bring-up child; null when killed by a signal. */
+export const onBringUpExit = (
+  handler: (code: number | null) => void,
+): Promise<UnlistenFn> =>
+  listen<number | null>("bringup-exit", (event) => handler(event.payload));
+
 // ---- navigation ----
 
 export const openStack = (url: string) => invoke<void>("open_stack", { url });
