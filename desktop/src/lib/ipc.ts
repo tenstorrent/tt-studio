@@ -25,7 +25,10 @@ export interface Profile {
   last_used?: number;
 }
 
+export type Platform = "linux" | "macos" | "windows" | "other";
+
 export interface HardwareProbe {
+  platform: Platform;
   accelerator_present: boolean;
   default_mode: ProfileKind;
 }
@@ -179,12 +182,42 @@ export const startRemoteBringUp = (profile: Profile) =>
 export const cancelRemoteBringUp = () =>
   invoke<void>("cancel_remote_bring_up");
 
-/** Raw NDJSON lines from a remote bring-up (parse with lib/events.ts). */
+// ---- native launcher (stack checkout + run.py child) ----
+
+export interface StackCheckout {
+  path: string;
+  source: "configured" | "managed" | "cloned";
+}
+
+/** May shallow-clone the latest release on first use — can take a while. */
+export const resolveStackCheckout = () =>
+  invoke<StackCheckout>("resolve_stack_checkout");
+
+export const setStackCheckoutPath = (path: string | null) =>
+  invoke<void>("set_stack_checkout_path", { path });
+
+export const startBringUp = (checkout: string) =>
+  invoke<number>("start_bring_up", { checkout });
+
+export const stopBringUp = () => invoke<boolean>("stop_bring_up");
+
+export const bringUpRunning = () => invoke<boolean>("bring_up_running");
+
+/** Record that the UI attached to an already-running local stack. */
+export const markLocalAttach = () => invoke<void>("mark_local_attach");
+
+/** `run.py --stop`, then a fresh bring-up. Explicit user action only. */
+export const restartStack = (checkout: string) =>
+  invoke<number>("restart_stack", { checkout });
+
+/** Raw NDJSON lines from `run.py --json-events`, native or over ssh exec
+ * (parse with lib/events.ts). */
 export const onBringUpLine = (
   handler: (line: string) => void,
 ): Promise<UnlistenFn> =>
   listen<string>("bringup-line", (event) => handler(event.payload));
 
+/** Fired once when a bring-up (native child or remote exec) finishes. */
 export const onBringUpExit = (
   handler: (exit: BringUpExit) => void,
 ): Promise<UnlistenFn> =>

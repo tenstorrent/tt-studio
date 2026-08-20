@@ -22,6 +22,7 @@ import {
   type ConnectStep,
 } from "./lib/connect";
 import {
+  applyExit,
   initialBringUpState,
   parseEventLine,
   reduceEvent,
@@ -31,11 +32,13 @@ import {
   asSecretError,
   asSshError,
   cancelRemoteBringUp,
+  checkStackHealth,
   classifyRemoteStack,
   deleteProfile,
   detectHardware,
   getActiveRemote,
   listProfiles,
+  markLocalAttach,
   markProfileUsed,
   onBringUpExit,
   onBringUpLine,
@@ -44,8 +47,12 @@ import {
   onTunnelStatus,
   openStack,
   quitApp,
+  resolveStackCheckout,
+  restartStack,
   saveProfile,
   setSshKeyPassphrase,
+  startBringUp,
+  stopBringUp,
   startHealthPoll,
   startRemoteBringUp,
   startSshTunnels,
@@ -67,7 +74,9 @@ type Screen =
   | { name: "loading" }
   | { name: "picker" }
   | { name: "editor"; profile?: Profile }
-  | { name: "connecting"; target: Profile | null }
+  // bringUpOnly: a restart is in flight — services may briefly still look
+  // healthy, so only the bring-up's own ready event may open the stack.
+  | { name: "connecting"; target: Profile | null; bringUpOnly?: boolean }
   | { name: "quit" };
 
 /**
@@ -162,6 +171,10 @@ function App() {
   const [stage, setStage] = useState<RemoteStage>({ step: "tunnel" });
   const [keychainWarning, setKeychainWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** One-line status while native mode prepares (checkout clone, --stop). */
+  const [prep, setPrep] = useState<string | null>(null);
+  /** Whether a local stack already answers its health checks (picker info). */
+  const [stackUp, setStackUp] = useState(false);
   const opening = useRef(false);
 
   useEffect(() => {
@@ -178,11 +191,20 @@ function App() {
       });
   }, []);
 
+  // On the picker, take one health snapshot so it can say whether a local
+  // stack is already running (read-only GETs).
+  useEffect(() => {
+    if (screen.name !== "picker") return;
+    checkStackHealth()
+      .then((h) => setStackUp(h.ready))
+      .catch(() => setStackUp(false));
+  }, [screen.name]);
+
   // While connecting: poll stack health, and navigate once everything is up.
   // For SSH targets the poll waits for the attach stage — before the tunnel
   // is verified, localhost:3000 could be some other local server.
   useEffect(() => {
-    if (screen.name !== "connecting") return;
+    if (screen.name !== "connecting" || screen.bringUpOnly) return;
     if (screen.target && stage.step !== "attach") return;
     let unlisten: (() => void) | undefined;
     onStackHealth(setHealth).then((fn) => {
@@ -273,30 +295,22 @@ function App() {
   // checklist.
   useEffect(() => {
     if (screen.name !== "connecting") return;
-    let unlisten: (() => void) | undefined;
+    let unlistenLine: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
     onBringUpLine((line) => {
       const event = parseEventLine(line);
       if (!event) return;
       setBringUp((prev) => reduceEvent(prev ?? initialBringUpState(), event));
     }).then((fn) => {
-      unlisten = fn;
+      unlistenLine = fn;
     });
-    return () => {
-      unlisten?.();
-      setBringUp(null);
-    };
-  }, [screen.name]);
-
-  // A remote bring-up that dies without reaching `ready` (network drop,
-  // remote crash before the launcher could emit its own error event) still
-  // needs an error card — synthesize one from the exit notification.
-  useEffect(() => {
-    if (screen.name !== "connecting") return;
-    let unlisten: (() => void) | undefined;
+    // A bring-up that dies without a terminal event (crash, kill, network
+    // drop, blocked prompt before the stream existed) still needs an error
+    // card — synthesize one from the exit notification instead of spinning.
     onBringUpExit((exit) => {
-      if (exit.exit_code === 0 && !exit.error) return;
       setBringUp((prev) => {
         const state = prev ?? initialBringUpState();
+        if (!exit.error) return applyExit(state, exit.exit_code);
         if (state.ready || state.errors.length > 0) return state;
         return reduceEvent(state, {
           v: 1,
@@ -304,19 +318,19 @@ function App() {
           event: "error",
           phase: null,
           detail: {
-            message:
-              exit.error ??
-              `Bring-up exited with code ${exit.exit_code ?? "unknown"}`,
+            message: exit.error,
             remediation:
               "Check remote-bringup.log in the app's log folder, then try connecting again.",
           },
         });
       });
     }).then((fn) => {
-      unlisten = fn;
+      unlistenExit = fn;
     });
     return () => {
-      unlisten?.();
+      unlistenLine?.();
+      unlistenExit?.();
+      setBringUp(null);
     };
   }, [screen.name]);
 
@@ -333,7 +347,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (screen.name !== "connecting" || !health?.ready || opening.current)
+    if (
+      screen.name !== "connecting" ||
+      screen.bringUpOnly ||
+      !health?.ready ||
+      opening.current
+    )
       return;
     opening.current = true;
     stopHealthPoll()
@@ -358,6 +377,51 @@ function App() {
       startSshTunnels(target).catch((e) => setError(String(e)));
     }
     setScreen({ name: "connecting", target });
+  }, []);
+
+  // Native mode: attach if the stack is already healthy, otherwise resolve
+  // the checkout (cloning on first use) and spawn the bring-up.
+  const connectLocal = useCallback(async () => {
+    setHealth(null);
+    setStage({ step: "attach" });
+    opening.current = false;
+    setScreen({ name: "connecting", target: null });
+    try {
+      const current = await checkStackHealth();
+      if (current.ready) {
+        // Already running: no bring-up — the health poller opens the stack.
+        await markLocalAttach();
+        return;
+      }
+      setPrep("Preparing the TT-Studio checkout (first run clones it)…");
+      const checkout = await resolveStackCheckout();
+      await startBringUp(checkout.path);
+    } catch (e) {
+      setError(String(e));
+      setScreen({ name: "picker" });
+    } finally {
+      setPrep(null);
+    }
+  }, []);
+
+  // Explicit "Restart stack": run.py --stop, then a fresh bring-up. Health
+  // polling is suppressed (bringUpOnly) so the old, still-draining services
+  // can't re-open the stack mid-restart.
+  const handleRestart = useCallback(async () => {
+    setHealth(null);
+    setStage({ step: "attach" });
+    opening.current = false;
+    setScreen({ name: "connecting", target: null, bringUpOnly: true });
+    setPrep("Stopping the current stack…");
+    try {
+      const checkout = await resolveStackCheckout();
+      await restartStack(checkout.path);
+    } catch (e) {
+      setError(String(e));
+      setScreen({ name: "picker" });
+    } finally {
+      setPrep(null);
+    }
   }, []);
 
   // ---- quit dialog state (screen "quit" only) ----
@@ -405,6 +469,7 @@ function App() {
 
   /** Tear down whatever the connect flow has started and go back. */
   const cancelConnect = useCallback(() => {
+    stopBringUp().catch(() => {});
     cancelRemoteBringUp().catch(() => {});
     stopSshTunnels().catch(() => {});
     setTunnel(null);
@@ -530,13 +595,28 @@ function App() {
         />
       );
     }
-    if (bringUp && (bringUp.phases.length > 0 || bringUp.errors.length > 0)) {
+    if (
+      bringUp &&
+      (bringUp.phases.length > 0 ||
+        bringUp.errors.length > 0 ||
+        bringUp.promptBlocked)
+    ) {
       return (
         <BringUpProgress
           state={bringUp}
           onReady={handleBringUpReady}
           onCancel={cancelConnect}
         />
+      );
+    }
+    if (prep) {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-950 px-6 text-zinc-100">
+          <span className="inline-block h-5 w-5 animate-spin rounded-full border border-zinc-500 border-t-transparent" />
+          <p data-testid="native-prep" className="text-sm text-zinc-400">
+            {prep}
+          </p>
+        </main>
       );
     }
     return (
@@ -559,7 +639,9 @@ function App() {
       <ConnectionPicker
         hardware={hardware}
         profiles={profiles}
-        onConnectLocal={() => connect(null)}
+        stackUp={stackUp}
+        onConnectLocal={connectLocal}
+        onRestartStack={handleRestart}
         onConnectSsh={connect}
         onAddMachine={() => setScreen({ name: "editor" })}
         onEditProfile={(profile) => setScreen({ name: "editor", profile })}

@@ -2,7 +2,7 @@
 //
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BringUpProgress from "./BringUpProgress";
 import { reduceStream } from "../lib/events";
@@ -66,5 +66,27 @@ describe("BringUpProgress", () => {
     const card = screen.getByTestId("bringup-prompt-blocked");
     expect(card.textContent).toContain("Hugging Face");
     expect(card.textContent).toContain("HF_TOKEN");
+    expect(card.textContent).toContain("one-time setup");
+  });
+
+  it("copies the remediation command to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      render(
+        <BringUpProgress
+          state={reduceStream(PROMPT_BLOCKED_STREAM)}
+          onReady={() => {}}
+        />,
+      );
+      const button = screen.getByTestId("copy-remediation");
+      fireEvent.click(button);
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("HF_TOKEN"),
+      );
+      await waitFor(() => expect(button.textContent).toBe("Copied"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
