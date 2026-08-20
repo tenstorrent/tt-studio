@@ -279,7 +279,8 @@ mod tests {
             serde_json::to_value(CloseBehavior::MinimizeToTray).unwrap(),
             serde_json::json!("minimize_to_tray")
         );
-        let parsed: CloseBehavior = serde_json::from_value(serde_json::json!("stop_stack")).unwrap();
+        let parsed: CloseBehavior =
+            serde_json::from_value(serde_json::json!("stop_stack")).unwrap();
         assert_eq!(parsed, CloseBehavior::StopStack);
         // Unknown store values fall back to the default at the read site.
         assert!(serde_json::from_value::<CloseBehavior>(serde_json::json!("bogus")).is_err());

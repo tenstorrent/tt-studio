@@ -191,9 +191,9 @@ pub async fn start_ssh_tunnels(
     ));
     drop(guard);
     // Keep marketplace app ports forwarded while this tunnel set lives.
-    *state.app_ports_task.lock().expect("app ports lock") = Some(
-        tauri::async_runtime::spawn(super::app_ports::sync_loop(app)),
-    );
+    *state.app_ports_task.lock().expect("app ports lock") = Some(tauri::async_runtime::spawn(
+        super::app_ports::sync_loop(app),
+    ));
     state.set_active(Some(profile));
     Ok(())
 }

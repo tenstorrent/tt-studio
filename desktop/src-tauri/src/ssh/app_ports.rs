@@ -133,10 +133,10 @@ mod tests {
             ("running", Some(3085)),
             ("starting", Some(3086)),
             ("pulling", Some(3087)),
-            ("stopped", Some(3088)),      // inactive: no forward
-            ("running", None),            // no port yet
+            ("stopped", Some(3088)), // inactive: no forward
+            ("running", None),       // no port yet
             ("guide", None),
-            ("error", Some(3089)),        // failed: port is being released
+            ("error", Some(3089)), // failed: port is being released
         ]);
         assert_eq!(desired_app_ports(&payload, &[]), vec![3085, 3086, 3087]);
     }

@@ -88,12 +88,7 @@ pub fn newest_bundle_in(checkout: &std::path::Path) -> Option<std::path::PathBuf
     let entries = std::fs::read_dir(checkout.join("logs")).ok()?;
     entries
         .flatten()
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .map(is_bundle_name)
-                .unwrap_or(false)
-        })
+        .filter(|e| e.file_name().to_str().map(is_bundle_name).unwrap_or(false))
         .max_by_key(|e| {
             e.metadata()
                 .and_then(|m| m.modified())

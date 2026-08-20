@@ -284,7 +284,8 @@ async fn run(
         let mut healths: Vec<ForwardHealth> = Vec::new();
         let mut bind_failure: Option<String> = None;
         for spec in &config.forwards {
-            let (health, task) = bind_forward(config.bind_addr, spec, &transport, &status, &sink).await;
+            let (health, task) =
+                bind_forward(config.bind_addr, spec, &transport, &status, &sink).await;
             if let Some(err) = &health.last_error {
                 bind_failure.get_or_insert(err.clone());
             }
@@ -442,8 +443,7 @@ async fn accept_loop(
                     // Forwards come and go dynamically, so rows are keyed by
                     // their bound local port, never by position.
                     publish(&status, &sink, |s| {
-                        if let Some(h) =
-                            s.forwards.iter_mut().find(|h| h.local_port == bound_port)
+                        if let Some(h) = s.forwards.iter_mut().find(|h| h.local_port == bound_port)
                         {
                             h.last_error = Some(e.to_string());
                         }
@@ -767,7 +767,9 @@ mod tests {
         let status = wait_for(&mut rx, |s| s.forwards.len() == 1).await;
         assert_eq!(status.forwards[0].remote_port, 9999);
         assert!(
-            tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(),
+            tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_err(),
             "dynamic listener should be gone"
         );
 
@@ -798,7 +800,9 @@ mod tests {
             remote_port: 3085,
         }]);
         wait_for(&mut rx, |s| {
-            s.forwards.iter().any(|f| f.local_port == free_port && f.active)
+            s.forwards
+                .iter()
+                .any(|f| f.local_port == free_port && f.active)
         })
         .await;
 
@@ -806,7 +810,9 @@ mod tests {
         flags.lock().unwrap()[0].store(true, Ordering::SeqCst);
         let reconnected = wait_for(&mut rx, |s| {
             matches!(s.phase, TunnelPhase::Connected)
-                && s.forwards.iter().any(|f| f.local_port == free_port && f.active)
+                && s.forwards
+                    .iter()
+                    .any(|f| f.local_port == free_port && f.active)
         })
         .await;
         assert_eq!(reconnected.forwards.len(), 2);

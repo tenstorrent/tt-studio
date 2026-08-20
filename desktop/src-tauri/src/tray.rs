@@ -36,9 +36,9 @@ pub enum StackDot {
 impl StackDot {
     pub fn rgba(self) -> [u8; 4] {
         match self {
-            StackDot::Ready => [34, 197, 94, 255],   // emerald-500
+            StackDot::Ready => [34, 197, 94, 255],    // emerald-500
             StackDot::Partial => [245, 158, 11, 255], // amber-500
-            StackDot::Off => [113, 113, 122, 255],   // zinc-500
+            StackDot::Off => [113, 113, 122, 255],    // zinc-500
         }
     }
 
@@ -98,7 +98,10 @@ pub fn stamp_dot(rgba: &mut [u8], width: u32, height: u32, color: [u8; 4]) {
     }
 }
 
-fn stamped_icon(app: &tauri::AppHandle<Wry>, dot: StackDot) -> Option<tauri::image::Image<'static>> {
+fn stamped_icon(
+    app: &tauri::AppHandle<Wry>,
+    dot: StackDot,
+) -> Option<tauri::image::Image<'static>> {
     let base = app.default_window_icon()?;
     let (width, height) = (base.width(), base.height());
     let mut rgba = base.rgba().to_vec();
@@ -178,7 +181,13 @@ fn stop_stack(app: &tauri::AppHandle<Wry>) {
 
 /// Build the tray and keep its dot in sync with `stack-health` events.
 pub fn setup(app: &tauri::AppHandle<Wry>) -> tauri::Result<()> {
-    let status = MenuItem::with_id(app, "tray-status", StackDot::Off.label(), false, None::<&str>)?;
+    let status = MenuItem::with_id(
+        app,
+        "tray-status",
+        StackDot::Off.label(),
+        false,
+        None::<&str>,
+    )?;
     let open = MenuItem::with_id(app, "tray-open", "Open TT-Studio", true, None::<&str>)?;
     let switch = MenuItem::with_id(app, "tray-switch", "Switch machine", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "tray-stop", "Stop stack", true, None::<&str>)?;

@@ -69,7 +69,10 @@ pub struct LogFileInfo {
 }
 
 fn is_log_name(name: &str) -> bool {
-    name.ends_with(".log") || name.ends_with(".log.1") || name.ends_with(".ndjson") || name.ends_with(".ndjson.1")
+    name.ends_with(".log")
+        || name.ends_with(".log.1")
+        || name.ends_with(".ndjson")
+        || name.ends_with(".ndjson.1")
 }
 
 /// Scan one directory for launcher log files.
@@ -141,12 +144,10 @@ fn log_dirs(app: &tauri::AppHandle<Wry>) -> Vec<PathBuf> {
 }
 
 fn scan_all(app: &tauri::AppHandle<Wry>) -> Vec<(LogFileInfo, PathBuf)> {
-    let mut all: Vec<(LogFileInfo, PathBuf)> = log_dirs(app)
-        .iter()
-        .flat_map(|d| scan_dir(d))
-        .collect();
+    let mut all: Vec<(LogFileInfo, PathBuf)> =
+        log_dirs(app).iter().flat_map(|d| scan_dir(d)).collect();
     // Newest first; duplicates (same name in both dirs) keep the newest.
-    all.sort_by(|a, b| b.0.modified_secs.cmp(&a.0.modified_secs));
+    all.sort_by_key(|entry| std::cmp::Reverse(entry.0.modified_secs));
     let mut seen = std::collections::HashSet::new();
     all.retain(|(info, _)| seen.insert(info.name.clone()));
     all
