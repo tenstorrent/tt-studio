@@ -340,6 +340,12 @@ pub async fn start_remote_bring_up(
     let session = std::sync::Arc::new(connect_session(&app, &profile).await?);
     let command = bring_up_command(&repo_path(&profile));
     let mut stderr_log = stderr_log_file(&app);
+    // Tee the NDJSON stream to disk for the logs viewer, next to the stderr log.
+    let ndjson_log = app
+        .path()
+        .app_log_dir()
+        .ok()
+        .map(|dir| crate::logs::LineLog::create(&dir.join("remote-bringup.ndjson")));
 
     let task_session = session.clone();
     let task = tauri::async_runtime::spawn(async move {
@@ -350,6 +356,9 @@ pub async fn start_remote_bring_up(
             .exec_stream(
                 &command,
                 |line| {
+                    if let Some(log) = &ndjson_log {
+                        log.append(line);
+                    }
                     let _ = line_app.emit(BRINGUP_LINE_EVENT, line);
                 },
                 |chunk| {

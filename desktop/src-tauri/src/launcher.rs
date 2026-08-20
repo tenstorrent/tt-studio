@@ -172,15 +172,19 @@ fn spawn_bring_up(
     state: &state::LauncherState,
     checkout: &Path,
 ) -> Result<u32, String> {
-    let spec = bring_up_spec(checkout, log_dir(app)?.join("bringup.log"));
+    let logs = log_dir(app)?;
+    let spec = bring_up_spec(checkout, logs.join("bringup.log"));
     *state.checkout.lock().map_err(|e| e.to_string())? = Some(checkout.to_path_buf());
     state.local_stack.store(true, Ordering::SeqCst);
+    // Tee the NDJSON stdout stream to disk for the logs viewer.
+    let ndjson_log = crate::logs::LineLog::create(&logs.join("bringup.ndjson"));
     let line_app = app.clone();
     let exit_app = app.clone();
     spawn_streaming(
         &spec,
         state.child.clone(),
         move |line| {
+            ndjson_log.append(&line);
             let _ = line_app.emit(BRINGUP_LINE_EVENT, &line);
         },
         move |code| {

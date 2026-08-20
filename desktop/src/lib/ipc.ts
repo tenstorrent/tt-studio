@@ -302,6 +302,30 @@ export const onSwitchLine = (
 ): Promise<UnlistenFn> =>
   listen<string>("switch-line", (event) => handler(event.payload));
 
+// ---- launcher logs (logs.rs) ----
+
+export interface LogFileInfo {
+  name: string;
+  size_bytes: number;
+  modified_secs: number;
+  /** NDJSON event stream (level filtering applies). */
+  ndjson: boolean;
+}
+
+export interface LogTail {
+  content: string;
+  truncated: boolean;
+}
+
+export const listAppLogs = () => invoke<LogFileInfo[]>("list_app_logs");
+
+export const readAppLog = (name: string) =>
+  invoke<LogTail>("read_app_log", { name });
+
+/** Native save dialog; resolves to the chosen path or null on cancel. */
+export const exportAppLog = (name: string) =>
+  invoke<string | null>("export_app_log", { name });
+
 // ---- navigation ----
 
 export const openStack = (url: string) => invoke<void>("open_stack", { url });

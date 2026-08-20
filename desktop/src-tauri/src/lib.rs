@@ -6,6 +6,7 @@ mod commands;
 mod hardware;
 mod health;
 pub mod launcher;
+pub mod logs;
 pub mod profiles;
 pub mod remote;
 mod secrets;
@@ -86,6 +87,9 @@ pub fn run() {
             launcher::bring_up_running,
             launcher::mark_local_attach,
             launcher::restart_stack,
+            logs::list_app_logs,
+            logs::read_app_log,
+            logs::export_app_log,
             update::stack::check_stack_freshness,
             update::stack::run_stack_switch,
             update::stack::get_stack_update_policy,

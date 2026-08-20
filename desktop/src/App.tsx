@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import BringUpProgress from "./views/BringUpProgress";
 import ConnectErrorCard from "./views/ConnectErrorCard";
 import ConnectionPicker from "./views/ConnectionPicker";
+import LogsViewer from "./views/LogsViewer";
 import ProfileEditor from "./views/ProfileEditor";
 import QuitDialog from "./views/QuitDialog";
 import {
@@ -87,6 +88,7 @@ type Screen =
   // bringUpOnly: a restart is in flight — services may briefly still look
   // healthy, so only the bring-up's own ready event may open the stack.
   | { name: "connecting"; target: Profile | null; bringUpOnly?: boolean }
+  | { name: "logs" }
   | { name: "quit" };
 
 /**
@@ -667,6 +669,10 @@ function App() {
     );
   }
 
+  if (screen.name === "logs") {
+    return <LogsViewer onBack={() => setScreen({ name: "picker" })} />;
+  }
+
   if (screen.name === "editor") {
     return (
       <ProfileEditor
@@ -789,6 +795,14 @@ function App() {
       <div className="fixed bottom-4 left-4 flex items-center gap-4">
         <UpdateBanner />
         <StackUpdateSetting />
+        <button
+          type="button"
+          data-testid="open-logs"
+          onClick={() => setScreen({ name: "logs" })}
+          className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+        >
+          Logs
+        </button>
       </div>
       {(error || keychainWarning) && (
         <p className="fixed inset-x-0 bottom-4 mx-auto max-w-md rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-amber-400">
