@@ -102,6 +102,14 @@ impl SshSession {
         authenticate(&mut handle, target).await?;
         Ok(Self { handle })
     }
+
+    /// Open a bare session channel — the building block for remote command
+    /// execution (see `exec.rs`).
+    pub(crate) async fn open_session_channel(
+        &self,
+    ) -> Result<russh::Channel<client::Msg>, SshError> {
+        Ok(self.handle.channel_open_session().await?)
+    }
 }
 
 /// Resolve and TCP-connect, classifying each failure mode separately.

@@ -32,7 +32,10 @@ pub struct TunnelState(tokio::sync::Mutex<Option<Supervisor>>);
 /// Build the dial target from a saved profile: agent auth is always tried
 /// first, then the profile's key file with the keychain passphrase if one
 /// is stored (see `secrets.rs`).
-fn target_from_profile(profile: &Profile, home: Option<PathBuf>) -> Result<SshTarget, SshError> {
+pub(crate) fn target_from_profile(
+    profile: &Profile,
+    home: Option<PathBuf>,
+) -> Result<SshTarget, SshError> {
     if profile.kind != ProfileKind::Ssh {
         return Err(SshError::Internal {
             message: "profile is not an SSH profile".into(),

@@ -11,6 +11,7 @@
 //! swapped for ssh2 or system-ssh without touching the tunnel supervisor.
 
 pub(crate) mod commands;
+pub mod exec;
 pub mod known_hosts;
 pub mod session;
 pub mod tunnel;

@@ -5,7 +5,8 @@
 mod commands;
 mod hardware;
 mod health;
-mod profiles;
+pub mod profiles;
+pub mod remote;
 mod secrets;
 pub mod ssh;
 
@@ -28,6 +29,7 @@ pub fn run() {
             ssh::commands::start_ssh_tunnels,
             ssh::commands::stop_ssh_tunnels,
             ssh::commands::get_tunnel_status,
+            remote::classify_remote_stack,
             hardware::detect_hardware,
             health::check_stack_health,
             health::start_health_poll,
