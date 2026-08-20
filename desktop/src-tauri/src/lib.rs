@@ -7,6 +7,7 @@ mod hardware;
 mod health;
 mod profiles;
 mod secrets;
+pub mod ssh;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
