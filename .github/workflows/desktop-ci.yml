@@ -93,12 +93,13 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo test
 
-      # SSH tunnel integration tests run against a containerized sshd
-      # (tests/fixtures/sshd) — only the Linux runner has Linux containers.
-      - name: SSH tunnel integration tests
+      # SSH integration tests (tunnels + remote bring-up e2e) run against a
+      # containerized sshd (tests/fixtures/sshd) — only the Linux runner has
+      # Linux containers.
+      - name: SSH integration tests
         if: runner.os == 'Linux'
         working-directory: desktop/src-tauri
-        run: cargo test --test ssh_tunnel -- --ignored
+        run: cargo test --test ssh_tunnel --test ssh_remote_bringup -- --ignored
 
       # Debug + no-bundle keeps this fast and reuses the clippy/test build
       # cache while still exercising the full tauri build path.
