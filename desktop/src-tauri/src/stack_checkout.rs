@@ -59,7 +59,7 @@ pub fn managed_dir(home: &Path) -> PathBuf {
 /// Numeric components of a plain release tag (`v2.10.0` → `[2, 10, 0]`).
 /// Pre-releases and anything non-numeric are rejected — the managed clone
 /// should only ever track a real release.
-fn release_tag_key(tag: &str) -> Option<Vec<u64>> {
+pub fn release_tag_key(tag: &str) -> Option<Vec<u64>> {
     let rest = tag.strip_prefix('v')?;
     rest.split('.')
         .map(|part| part.parse::<u64>().ok())
@@ -187,7 +187,7 @@ pub fn configured_path(app: &tauri::AppHandle<Wry>) -> Result<Option<PathBuf>, S
         .and_then(|v| v.as_str().map(PathBuf::from)))
 }
 
-fn default_managed_dir(app: &tauri::AppHandle<Wry>) -> Result<PathBuf, String> {
+pub fn default_managed_dir(app: &tauri::AppHandle<Wry>) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     Ok(managed_dir(&home))
 }

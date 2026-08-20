@@ -12,6 +12,7 @@ mod secrets;
 pub mod ssh;
 pub mod stack_checkout;
 pub mod state;
+pub mod update;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -80,6 +81,9 @@ pub fn run() {
             launcher::bring_up_running,
             launcher::mark_local_attach,
             launcher::restart_stack,
+            update::stack::check_stack_freshness,
+            update::stack::get_stack_update_policy,
+            update::stack::set_stack_update_policy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

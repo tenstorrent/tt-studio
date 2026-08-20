@@ -229,7 +229,7 @@ pub fn classify(
 
 // ---- the Tauri command tying it together ----
 
-async fn connect_session(
+pub(crate) async fn connect_session(
     app: &tauri::AppHandle,
     profile: &Profile,
 ) -> Result<SshSession, SshError> {
