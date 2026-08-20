@@ -259,6 +259,95 @@ pub async fn restart_stack(
     spawn_bring_up(&app, &state, &path)
 }
 
+// ---- quit flow ----
+
+/// Ask whether quitting should also stop the stack. The host services
+/// detach and ignore SIGHUP on purpose, so "keep running in the background"
+/// is the truthful default; "stop the stack" runs `run.py --stop` first.
+///
+/// Called from the CloseRequested handler with the close already prevented;
+/// every branch ends in `app.exit(0)`.
+pub fn confirm_quit(app: &tauri::AppHandle<Wry>) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    let app = app.clone();
+    app.clone()
+        .dialog()
+        .message(
+            "TT-Studio's services keep running in the background — you can \
+             reopen the app (or the browser) and pick up where you left off.\n\n\
+             Stop the stack before quitting?",
+        )
+        .title("Quit TT-Studio")
+        // "Stop the stack" is the affirmative (Ok) button so that dismissing
+        // the dialog (Esc / close) maps to the safe default: keep running.
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Stop the stack".to_string(),
+            "Keep running".to_string(),
+        ))
+        .show(move |stop_stack| {
+            if stop_stack {
+                stop_stack_then_exit(&app);
+            } else {
+                app.exit(0);
+            }
+        });
+}
+
+/// Kill any in-flight bring-up, run `run.py --stop` in the known checkout
+/// (progress streamed as `stop-line` events for whoever is still listening),
+/// then exit. Exits immediately if there is no checkout to stop.
+fn stop_stack_then_exit(app: &tauri::AppHandle<Wry>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state: tauri::State<LauncherState> = app.state();
+
+        // Free the child slot: signal a running bring-up and give its
+        // reader thread a moment to reap it.
+        kill_child(&state.child);
+        for _ in 0..50 {
+            if state.child.lock().map(|g| g.is_none()).unwrap_or(true) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        let checkout = state
+            .checkout
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .or_else(|| default_existing_checkout(&app));
+        let (Some(checkout), Ok(logs)) = (checkout, log_dir(&app)) else {
+            app.exit(0);
+            return;
+        };
+
+        let line_app = app.clone();
+        let exit_app = app.clone();
+        let spawned = spawn_streaming(
+            &stop_spec(&checkout, logs.join("stop.log")),
+            state.child.clone(),
+            move |line| {
+                let _ = line_app.emit(STOP_LINE_EVENT, &line);
+            },
+            move |_code| {
+                exit_app.exit(0);
+            },
+        );
+        if spawned.is_err() {
+            app.exit(0);
+        }
+    });
+}
+
+/// Attached-but-never-spawned sessions still deserve a working "stop the
+/// stack": fall back to the configured/managed checkout (never cloning).
+fn default_existing_checkout(app: &tauri::AppHandle<Wry>) -> Option<PathBuf> {
+    let configured = stack_checkout::configured_path(app).ok().flatten();
+    let home = app.path().home_dir().ok()?;
+    stack_checkout::existing(configured.as_deref(), &stack_checkout::managed_dir(&home))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

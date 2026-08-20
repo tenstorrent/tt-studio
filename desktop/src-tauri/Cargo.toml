@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
 # sync-secret-service links libdbus on Linux (libdbus-1-dev in CI); no
 # secret-service daemon at runtime degrades to a typed error, not a crash.
 keyring = { version = "3", features = [

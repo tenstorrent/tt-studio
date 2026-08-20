@@ -13,8 +13,29 @@ pub mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        // Quit dialog: only when this session started or attached to a local
+        // stack is there anything to ask about — the host services detach
+        // and survive the app on purpose, so the default is to leave them.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let launcher_state: tauri::State<state::LauncherState> = app.state();
+                if !launcher_state.local_stack.load(Ordering::SeqCst) {
+                    return; // nothing local: close normally
+                }
+                api.prevent_close();
+                if launcher_state.quitting.swap(true, Ordering::SeqCst) {
+                    return; // quit flow already in flight
+                }
+                launcher::confirm_quit(app);
+            }
+        })
         .manage(health::PollerState::default())
         .manage(state::LauncherState::default())
         .invoke_handler(tauri::generate_handler![
