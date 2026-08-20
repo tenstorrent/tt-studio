@@ -12,6 +12,7 @@
 
 pub mod known_hosts;
 pub mod session;
+pub mod tunnel;
 
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncWrite};
