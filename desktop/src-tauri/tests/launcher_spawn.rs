@@ -219,3 +219,28 @@ fn stderr_log_rotates_between_runs() {
     let rotated = spec.stderr_log.with_extension("log.1");
     assert!(rotated.exists(), "previous run's log was not kept");
 }
+
+#[test]
+fn report_bug_run_produces_a_findable_bundle() {
+    use tt_studio_desktop_lib::bug_report::{bundle_ref, newest_bundle_in, report_bug_spec};
+
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = fake_checkout(dir.path());
+    let mut spec = report_bug_spec(&checkout, dir.path().join("logs").join("bugreport.log"));
+    spec.program = python();
+    let slot = ChildSlot::default();
+    let rx = spawn(&spec, &slot);
+
+    let mut lines = Vec::new();
+    let code = wait_exit(&rx, &mut lines);
+    assert_eq!(code, Some(0));
+    assert!(
+        lines.iter().any(|l| l.contains("Bundle")),
+        "no bundle progress line: {lines:?}"
+    );
+
+    let zip = newest_bundle_in(&checkout).expect("no bundle in logs/");
+    assert!(zip.exists());
+    let name = zip.file_name().unwrap().to_str().unwrap();
+    assert_eq!(bundle_ref(name), Some("ttbr-abcdef123456"));
+}

@@ -35,6 +35,10 @@ russh = { version = "0.54", default-features = false, features = ["ring", "flate
 async-trait = "0.1.92"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Reveal-in-file-manager for bug-report bundles (Rust-side only).
+tauri-plugin-opener = "2"
+# Decode `base64` output when copying remote bundles back over ssh exec.
+base64 = "0.22"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

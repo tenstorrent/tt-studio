@@ -35,6 +35,17 @@ def main():
         print("stopping containers (fake)", flush=True)
         return 0
 
+    if "--report-bug" in sys.argv:
+        # Mirror tt_setup/bug_report.py: write logs/tt-studio-logs-ttbr-*.zip.
+        import zipfile
+
+        os.makedirs("logs", exist_ok=True)
+        path = os.path.join("logs", "tt-studio-logs-ttbr-abcdef123456.zip")
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("system_info.json", "{}")
+        print("Bundle      →  %s" % path, flush=True)
+        return 0
+
     scenario = os.environ.get("FAKE_RUN_SCENARIO", "success")
 
     if scenario == "success":

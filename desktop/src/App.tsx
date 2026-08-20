@@ -43,6 +43,7 @@ import {
   checkStackFreshness,
   checkStackHealth,
   classifyRemoteStack,
+  createBugReport,
   deleteProfile,
   detectHardware,
   getActiveRemote,
@@ -639,6 +640,27 @@ function App() {
     [],
   );
 
+  /** Collecting a diagnostics bundle (picker footer action). */
+  const [bugReportBusy, setBugReportBusy] = useState(false);
+
+  // Collect on whatever this session is connected to: the active SSH
+  // profile if there is one, otherwise the local checkout.
+  const handleBugReport = useCallback(async () => {
+    setBugReportBusy(true);
+    setError(null);
+    try {
+      const remote = await getActiveRemote().catch(() => null);
+      const result = await createBugReport(remote);
+      setError(
+        `Diagnostics bundle ready (${result.reference ?? "no id"}) — ${result.path}`,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBugReportBusy(false);
+    }
+  }, []);
+
   const handleDelete = useCallback(async (profile: Profile) => {
     try {
       setProfiles(await deleteProfile(profile.id));
@@ -802,6 +824,15 @@ function App() {
           className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
         >
           Logs
+        </button>
+        <button
+          type="button"
+          data-testid="report-bug"
+          onClick={handleBugReport}
+          disabled={bugReportBusy}
+          className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline disabled:opacity-50"
+        >
+          {bugReportBusy ? "Collecting diagnostics…" : "Report a bug"}
         </button>
       </div>
       {(error || keychainWarning) && (

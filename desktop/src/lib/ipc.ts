@@ -302,6 +302,28 @@ export const onSwitchLine = (
 ): Promise<UnlistenFn> =>
   listen<string>("switch-line", (event) => handler(event.payload));
 
+// ---- bug reports (bug_report.rs) ----
+
+export interface BugReportResult {
+  /** Local path of the collected bundle ZIP. */
+  path: string;
+  /** The ttbr-<hex> id to quote in an issue. */
+  reference: string | null;
+}
+
+/**
+ * Run `run.py --report-bug` on the target (null = local checkout; an SSH
+ * profile collects remotely and copies the ZIP back), then reveal the ZIP in
+ * the file manager. Progress lines stream as `bugreport-line` events.
+ */
+export const createBugReport = (profile: Profile | null) =>
+  invoke<BugReportResult>("create_bug_report", { profile });
+
+export const onBugReportLine = (
+  handler: (line: string) => void,
+): Promise<UnlistenFn> =>
+  listen<string>("bugreport-line", (event) => handler(event.payload));
+
 // ---- launcher logs (logs.rs) ----
 
 export interface LogFileInfo {

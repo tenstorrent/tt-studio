@@ -2,6 +2,7 @@
 //
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
+pub mod bug_report;
 mod commands;
 mod hardware;
 mod health;
@@ -30,6 +31,9 @@ pub fn run() {
         // shipping updater artifacts (see desktop/README.md).
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Rust-side only (reveal the bug-report ZIP); no webview permission
+        // is granted in capabilities/default.json.
+        .plugin(tauri_plugin_opener::init())
         .manage(health::PollerState::default())
         .manage(ssh::commands::TunnelState::default())
         .manage(remote::RemoteState::default())
@@ -90,6 +94,7 @@ pub fn run() {
             logs::list_app_logs,
             logs::read_app_log,
             logs::export_app_log,
+            bug_report::create_bug_report,
             update::stack::check_stack_freshness,
             update::stack::run_stack_switch,
             update::stack::get_stack_update_policy,

@@ -355,7 +355,7 @@ fn stop_stack_then_exit(app: &tauri::AppHandle<Wry>) {
 
 /// Attached-but-never-spawned sessions still deserve a working "stop the
 /// stack": fall back to the configured/managed checkout (never cloning).
-fn default_existing_checkout(app: &tauri::AppHandle<Wry>) -> Option<PathBuf> {
+pub(crate) fn default_existing_checkout(app: &tauri::AppHandle<Wry>) -> Option<PathBuf> {
     let configured = stack_checkout::configured_path(app).ok().flatten();
     let home = app.path().home_dir().ok()?;
     stack_checkout::existing(configured.as_deref(), &stack_checkout::managed_dir(&home))
