@@ -8,6 +8,11 @@ import BringUpProgress from "./views/BringUpProgress";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
 import {
+  describeSshError,
+  TrustHostKeyDialog,
+  TunnelBanner,
+} from "./views/TunnelBanner";
+import {
   initialBringUpState,
   parseEventLine,
   reduceEvent,
@@ -20,14 +25,19 @@ import {
   listProfiles,
   markProfileUsed,
   onStackHealth,
+  onTunnelStatus,
   openStack,
   saveProfile,
   setSshKeyPassphrase,
   startHealthPoll,
+  startSshTunnels,
   stopHealthPoll,
+  stopSshTunnels,
+  trustHostKey,
   type HardwareProbe,
   type Profile,
   type StackHealth,
+  type TunnelStatus,
 } from "./lib/ipc";
 
 // The real TT-Studio frontend is served by the stack itself — the desktop
@@ -51,9 +61,11 @@ const STATUS_STYLE: Record<string, string> = {
 function HealthGate({
   health,
   target,
+  tunnel,
 }: {
   health: StackHealth | null;
   target: Profile | null;
+  tunnel: TunnelStatus | null;
 }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 px-6 text-zinc-100">
@@ -67,6 +79,7 @@ function HealthGate({
             : "Waiting for all services to come up"}
         </p>
       </header>
+      {target && <TunnelBanner status={tunnel} />}
       <ul className="flex w-full max-w-sm flex-col gap-2">
         {(health?.services ?? []).map((s) => (
           <li
@@ -96,6 +109,7 @@ function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [health, setHealth] = useState<StackHealth | null>(null);
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
+  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
   const [keychainWarning, setKeychainWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opening = useRef(false);
@@ -126,6 +140,32 @@ function App() {
       stopHealthPoll().catch(() => {});
     };
   }, [screen.name]);
+
+  // For SSH targets: follow tunnel status. The listener is scoped to the
+  // connecting screen, but the tunnel itself keeps running after we navigate
+  // to the stack — it IS the transport to the remote services.
+  useEffect(() => {
+    if (screen.name !== "connecting" || !screen.target) return;
+    let unlisten: (() => void) | undefined;
+    onTunnelStatus(setTunnel).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [screen]);
+
+  // Hard tunnel loss (not the trust prompt) while still on the launcher:
+  // stop the supervisor and drop back to the picker with the reason.
+  useEffect(() => {
+    if (screen.name !== "connecting" || tunnel?.phase.state !== "lost") return;
+    if (tunnel.phase.error.code === "unknown_host_key") return;
+    const message = describeSshError(tunnel.phase.error);
+    stopSshTunnels().catch(() => {});
+    setTunnel(null);
+    setError(message);
+    setScreen({ name: "picker" });
+  }, [screen.name, tunnel]);
 
   // When a bring-up is running (`python run.py --json-events` piped in by the
   // shell), render its NDJSON stream natively instead of the bare checklist.
@@ -172,9 +212,36 @@ function App() {
 
   const connect = useCallback((target: Profile | null) => {
     setHealth(null);
+    setTunnel(null);
     opening.current = false;
-    if (target) markProfileUsed(target.id).catch(() => {});
+    if (target) {
+      markProfileUsed(target.id).catch(() => {});
+      startSshTunnels(target).catch((e) => setError(String(e)));
+    }
     setScreen({ name: "connecting", target });
+  }, []);
+
+  const handleTrustHostKey = useCallback(
+    (target: Profile) => {
+      const phase = tunnel?.phase;
+      if (phase?.state !== "lost" || phase.error.code !== "unknown_host_key")
+        return;
+      const { host, port, public_key } = phase.error;
+      setTunnel(null);
+      trustHostKey(host ?? "", port ?? 22, public_key ?? "")
+        .then(() => startSshTunnels(target))
+        .catch((e) => {
+          setError(String(e));
+          setScreen({ name: "picker" });
+        });
+    },
+    [tunnel],
+  );
+
+  const handleRejectHostKey = useCallback(() => {
+    stopSshTunnels().catch(() => {});
+    setTunnel(null);
+    setScreen({ name: "picker" });
   }, []);
 
   const handleSave = useCallback(
@@ -231,10 +298,24 @@ function App() {
   }
 
   if (screen.name === "connecting") {
+    const target = screen.target;
+    if (
+      target &&
+      tunnel?.phase.state === "lost" &&
+      tunnel.phase.error.code === "unknown_host_key"
+    ) {
+      return (
+        <TrustHostKeyDialog
+          error={tunnel.phase.error}
+          onTrust={() => handleTrustHostKey(target)}
+          onReject={handleRejectHostKey}
+        />
+      );
+    }
     if (bringUp && bringUp.phases.length > 0) {
       return <BringUpProgress state={bringUp} onReady={handleBringUpReady} />;
     }
-    return <HealthGate health={health} target={screen.target} />;
+    return <HealthGate health={health} target={target} tunnel={tunnel} />;
   }
 
   return (

@@ -14,6 +14,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(health::PollerState::default())
+        .manage(ssh::commands::TunnelState::default())
         .invoke_handler(tauri::generate_handler![
             commands::open_stack,
             profiles::list_profiles,
@@ -24,6 +25,9 @@ pub fn run() {
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,
             ssh::known_hosts::trust_host_key,
+            ssh::commands::start_ssh_tunnels,
+            ssh::commands::stop_ssh_tunnels,
+            ssh::commands::get_tunnel_status,
             hardware::detect_hardware,
             health::check_stack_health,
             health::start_health_poll,

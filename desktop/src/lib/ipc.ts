@@ -96,6 +96,73 @@ export const onStackHealth = (
 ): Promise<UnlistenFn> =>
   listen<StackHealth>("stack-health", (event) => handler(event.payload));
 
+// ---- ssh tunnels ----
+
+export interface SshErrorPayload {
+  code:
+    | "dns"
+    | "refused"
+    | "timeout"
+    | "handshake"
+    | "agent_unavailable"
+    | "key_file"
+    | "auth_failed"
+    | "unknown_host_key"
+    | "changed_host_key"
+    | "known_hosts"
+    | "disconnected"
+    | "internal";
+  message?: string;
+  host?: string;
+  port?: number;
+  path?: string;
+  key_type?: string;
+  fingerprint?: string;
+  public_key?: string;
+}
+
+export type TunnelPhase =
+  | { state: "connecting" }
+  | { state: "connected" }
+  | { state: "reconnecting"; attempt: number; next_delay_secs: number }
+  | { state: "lost"; error: SshErrorPayload };
+
+export interface ForwardHealth {
+  local_port: number;
+  remote_port: number;
+  active: boolean;
+  last_error?: string;
+}
+
+export interface TunnelStatus {
+  phase: TunnelPhase;
+  forwards: ForwardHealth[];
+}
+
+export const startSshTunnels = (profile: Profile) =>
+  invoke<void>("start_ssh_tunnels", { profile });
+
+export const stopSshTunnels = () => invoke<void>("stop_ssh_tunnels");
+
+export const getTunnelStatus = () =>
+  invoke<TunnelStatus | null>("get_tunnel_status");
+
+export const trustHostKey = (host: string, port: number, publicKey: string) =>
+  invoke<void>("trust_host_key", { host, port, publicKey });
+
+export const onTunnelStatus = (
+  handler: (status: TunnelStatus) => void,
+): Promise<UnlistenFn> =>
+  listen<TunnelStatus>("tunnel-status", (event) => handler(event.payload));
+
+/** Narrow an unknown invoke() rejection into an SshErrorPayload if possible. */
+export function asSshError(e: unknown): SshErrorPayload | null {
+  if (typeof e === "object" && e !== null && "code" in e) {
+    return e as SshErrorPayload;
+  }
+  return null;
+}
+
 // ---- navigation ----
 
 export const openStack = (url: string) => invoke<void>("open_stack", { url });
