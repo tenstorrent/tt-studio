@@ -35,6 +35,18 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Run AI models on Tenstorrent hardware",
+    "longDescription": "Desktop launcher for TT-Studio: connect to this machine or a remote Tenstorrent box over SSH, bring the stack up, and open the web UI.",
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "desktopTemplate": "./tt-studio.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "./tt-studio.desktop"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
