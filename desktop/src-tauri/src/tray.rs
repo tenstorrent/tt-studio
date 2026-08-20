@@ -203,14 +203,9 @@ pub fn setup(app: &tauri::AppHandle<Wry>) -> tauri::Result<()> {
             "tray-open" => show_main_window(app),
             "tray-switch" => back_to_picker(app),
             "tray-stop" => stop_stack(app),
-            // Close the window instead of exiting directly so the normal
-            // quit flow (stop-stack dialog, ssh quit prompt) still runs.
-            "tray-quit" => match app.get_webview_window("main") {
-                Some(window) => {
-                    let _ = window.close();
-                }
-                None => app.exit(0),
-            },
+            // The teardown module owns quit semantics (dialogs, stop-stack);
+            // a tray quit never minimizes, it actually quits.
+            "tray-quit" => crate::teardown::request_quit(app),
             _ => {}
         });
     if let Some(icon) = stamped_icon(app, StackDot::Off) {

@@ -302,6 +302,20 @@ export const onSwitchLine = (
 ): Promise<UnlistenFn> =>
   listen<string>("switch-line", (event) => handler(event.payload));
 
+// ---- close-button behavior (teardown.rs) ----
+
+export type CloseBehavior =
+  | "ask"
+  | "minimize_to_tray"
+  | "keep_running"
+  | "stop_stack";
+
+export const getCloseBehavior = () =>
+  invoke<CloseBehavior>("get_close_behavior");
+
+export const setCloseBehavior = (behavior: CloseBehavior) =>
+  invoke<void>("set_close_behavior", { behavior });
+
 // ---- bug reports (bug_report.rs) ----
 
 export interface BugReportResult {

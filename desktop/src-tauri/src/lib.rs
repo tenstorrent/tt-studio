@@ -14,14 +14,12 @@ mod secrets;
 pub mod ssh;
 pub mod stack_checkout;
 pub mod state;
+pub mod teardown;
 pub mod tray;
 pub mod update;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    use std::sync::atomic::Ordering;
-    use tauri::Manager;
-
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -42,24 +40,12 @@ pub fn run() {
             tray::setup(app.handle())?;
             Ok(())
         })
-        // Quit handling picks the path that matches how this session runs the
-        // stack: a locally spawned/attached stack gets the stop-or-leave
-        // dialog; an SSH session with live tunnels gets the in-app quit
-        // prompt; anything else closes normally (host services detach and
-        // survive the app on purpose).
+        // Close-button behavior is a setting (teardown.rs): ask via the
+        // stop-or-leave dialog / ssh quit prompt (default), minimize to the
+        // tray, quit leaving the stack running, or stop the stack first.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                let launcher_state: tauri::State<state::LauncherState> = app.state();
-                if launcher_state.local_stack.load(Ordering::SeqCst) {
-                    api.prevent_close();
-                    if launcher_state.quitting.swap(true, Ordering::SeqCst) {
-                        return; // quit flow already in flight
-                    }
-                    launcher::confirm_quit(app);
-                    return;
-                }
-                ssh::commands::on_close_requested(window, api);
+                teardown::on_close_requested(window, api);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -99,6 +85,8 @@ pub fn run() {
             update::stack::run_stack_switch,
             update::stack::get_stack_update_policy,
             update::stack::set_stack_update_policy,
+            teardown::get_close_behavior,
+            teardown::set_close_behavior,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

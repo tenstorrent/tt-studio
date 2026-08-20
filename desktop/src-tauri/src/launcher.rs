@@ -309,7 +309,7 @@ pub fn confirm_quit(app: &tauri::AppHandle<Wry>) {
 /// Kill any in-flight bring-up, run `run.py --stop` in the known checkout
 /// (progress streamed as `stop-line` events for whoever is still listening),
 /// then exit. Exits immediately if there is no checkout to stop.
-fn stop_stack_then_exit(app: &tauri::AppHandle<Wry>) {
+pub(crate) fn stop_stack_then_exit(app: &tauri::AppHandle<Wry>) {
     let app = app.clone();
     std::thread::spawn(move || {
         let state: tauri::State<LauncherState> = app.state();

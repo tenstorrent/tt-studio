@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BringUpProgress from "./views/BringUpProgress";
 import ConnectErrorCard from "./views/ConnectErrorCard";
+import CloseBehaviorSetting from "./views/CloseBehaviorSetting";
 import ConnectionPicker from "./views/ConnectionPicker";
 import LogsViewer from "./views/LogsViewer";
 import ProfileEditor from "./views/ProfileEditor";
@@ -817,6 +818,7 @@ function App() {
       <div className="fixed bottom-4 left-4 flex items-center gap-4">
         <UpdateBanner />
         <StackUpdateSetting />
+        <CloseBehaviorSetting />
         <button
           type="button"
           data-testid="open-logs"

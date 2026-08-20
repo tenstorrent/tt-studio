@@ -114,7 +114,7 @@ pub(crate) fn launcher_url(app: &AppHandle) -> Option<Url> {
 
 /// True when the main window currently shows the remote stack (a plain
 /// http(s) origin) rather than the bundled launcher.
-fn showing_remote_stack(app: &AppHandle) -> bool {
+pub(crate) fn showing_remote_stack(app: &AppHandle) -> bool {
     let Some(window) = app.get_webview_window("main") else {
         return false;
     };
@@ -195,19 +195,11 @@ pub async fn get_tunnel_status(
     Ok(state.supervisor.lock().await.as_ref().map(|s| s.status()))
 }
 
-/// Close-button interception: while an SSH connection is active and the
-/// window shows the remote stack, turn the close into the launcher's quit
-/// dialog (stop the remote stack vs just disconnect) instead of exiting.
-pub(crate) fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
-    if window.label() != "main" {
-        return;
-    }
-    let app = window.app_handle();
-    let active = app.state::<TunnelState>().active_profile().is_some();
-    if !active || !showing_remote_stack(app) {
-        return; // plain close: the process exit tears the tunnels down
-    }
-    api.prevent_close();
+/// Show the launcher's quit prompt (stop the remote stack vs just
+/// disconnect) by navigating the window to the bundled launcher with
+/// `?quit=1`. Callers decide when — teardown.rs routes the close button
+/// here while an SSH connection is active and the window shows the stack.
+pub(crate) fn show_quit_prompt(app: &AppHandle) {
     let Some(mut url) = launcher_url(app) else {
         return;
     };
@@ -215,6 +207,7 @@ pub(crate) fn on_close_requested(window: &tauri::Window, api: &tauri::CloseReque
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
             let _ = window.navigate(url);
         }
     });
