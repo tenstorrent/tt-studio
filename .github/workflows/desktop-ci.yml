@@ -77,6 +77,10 @@ jobs:
         working-directory: desktop
         run: npm run build
 
+      - name: Launcher unit tests
+        working-directory: desktop
+        run: npm test
+
       - name: Check Rust formatting
         working-directory: desktop/src-tauri
         run: cargo fmt --check
