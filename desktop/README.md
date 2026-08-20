@@ -47,6 +47,52 @@ npm run tauri build      # release build + bundles
 Start the TT-Studio stack separately (`python run.py` at the repo root) so
 `http://localhost:3000` is live before clicking "Open TT-Studio".
 
+## Updates
+
+Two layers, both keyed to tagged GitHub releases of tenstorrent/tt-studio.
+Release tags (`v*`) are the source of truth for both: they're the only refs
+`.github/workflows/publish-images.yml` publishes GHCR images for, so
+following raw `main`/`dev` would force local image builds.
+
+### Shell updates (the app itself)
+
+The tauri updater plugin checks the `latest.json` asset on the latest GitHub
+release (endpoint in `src-tauri/tauri.conf.json`). The launcher checks once
+on launch — silently, so being offline never gets in the way of connecting —
+and offers a manual "Check for updates" button whose failures are shown
+(`src/views/UpdateBanner.tsx`). Installing downloads, applies, and relaunches
+via the process plugin.
+
+**Signing key**: the `pubkey` in `tauri.conf.json` is a development
+placeholder. Release CI must generate the real keypair (`tauri signer
+generate`), keep the private key in CI secrets (`TAURI_SIGNING_PRIVATE_KEY`),
+replace the placeholder pubkey, and attach signed updater artifacts +
+`latest.json` to each release. Until then the updater will reject downloaded
+artifacts (signature mismatch) — by design, it fails closed.
+
+### Stack updates (the checkout `run.py` runs in)
+
+Before every bring-up — local spawn or SSH — the app compares the target
+checkout's release tag against the latest `v*` tag
+(`src-tauri/src/update/stack.rs`) and, when behind, runs the stack's own
+guarded `python run.py --switch <tag>` there. Policy is a user setting
+(auto / ask first / never, default ask) stored with the app settings.
+
+Behavior at the edges:
+
+- **Dirty checkout** (tracked changes): `--switch` refuses dirty trees, and
+  the app never forces or resets — it shows "developer checkout detected,
+  skipping stack update" and proceeds with the current version.
+- **Not on a release tag** (branch or detached sha): also treated as a
+  developer checkout and left alone.
+- **Offline / can't learn the latest tag**: skip the update, proceed to
+  bring-up. Updates are best-effort; connecting is the job.
+- **Attach** (stack already healthy): never updated — the checkout isn't
+  switched under a running stack.
+- **Images**: no explicit pull step. The bring-up after a switch pins
+  `TT_STUDIO_IMAGE_TAG` to the exact tag (`tt_setup/env_config/_version.py`)
+  and pulls the matching GHCR images itself (`tt_setup/cli/_run.py`).
+
 ## OS matrix
 
 | OS | Webview | Stack mode |
