@@ -4,6 +4,7 @@
 
 mod commands;
 mod profiles;
+mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,6 +16,9 @@ pub fn run() {
             profiles::save_profile,
             profiles::delete_profile,
             profiles::mark_profile_used,
+            secrets::set_ssh_key_passphrase,
+            secrets::clear_ssh_key_passphrase,
+            secrets::has_ssh_key_passphrase,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

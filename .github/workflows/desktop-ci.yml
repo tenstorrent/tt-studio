@@ -47,6 +47,7 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             libssl-dev \
+            libdbus-1-dev \
             build-essential \
             curl \
             wget \
