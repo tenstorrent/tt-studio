@@ -279,6 +279,12 @@ pub fn switch_command(path: &str, tag: &str) -> String {
 /// a non-zero exit is an error (the caller proceeds to bring-up on the old
 /// version and says so). `--switch` re-checks the dirty-tree guard itself —
 /// this never forces anything.
+///
+/// No explicit image pull follows the switch: the bring-up that runs next
+/// pins TT_STUDIO_IMAGE_TAG to the checkout's exact tag
+/// (tt_setup/env_config/_version.py) and runs `docker compose pull` for a
+/// clean, published checkout (tt_setup/cli/_run.py, "Pull" phase), so the
+/// tag's GHCR images arrive as part of normal startup.
 #[tauri::command]
 pub async fn run_stack_switch(
     app: tauri::AppHandle<Wry>,
