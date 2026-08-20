@@ -195,6 +195,32 @@ jobs:
             echo "::warning::APPLE_ID not set — signing but skipping notarization"
           fi
 
+      # Windows Authenticode via Azure Trusted Signing: when the AZURE_*
+      # secrets exist, wire the bundler's signCommand to trusted-signing-cli
+      # (authenticates with the AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET env
+      # on the build step). Without them the NSIS installer builds unsigned.
+      - name: Enable Windows code signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AZURE_CLIENT_SECRET" ]; then
+            echo "::warning::AZURE_CLIENT_SECRET not set — building unsigned Windows installer"
+            exit 0
+          fi
+          cargo install trusted-signing-cli --locked
+          OVERLAY="${RUNNER_TEMP//\\//}/tauri-conf-overlay.json"
+          [ -f "$OVERLAY" ] || echo '{}' > "$OVERLAY"
+          jq --arg cmd "trusted-signing-cli -e $AZURE_SIGNING_ENDPOINT -a $AZURE_SIGNING_ACCOUNT -c $AZURE_SIGNING_PROFILE %1" \
+            '.bundle.windows.signCommand = $cmd' "$OVERLAY" > "$OVERLAY.tmp"
+          mv "$OVERLAY.tmp" "$OVERLAY"
+          echo "TAURI_EXTRA_ARGS=--config $OVERLAY" >> "$GITHUB_ENV"
+
       # tauri-action runs the bundler (beforeBuildCommand builds the launcher
       # bundle first) and, when tagName is set, uploads the installers to the
       # GitHub release for that tag — creating the release if the tag push got
@@ -211,6 +237,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Consumed by trusted-signing-cli when the Windows signCommand is
+          # configured above; harmless (unused) when empty.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
           projectPath: desktop
           tagName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
