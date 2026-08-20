@@ -12,6 +12,7 @@ mod secrets;
 pub mod ssh;
 pub mod stack_checkout;
 pub mod state;
+pub mod tray;
 pub mod update;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -32,6 +33,10 @@ pub fn run() {
         .manage(ssh::commands::TunnelState::default())
         .manage(remote::RemoteState::default())
         .manage(state::LauncherState::default())
+        .setup(|app| {
+            tray::setup(app.handle())?;
+            Ok(())
+        })
         // Quit handling picks the path that matches how this session runs the
         // stack: a locally spawned/attached stack gets the stop-or-leave
         // dialog; an SSH session with live tunnels gets the in-app quit

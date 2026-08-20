@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon: system tray with the stack-status dot (Linux needs the ayatana
+# appindicator at runtime; the .deb declares it).
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 # sync-secret-service links libdbus on Linux (libdbus-1-dev in CI); no

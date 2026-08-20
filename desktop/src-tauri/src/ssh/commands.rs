@@ -101,7 +101,7 @@ fn expand_tilde(path: &str, home: Option<PathBuf>) -> PathBuf {
 
 /// Where "back to the launcher" points: the dev server during development,
 /// the bundled app origin in production builds.
-fn launcher_url(app: &AppHandle) -> Option<Url> {
+pub(crate) fn launcher_url(app: &AppHandle) -> Option<Url> {
     if let Some(dev_url) = &app.config().build.dev_url {
         return Some(dev_url.clone());
     }
