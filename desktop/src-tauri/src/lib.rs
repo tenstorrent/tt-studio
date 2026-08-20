@@ -23,6 +23,7 @@ pub fn run() {
             secrets::set_ssh_key_passphrase,
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,
+            ssh::known_hosts::trust_host_key,
             hardware::detect_hardware,
             health::check_stack_health,
             health::start_health_poll,

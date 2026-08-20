@@ -10,6 +10,7 @@
 //! [`SshTransport`] trait so the russh implementation in `session.rs` can be
 //! swapped for ssh2 or system-ssh without touching the tunnel supervisor.
 
+pub mod known_hosts;
 pub mod session;
 
 use serde::Serialize;
