@@ -3,8 +3,16 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import BringUpProgress from "./views/BringUpProgress";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
+import {
+  initialBringUpState,
+  parseEventLine,
+  reduceEvent,
+  type BringUpState,
+} from "./lib/events";
 import {
   asSecretError,
   deleteProfile,
@@ -87,6 +95,7 @@ function App() {
   const [hardware, setHardware] = useState<HardwareProbe | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [health, setHealth] = useState<StackHealth | null>(null);
+  const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [keychainWarning, setKeychainWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opening = useRef(false);
@@ -117,6 +126,36 @@ function App() {
       stopHealthPoll().catch(() => {});
     };
   }, [screen.name]);
+
+  // When a bring-up is running (`python run.py --json-events` piped in by the
+  // shell), render its NDJSON stream natively instead of the bare checklist.
+  useEffect(() => {
+    if (screen.name !== "connecting") return;
+    let unlisten: (() => void) | undefined;
+    listen<string>("bringup-line", ({ payload }) => {
+      const event = parseEventLine(payload);
+      if (!event) return;
+      setBringUp((prev) => reduceEvent(prev ?? initialBringUpState(), event));
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+      setBringUp(null);
+    };
+  }, [screen.name]);
+
+  const handleBringUpReady = useCallback((appUrl: string) => {
+    if (opening.current) return;
+    opening.current = true;
+    stopHealthPoll()
+      .catch(() => {})
+      .then(() => openStack(appUrl))
+      .catch((e) => {
+        opening.current = false;
+        setError(String(e));
+      });
+  }, []);
 
   useEffect(() => {
     if (screen.name !== "connecting" || !health?.ready || opening.current)
@@ -192,6 +231,9 @@ function App() {
   }
 
   if (screen.name === "connecting") {
+    if (bringUp && bringUp.phases.length > 0) {
+      return <BringUpProgress state={bringUp} onReady={handleBringUpReady} />;
+    }
     return <HealthGate health={health} target={screen.target} />;
   }
 
