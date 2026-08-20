@@ -6,7 +6,6 @@ import { useEffect } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Video, ChevronDown, Download, ArrowLeft } from "lucide-react";
-import { Progress } from "../ui/progress";
 import VideoInputArea from "./VideoInputArea";
 import type { VideoGenChatProps } from "./types/chat";
 import { useVideoChat } from "./hooks/useVideoChat";
@@ -149,25 +148,19 @@ const VideoGenChat: React.FC<VideoGenChatProps> = ({
                     <p className="text-sm font-medium">
                       {!progress || progress.phase === "queued"
                         ? "Queued…"
-                        : progress.percent >= 99
-                          ? "Finishing up…"
-                          : "Generating your video…"}
+                        : "Generating your video…"}
                     </p>
-                    <Progress
-                      value={progress?.percent ?? 0}
-                      className="mt-2 bg-gray-300 dark:bg-[#1a1c2a]"
-                      indicatorClassName="bg-[#7C68FA]"
-                    />
-                    {progress && progress.phase === "in_progress" ? (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
-                        {formatClock(progress.elapsedSeconds)} / ~
-                        {formatClock(progress.estimatedSeconds)}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
-                        Waiting for the model…
-                      </p>
-                    )}
+                    {/* Generation time isn't known ahead of time, so show an
+                        activity bar plus the true elapsed clock instead of a
+                        percentage against a made-up estimate. */}
+                    <div className="relative mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-300 dark:bg-[#1a1c2a]">
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-[#7C68FA]/30 via-[#7C68FA] to-[#7C68FA]/30 animate-pulse" />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
+                      {progress
+                        ? formatClock(progress.elapsedSeconds)
+                        : "Waiting for the model…"}
+                    </p>
                   </div>
                 </div>
               </div>
