@@ -86,6 +86,18 @@ pub fn touch(profiles: &mut [Profile], id: &str, now: f64) -> bool {
     }
 }
 
+/// Record the repo path a connect actually validated (found `run.py` at) so
+/// later connects and the quit-time stop use it without re-deriving defaults.
+pub fn set_repo_path(profiles: &mut [Profile], id: &str, path: &str) -> bool {
+    match profiles.iter_mut().find(|p| p.id == id) {
+        Some(p) if p.remote_repo_path.as_deref() != Some(path) => {
+            p.remote_repo_path = Some(path.to_string());
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Most-recently-used first; never-used profiles keep insertion order at the end.
 pub fn sort_recent_first(profiles: &mut [Profile]) {
     profiles.sort_by(|a, b| {
@@ -137,6 +149,15 @@ pub fn delete_profile(app: tauri::AppHandle<Wry>, id: String) -> Result<Vec<Prof
     remove(&mut profiles, &id);
     write_store(&app, &profiles)?;
     Ok(profiles)
+}
+
+/// Persist a validated repo path (no-op for unknown ids or unchanged paths).
+pub fn persist_repo_path(app: &tauri::AppHandle<Wry>, id: &str, path: &str) -> Result<(), String> {
+    let mut profiles = read_store(app)?;
+    if set_repo_path(&mut profiles, id, path) {
+        write_store(app, &profiles)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -246,6 +267,19 @@ mod tests {
         assert!(touch(&mut profiles, "p1", 1000.0));
         assert_eq!(profiles[0].last_used, Some(1000.0));
         assert!(!touch(&mut profiles, "ghost", 2000.0));
+    }
+
+    #[test]
+    fn set_repo_path_updates_only_on_change() {
+        let mut profiles = vec![ssh_profile("p1", "a")];
+        // ssh_profile seeds "~/tt-studio"; same value is a no-op.
+        assert!(!set_repo_path(&mut profiles, "p1", "~/tt-studio"));
+        assert!(set_repo_path(&mut profiles, "p1", "/opt/tt-studio"));
+        assert_eq!(
+            profiles[0].remote_repo_path.as_deref(),
+            Some("/opt/tt-studio")
+        );
+        assert!(!set_repo_path(&mut profiles, "ghost", "/x"));
     }
 
     #[test]

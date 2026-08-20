@@ -270,6 +270,12 @@ pub async fn classify_remote_stack(
     };
     session.close().await;
 
+    // The probe just validated (or refuted) the repo path; on success, write
+    // the resolved value back so the profile stops relying on the default.
+    if run_py_exists {
+        let _ = crate::profiles::persist_repo_path(&app, &profile.id, &path);
+    }
+
     Ok(classify(
         local.ready,
         run_py_exists,
