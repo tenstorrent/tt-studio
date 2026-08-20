@@ -10,6 +10,7 @@
 //! [`SshTransport`] trait so the russh implementation in `session.rs` can be
 //! swapped for ssh2 or system-ssh without touching the tunnel supervisor.
 
+pub mod app_ports;
 pub(crate) mod commands;
 pub mod exec;
 pub mod known_hosts;

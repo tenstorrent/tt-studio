@@ -28,10 +28,13 @@ const DEFAULT_SSH_PORT: u16 = 22;
 /// At most one tunnel supervisor runs at a time (one remote stack per window).
 #[derive(Default)]
 pub struct TunnelState {
-    supervisor: tokio::sync::Mutex<Option<Supervisor>>,
+    pub(crate) supervisor: tokio::sync::Mutex<Option<Supervisor>>,
     /// The profile the running tunnels belong to. Drives the quit dialog:
     /// while set, closing the window offers stop-vs-disconnect first.
     active: std::sync::Mutex<Option<Profile>>,
+    /// The marketplace app-port poller (ssh/app_ports.rs), aborted with the
+    /// supervisor it feeds.
+    app_ports_task: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl TunnelState {
@@ -43,8 +46,15 @@ impl TunnelState {
         *self.active.lock().expect("active profile lock") = profile;
     }
 
+    fn stop_app_ports_task(&self) {
+        if let Some(task) = self.app_ports_task.lock().expect("app ports lock").take() {
+            task.abort();
+        }
+    }
+
     /// Stop the supervisor (if any) and forget the active profile.
     pub(crate) async fn shutdown(&self) {
+        self.stop_app_ports_task();
         if let Some(supervisor) = self.supervisor.lock().await.take() {
             supervisor.stop().await;
         }
@@ -170,6 +180,7 @@ pub async fn start_ssh_tunnels(
     });
 
     let mut guard = state.supervisor.lock().await;
+    state.stop_app_ports_task();
     if let Some(previous) = guard.take() {
         previous.stop().await;
     }
@@ -178,6 +189,11 @@ pub async fn start_ssh_tunnels(
         connector,
         sink,
     ));
+    drop(guard);
+    // Keep marketplace app ports forwarded while this tunnel set lives.
+    *state.app_ports_task.lock().expect("app ports lock") = Some(
+        tauri::async_runtime::spawn(super::app_ports::sync_loop(app)),
+    );
     state.set_active(Some(profile));
     Ok(())
 }

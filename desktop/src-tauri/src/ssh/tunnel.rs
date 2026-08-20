@@ -33,14 +33,15 @@ pub struct ForwardSpec {
     pub remote_port: u16,
 }
 
-/// The TT-Studio stack's port map: frontend 3000, backend 8000, inference
-/// 8001, docker control 8002, agent 8080, ChromaDB 8111, 4000, and the
-/// 7000-7010 model-container range. Same numbers locally and remotely.
+/// The TT-Studio stack's fixed port map: frontend 3000, backend 8000,
+/// inference 8001, docker control 8002, agent 8080, ChromaDB 8111, 4000.
+/// Same numbers locally and remotely. Marketplace app containers get their
+/// host ports dynamically from the backend (see ssh/app_ports.rs) and are
+/// added as dynamic forwards at runtime — the backend allocates them from
+/// its own range, so no static range here can cover them.
 pub fn production_forwards() -> Vec<ForwardSpec> {
-    let fixed = [3000u16, 8000, 8001, 8002, 8080, 8111, 4000];
-    fixed
+    [3000u16, 8000, 8001, 8002, 8080, 8111, 4000]
         .into_iter()
-        .chain(7000..=7010)
         .map(|port| ForwardSpec {
             local_port: port,
             remote_host: "127.0.0.1".into(),
@@ -119,6 +120,7 @@ const LIVENESS_POLL: Duration = Duration::from_millis(500);
 pub struct Supervisor {
     status: Arc<Mutex<TunnelStatus>>,
     shutdown: watch::Sender<bool>,
+    dynamic: tokio::sync::mpsc::UnboundedSender<Vec<ForwardSpec>>,
     task: JoinHandle<()>,
 }
 
@@ -129,16 +131,33 @@ impl Supervisor {
             forwards: Vec::new(),
         }));
         let (shutdown, shutdown_rx) = watch::channel(false);
-        let task = tokio::spawn(run(config, connector, sink, status.clone(), shutdown_rx));
+        let (dynamic, dynamic_rx) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(run(
+            config,
+            connector,
+            sink,
+            status.clone(),
+            shutdown_rx,
+            dynamic_rx,
+        ));
         Self {
             status,
             shutdown,
+            dynamic,
             task,
         }
     }
 
     pub fn status(&self) -> TunnelStatus {
         self.status.lock().expect("status lock").clone()
+    }
+
+    /// Replace the set of dynamic forwards (marketplace app ports). Applied
+    /// while connected: new ports get listeners on the live session, dropped
+    /// ports lose theirs; the whole set is re-bound after a reconnect. The
+    /// static production forwards are never touched.
+    pub fn set_dynamic_forwards(&self, specs: Vec<ForwardSpec>) {
+        let _ = self.dynamic.send(specs);
     }
 
     /// Clean shutdown: closes the session and stops all listeners without
@@ -162,15 +181,63 @@ fn publish(
     sink(snapshot);
 }
 
+/// Bind one forward on the current transport: a health row plus the accept
+/// task when the bind succeeded.
+async fn bind_forward(
+    bind_addr: IpAddr,
+    spec: &ForwardSpec,
+    transport: &Arc<dyn SshTransport>,
+    status: &Arc<Mutex<TunnelStatus>>,
+    sink: &StatusSink,
+) -> (ForwardHealth, Option<JoinHandle<()>>) {
+    match TcpListener::bind((bind_addr, spec.local_port)).await {
+        Ok(listener) => {
+            let bound = listener
+                .local_addr()
+                .map(|a| a.port())
+                .unwrap_or(spec.local_port);
+            let task = tokio::spawn(accept_loop(
+                listener,
+                spec.clone(),
+                transport.clone(),
+                status.clone(),
+                sink.clone(),
+                bound,
+            ));
+            (
+                ForwardHealth {
+                    local_port: bound,
+                    remote_port: spec.remote_port,
+                    active: true,
+                    last_error: None,
+                },
+                Some(task),
+            )
+        }
+        Err(e) => (
+            ForwardHealth {
+                local_port: spec.local_port,
+                remote_port: spec.remote_port,
+                active: false,
+                last_error: Some(format!("bind 127.0.0.1:{}: {e}", spec.local_port)),
+            },
+            None,
+        ),
+    }
+}
+
 async fn run(
     config: SupervisorConfig,
     connector: Connector,
     sink: StatusSink,
     status: Arc<Mutex<TunnelStatus>>,
     mut shutdown: watch::Receiver<bool>,
+    mut dynamic_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<ForwardSpec>>,
 ) {
     let mut attempt: u32 = 0;
     let mut delay = config.initial_backoff;
+    // The current dynamic forward set; survives reconnects.
+    let mut dynamic: Vec<ForwardSpec> = Vec::new();
 
     loop {
         if *shutdown.borrow() {
@@ -212,43 +279,17 @@ async fn run(
             },
         };
 
-        // Session is up: bind every listener and start accept loops.
+        // Session is up: bind every static listener and start accept loops.
         let mut accept_tasks: Vec<JoinHandle<()>> = Vec::new();
         let mut healths: Vec<ForwardHealth> = Vec::new();
         let mut bind_failure: Option<String> = None;
-        for (idx, spec) in config.forwards.iter().enumerate() {
-            match TcpListener::bind((config.bind_addr, spec.local_port)).await {
-                Ok(listener) => {
-                    let bound = listener
-                        .local_addr()
-                        .map(|a| a.port())
-                        .unwrap_or(spec.local_port);
-                    healths.push(ForwardHealth {
-                        local_port: bound,
-                        remote_port: spec.remote_port,
-                        active: true,
-                        last_error: None,
-                    });
-                    accept_tasks.push(tokio::spawn(accept_loop(
-                        listener,
-                        spec.clone(),
-                        transport.clone(),
-                        status.clone(),
-                        sink.clone(),
-                        idx,
-                    )));
-                }
-                Err(e) => {
-                    let message = format!("bind 127.0.0.1:{}: {e}", spec.local_port);
-                    bind_failure.get_or_insert(message.clone());
-                    healths.push(ForwardHealth {
-                        local_port: spec.local_port,
-                        remote_port: spec.remote_port,
-                        active: false,
-                        last_error: Some(message),
-                    });
-                }
+        for spec in &config.forwards {
+            let (health, task) = bind_forward(config.bind_addr, spec, &transport, &status, &sink).await;
+            if let Some(err) = &health.last_error {
+                bind_failure.get_or_insert(err.clone());
             }
+            accept_tasks.extend(task);
+            healths.push(health);
         }
 
         if healths.iter().all(|h| !h.active) {
@@ -269,16 +310,70 @@ async fn run(
             return;
         }
 
+        // Re-bind the dynamic set from previous epochs on the new session.
+        let mut dyn_tasks: std::collections::HashMap<u16, JoinHandle<()>> =
+            std::collections::HashMap::new();
+        for spec in dynamic.clone() {
+            let (health, task) =
+                bind_forward(config.bind_addr, &spec, &transport, &status, &sink).await;
+            if let Some(task) = task {
+                // Keyed by the actually-bound port (resolves a 0 in the spec).
+                dyn_tasks.insert(health.local_port, task);
+            }
+            healths.push(health);
+        }
+
         delay = config.initial_backoff;
         publish(&status, &sink, |s| {
             s.phase = TunnelPhase::Connected;
             s.forwards = healths;
         });
 
-        // Watch the session until it dies or we're told to stop.
+        // Watch the session until it dies or we're told to stop, applying
+        // dynamic forward updates as they arrive.
         let session_died = loop {
             tokio::select! {
                 _ = shutdown.changed() => break false,
+                specs = dynamic_rx.recv() => {
+                    let Some(specs) = specs else { break false };
+                    // Drop forwards that fell out of the set…
+                    let keep: std::collections::HashSet<u16> =
+                        specs.iter().map(|s| s.local_port).collect();
+                    let dropped: Vec<u16> = dyn_tasks
+                        .keys()
+                        .filter(|p| !keep.contains(p))
+                        .copied()
+                        .collect();
+                    for port in dropped {
+                        if let Some(task) = dyn_tasks.remove(&port) {
+                            task.abort();
+                        }
+                        publish(&status, &sink, |s| {
+                            s.forwards.retain(|h| h.local_port != port);
+                        });
+                    }
+                    // …and bind the new ones on the live session. Port 0
+                    // (OS-assigned, tests only) can't collide, so it skips
+                    // the already-bound checks.
+                    for spec in &specs {
+                        if spec.local_port != 0
+                            && (dyn_tasks.contains_key(&spec.local_port)
+                                || config.forwards.iter().any(|f| f.local_port == spec.local_port))
+                        {
+                            continue;
+                        }
+                        let (health, task) =
+                            bind_forward(config.bind_addr, spec, &transport, &status, &sink).await;
+                        if let Some(task) = task {
+                            dyn_tasks.insert(health.local_port, task);
+                        }
+                        publish(&status, &sink, |s| {
+                            s.forwards.retain(|h| h.local_port != health.local_port);
+                            s.forwards.push(health.clone());
+                        });
+                    }
+                    dynamic = specs;
+                }
                 _ = tokio::time::sleep(LIVENESS_POLL) => {
                     if transport.is_closed() {
                         break true;
@@ -289,6 +384,9 @@ async fn run(
 
         for t in &accept_tasks {
             t.abort();
+        }
+        for task in dyn_tasks.values() {
+            task.abort();
         }
         transport.close().await;
 
@@ -317,7 +415,7 @@ async fn accept_loop(
     transport: Arc<dyn SshTransport>,
     status: Arc<Mutex<TunnelStatus>>,
     sink: StatusSink,
-    idx: usize,
+    bound_port: u16,
 ) {
     loop {
         let mut sock = match listener.accept().await {
@@ -341,8 +439,12 @@ async fn accept_loop(
                     let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
                 }
                 Err(e) => {
+                    // Forwards come and go dynamically, so rows are keyed by
+                    // their bound local port, never by position.
                     publish(&status, &sink, |s| {
-                        if let Some(h) = s.forwards.get_mut(idx) {
+                        if let Some(h) =
+                            s.forwards.iter_mut().find(|h| h.local_port == bound_port)
+                        {
                             h.last_error = Some(e.to_string());
                         }
                     });
@@ -610,13 +712,111 @@ mod tests {
     fn production_map_covers_the_stack_ports() {
         let forwards = production_forwards();
         let ports: Vec<u16> = forwards.iter().map(|f| f.local_port).collect();
-        for expected in [3000, 8000, 8001, 8002, 8080, 8111, 4000, 7000, 7010] {
+        for expected in [3000, 8000, 8001, 8002, 8080, 8111, 4000] {
             assert!(ports.contains(&expected), "missing port {expected}");
         }
-        assert_eq!(forwards.len(), 7 + 11);
+        // Marketplace app ports are dynamic (ssh/app_ports.rs), not static.
+        assert_eq!(forwards.len(), 7);
         // Local and remote port numbers must match — the web app derives its
         // URLs from window.location.hostname plus these fixed ports.
         assert!(forwards.iter().all(|f| f.local_port == f.remote_port));
+    }
+
+    async fn connect_ok(sock: &mut tokio::net::TcpStream, payload: &[u8]) {
+        sock.write_all(payload).await.unwrap();
+        let mut buf = vec![0u8; payload.len()];
+        sock.read_exact(&mut buf).await.unwrap();
+        assert_eq!(buf, payload);
+    }
+
+    #[tokio::test]
+    async fn dynamic_forwards_bind_and_unbind_while_connected() {
+        let echo = echo_server().await;
+        let (sink, mut rx) = channel_sink();
+        let dials = Arc::new(AtomicU32::new(0));
+        let flags = Arc::new(Mutex::new(Vec::new()));
+        let sup = Supervisor::spawn(test_config(), connector_to(echo, dials, flags), sink);
+        wait_for(&mut rx, |s| matches!(s.phase, TunnelPhase::Connected)).await;
+
+        // Add one dynamic app port (0 = OS-assigned for the test).
+        sup.set_dynamic_forwards(vec![ForwardSpec {
+            local_port: 0,
+            remote_host: "127.0.0.1".into(),
+            remote_port: 3085,
+        }]);
+        let status = wait_for(&mut rx, |s| {
+            s.forwards.iter().any(|f| f.remote_port == 3085 && f.active)
+        })
+        .await;
+        assert_eq!(status.forwards.len(), 2);
+        let port = status
+            .forwards
+            .iter()
+            .find(|f| f.remote_port == 3085)
+            .unwrap()
+            .local_port;
+
+        // Traffic flows through the dynamic forward.
+        let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        connect_ok(&mut sock, b"app").await;
+
+        // Empty set removes it; the static forward stays.
+        sup.set_dynamic_forwards(Vec::new());
+        let status = wait_for(&mut rx, |s| s.forwards.len() == 1).await;
+        assert_eq!(status.forwards[0].remote_port, 9999);
+        assert!(
+            tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(),
+            "dynamic listener should be gone"
+        );
+
+        sup.stop().await;
+    }
+
+    #[tokio::test]
+    async fn dynamic_forwards_survive_a_reconnect() {
+        let echo = echo_server().await;
+        let (sink, mut rx) = channel_sink();
+        let dials = Arc::new(AtomicU32::new(0));
+        let flags: Arc<Mutex<Vec<Arc<AtomicBool>>>> = Arc::new(Mutex::new(Vec::new()));
+        let sup = Supervisor::spawn(
+            test_config(),
+            connector_to(echo, dials, flags.clone()),
+            sink,
+        );
+        wait_for(&mut rx, |s| matches!(s.phase, TunnelPhase::Connected)).await;
+
+        // Bind a real high port so the re-bind after reconnect is observable.
+        let free_port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        sup.set_dynamic_forwards(vec![ForwardSpec {
+            local_port: free_port,
+            remote_host: "127.0.0.1".into(),
+            remote_port: 3085,
+        }]);
+        wait_for(&mut rx, |s| {
+            s.forwards.iter().any(|f| f.local_port == free_port && f.active)
+        })
+        .await;
+
+        // Kill the session; after the reconnect the dynamic port is back.
+        flags.lock().unwrap()[0].store(true, Ordering::SeqCst);
+        let reconnected = wait_for(&mut rx, |s| {
+            matches!(s.phase, TunnelPhase::Connected)
+                && s.forwards.iter().any(|f| f.local_port == free_port && f.active)
+        })
+        .await;
+        assert_eq!(reconnected.forwards.len(), 2);
+
+        let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", free_port))
+            .await
+            .unwrap();
+        connect_ok(&mut sock, b"back").await;
+
+        sup.stop().await;
     }
 
     #[test]

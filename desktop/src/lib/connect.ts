@@ -11,9 +11,10 @@ import type { Profile, StackClassification, TunnelStatus } from "./ipc";
 /**
  * Ports the stack cannot work without. The web app derives service URLs
  * from window.location + these fixed numbers, so the local listeners must
- * bind the REAL ports — remapping is not an option. The 7000-7010 model
- * container range is deliberately absent: a taken model port only affects
- * one model, not the connect flow.
+ * bind the REAL ports — remapping is not an option. Marketplace app ports
+ * are deliberately absent: they're forwarded dynamically while connected
+ * (ssh/app_ports.rs), and a taken app port only affects that one app, not
+ * the connect flow.
  */
 export const ESSENTIAL_PORTS = [3000, 8000, 8001, 8002, 4000, 8080];
 
