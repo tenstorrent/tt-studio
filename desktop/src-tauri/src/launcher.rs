@@ -149,7 +149,7 @@ pub fn kill_child(slot: &ChildSlot) -> bool {
 
 // ---- Tauri commands ----
 
-fn log_dir(app: &tauri::AppHandle<Wry>) -> Result<PathBuf, String> {
+pub(crate) fn log_dir(app: &tauri::AppHandle<Wry>) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()

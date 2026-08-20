@@ -82,6 +82,7 @@ pub fn run() {
             launcher::mark_local_attach,
             launcher::restart_stack,
             update::stack::check_stack_freshness,
+            update::stack::run_stack_switch,
             update::stack::get_stack_update_policy,
             update::stack::set_stack_update_policy,
         ])

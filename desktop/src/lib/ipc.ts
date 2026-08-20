@@ -251,6 +251,57 @@ export function asSshError(e: unknown): SshErrorPayload | null {
   return null;
 }
 
+// ---- stack updates (update/stack.rs) ----
+
+export type StackUpdatePolicy = "auto" | "prompt" | "never";
+
+export type StackSkipReason =
+  | "up_to_date"
+  | "dirty_checkout"
+  | "not_on_release"
+  | "offline"
+  | "policy_never"
+  | "no_checkout";
+
+export interface StackCheckoutRef {
+  tag: string | null;
+  dirty: boolean;
+  label: string;
+}
+
+export type StackFreshness = {
+  current: StackCheckoutRef | null;
+  latest_tag: string | null;
+} & (
+  | { action: "update"; from: string; to: string }
+  | { action: "ask"; from: string; to: string }
+  | { action: "skip"; reason: StackSkipReason }
+);
+
+/** Is the target's checkout behind the latest v* release? null profile = local. */
+export const checkStackFreshness = (profile: Profile | null) =>
+  invoke<StackFreshness>("check_stack_freshness", { profile });
+
+/**
+ * Run the guarded `run.py --switch <tag>` on the target (local spawn or ssh
+ * exec). Resolves when done; rejects on failure — including a dirty tree,
+ * which --switch itself refuses. Never forces anything.
+ */
+export const runStackSwitch = (profile: Profile | null, tag: string) =>
+  invoke<void>("run_stack_switch", { profile, tag });
+
+export const getStackUpdatePolicy = () =>
+  invoke<StackUpdatePolicy>("get_stack_update_policy");
+
+export const setStackUpdatePolicy = (policy: StackUpdatePolicy) =>
+  invoke<void>("set_stack_update_policy", { policy });
+
+/** Raw output lines from a running `run.py --switch`. */
+export const onSwitchLine = (
+  handler: (line: string) => void,
+): Promise<UnlistenFn> =>
+  listen<string>("switch-line", (event) => handler(event.payload));
+
 // ---- navigation ----
 
 export const openStack = (url: string) => invoke<void>("open_stack", { url });

@@ -8,7 +8,13 @@ import ConnectErrorCard from "./views/ConnectErrorCard";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
 import QuitDialog from "./views/QuitDialog";
+import {
+  StackSwitchProgress,
+  StackUpdatePrompt,
+} from "./views/StackUpdateCard";
+import StackUpdateSetting from "./views/StackUpdateSetting";
 import UpdateBanner from "./views/UpdateBanner";
+import { stackSkipNotice } from "./lib/updates";
 import {
   describeSshError,
   TrustHostKeyDialog,
@@ -33,6 +39,7 @@ import {
   asSecretError,
   asSshError,
   cancelRemoteBringUp,
+  checkStackFreshness,
   checkStackHealth,
   classifyRemoteStack,
   deleteProfile,
@@ -45,11 +52,13 @@ import {
   onBringUpLine,
   onRemoteStopLine,
   onStackHealth,
+  onSwitchLine,
   onTunnelStatus,
   openStack,
   quitApp,
   resolveStackCheckout,
   restartStack,
+  runStackSwitch,
   saveProfile,
   setSshKeyPassphrase,
   startBringUp,
@@ -176,7 +185,85 @@ function App() {
   const [prep, setPrep] = useState<string | null>(null);
   /** Whether a local stack already answers its health checks (picker info). */
   const [stackUp, setStackUp] = useState(false);
+  /** Why the stack update was skipped this connect (info line, not an error). */
+  const [stackNotice, setStackNotice] = useState<string | null>(null);
+  /** Freshness said "behind" and policy is prompt — waiting on the user. */
+  const [pendingUpdate, setPendingUpdate] = useState<{
+    target: Profile | null;
+    from: string;
+    to: string;
+  } | null>(null);
+  /** A `run.py --switch` is running; lines stream into the progress card. */
+  const [switching, setSwitching] = useState<{
+    to: string;
+    lines: string[];
+  } | null>(null);
   const opening = useRef(false);
+
+  /** Kick off the actual bring-up on the target (after any update handling). */
+  const continueBringUp = useCallback(async (target: Profile | null) => {
+    if (target) {
+      await startRemoteBringUp(target);
+      setStage({ step: "bringup" });
+      return;
+    }
+    setPrep("Preparing the TT-Studio checkout (first run clones it)…");
+    try {
+      const checkout = await resolveStackCheckout();
+      await startBringUp(checkout.path);
+    } finally {
+      setPrep(null);
+    }
+  }, []);
+
+  /**
+   * Run `run.py --switch` with a streamed progress card. A failed switch
+   * (including the dirty-tree refusal) becomes an info line — bring-up
+   * continues on the current version.
+   */
+  const runSwitch = useCallback(async (target: Profile | null, to: string) => {
+    setSwitching({ to, lines: [] });
+    const unlisten = await onSwitchLine((line) =>
+      setSwitching(
+        (prev) => prev && { ...prev, lines: [...prev.lines.slice(-199), line] },
+      ),
+    );
+    try {
+      await runStackSwitch(target, to);
+    } catch (e) {
+      setStackNotice(
+        `Stack update to ${to} failed — continuing on the current version. ${e}`,
+      );
+    } finally {
+      unlisten();
+      setSwitching(null);
+    }
+  }, []);
+
+  // The freshness gate before every bring-up: maybe switch the checkout to
+  // the latest release first. Never blocks connecting — every failure or
+  // skip falls through to bring-up, at most with an info line.
+  const maybeUpdateThenBringUp = useCallback(
+    async (target: Profile | null) => {
+      let fresh = null;
+      try {
+        fresh = await checkStackFreshness(target);
+      } catch (e) {
+        setStackNotice(`Couldn't check for stack updates — continuing. ${e}`);
+      }
+      if (fresh?.action === "ask") {
+        setPendingUpdate({ target, from: fresh.from, to: fresh.to });
+        return;
+      }
+      if (fresh?.action === "update") {
+        await runSwitch(target, fresh.to);
+      } else if (fresh?.action === "skip") {
+        setStackNotice(stackSkipNotice(fresh.reason));
+      }
+      await continueBringUp(target);
+    },
+    [continueBringUp, runSwitch],
+  );
 
   useEffect(() => {
     if (screen.name === "quit") return;
@@ -249,9 +336,7 @@ function App() {
           setStage({ step: "error", card });
           return;
         }
-        return startRemoteBringUp(target).then(() =>
-          setStage({ step: "bringup" }),
-        );
+        return maybeUpdateThenBringUp(target);
       })
       .catch((e) => {
         const ssh = asSshError(e);
@@ -263,7 +348,7 @@ function App() {
           },
         });
       });
-  }, [screen, stage.step, tunnel]);
+  }, [screen, stage.step, tunnel, maybeUpdateThenBringUp]);
 
   // For SSH targets: follow tunnel status. The listener is scoped to the
   // connecting screen, but the tunnel itself keeps running after we navigate
@@ -369,6 +454,7 @@ function App() {
     setHealth(null);
     setTunnel(null);
     setError(null);
+    setStackNotice(null);
     // Local connects go straight to the health gate; SSH connects walk the
     // tunnel → classify → attach-or-bringup stages first.
     setStage({ step: target ? "tunnel" : "attach" });
@@ -380,30 +466,51 @@ function App() {
     setScreen({ name: "connecting", target });
   }, []);
 
+  const handleUpdateNow = useCallback(() => {
+    if (!pendingUpdate) return;
+    const { target, to } = pendingUpdate;
+    setPendingUpdate(null);
+    runSwitch(target, to)
+      .then(() => continueBringUp(target))
+      .catch((e) => {
+        setError(String(e));
+        setScreen({ name: "picker" });
+      });
+  }, [pendingUpdate, runSwitch, continueBringUp]);
+
+  const handleUpdateSkip = useCallback(() => {
+    if (!pendingUpdate) return;
+    const target = pendingUpdate.target;
+    setPendingUpdate(null);
+    continueBringUp(target).catch((e) => {
+      setError(String(e));
+      setScreen({ name: "picker" });
+    });
+  }, [pendingUpdate, continueBringUp]);
+
   // Native mode: attach if the stack is already healthy, otherwise resolve
-  // the checkout (cloning on first use) and spawn the bring-up.
+  // the checkout (cloning on first use), maybe refresh it, and spawn the
+  // bring-up.
   const connectLocal = useCallback(async () => {
     setHealth(null);
     setStage({ step: "attach" });
+    setStackNotice(null);
     opening.current = false;
     setScreen({ name: "connecting", target: null });
     try {
       const current = await checkStackHealth();
       if (current.ready) {
-        // Already running: no bring-up — the health poller opens the stack.
+        // Already running: no bring-up (and no update — never switch the
+        // checkout under a live stack); the health poller opens the stack.
         await markLocalAttach();
         return;
       }
-      setPrep("Preparing the TT-Studio checkout (first run clones it)…");
-      const checkout = await resolveStackCheckout();
-      await startBringUp(checkout.path);
+      await maybeUpdateThenBringUp(null);
     } catch (e) {
       setError(String(e));
       setScreen({ name: "picker" });
-    } finally {
-      setPrep(null);
     }
-  }, []);
+  }, [maybeUpdateThenBringUp]);
 
   // Explicit "Restart stack": run.py --stop, then a fresh bring-up. Health
   // polling is suppressed (bringUpOnly) so the old, still-draining services
@@ -475,6 +582,9 @@ function App() {
     stopSshTunnels().catch(() => {});
     setTunnel(null);
     setHealth(null);
+    setPendingUpdate(null);
+    setSwitching(null);
+    setStackNotice(null);
     setScreen({ name: "picker" });
   }, []);
 
@@ -596,6 +706,28 @@ function App() {
         />
       );
     }
+    if (pendingUpdate) {
+      return (
+        <StackUpdatePrompt
+          from={pendingUpdate.from}
+          to={pendingUpdate.to}
+          machine={target?.name ?? null}
+          onUpdate={handleUpdateNow}
+          onSkip={handleUpdateSkip}
+        />
+      );
+    }
+    if (switching) {
+      return <StackSwitchProgress to={switching.to} lines={switching.lines} />;
+    }
+    const notice = stackNotice && (
+      <p
+        data-testid="stack-notice"
+        className="fixed inset-x-0 bottom-4 mx-auto max-w-md rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-zinc-400"
+      >
+        {stackNotice}
+      </p>
+    );
     if (
       bringUp &&
       (bringUp.phases.length > 0 ||
@@ -603,11 +735,14 @@ function App() {
         bringUp.promptBlocked)
     ) {
       return (
-        <BringUpProgress
-          state={bringUp}
-          onReady={handleBringUpReady}
-          onCancel={cancelConnect}
-        />
+        <>
+          <BringUpProgress
+            state={bringUp}
+            onReady={handleBringUpReady}
+            onCancel={cancelConnect}
+          />
+          {notice}
+        </>
       );
     }
     if (prep) {
@@ -621,17 +756,20 @@ function App() {
       );
     }
     return (
-      <HealthGate
-        health={health}
-        target={target}
-        tunnel={tunnel}
-        activity={
-          target && stage.step !== "error"
-            ? describeStep(stage.step, target.name)
-            : undefined
-        }
-        onCancel={cancelConnect}
-      />
+      <>
+        <HealthGate
+          health={health}
+          target={target}
+          tunnel={tunnel}
+          activity={
+            target && stage.step !== "error"
+              ? describeStep(stage.step, target.name)
+              : undefined
+          }
+          onCancel={cancelConnect}
+        />
+        {notice}
+      </>
     );
   }
 
@@ -648,8 +786,9 @@ function App() {
         onEditProfile={(profile) => setScreen({ name: "editor", profile })}
         onDeleteProfile={handleDelete}
       />
-      <div className="fixed bottom-4 left-4">
+      <div className="fixed bottom-4 left-4 flex items-center gap-4">
         <UpdateBanner />
+        <StackUpdateSetting />
       </div>
       {(error || keychainWarning) && (
         <p className="fixed inset-x-0 bottom-4 mx-auto max-w-md rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-amber-400">

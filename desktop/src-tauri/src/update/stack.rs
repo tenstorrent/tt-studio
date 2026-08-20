@@ -244,6 +244,116 @@ async fn remote_checkout_ref(
     ))
 }
 
+// ---- running the switch itself ----
+
+/// Raw output lines from `run.py --switch`, streamed to the launcher UI
+/// (rich renders plain when stdout is a pipe, so lines arrive clean).
+pub const SWITCH_LINE_EVENT: &str = "switch-line";
+
+/// Local spawn spec for `run.py --switch <tag>` inside the checkout.
+pub fn switch_spec(
+    checkout: &Path,
+    tag: &str,
+    stderr_log: std::path::PathBuf,
+) -> crate::launcher::SpawnSpec {
+    crate::launcher::SpawnSpec {
+        program: "python3".to_string(),
+        args: vec!["run.py".to_string(), "--switch".to_string(), tag.to_string()],
+        cwd: checkout.to_path_buf(),
+        stderr_log,
+        envs: Vec::new(),
+    }
+}
+
+/// The same switch over ssh exec. `2>&1` so progress and failure panels
+/// both arrive on the streamed channel.
+pub fn switch_command(path: &str, tag: &str) -> String {
+    format!(
+        "cd {} && python3 run.py --switch {tag} 2>&1",
+        quote_path(path)
+    )
+}
+
+/// Run the guarded `run.py --switch <tag>` on the connect target and stream
+/// its output as `switch-line` events. Resolves once the switch finishes;
+/// a non-zero exit is an error (the caller proceeds to bring-up on the old
+/// version and says so). `--switch` re-checks the dirty-tree guard itself —
+/// this never forces anything.
+#[tauri::command]
+pub async fn run_stack_switch(
+    app: tauri::AppHandle<Wry>,
+    launcher_state: tauri::State<'_, crate::state::LauncherState>,
+    profile: Option<Profile>,
+    tag: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    // The tag goes into a shell command on the ssh path and an argv here —
+    // only accept what we'd have decided on: a plain numeric v* tag.
+    if release_tag_key(&tag).is_none() {
+        return Err(format!("{tag} is not a release tag (v*)"));
+    }
+
+    match profile {
+        None => {
+            let configured = stack_checkout::configured_path(&app)?;
+            let managed = stack_checkout::default_managed_dir(&app)?;
+            let dir = stack_checkout::existing(configured.as_deref(), &managed)
+                .ok_or_else(|| "no local stack checkout to update".to_string())?;
+            let spec = switch_spec(&dir, &tag, crate::launcher::log_dir(&app)?.join("switch.log"));
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            let line_app = app.clone();
+            crate::launcher::spawn_streaming(
+                &spec,
+                launcher_state.child.clone(),
+                move |line| {
+                    let _ = line_app.emit(SWITCH_LINE_EVENT, &line);
+                },
+                move |code| {
+                    let _ = tx.send(code);
+                },
+            )?;
+            let code = tauri::async_runtime::spawn_blocking(move || rx.recv())
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|_| "run.py --switch ended without an exit code".to_string())?;
+            if code != Some(0) {
+                return Err(format!(
+                    "run.py --switch {tag} failed (exit {})",
+                    code.map_or("signal".to_string(), |c| c.to_string())
+                ));
+            }
+            Ok(())
+        }
+        Some(profile) => {
+            let session = crate::remote::connect_session(&app, &profile)
+                .await
+                .map_err(|e| e.to_string())?;
+            let command = switch_command(&crate::remote::repo_path(&profile), &tag);
+            let line_app = app.clone();
+            let result = session
+                .exec_stream(
+                    &command,
+                    |line| {
+                        let _ = line_app.emit(SWITCH_LINE_EVENT, line);
+                    },
+                    |_stderr| {},
+                )
+                .await;
+            session.close().await;
+            let code = result.map_err(|e| e.to_string())?;
+            if code != Some(0) {
+                return Err(format!(
+                    "run.py --switch {tag} failed on the remote machine (exit {})",
+                    code.map_or("unknown".to_string(), |c| c.to_string())
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
 // ---- Tauri commands ----
 
 pub fn stored_policy(app: &tauri::AppHandle<Wry>) -> Result<UpdatePolicy, String> {

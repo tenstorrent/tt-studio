@@ -9,6 +9,7 @@
 
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import type { StackSkipReason } from "./ipc";
 
 export interface ShellUpdate {
   version: string;
@@ -22,6 +23,24 @@ export interface ShellUpdate {
  * already current; rejects when the feed is unreachable (offline) — callers
  * decide whether that's silent (launch check) or surfaced (manual check).
  */
+/**
+ * What (if anything) to tell the user when a stack update was skipped.
+ * null = say nothing: up-to-date and policy "never" are the expected quiet
+ * paths, and a missing checkout gets cloned at the latest release anyway.
+ */
+export function stackSkipNotice(reason: StackSkipReason): string | null {
+  switch (reason) {
+    case "dirty_checkout":
+      return "Developer checkout detected (local changes) — skipping the stack update.";
+    case "not_on_release":
+      return "Developer checkout detected (not on a release tag) — skipping the stack update.";
+    case "offline":
+      return "Couldn't check for stack updates — continuing with the current version.";
+    default:
+      return null;
+  }
+}
+
 export async function checkShellUpdate(): Promise<ShellUpdate | null> {
   const update = await check();
   if (!update) return null;
