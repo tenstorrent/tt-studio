@@ -7,6 +7,7 @@ mod hardware;
 mod health;
 mod profiles;
 mod secrets;
+mod stack_checkout;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -26,6 +27,8 @@ pub fn run() {
             health::check_stack_health,
             health::start_health_poll,
             health::stop_health_poll,
+            stack_checkout::resolve_stack_checkout,
+            stack_checkout::set_stack_checkout_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
