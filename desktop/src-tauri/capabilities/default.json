@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "IPC permissions for the bundled launcher UI only. The remote TT-Studio origin (http://localhost:3000) is deliberately NOT granted any capability: no `remote` block appears here, so Tauri denies it all IPC.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default", "process:allow-restart"]
 }

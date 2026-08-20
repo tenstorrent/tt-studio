@@ -21,6 +21,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        // Shell self-update from tagged GitHub releases. The updater pubkey
+        // in tauri.conf.json is a PLACEHOLDER generated for development —
+        // release CI must replace it with the real signing key before
+        // shipping updater artifacts (see desktop/README.md).
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(health::PollerState::default())
         .manage(ssh::commands::TunnelState::default())
         .manage(remote::RemoteState::default())

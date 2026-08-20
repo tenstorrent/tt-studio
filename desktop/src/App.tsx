@@ -8,6 +8,7 @@ import ConnectErrorCard from "./views/ConnectErrorCard";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
 import QuitDialog from "./views/QuitDialog";
+import UpdateBanner from "./views/UpdateBanner";
 import {
   describeSshError,
   TrustHostKeyDialog,
@@ -647,6 +648,9 @@ function App() {
         onEditProfile={(profile) => setScreen({ name: "editor", profile })}
         onDeleteProfile={handleDelete}
       />
+      <div className="fixed bottom-4 left-4">
+        <UpdateBanner />
+      </div>
       {(error || keychainWarning) && (
         <p className="fixed inset-x-0 bottom-4 mx-auto max-w-md rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-amber-400">
           {error ?? keychainWarning}
