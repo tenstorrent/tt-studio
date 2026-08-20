@@ -3,8 +3,8 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import BringUpProgress from "./views/BringUpProgress";
+import ConnectErrorCard from "./views/ConnectErrorCard";
 import ConnectionPicker from "./views/ConnectionPicker";
 import ProfileEditor from "./views/ProfileEditor";
 import {
@@ -13,6 +13,14 @@ import {
   TunnelBanner,
 } from "./views/TunnelBanner";
 import {
+  blockedPorts,
+  classificationCard,
+  describeStep,
+  portConflictCard,
+  type ConnectErrorInfo,
+  type ConnectStep,
+} from "./lib/connect";
+import {
   initialBringUpState,
   parseEventLine,
   reduceEvent,
@@ -20,16 +28,22 @@ import {
 } from "./lib/events";
 import {
   asSecretError,
+  asSshError,
+  cancelRemoteBringUp,
+  classifyRemoteStack,
   deleteProfile,
   detectHardware,
   listProfiles,
   markProfileUsed,
+  onBringUpExit,
+  onBringUpLine,
   onStackHealth,
   onTunnelStatus,
   openStack,
   saveProfile,
   setSshKeyPassphrase,
   startHealthPoll,
+  startRemoteBringUp,
   startSshTunnels,
   stopHealthPoll,
   stopSshTunnels,
@@ -51,6 +65,15 @@ type Screen =
   | { name: "editor"; profile?: Profile }
   | { name: "connecting"; target: Profile | null };
 
+/**
+ * Where an SSH connect currently is. Local connects skip this entirely
+ * ("attach" from the start); SSH connects walk tunnel → classify →
+ * bringup-or-attach, or park on an error card.
+ */
+type RemoteStage =
+  | { step: ConnectStep }
+  | { step: "error"; card: ConnectErrorInfo };
+
 const STATUS_STYLE: Record<string, string> = {
   up: "bg-emerald-500",
   down: "bg-red-500",
@@ -62,10 +85,14 @@ function HealthGate({
   health,
   target,
   tunnel,
+  activity,
+  onCancel,
 }: {
   health: StackHealth | null;
   target: Profile | null;
   tunnel: TunnelStatus | null;
+  activity?: string;
+  onCancel?: () => void;
 }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 px-6 text-zinc-100">
@@ -73,10 +100,10 @@ function HealthGate({
         <h1 className="text-2xl font-semibold tracking-tight">
           {target ? `Connecting to ${target.name}` : "Starting TT-Studio"}
         </h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <p className="mt-1 text-sm text-zinc-400" data-testid="connect-activity">
           {health?.ready
             ? "All services are up — opening TT-Studio…"
-            : "Waiting for all services to come up"}
+            : (activity ?? "Waiting for all services to come up")}
         </p>
       </header>
       {target && <TunnelBanner status={tunnel} />}
@@ -99,6 +126,16 @@ function HealthGate({
           <li className="text-center text-sm text-zinc-500">Checking…</li>
         )}
       </ul>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          data-testid="connect-cancel"
+          className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
+        >
+          Cancel
+        </button>
+      )}
     </main>
   );
 }
@@ -110,6 +147,7 @@ function App() {
   const [health, setHealth] = useState<StackHealth | null>(null);
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
+  const [stage, setStage] = useState<RemoteStage>({ step: "tunnel" });
   const [keychainWarning, setKeychainWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opening = useRef(false);
@@ -128,8 +166,11 @@ function App() {
   }, []);
 
   // While connecting: poll stack health, and navigate once everything is up.
+  // For SSH targets the poll waits for the attach stage — before the tunnel
+  // is verified, localhost:3000 could be some other local server.
   useEffect(() => {
     if (screen.name !== "connecting") return;
+    if (screen.target && stage.step !== "attach") return;
     let unlisten: (() => void) | undefined;
     onStackHealth(setHealth).then((fn) => {
       unlisten = fn;
@@ -139,7 +180,54 @@ function App() {
       unlisten?.();
       stopHealthPoll().catch(() => {});
     };
-  }, [screen.name]);
+  }, [screen, stage.step]);
+
+  // Tunnel established for an SSH target: first make sure every essential
+  // local port actually bound (a taken port 3000 must become an error card,
+  // never a silent remap), then ask the remote side whether to attach to a
+  // running stack or bring one up.
+  useEffect(() => {
+    if (
+      screen.name !== "connecting" ||
+      !screen.target ||
+      stage.step !== "tunnel" ||
+      tunnel?.phase.state !== "connected"
+    )
+      return;
+    const target = screen.target;
+    const blocked = blockedPorts(tunnel);
+    if (blocked.length > 0) {
+      stopSshTunnels().catch(() => {});
+      setStage({ step: "error", card: portConflictCard(blocked) });
+      return;
+    }
+    setStage({ step: "classify" });
+    classifyRemoteStack(target)
+      .then((classification) => {
+        if (classification.kind === "healthy") {
+          setStage({ step: "attach" });
+          return;
+        }
+        const card = classificationCard(classification, target);
+        if (card) {
+          setStage({ step: "error", card });
+          return;
+        }
+        return startRemoteBringUp(target).then(() =>
+          setStage({ step: "bringup" }),
+        );
+      })
+      .catch((e) => {
+        const ssh = asSshError(e);
+        setStage({
+          step: "error",
+          card: {
+            title: `Couldn't inspect the stack on ${target.name}`,
+            body: ssh ? describeSshError(ssh) : String(e),
+          },
+        });
+      });
+  }, [screen, stage.step, tunnel]);
 
   // For SSH targets: follow tunnel status. The listener is scoped to the
   // connecting screen, but the tunnel itself keeps running after we navigate
@@ -167,13 +255,14 @@ function App() {
     setScreen({ name: "picker" });
   }, [screen.name, tunnel]);
 
-  // When a bring-up is running (`python run.py --json-events` piped in by the
-  // shell), render its NDJSON stream natively instead of the bare checklist.
+  // When a bring-up is running (`python run.py --json-events`, native or
+  // over ssh exec), render its NDJSON stream natively instead of the bare
+  // checklist.
   useEffect(() => {
     if (screen.name !== "connecting") return;
     let unlisten: (() => void) | undefined;
-    listen<string>("bringup-line", ({ payload }) => {
-      const event = parseEventLine(payload);
+    onBringUpLine((line) => {
+      const event = parseEventLine(line);
       if (!event) return;
       setBringUp((prev) => reduceEvent(prev ?? initialBringUpState(), event));
     }).then((fn) => {
@@ -182,6 +271,39 @@ function App() {
     return () => {
       unlisten?.();
       setBringUp(null);
+    };
+  }, [screen.name]);
+
+  // A remote bring-up that dies without reaching `ready` (network drop,
+  // remote crash before the launcher could emit its own error event) still
+  // needs an error card — synthesize one from the exit notification.
+  useEffect(() => {
+    if (screen.name !== "connecting") return;
+    let unlisten: (() => void) | undefined;
+    onBringUpExit((exit) => {
+      if (exit.exit_code === 0 && !exit.error) return;
+      setBringUp((prev) => {
+        const state = prev ?? initialBringUpState();
+        if (state.ready || state.errors.length > 0) return state;
+        return reduceEvent(state, {
+          v: 1,
+          ts: 0,
+          event: "error",
+          phase: null,
+          detail: {
+            message:
+              exit.error ??
+              `Bring-up exited with code ${exit.exit_code ?? "unknown"}`,
+            remediation:
+              "Check remote-bringup.log in the app's log folder, then try connecting again.",
+          },
+        });
+      });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
     };
   }, [screen.name]);
 
@@ -213,12 +335,25 @@ function App() {
   const connect = useCallback((target: Profile | null) => {
     setHealth(null);
     setTunnel(null);
+    setError(null);
+    // Local connects go straight to the health gate; SSH connects walk the
+    // tunnel → classify → attach-or-bringup stages first.
+    setStage({ step: target ? "tunnel" : "attach" });
     opening.current = false;
     if (target) {
       markProfileUsed(target.id).catch(() => {});
       startSshTunnels(target).catch((e) => setError(String(e)));
     }
     setScreen({ name: "connecting", target });
+  }, []);
+
+  /** Tear down whatever the connect flow has started and go back. */
+  const cancelConnect = useCallback(() => {
+    cancelRemoteBringUp().catch(() => {});
+    stopSshTunnels().catch(() => {});
+    setTunnel(null);
+    setHealth(null);
+    setScreen({ name: "picker" });
   }, []);
 
   const handleTrustHostKey = useCallback(
@@ -312,10 +447,41 @@ function App() {
         />
       );
     }
-    if (bringUp && bringUp.phases.length > 0) {
-      return <BringUpProgress state={bringUp} onReady={handleBringUpReady} />;
+    if (target && stage.step === "error") {
+      return (
+        <ConnectErrorCard
+          card={stage.card}
+          onBack={cancelConnect}
+          onEdit={() => {
+            stopSshTunnels().catch(() => {});
+            setTunnel(null);
+            setScreen({ name: "editor", profile: target });
+          }}
+        />
+      );
     }
-    return <HealthGate health={health} target={target} tunnel={tunnel} />;
+    if (bringUp && (bringUp.phases.length > 0 || bringUp.errors.length > 0)) {
+      return (
+        <BringUpProgress
+          state={bringUp}
+          onReady={handleBringUpReady}
+          onCancel={cancelConnect}
+        />
+      );
+    }
+    return (
+      <HealthGate
+        health={health}
+        target={target}
+        tunnel={tunnel}
+        activity={
+          target && stage.step !== "error"
+            ? describeStep(stage.step, target.name)
+            : undefined
+        }
+        onCancel={cancelConnect}
+      />
+    );
   }
 
   return (

@@ -155,6 +155,41 @@ export const onTunnelStatus = (
 ): Promise<UnlistenFn> =>
   listen<TunnelStatus>("tunnel-status", (event) => handler(event.payload));
 
+// ---- remote stack detection & bring-up (remote.rs) ----
+
+export type StackClassification =
+  | { kind: "healthy" }
+  | { kind: "partial"; healthy: string[]; unhealthy: string[] }
+  | { kind: "down" }
+  | { kind: "no_checkout"; path: string }
+  | { kind: "python_missing"; message: string }
+  | { kind: "python_too_old"; found: string; required: string };
+
+export interface BringUpExit {
+  exit_code: number | null;
+  error?: string;
+}
+
+export const classifyRemoteStack = (profile: Profile) =>
+  invoke<StackClassification>("classify_remote_stack", { profile });
+
+export const startRemoteBringUp = (profile: Profile) =>
+  invoke<void>("start_remote_bring_up", { profile });
+
+export const cancelRemoteBringUp = () =>
+  invoke<void>("cancel_remote_bring_up");
+
+/** Raw NDJSON lines from a remote bring-up (parse with lib/events.ts). */
+export const onBringUpLine = (
+  handler: (line: string) => void,
+): Promise<UnlistenFn> =>
+  listen<string>("bringup-line", (event) => handler(event.payload));
+
+export const onBringUpExit = (
+  handler: (exit: BringUpExit) => void,
+): Promise<UnlistenFn> =>
+  listen<BringUpExit>("bringup-exit", (event) => handler(event.payload));
+
 /** Narrow an unknown invoke() rejection into an SshErrorPayload if possible. */
 export function asSshError(e: unknown): SshErrorPayload | null {
   if (typeof e === "object" && e !== null && "code" in e) {

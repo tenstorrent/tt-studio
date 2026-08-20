@@ -47,9 +47,11 @@ interface Props {
   state: BringUpState;
   /** Called once the launcher reports ready and the app URL is known. */
   onReady: (appUrl: string) => void;
+  /** When set, renders a cancel button that aborts the bring-up. */
+  onCancel?: () => void;
 }
 
-function BringUpProgress({ state, onReady }: Props) {
+function BringUpProgress({ state, onReady, onCancel }: Props) {
   const appUrl = state.ready?.urls.app;
   useEffect(() => {
     if (appUrl) onReady(appUrl);
@@ -139,6 +141,17 @@ function BringUpProgress({ state, onReady }: Props) {
             </p>
           )}
         </section>
+      )}
+
+      {onCancel && !state.ready && (
+        <button
+          type="button"
+          onClick={onCancel}
+          data-testid="bringup-cancel"
+          className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
+        >
+          {state.errors.length > 0 ? "Back" : "Cancel"}
+        </button>
       )}
     </main>
   );
