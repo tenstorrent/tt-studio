@@ -25,7 +25,10 @@ export interface Profile {
   last_used?: number;
 }
 
+export type Platform = "linux" | "macos" | "windows" | "other";
+
 export interface HardwareProbe {
+  platform: Platform;
   accelerator_present: boolean;
   default_mode: ProfileKind;
 }

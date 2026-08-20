@@ -27,6 +27,26 @@ export function defaultSelection(
   return mostRecent.id;
 }
 
+/**
+ * Why local mode is unavailable, phrased for the picker — distinguishing
+ * "wrong OS" (native mode is Linux-only) from "Linux but no device node"
+ * (card missing or driver not set up). Null when local mode is offered.
+ * Exported for unit tests.
+ */
+export function noLocalReason(hardware: HardwareProbe | null): string | null {
+  if (!hardware || hardware.accelerator_present) return null;
+  if (hardware.platform === "linux") {
+    return "No Tenstorrent accelerator was found on this machine (/dev/tenstorrent is missing). If a card is installed, finish the one-time driver setup in a terminal with python run.py; otherwise connect to a machine that has one over SSH.";
+  }
+  const os =
+    hardware.platform === "macos"
+      ? "macOS"
+      : hardware.platform === "windows"
+        ? "Windows"
+        : "this OS";
+  return `Running models locally needs a Linux machine with a Tenstorrent accelerator — TT-Studio can't run natively on ${os}. Connect to a Linux machine over SSH instead.`;
+}
+
 export function describeAuth(profile: Profile): string {
   if (!profile.auth || profile.auth.method === "agent") return "ssh-agent";
   return `key ${profile.auth.path}`;
@@ -70,6 +90,15 @@ function ConnectionPicker({
       </header>
 
       <section className="flex w-full max-w-md flex-col gap-3">
+        {noLocalReason(hardware) && (
+          <p
+            data-testid="no-local-card"
+            className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs leading-relaxed text-zinc-400"
+          >
+            {noLocalReason(hardware)}
+          </p>
+        )}
+
         {hardware?.accelerator_present && (
           <button
             type="button"
@@ -162,8 +191,8 @@ function ConnectionPicker({
             data-testid="picker-empty"
             className="rounded-lg border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-400"
           >
-            No Tenstorrent hardware found on this machine. Add a machine that
-            has one to connect over SSH.
+            No machines yet — add one that has a Tenstorrent accelerator to
+            connect over SSH.
           </p>
         )}
 

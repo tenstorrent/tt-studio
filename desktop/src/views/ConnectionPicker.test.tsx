@@ -4,14 +4,24 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ConnectionPicker, { defaultSelection } from "./ConnectionPicker";
+import ConnectionPicker, {
+  defaultSelection,
+  noLocalReason,
+} from "./ConnectionPicker";
 import type { HardwareProbe, Profile } from "../lib/ipc";
 
 const withHardware: HardwareProbe = {
+  platform: "linux",
   accelerator_present: true,
   default_mode: "local",
 };
 const noHardware: HardwareProbe = {
+  platform: "linux",
+  accelerator_present: false,
+  default_mode: "ssh",
+};
+const onMac: HardwareProbe = {
+  platform: "macos",
   accelerator_present: false,
   default_mode: "ssh",
 };
@@ -132,6 +142,33 @@ describe("ConnectionPicker", () => {
     expect(screen.getByText("Old box")).toBeTruthy();
     expect(screen.getByText(/old\.lan/)).toBeTruthy();
     expect(screen.getByText(/key ~\/\.ssh\/id_ed25519/)).toBeTruthy();
+  });
+
+  it("explains why local mode is unavailable, per platform", () => {
+    // Linux without the device node: point at the driver setup.
+    expect(noLocalReason(noHardware)).toContain("/dev/tenstorrent");
+    expect(noLocalReason(noHardware)).toContain("python run.py");
+    // Non-Linux: native mode is out entirely, steer to SSH.
+    expect(noLocalReason(onMac)).toContain("macOS");
+    expect(noLocalReason(onMac)).toContain("SSH");
+    // Hardware present (or still probing): no card.
+    expect(noLocalReason(withHardware)).toBeNull();
+    expect(noLocalReason(null)).toBeNull();
+
+    const first = render(
+      <ConnectionPicker hardware={onMac} profiles={[qb2]} {...noop} />,
+    );
+    expect(screen.getByTestId("no-local-card").textContent).toContain(
+      "macOS",
+    );
+    // Saved SSH profiles are still front and center.
+    expect(screen.getByTestId("connect-qb2")).toBeTruthy();
+    first.unmount();
+
+    render(
+      <ConnectionPicker hardware={withHardware} profiles={[]} {...noop} />,
+    );
+    expect(screen.queryByTestId("no-local-card")).toBeNull();
   });
 
   it("always offers adding a machine", () => {
