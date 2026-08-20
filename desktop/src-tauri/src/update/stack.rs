@@ -258,7 +258,11 @@ pub fn switch_spec(
 ) -> crate::launcher::SpawnSpec {
     crate::launcher::SpawnSpec {
         program: "python3".to_string(),
-        args: vec!["run.py".to_string(), "--switch".to_string(), tag.to_string()],
+        args: vec![
+            "run.py".to_string(),
+            "--switch".to_string(),
+            tag.to_string(),
+        ],
         cwd: checkout.to_path_buf(),
         stderr_log,
         envs: Vec::new(),
@@ -306,7 +310,11 @@ pub async fn run_stack_switch(
             let managed = stack_checkout::default_managed_dir(&app)?;
             let dir = stack_checkout::existing(configured.as_deref(), &managed)
                 .ok_or_else(|| "no local stack checkout to update".to_string())?;
-            let spec = switch_spec(&dir, &tag, crate::launcher::log_dir(&app)?.join("switch.log"));
+            let spec = switch_spec(
+                &dir,
+                &tag,
+                crate::launcher::log_dir(&app)?.join("switch.log"),
+            );
 
             let (tx, rx) = std::sync::mpsc::channel();
             let line_app = app.clone();
@@ -437,4 +445,210 @@ pub async fn check_stack_freshness(
         latest_tag: latest,
         decision,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clean(tag: Option<&str>) -> CheckoutRef {
+        CheckoutRef {
+            tag: tag.map(String::from),
+            dirty: false,
+            label: tag.unwrap_or("jashan/some-branch").to_string(),
+        }
+    }
+
+    fn dirty(tag: Option<&str>) -> CheckoutRef {
+        CheckoutRef {
+            dirty: true,
+            ..clean(tag)
+        }
+    }
+
+    fn skip(reason: SkipReason) -> StackUpdateAction {
+        StackUpdateAction::Skip { reason }
+    }
+
+    #[test]
+    fn decide_covers_the_matrix() {
+        use UpdatePolicy::*;
+        let cases: Vec<(
+            Option<CheckoutRef>,
+            Option<&str>,
+            UpdatePolicy,
+            StackUpdateAction,
+        )> = vec![
+            // No checkout yet: first run clones the latest release anyway.
+            (None, Some("v2.10.0"), Prompt, skip(SkipReason::NoCheckout)),
+            // Dirty tree wins over everything — --switch would refuse.
+            (
+                Some(dirty(Some("v2.9.0"))),
+                Some("v2.10.0"),
+                Auto,
+                skip(SkipReason::DirtyCheckout),
+            ),
+            (
+                Some(dirty(None)),
+                None,
+                Auto,
+                skip(SkipReason::DirtyCheckout),
+            ),
+            // Clean but not on a release tag: developer checkout, hands off.
+            (
+                Some(clean(None)),
+                Some("v2.10.0"),
+                Auto,
+                skip(SkipReason::NotOnRelease),
+            ),
+            // Couldn't learn the latest tag: proceed without updating.
+            (
+                Some(clean(Some("v2.9.0"))),
+                None,
+                Auto,
+                skip(SkipReason::Offline),
+            ),
+            // Same or newer than latest: nothing to do.
+            (
+                Some(clean(Some("v2.10.0"))),
+                Some("v2.10.0"),
+                Auto,
+                skip(SkipReason::UpToDate),
+            ),
+            (
+                Some(clean(Some("v2.11.0"))),
+                Some("v2.10.0"),
+                Prompt,
+                skip(SkipReason::UpToDate),
+            ),
+            // Behind: the policy picks between update, ask, and never.
+            (
+                Some(clean(Some("v2.9.0"))),
+                Some("v2.10.0"),
+                Never,
+                skip(SkipReason::PolicyNever),
+            ),
+            (
+                Some(clean(Some("v2.9.0"))),
+                Some("v2.10.0"),
+                Auto,
+                StackUpdateAction::Update {
+                    from: "v2.9.0".into(),
+                    to: "v2.10.0".into(),
+                },
+            ),
+            (
+                Some(clean(Some("v2.9.0"))),
+                Some("v2.10.0"),
+                Prompt,
+                StackUpdateAction::Ask {
+                    from: "v2.9.0".into(),
+                    to: "v2.10.0".into(),
+                },
+            ),
+            // Numeric compare, not string compare: v2.10 > v2.9.
+            (
+                Some(clean(Some("v2.9.9"))),
+                Some("v2.10.0"),
+                Auto,
+                StackUpdateAction::Update {
+                    from: "v2.9.9".into(),
+                    to: "v2.10.0".into(),
+                },
+            ),
+        ];
+        for (current, latest, policy, expected) in cases {
+            assert_eq!(
+                decide(current.as_ref(), latest, policy),
+                expected,
+                "current={current:?} latest={latest:?} policy={policy:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn checkout_ref_folds_git_output() {
+        // On a release tag, clean.
+        let on_tag = checkout_ref(Some("v2.10.0\n"), "", "v2.10.0");
+        assert_eq!(on_tag.tag.as_deref(), Some("v2.10.0"));
+        assert!(!on_tag.dirty);
+        assert_eq!(on_tag.label, "v2.10.0");
+
+        // Exact match on a non-release tag is NOT a release checkout.
+        let odd_tag = checkout_ref(Some("nightly-1\n"), "", "nightly-1");
+        assert_eq!(odd_tag.tag, None);
+        assert_eq!(odd_tag.label, "nightly-1");
+
+        // Not on a tag: label falls back to describe/sha output.
+        let on_branch = checkout_ref(None, " M run.py\n", "v2.9.0-12-gabc1234");
+        assert_eq!(on_branch.tag, None);
+        assert!(on_branch.dirty);
+        assert_eq!(on_branch.label, "v2.9.0-12-gabc1234");
+
+        // Nothing usable at all.
+        let unknown = checkout_ref(None, "", "");
+        assert_eq!(unknown.label, "(unknown)");
+    }
+
+    #[test]
+    fn switch_commands_quote_the_repo_path() {
+        assert_eq!(
+            switch_command("~/tt studio", "v2.10.0"),
+            "cd \"$HOME\"/'tt studio' && python3 run.py --switch v2.10.0 2>&1"
+        );
+        let spec = switch_spec(Path::new("/opt/stack"), "v2.10.0", "/tmp/switch.log".into());
+        assert_eq!(spec.args, vec!["run.py", "--switch", "v2.10.0"]);
+        assert_eq!(spec.cwd, Path::new("/opt/stack"));
+    }
+
+    // ---- ref detection against a real (temp) git repo ----
+
+    fn run_git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .expect("git runs");
+        assert!(status.status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn local_checkout_ref_reads_a_real_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(path, &["init", "-q"]);
+        std::fs::write(path.join("run.py"), "print('hi')\n").unwrap();
+        run_git(path, &["add", "run.py"]);
+        run_git(path, &["commit", "-q", "-m", "init"]);
+
+        // Untagged commit: no release tag, not dirty.
+        let plain = local_checkout_ref(path).unwrap();
+        assert_eq!(plain.tag, None);
+        assert!(!plain.dirty);
+
+        // Tag it like a release: exact tag detected.
+        run_git(path, &["tag", "v2.10.0"]);
+        let tagged = local_checkout_ref(path).unwrap();
+        assert_eq!(tagged.tag.as_deref(), Some("v2.10.0"));
+        assert_eq!(tagged.label, "v2.10.0");
+        assert!(!tagged.dirty);
+
+        // Tracked modification: dirty (same test --switch refuses on)…
+        std::fs::write(path.join("run.py"), "print('changed')\n").unwrap();
+        assert!(local_checkout_ref(path).unwrap().dirty);
+        run_git(path, &["checkout", "-q", "--", "run.py"]);
+
+        // …but untracked files alone don't count.
+        std::fs::write(path.join("scratch.txt"), "notes\n").unwrap();
+        assert!(!local_checkout_ref(path).unwrap().dirty);
+
+        // Not a git repo at all: an error, not a bogus answer.
+        let empty = tempfile::tempdir().unwrap();
+        assert!(local_checkout_ref(empty.path()).is_err());
+    }
 }
