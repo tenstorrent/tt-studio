@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { motion } from "framer-motion";
+import { Settings } from "lucide-react";
 import { Button } from "../ui/button";
 
 interface Props {
@@ -37,7 +38,11 @@ export default function WelcomeIntroStep({ onNext }: Props) {
         <li className="flex items-start gap-2">
           <span className="text-TT-purple">•</span>
           <span>
-            You can add or change it any time from Settings.
+            You can add or change it any time from{" "}
+            <span className="inline-flex items-center gap-1 font-medium">
+              <Settings className="w-3.5 h-3.5" /> Settings
+            </span>
+            .
           </span>
         </li>
       </ul>
