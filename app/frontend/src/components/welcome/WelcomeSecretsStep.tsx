@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Eye, EyeOff } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -133,6 +133,23 @@ export default function WelcomeSecretsStep({
           </a>
         </p>
       </div>
+
+      {/* Without a token the inference server waits for credentials when a gated
+          model is deployed, and the deploy sits at 0% with no explanation. Warn
+          here, before the user hits that dead end. */}
+      {!loading && !current?.hf_token.set && values.hf_token.trim() === "" && (
+        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 p-3">
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" />
+          <p className="text-xs text-yellow-800 dark:text-yellow-200">
+            <span className="font-semibold">No token configured.</span> Deploys
+            of gated models (Llama, Gemma, …) will stall at 0% while the server
+            waits for Hugging Face credentials. Add a token above, or set{" "}
+            <code className="font-mono">HF_TOKEN</code> in the{" "}
+            <code className="font-mono">.env</code> file at the repo root and
+            restart TT-Studio.
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-between pt-2">
         <Button variant="outline" onClick={onBack} disabled={isSaving}>

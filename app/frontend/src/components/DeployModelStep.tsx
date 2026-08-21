@@ -9,6 +9,7 @@ import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import { cancelDeployment } from "../api/modelsDeployedApis";
+import { getSettings } from "../api/settingsApi";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
@@ -66,6 +67,22 @@ export function DeployModelStep({
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
+  // A missing HF token is the most common reason a deploy of a gated model
+  // stalls at 0% — warn up front and sharpen the stall message in the progress
+  // card. On lookup failure stay silent rather than warn spuriously.
+  const [hfTokenMissing, setHfTokenMissing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setHfTokenMissing(!s.hf_token.set);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const slotInfo = useMemo(() => {
     if (!chipStatus) {
@@ -235,6 +252,7 @@ export function DeployModelStep({
               }
               startTime={activeDeployment.startedAt}
               imagePulled={activeDeployment.hadImagePull}
+              hfTokenMissing={hfTokenMissing}
               onCancel={() => {
                 void cancelDeployment(activeDeployment.jobId);
                 removeDeployment(activeDeployment.jobId);
@@ -276,6 +294,31 @@ export function DeployModelStep({
                   <p className="text-sm text-blue-700 dark:text-blue-300">
                     Deployment is paused while the board resets — about a minute or two.
                     Try again once it finishes.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Missing HF token: gated model deploys will hang at 0% waiting for
+            credentials, so warn before the user starts one. Non-blocking —
+            ungated models still deploy fine without a token. */}
+        {hfTokenMissing && (
+          <div className="w-full max-w-2xl mb-6">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+                    No Hugging Face token configured
+                  </h4>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    Deploys of gated models (Llama, Gemma, …) will stall at 0%
+                    without one. Set it in Settings (gear icon in the navbar),
+                    or add <code className="font-mono">HF_TOKEN</code> to the{" "}
+                    <code className="font-mono">.env</code> file at the repo
+                    root and restart TT-Studio.
                   </p>
                 </div>
               </div>
