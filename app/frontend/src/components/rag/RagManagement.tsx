@@ -422,6 +422,9 @@ export default function RagManagement() {
       );
       customToast.info("Uploading document...");
     },
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
+    },
     onError: (error: Error, { file, collectionName }) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
@@ -588,6 +591,7 @@ export default function RagManagement() {
         customToast.error(
           `Generated collection name "${collectionName}" is too short. Please rename the file.`
         );
+        setUploadBoxKey((prev) => prev + 1);
         return;
       }
 
