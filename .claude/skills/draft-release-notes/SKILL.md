@@ -25,6 +25,11 @@ branch.
 
 If the user names a branch, use it. Don't guess a version — ask if unclear.
 
+The release PR into `main` is titled `Rc vX.Y.Z` (the **Lint PR title** check is
+skipped for `rc-*` head branches) or `release: vX.Y.Z` — see CONTRIBUTING →
+Release Process. Step 2 relies on that `Rc vX.Y.Z` merge-commit title as the
+cutoff.
+
 ## Step 1 — Study the previous releases (match the style, don't invent it)
 
 Read the **most recent two or three** published release descriptions so the new
