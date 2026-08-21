@@ -199,10 +199,11 @@ class DockerControlClient:
         response = self._request("POST", f"/api/v1/containers/{container_id}/stop", json=payload)
         return response.json()
 
-    def remove_container(self, container_id: str, force: bool = False, v: bool = False) -> Dict:
-        """Remove a container"""
-        payload = {"force": force, "v": v}
-        response = self._request("POST", f"/api/v1/containers/{container_id}/remove", json=payload)
+    def remove_container(self, container_id: str, force: bool = False) -> Dict:
+        """Remove a container."""
+        response = self._request(
+            "POST", f"/api/v1/containers/{container_id}/remove", params={"force": force}
+        )
         return response.json()
 
     def rename_container(self, container_id: str, new_name: str) -> Dict:
