@@ -15,6 +15,50 @@ If you’d like to contribute or have suggestions , please familiarize yourself 
 - **Pull Requests (PRs):**
   - All changes must be submitted via a PR.
   - PRs require approval from the appropriate reviewers before merging.
+  - **PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/)** (see [Commit Message Convention](#commit-message-convention) below). CI will reject non-conforming titles.
+
+---
+
+## **Commit Message Convention**
+
+We use **[Conventional Commits](https://www.conventionalcommits.org/)** for all PR titles. Since we **squash-merge** into `dev`, the PR title becomes the final commit message — so getting the title right is all that matters.
+
+### **Format**
+
+```
+<type>(<optional scope>): <description>
+```
+
+### **Allowed Types**
+
+| Type       | Purpose                                           |
+| ---------- | ------------------------------------------------- |
+| `feat`     | A new feature                                     |
+| `fix`      | A bug fix                                         |
+| `docs`     | Documentation-only changes                        |
+| `style`    | Code style changes (formatting, missing semicolons, etc.) |
+| `refactor` | Code changes that neither fix a bug nor add a feature |
+| `perf`     | Performance improvements                          |
+| `test`     | Adding or updating tests                          |
+| `build`    | Changes to the build system or dependencies       |
+| `ci`       | Changes to CI configuration files and scripts     |
+| `chore`    | Other changes that don't modify src or test files |
+| `revert`   | Reverts a previous commit                         |
+| `release`  | Release PR from a `rc-vX.Y.Z` branch into `main`  |
+
+### **Examples**
+
+```
+feat: add Wan2.2 video model to deploy list
+fix: stop board reset button crashing on reset-all
+docs: update CONTRIBUTING with commit convention
+ci: add commitlint workflow for PR titles
+refactor(api): simplify model-loading endpoint
+release: v2.10.0
+feat(ui)!: redesign dashboard layout
+```
+
+> **Note:** Adding `!` after the type/scope (e.g., `feat!:` or `feat(ui)!:`) signals a **breaking change**.
 
 ---
 
@@ -75,6 +119,14 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
   - When `dev` is stable and ready for release, a **release cut branch** is created from `main`.
   - **Naming convention:** `rc-vx.x.x` (e.g., `rc-v1.2.0`).
 
+- **Release PR title:**
+
+  - Release PRs may be titled `Rc vX.Y.Z` — the **Lint PR title** check is skipped for
+    `rc-*` and `tt_qb2_launch_branch` head branches, since that title comes straight from
+    `gh pr create --fill`.
+  - `release: vX.Y.Z` is also valid if you'd rather keep `main`'s squashed history fully
+    conventional.
+
 - **Feature Inclusion:**
 
   - Developers **cherry-pick** validated features from `dev` into the release branch.
@@ -109,6 +161,13 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 
 - **Tags are created in `main`** to mark production releases.
 - **Semantic versioning** (e.g., `v1.0.0`) is used to track different versions.
+- Pushing a `v*` tag (or publishing a GitHub release) triggers the
+  **Publish images** workflow, which builds the backend, frontend,
+  frontend-dev, and agent images and pushes them to
+  `ghcr.io/tenstorrent/tt-studio/*` so `run.py` can pull prebuilt images
+  instead of building locally. Nothing is published from `dev` or feature
+  branches; ad-hoc publishes go through the workflow's manual dispatch with
+  its explicit `push` input.
 
 ---
 

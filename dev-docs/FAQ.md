@@ -29,6 +29,30 @@ git pull
 python run.py
 ```
 
+### Does setup always build the Docker images locally?
+No. `run.py` first tries to pull prebuilt images from
+`ghcr.io/tenstorrent/tt-studio/*`, pinned to your exact checkout: the release
+tag when you're on one (e.g. `v2.9.0`), otherwise `sha-<12 chars of HEAD>`.
+Images are published on releases, so checkouts of a tagged release get a
+download instead of a build.
+
+`run.py` falls back to building locally — automatically and without failing —
+whenever the pull can't succeed or would produce the wrong bits:
+
+- your commit has no published image (feature branch, `dev` between releases)
+- `app/` has local modifications
+- you customized frontend settings (`VITE_APP_TITLE`, `VITE_ENABLE_DEPLOYED`,
+  `VITE_ENABLE_RAG_ADMIN`) in non-dev mode — those are baked into the
+  published frontend image at build time
+- you're offline or the registry is unreachable (locally cached images are
+  reused when present)
+- you're on a CPU architecture without published images (only linux/amd64 is
+  published today)
+
+To skip the pull entirely, run `python run.py --build-images`. To pull from a
+mirror or a private/local registry, set `TT_STUDIO_IMAGE_REGISTRY` in `.env`
+(and `docker login` to it first if it requires authentication).
+
 ## Usage Questions
 
 ### How can I use TT-Studio as an AI playground?

@@ -87,7 +87,13 @@ def _cleanup_runtime(args, has_docker_access):
                       "host service (ports 8001/8002).[/warning]")
         subprocess.run(["sudo", "-v"], check=False)
 
-    with step("Stopping inference API", spinner=True):
+    # Host-service cleanup can discover a sudo requirement late (for example
+    # from a stale/root-owned PID file, or when lsof cannot identify the
+    # listener). Keep these steps static so any unexpected sudo prompt remains
+    # visible instead of being hidden behind an animation. The early
+    # authentication above still avoids prompting in the common root-owned
+    # listener case.
+    with step("Stopping inference API", spinner=False):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
-    with step("Stopping Docker control", spinner=True):
+    with step("Stopping Docker control", spinner=False):
         cleanup_docker_control_service(no_sudo=args.no_sudo)

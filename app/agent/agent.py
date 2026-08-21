@@ -7,6 +7,7 @@ try:
     from .custom_llm import CustomLLM
     from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
+    from .document_search_tool import DocumentSearchTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
     from .config import AgentConfig
@@ -15,6 +16,7 @@ except ImportError:
     from custom_llm import CustomLLM
     from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
+    from document_search_tool import DocumentSearchTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
     from config import AgentConfig
@@ -117,7 +119,37 @@ json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 jwt_secret = os.getenv("JWT_SECRET")
 cloud_auth_token = os.getenv("CLOUD_CHAT_UI_AUTH_TOKEN")
 
-# Use cloud auth token if available, otherwise fall back to JWT
+
+def _fetch_backend_auth_token() -> str:
+    """Ask the backend to mint a token for calling a deployed model.
+
+    JWT_SECRET is optional in .env, and when unset the backend keeps the secret in
+    the UI-managed config, which this container cannot read. Returns "" on failure
+    so a missing token surfaces as a 401 rather than a validation error.
+    """
+    try:
+        resp = requests.get(f"{AgentConfig.BACKEND_URL}/models/agent/auth-token/", timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("token") or ""
+        print(f"Backend returned {resp.status_code} for agent auth token")
+    except Exception as e:
+        print(f"Could not fetch agent auth token from backend: {e}")
+    return ""
+
+
+def _auth_token() -> str:
+    """Token for local model calls, minted by the backend on first use and cached.
+
+    Resolved lazily so poll_for_llm()'s retries can recover if the backend was not
+    reachable yet; fetching at import would leave the agent permanently tokenless.
+    """
+    global encoded_jwt
+    if not encoded_jwt:
+        encoded_jwt = _fetch_backend_auth_token()
+    return encoded_jwt
+
+
+# Cloud token wins, then an explicit JWT_SECRET, else the backend mints one on demand.
 if cloud_auth_token:
     encoded_jwt = cloud_auth_token
     print(f"Using cloud auth token for authentication")
@@ -125,8 +157,8 @@ elif jwt_secret:
     encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
     print(f"Using JWT authentication")
 else:
-    encoded_jwt = None
-    print("Warning: No authentication token available (neither CLOUD_CHAT_UI_AUTH_TOKEN nor JWT_SECRET)")
+    encoded_jwt = ""
+    print("JWT_SECRET not set; will request a model token from the backend")
 
 class RequestPayload(BaseModel):
     message: str
@@ -177,7 +209,7 @@ def setup_local_container_llm(container_name: str) -> CustomLLM:
     """Setup LLM using environment-specified container"""
     llm = CustomLLM(
         server_url=f"http://{container_name}:7000", 
-        encoded_jwt=encoded_jwt, 
+        encoded_jwt=_auth_token(), 
         streaming=True,
         is_cloud=False
     )
@@ -217,7 +249,7 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
     
     llm = CustomLLM(
         server_url=server_url,
-        encoded_jwt=encoded_jwt,
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False,
         is_discovered=True,
@@ -254,7 +286,7 @@ def setup_local_host_llm() -> CustomLLM:
     
     llm = CustomLLM(
         server_url=f"http://{local_host}:{local_port}/v1/chat/completions",
-        encoded_jwt=encoded_jwt,
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False
     )
@@ -342,7 +374,7 @@ def initialize_llm() -> CustomLLM:
 
 def on_llm_change(new_llm: CustomLLM):
     """Callback when LLM changes during health monitoring"""
-    global current_llm, agent_executer, tool_calling_supported
+    global current_llm, agent_executer, tool_calling_supported, tools
     print("LLM changed, updating agent executor...")
     current_llm = new_llm
     if (new_llm.is_discovered and new_llm.llm_info
@@ -354,8 +386,7 @@ def on_llm_change(new_llm: CustomLLM):
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
-    tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
+    tools = build_tools()
     agent_executer = setup_executer(new_llm, memory, tools)
     print(f"Agent executor updated with new LLM (tool_calling={tool_calling_supported})")
 
@@ -417,6 +448,41 @@ def _probe_tool_calling(llm) -> bool:
         print(f"[PROBE] Tool-calling probe failed: {e}")
         return False
 
+def build_tools(include_code_tool: bool = True) -> list:
+    """Construct the agent's tool list.
+
+    Single construction point so the initial setup and every LLM-swap path
+    expose the same tools (and keep the module-global `tools` in sync for
+    /status and the per-request dedup reset).
+    """
+    # Web search — DynamicTavilySearch reads the API key from the shared
+    # user_config.env on every call, so a key saved via the TT Studio Settings
+    # UI takes effect without restarting the agent container (and it returns a
+    # graceful "not configured" message when no key is set). It's wrapped in
+    # DeduplicatedSearchTool for per-request dedup + result trimming.
+    raw_search = DynamicTavilySearch(
+        max_results=3,
+        include_answer=True,
+        include_raw_content=False,
+    )
+    tool_list = [DeduplicatedSearchTool(inner_tool=raw_search)]
+
+    # Documentation search over the backend's internal knowledge collection.
+    tool_list.append(DocumentSearchTool())
+
+    if include_code_tool:
+        # Code interpreter needs an E2B_API_KEY; skipped when unavailable.
+        try:
+            code_tool = CodeInterpreterFunctionTool()
+            tool_list.append(code_tool.to_langchain_tool())
+            print("✓ Code interpreter tool enabled")
+        except Exception as e:
+            print(f"⚠ Code interpreter tool disabled: {e}")
+            print("   To enable code execution, set the E2B_API_KEY environment variable")
+            print("   Get your API key from: https://e2b.dev/docs")
+    return tool_list
+
+
 def initialize_agent_components():
     """Initialize agent components once LLM is available"""
     global current_llm, agent_executer, memory, tools, llm_initialization_complete, tool_calling_supported
@@ -439,31 +505,8 @@ def initialize_agent_components():
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
         # Initialize tools
-        tools = []
+        tools = build_tools()
 
-        # Add search tool — DynamicTavilySearch reads the API key from the shared
-        # user_config.env on every call, so a key saved via the TT Studio Settings
-        # UI takes effect without restarting the agent container (and it returns a
-        # graceful "not configured" message when no key is set). It's wrapped in
-        # DeduplicatedSearchTool for per-request dedup + result trimming.
-        raw_search = DynamicTavilySearch(
-            max_results=3,
-            include_answer=True,
-            include_raw_content=False,
-        )
-        search = DeduplicatedSearchTool(inner_tool=raw_search)
-        tools.append(search)
-        
-        # Add code interpreter tool if E2B_API_KEY is available
-        try:
-            code_tool = CodeInterpreterFunctionTool()
-            tools.append(code_tool.to_langchain_tool())
-            print("✓ Code interpreter tool enabled")
-        except Exception as e:
-            print(f"⚠ Code interpreter tool disabled: {e}")
-            print("   To enable code execution, set the E2B_API_KEY environment variable")
-            print("   Get your API key from: https://e2b.dev/docs")
-        
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Start health monitoring for local LLMs
@@ -664,7 +707,10 @@ def get_status():
         discovery_status = discovery_service.get_llm_status_summary()
         
         configured_tools = [t.name for t in tools] if tools else []
-        has_search = any("tavily" in t.lower() or "search" in t.lower() for t in configured_tools)
+        # Match on "tavily" specifically — document_search also contains "search"
+        # and must not make web_search look configured.
+        has_search = any("tavily" in t.lower() for t in configured_tools)
+        has_document_search = "document_search" in configured_tools
         _tavily_raw = os.getenv("TAVILY_API_KEY", "")
         tavily_key_set = bool(_tavily_raw) and _tavily_raw != "tavily-api-key-not-configured"
 
@@ -676,6 +722,7 @@ def get_status():
             "tools": configured_tools,
             "capabilities": {
                 "web_search": has_search and tavily_key_set and tool_calling_supported,
+                "document_search": has_document_search and tool_calling_supported,
                 "tool_calling": tool_calling_supported,
             },
             "configuration": {
@@ -698,7 +745,7 @@ def get_status():
 @app.post("/refresh")
 def refresh_llm():
     """Dynamically refresh LLM selection and configuration"""
-    global current_llm, agent_executer, discovery_service, tool_calling_supported
+    global current_llm, agent_executer, discovery_service, tool_calling_supported, tools
     
     print("[DYNAMIC_REFRESH] Starting LLM refresh process...")
     
@@ -746,8 +793,7 @@ def refresh_llm():
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
-        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
+        tools = build_tools()
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring
@@ -778,7 +824,7 @@ def refresh_llm():
 @app.post("/select_model")
 def select_model(deploy_id: str):
     """Dynamically select a specific model by deploy_id"""
-    global current_llm, agent_executer, discovery_service, tool_calling_supported
+    global current_llm, agent_executer, discovery_service, tool_calling_supported, tools
     
     print(f"[DYNAMIC_SELECTION] Attempting to select model with deploy_id: {deploy_id}")
     
@@ -829,8 +875,7 @@ def select_model(deploy_id: str):
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        raw_search = DynamicTavilySearch(max_results=3, include_answer=True, include_raw_content=False)
-        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
+        tools = build_tools()
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring

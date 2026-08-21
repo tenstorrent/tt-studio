@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "workflow_control.apps.WorkflowControlConfig",
     "channels",
     "wakeword_control",
+    "training_control",
 ]
 
 MIDDLEWARE = [
@@ -164,6 +165,33 @@ _rag_relevance_threshold = os.environ.get("RAG_RELEVANCE_THRESHOLD")
 RAG_RELEVANCE_THRESHOLD = (
     float(_rag_relevance_threshold) if _rag_relevance_threshold else None
 )
+
+# Rewrite the user's query with the deployed LLM before retrieval (adds one LLM
+# round-trip per RAG query; skipped automatically when no LLM is deployed).
+RAG_QUERY_REWRITE = os.environ.get("RAG_QUERY_REWRITE", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# Approximate token cap (chars/4) for the context returned by /collections/retrieve.
+RAG_CONTEXT_TOKEN_BUDGET = int(os.environ.get("RAG_CONTEXT_TOKEN_BUDGET") or 2000)
+# Cross-encoder reranking of retrieval candidates; auto-skips if the ONNX model
+# is unavailable (e.g. offline first boot).
+RAG_RERANK_ENABLED = os.environ.get("RAG_RERANK_ENABLED", "true").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+# Reranked chunks scoring below this (0-1 sigmoid) are dropped...
+RAG_RERANK_MIN_SCORE = float(os.environ.get("RAG_RERANK_MIN_SCORE") or 0.05)
+# ...but the best N chunks always survive the threshold, so retrieval never
+# returns empty just because the cross-encoder scored a niche corpus low.
+RAG_RERANK_FLOOR = int(os.environ.get("RAG_RERANK_FLOOR") or 2)
+# Chunking for uploaded documents and the internal corpus. all-MiniLM-L6-v2
+# truncates input around 256 tokens, so keep chunks small. Changing either
+# value reseeds the internal knowledge collection on next startup.
+RAG_CHUNK_SIZE = int(os.environ.get("RAG_CHUNK_SIZE") or 750)
+RAG_CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP") or 100)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],

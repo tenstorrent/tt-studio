@@ -98,6 +98,54 @@ Because phases use the imperative `begin_phase/…/end_phase` (not a `with`), th
   `\r` loops). Auto-disables on non-TTY.
 - `download_with_progress(url, dest, label)` — Rich download bar on the real terminal.
 
+### Phase titles follow the plan — `begin_phase(4, 5, "Pull"|"Build")` / `rename_phase()`
+The phase **count** is fixed (`k/5` must never drift), but Phase 4's word tracks what the run
+actually decided: `Pull` when the prebuilt images are being fetched, `Build` when they're built
+locally. The image source is resolved *before* `begin_phase`, and a pull that falls back to a build
+calls `rename_phase(4, "Build")` so the stepper and the final record stay true. Say what's
+happening, not what the roadmap guessed.
+
+Related: compose's `Built` and `Started` are different events — `parse_build_line` keeps them apart
+so a pulled-then-started container reports `✓ chroma started`, never `✓ chroma built`.
+
+### Body notes — `build_note(text, marker="○")`
+A short line in the build body's gutter (aligned with the `✓ <svc>` events), for stating why
+something was skipped and what happens instead — e.g. the image-pull fallback. Padded, so a
+wrapped line keeps its indent, and rendered as `Text` (not markup) because the text carries image
+refs. `marker=""` gives a continuation/hint line under a previous note.
+
+---
+
+## Failures: diagnose, don't dump
+
+Never print the last N lines of a log and leave the reader to grep. Classify, then render one card.
+
+- **Host services** (`services/_health.py`): `diagnose_service_log(log_text, port, log_file)` is pure
+  — text in, `{cause, detail, evidence, actions}` out — and `report_service_failure(name, log_file,
+  port, consequence)` renders it as an `error` `notice_panel`: cause in the title, one line of
+  evidence, the **consequence** (does the run continue?), then what to try. Called from `cli/_run.py`
+  *after* the `step()` collapses — printing it inside the captured block would swallow it and
+  re-emit it uncoloured.
+- **Registry pulls** (`docker_diag.classify_pull_failure` + `image_source.describe_pull_fallback`):
+  an expected failure is a **note, not an error**. Classification is separate from wording, both
+  pure, both unit-tested — and the note must be accurate about the cause (saying "registry
+  unreachable" when the registry answered fine is worse than saying nothing) and always end with
+  what happens instead.
+- **Never let a child process write to the terminal.** `contextlib.redirect_stdout` is Python-level
+  only; a subprocess inherits fd 1 and will paint over the live spinner. Launch background services
+  with `stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT` and let them log to their file.
+- **A skipped pull is a decision, not routine output.** "Building images locally · custom frontend
+  settings are baked in at build time" is never folded: it explains a five-minute build instead of a
+  twenty-second pull. (Note that CI publishes images only for `v*` tags/releases, so any non-tag
+  checkout takes this path — which is exactly why it has to read calmly.)
+- **Check whether the behaviour is bad, not just the output.** The port-conflict card existed to
+  explain a race the launcher caused (free the port, bind immediately); `wait_for_port_release()`
+  in `services/_ports.py` removed the failure instead of prettifying it.
+
+> Reusing this style outside TT-Studio: the `.claude/skills/cli-design/` skill carries the
+> portable version of the whole design (command surface, phases, output, failures)
+> plus runnable `reference/cli_skeleton.py` + `reference/console.py`.
+
 ---
 
 ## The folding model (minimal-by-default)
@@ -118,6 +166,13 @@ The same idea (verbose-gating) is used for the update-check "couldn't reach GitH
 (`startup_checks.py`), the HF-access success line and "Environment configured"
 (`env_config.py`), the freed-ports breakdown (`services.py`), and the "(cached)" lines
 (`inference_server.py`). **Failures, prompts, and actionable warnings are never gated.**
+
+**`--no-clear`** is the scrollback-preserving sibling of `-v`. Startup clears the screen
+in two places — the sticky-region install (`console/_stepper.py`, `\033[2J\033[H`) and the
+welcome banner (`shell.py`, `os.system('clear')`). `--no-clear` sets `set_verbose(True)`
+(so the sticky region is never installed, skipping the first clear, and detail is un-folded)
+and a `no_clear()` global that guards the banner's clear. The result: nothing is wiped, and
+the full per-phase detail streams inline. The default calm/sticky flow is unchanged.
 
 ---
 

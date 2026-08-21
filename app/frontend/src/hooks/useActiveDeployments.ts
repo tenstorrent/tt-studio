@@ -18,6 +18,7 @@ export interface DeploymentProgressData {
   total_bytes?: number | null;
   eta_seconds?: number | null;
   speed_bps?: number | null;
+  weights_cached?: boolean;
 }
 
 export type DeploymentLifecycle = "active" | "completed" | "failed";

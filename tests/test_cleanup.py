@@ -114,7 +114,7 @@ class CleanupAllTests(unittest.TestCase):
                     stack.enter_context(patcher)
                 stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
                 stack.enter_context(patch.object(_cl_orch, "_docker_reclaimable_bytes", return_value={
-                    "images": 0, "model_volumes": 0, "anon_volumes": 0}))
+                    "images": 0, "model_volumes": 0, "app_volumes": 0, "anon_volumes": 0}))
                 stack.enter_context(patch("builtins.input", return_value="n"))
                 stack.enter_context(patch.object(_cl_orch,
                     "_cleanup_runtime",
@@ -172,10 +172,11 @@ class CleanupAllTests(unittest.TestCase):
                 ))
                 stack.enter_context(patch.object(_cl_orch, "check_docker_access", return_value=True))
                 stack.enter_context(patch.object(_cl_orch, "_docker_reclaimable_bytes", return_value={
-                    "images": 0, "model_volumes": 0, "anon_volumes": 0}))
+                    "images": 0, "model_volumes": 0, "app_volumes": 0, "anon_volumes": 0}))
                 stack.enter_context(patch.object(_cl_orch, "_cleanup_runtime"))
                 stack.enter_context(patch.object(_cl_orch, "_remove_local_tt_studio_images", return_value=0))
                 stack.enter_context(patch.object(_cl_orch, "_remove_tt_studio_model_volumes", return_value=0))
+                stack.enter_context(patch.object(_cl_orch, "_remove_marketplace_app_volumes", return_value=0))
                 stack.enter_context(patch.object(_cl_orch, "_prune_anonymous_volumes", return_value=0))
                 args = SimpleNamespace(cleanup_all=True, yes=True, no_sudo=True, dev=False)
                 with contextlib.redirect_stdout(io.StringIO()):
@@ -279,6 +280,38 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
             sorted(recorded["rm"][4:]),
             ["volume_id_tt_transformers-Llama-3.1-8B",
              "volume_id_whisper-distil-large-v3"],
+        )
+
+    def test_remove_marketplace_app_volumes_matches_prefix_and_suffix(self):
+        # Marketplace state volumes are `tt_studio_<app>_data`. Matched by shape
+        # so retired apps are cleaned up too, but the persistent volume and
+        # model-weight volumes must never be caught by it.
+        listed = (
+            "tt_studio_open_webui_data\n"
+            "tt_studio_vane_data\n"
+            "tt_studio_n8n_data\n"          # app since removed from the marketplace
+            "tt_studio_persistent_volume\n"  # right prefix, wrong suffix
+            "other_tt_studio_data\n"         # substring match, wrong prefix
+            "tt_studio_data\n"               # prefix+suffix with no app name
+            "\n"
+        )
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            if "ls" in cmd:
+                self.assertIn(f"name={run._CLEANUP_APP_VOLUME_PREFIX}", cmd)
+                return SimpleNamespace(stdout=listed, returncode=0)
+            recorded["rm"] = cmd
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._remove_marketplace_app_volumes(has_docker_access=True)
+
+        self.assertEqual(removed, 3)
+        self.assertEqual(recorded["rm"][:4], ["docker", "volume", "rm", "-f"])
+        self.assertEqual(
+            sorted(recorded["rm"][4:]),
+            ["tt_studio_n8n_data", "tt_studio_open_webui_data", "tt_studio_vane_data"],
         )
 
     def test_prune_anonymous_volumes_counts_delta(self):
@@ -393,8 +426,9 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
     def test_docker_reclaimable_bytes_sums_only_removed_objects(self):
         # Mirrors `docker system df -v --format json`: only images matching
-        # _CLEANUP_IMAGE_REFS, volume_id_* model volumes, and anonymous volumes
-        # count — unrelated images/volumes and build cache must be ignored.
+        # _CLEANUP_IMAGE_REFS, volume_id_* model volumes, tt_studio_*_data app
+        # volumes, and anonymous volumes count — unrelated images/volumes and
+        # build cache must be ignored.
         payload = {
             "Images": [
                 {"Repository": "ghcr.io/tenstorrent/tt-studio/backend-dev", "Size": "11.6GB"},
@@ -407,6 +441,8 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
                  "Labels": ""},
                 {"Name": "bc66deadbeef", "Size": "628.7MB",
                  "Labels": "com.docker.volume.anonymous="},  # anonymous — counted
+                {"Name": "tt_studio_open_webui_data", "Size": "1.42GB",
+                 "Labels": ""},  # marketplace app state — counted
                 {"Name": "app_hf_cache", "Size": "91.58MB", "Labels": ""},  # named, unrelated
             ],
             "BuildCache": [{"Size": "35.97GB"}],  # never pruned by cleanup-all — excluded
@@ -424,6 +460,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
                          + run._parse_size_to_bytes("23.3GB")
                          + run._parse_size_to_bytes("699MB"))
         self.assertEqual(sizes["model_volumes"], run._parse_size_to_bytes("39.42GB"))
+        self.assertEqual(sizes["app_volumes"], run._parse_size_to_bytes("1.42GB"))
         self.assertEqual(sizes["anon_volumes"], run._parse_size_to_bytes("628.7MB"))
 
     def test_docker_reclaimable_bytes_zero_when_docker_unavailable(self):
@@ -433,7 +470,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         with patch("subprocess.run", side_effect=fake_run):
             self.assertEqual(
                 run._docker_reclaimable_bytes(has_docker_access=True),
-                {"images": 0, "model_volumes": 0, "anon_volumes": 0},
+                {"images": 0, "model_volumes": 0, "app_volumes": 0, "anon_volumes": 0},
             )
 
     def _record_runtime_order(self, args):
@@ -477,6 +514,34 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=True)
         order = self._record_runtime_order(args)
         self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
+
+    def test_host_service_cleanup_steps_never_hide_sudo_prompts(self):
+        """Host cleanup may discover sudo is needed after the preflight probe.
+
+        Keep both service-cleanup steps non-animated so a late sudo prompt is
+        always visible, even when lsof cannot identify the owning process or a
+        stale PID file points at a root-owned process.
+        """
+        args = SimpleNamespace(dev=False, no_sudo=False, cleanup_all=False)
+        step_calls = []
+
+        @contextlib.contextmanager
+        def fake_step(label, spinner=True):
+            step_calls.append((label, spinner))
+            yield SimpleNamespace()
+
+        with patch.object(_cl_runt, "_docker_daemon_status", return_value="down"), \
+             patch.object(_cl_runt, "_port_owned_by_root", return_value=False), \
+             patch.object(_cl_runt, "step", side_effect=fake_step), \
+             patch.object(_cl_runt, "cleanup_fastapi_server"), \
+             patch.object(_cl_runt, "cleanup_docker_control_service"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            run._cleanup_runtime(args, has_docker_access=True)
+
+        self.assertEqual(step_calls, [
+            ("Stopping inference API", False),
+            ("Stopping Docker control", False),
+        ])
 
 
 class TermsAcceptanceGateTests(unittest.TestCase):

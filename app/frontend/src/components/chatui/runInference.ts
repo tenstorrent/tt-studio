@@ -17,6 +17,10 @@ import { v4 as uuidv4 } from "uuid";
 import { processUploadedFiles } from "./processUploadedFiles";
 import { InferenceMetricsTracker } from "./metricsTracker";
 
+// Characters kept back from the incremental "Source: [title](url)" scan so a
+// citation split across two chunks is still matched on the next pass.
+const SOURCE_SCAN_OVERLAP = 2048;
+
 export const runInference = async (
   request: InferenceRequest,
   ragDatasource: RagDataSource | undefined,
@@ -29,6 +33,9 @@ export const runInference = async (
   systemPrompt: string | null = null,
   hardwareContext: string | null = null,
   modelName: string | null = null,
+  // Reports the retrieval step's outcome as soon as it finishes, so callers can
+  // show retrieval progress and timing without issuing a second Chroma query.
+  onRagContext?: (info: { documents: string[]; latencyMs: number }) => void,
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -47,7 +54,12 @@ export const runInference = async (
       console.log(
         `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
       );
-      ragContext = await getRagContext(request, ragDatasource);
+      const ragStart = performance.now();
+      ragContext = await getRagContext(request, ragDatasource, chatHistory);
+      onRagContext?.({
+        documents: ragContext?.documents ?? [],
+        latencyMs: Math.round(performance.now() - ragStart),
+      });
       console.log("RAG context fetched:", ragContext);
     }
 
@@ -321,6 +333,8 @@ export const runInference = async (
     // Agent-specific tracking
     const agentSources: SourceLink[] = [];
     const seenSourceUrls = new Set<string>();
+    // Where the next Source: scan starts, so each chunk only walks new text.
+    let sourceScanFrom = 0;
     let agentThinkingStarted = false;
     let agentThinkingEndTime: number | null = null;
     let agentFirstContentTime: number | null = null;
@@ -452,9 +466,13 @@ export const runInference = async (
 
             // Agent: extract Source: [title](url) from the accumulated text and track thinking
             if (isAgentSelected) {
-              // Scan the full accumulated contentText for source links
-              // (individual chunks are too small to match the full pattern)
+              // Individual chunks are too small to match the full pattern, so we
+              // scan accumulated text — but only the unscanned tail. Rescanning
+              // the whole buffer on every chunk was O(n²) across a long answer.
+              // A match can straddle chunks, so the window keeps back enough
+              // characters to cover the longest plausible Source: line.
               const sourceRegex = /Source:\s*\[([^\]]*)\]\(([^)]+)\)/g;
+              sourceRegex.lastIndex = sourceScanFrom;
               let sm;
               while ((sm = sourceRegex.exec(contentText)) !== null) {
                 const url = sm[2].trim();
@@ -462,7 +480,12 @@ export const runInference = async (
                   seenSourceUrls.add(url);
                   agentSources.push({ title: sm[1].trim() || url, url });
                 }
+                sourceScanFrom = sourceRegex.lastIndex;
               }
+              sourceScanFrom = Math.max(
+                sourceScanFrom,
+                contentText.length - SOURCE_SCAN_OVERLAP
+              );
 
               if (contentText.includes("<think>") && !agentThinkingStarted) {
                 agentThinkingStarted = true;

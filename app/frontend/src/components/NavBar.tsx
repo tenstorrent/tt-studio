@@ -18,14 +18,15 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  BrainCog,
   Video,
   type LucideIcon,
   History,
   Settings as SettingsIcon,
   Workflow,
   PanelLeft,
-  Terminal,
   Plus,
+  LayoutGrid,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -405,14 +406,6 @@ export default function NavBar() {
     return hasLlm && hasStt && hasTts;
   }, [healthyModels]);
 
-  // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
-  // supports native tool calling. Eligibility is decided by the backend (SSOT:
-  // shared_config.coding_agent_config) and surfaced per-deployment as a flag.
-  const isCodingAgentReady = useMemo(
-    () => healthyModels.some((m) => m.coding_agent_eligible),
-    [healthyModels],
-  );
-
   // Surface the Register Model entry only when there's a stray container to adopt.
   const { hasStray } = useStrayContainers();
 
@@ -574,6 +567,8 @@ export default function NavBar() {
         return ScanFace;
       case ModelType.TTS:
         return Volume2;
+      case ModelType.Training:
+        return BrainCog;
       default:
         return BotMessageSquare;
     }
@@ -601,6 +596,8 @@ export default function NavBar() {
         return "Text to Speech";
       case ModelType.Embedding:
         return "Chat UI";
+      case ModelType.Training:
+        return "Training";
       default:
         return "Model";
     }
@@ -635,6 +632,13 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
+    {
+      type: "link",
+      to: "/apps",
+      icon: LayoutGrid,
+      label: "Apps",
+      tooltip: "Launch apps that use your deployed models",
+    },
     ...(hasStray
       ? [
         {
@@ -663,19 +667,6 @@ export default function NavBar() {
           icon: PanelLeft,
           label: "Canvas",
           tooltip: "AI code canvas with live preview",
-        },
-      ]
-      : []),
-    // Only shown when a gateway-eligible model is deployed
-    ...(isCodingAgentReady
-      ? [
-        {
-          type: "link" as const,
-          to: "/coding-agents",
-          icon: Terminal,
-          label: "Connect Agents",
-          tooltip:
-            "Connect Claude Code, OpenClaw, or any OpenAI client to your models",
         },
       ]
       : []),

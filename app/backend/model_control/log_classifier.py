@@ -467,6 +467,10 @@ def classify_startup_phase(
     weights_repo: Optional[str] = None
     weights_target_path: Optional[str] = None
     weights_cached: bool = False
+    # True only when the container itself downloads weights (the docker-volume
+    # path). On the default host HF-cache path weights are already on disk before
+    # the container starts, so this marker never fires and the UI hides the phase.
+    download_in_container: bool = False
 
     for raw in lines:
         if not raw:
@@ -501,6 +505,7 @@ def classify_startup_phase(
             if m:
                 weights_repo = m.group("repo")
                 weights_cached = False
+                download_in_container = True
             else:
                 m = _DOWNLOAD_MEDIA_CACHED_RE.search(line)
                 if m:
@@ -520,6 +525,7 @@ def classify_startup_phase(
                 weights_repo = m.group("repo")
                 weights_target_path = m.group("path")
                 weights_cached = False
+                download_in_container = True
             else:
                 m = _DOWNLOAD_CACHED_RE.search(line)
                 if m:
@@ -614,6 +620,7 @@ def classify_startup_phase(
         "weights_repo": weights_repo,
         "weights_target_path": weights_target_path,
         "weights_cached": weights_cached,
+        "download_in_container": download_in_container,
         # Category-aware template embedded so the frontend renders only the phases for this model type.
         "category": category,
         "phases": list(phases),

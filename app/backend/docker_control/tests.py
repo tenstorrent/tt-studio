@@ -11,6 +11,11 @@ from rest_framework.test import APIClient
 
 from docker_control.chip_allocator import ChipSlotAllocator
 from docker_control.deployment_sync import _classify_failure
+from docker_control.views import (
+    _LLAMA_V014_IMAGE,
+    _resolve_artifact_ref,
+    _resolve_override_docker_image,
+)
 from shared_config.model_config import model_implmentations
 
 
@@ -152,3 +157,88 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
         # First probe config.json (default), then fall back to model_index.json.
         self.assertEqual(repo_mock.call_count, 2)
         self.assertEqual(repo_mock.call_args_list[1].args[2], "model_index.json")
+
+
+@dataclass
+class _FakeModelImpl:
+    model_name: str = "SomeModel"
+    requires_dev_catalog: bool = False
+    image_version: str = "ghcr.io/example/img:v1"
+    inference_artifact_ref: Optional[dict] = None
+
+
+class OverrideDockerImageResolutionTests(SimpleTestCase):
+    def test_llama_v014_pin_takes_priority(self):
+        impl = _FakeModelImpl(model_name="Llama-3.1-8B", requires_dev_catalog=True)
+        self.assertEqual(_resolve_override_docker_image(impl), _LLAMA_V014_IMAGE)
+
+    def test_dev_catalog_model_forwards_its_own_catalog_image(self):
+        impl = _FakeModelImpl(requires_dev_catalog=True, image_version="ghcr.io/x/dev:0.19.0")
+        self.assertEqual(_resolve_override_docker_image(impl), "ghcr.io/x/dev:0.19.0")
+
+    def test_ordinary_model_gets_no_override(self):
+        impl = _FakeModelImpl()
+        self.assertIsNone(_resolve_override_docker_image(impl))
+
+
+class ArtifactRefResolutionTests(SimpleTestCase):
+    """Per-(model, device) tt-inference-server build selection.
+
+    Every path except an explicit, matched, eligible pin must return None, which
+    the caller reads as "use the globally pinned artifact".
+    """
+
+    def test_matches_resolved_runtime_device(self):
+        impl = _FakeModelImpl(
+            requires_dev_catalog=True,
+            inference_artifact_ref={"P150": "stisi/feat-qwen"},
+        )
+        self.assertEqual(_resolve_artifact_ref(impl, "p150", "P150"), "stisi/feat-qwen")
+
+    def test_matches_board_type_when_device_differs(self):
+        """P300x2 hardware deploys with --tt-device p150 (_BOARD_TO_SINGLE_CHIP_DEVICE),
+        so a pin keyed on the board the user actually sees must still match."""
+        impl = _FakeModelImpl(
+            requires_dev_catalog=True,
+            inference_artifact_ref={"P300x2": "stisi/feat-p300"},
+        )
+        self.assertEqual(_resolve_artifact_ref(impl, "p150", "P300x2"), "stisi/feat-p300")
+
+    def test_device_match_wins_over_board_match(self):
+        impl = _FakeModelImpl(
+            requires_dev_catalog=True,
+            inference_artifact_ref={"p150": "by-device", "P300x2": "by-board"},
+        )
+        self.assertEqual(_resolve_artifact_ref(impl, "p150", "P300x2"), "by-device")
+
+    def test_key_matching_is_case_insensitive(self):
+        impl = _FakeModelImpl(
+            requires_dev_catalog=True,
+            inference_artifact_ref={"p150": "stisi/feat-qwen"},
+        )
+        self.assertEqual(_resolve_artifact_ref(impl, "P150", "P150"), "stisi/feat-qwen")
+
+    def test_unmatched_device_falls_back_to_global(self):
+        impl = _FakeModelImpl(
+            requires_dev_catalog=True,
+            inference_artifact_ref={"P150": "stisi/feat-qwen"},
+        )
+        self.assertIsNone(_resolve_artifact_ref(impl, "n300", "N300"))
+
+    def test_non_dev_catalog_model_ignores_its_ref(self):
+        """Only the dev-catalog path runs run.py as a subprocess, which is the only
+        way to target a different artifact -- honouring a ref elsewhere would
+        silently deploy against the wrong build."""
+        impl = _FakeModelImpl(
+            requires_dev_catalog=False,
+            inference_artifact_ref={"P150": "stisi/feat-qwen"},
+        )
+        self.assertIsNone(_resolve_artifact_ref(impl, "p150", "P150"))
+
+    def test_no_ref_configured(self):
+        impl = _FakeModelImpl(requires_dev_catalog=True)
+        self.assertIsNone(_resolve_artifact_ref(impl, "p150", "P150"))
+
+    def test_empty_ref_map(self):
+        impl = _FakeModelImpl(requires_dev_catalog=True, inference_artifact_ref={})
+        self.assertIsNone(_resolve_artifact_ref(impl, "p150", "P150"))

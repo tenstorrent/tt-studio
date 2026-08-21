@@ -36,7 +36,7 @@ Rules for implementing AI model functionality in TT Studio.
 
 5. **Document Processing & RAG**
    - PDF, DOCX, and HTML document processing
-   - Vector embeddings with sentence-transformers
+   - Vector embeddings with ChromaDB's ONNX all-MiniLM-L6-v2
    - ChromaDB for similarity search and retrieval
    - LangChain for document processing pipelines
    - Context-aware question answering over documents
@@ -56,7 +56,7 @@ Rules for implementing AI model functionality in TT Studio.
 - Use LangChain for document processing and RAG pipelines
 - Implement ChromaDB for vector storage and similarity search
 - Process documents with pypdf, python-docx, beautifulsoup4
-- Generate embeddings with sentence-transformers
+- Generate embeddings with ChromaDB's ONNX all-MiniLM-L6-v2
 - Use Docker SDK for containerized model execution
 - Implement proper error handling for model load failures
 - Support containerized model execution

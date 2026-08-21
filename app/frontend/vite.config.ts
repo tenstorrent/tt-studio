@@ -17,6 +17,7 @@ const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
   "collections-api": "collections",
   "logs-api": "logs",
   "board-api": "board",
+  "training-api": "training",
   "settings-api": "settings",
   "workflows-api": "workflows",
 };

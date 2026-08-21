@@ -95,21 +95,26 @@ async def _warmup_inference_all() -> None:
         )
         if not model_name:
             continue
-        is_chat = "/chat/completions" in internal_url
-        if is_chat:
+        # Only text-generation endpoints accept a max_tokens payload. Audio
+        # (/v1/audio/*) and image (/v1/images/*) endpoints have their own request
+        # shapes — whisper wants a multipart `file` — so this payload 500s there and
+        # fills the model's logs with tracebacks that read like deploy failures.
+        if "/chat/completions" in internal_url:
             payload = {
                 "model": model_name,
                 "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 1,
                 "stream": False,
             }
-        else:
+        elif internal_url.endswith("/completions"):
             payload = {
                 "model": model_name,
                 "prompt": "hi",
                 "max_tokens": 1,
                 "stream": False,
             }
+        else:
+            continue
         try:
             await _vllm_client.post(
                 f"http://{internal_url}",

@@ -85,7 +85,33 @@ def _backfill_artifact_commit_sha(tt_studio_root: str, sha: str) -> bool:
     return False
 
 
-def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
+# Branches where being behind GitHub should hard-stop startup. Feature branches
+# just warn — devs often have in-flight local work and shouldn't be blocked from
+# running the stack.
+_RELEASE_BRANCHES = {"main", "dev", "tt_qb2_launch_branch"}
+_RELEASE_PREFIXES = ("rc/", "release/")
+
+
+def is_release_branch(branch: str) -> bool:
+    """True for branches we expect to match origin exactly (main, dev, rc/*, …)."""
+    if not branch:
+        return False
+    return branch in _RELEASE_BRANCHES or branch.startswith(_RELEASE_PREFIXES)
+
+
+def blocks_startup(behind: bool, branch_is_release: bool, dev_mode: bool) -> bool:
+    """Whether a stale checkout should hard-stop startup.
+
+    Only a release branch behind origin blocks, and never in ``--dev``: dev mode
+    exists for iterating on local work, so refusing to start there would block
+    exactly the people who need the stack running while their branch is behind.
+    """
+    return behind and branch_is_release and not dev_mode
+
+
+def check_startup_freshness(
+    tt_studio_root: str, get_env_var_fn, dev_mode: bool = False
+) -> dict:
     """
     Freshness check called at the very start of main(), before any startup work.
 
@@ -98,6 +124,8 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
 
     Returns a dict with keys:
       - tt_studio_behind (bool): True if local branch is behind GitHub.
+      - tt_studio_branch_is_release (bool): True on main/dev/rc/* style branches.
+      - tt_studio_blocks_startup (bool): True when the caller should hard-stop.
       - artifact_behind (bool): True if the artifact branch is behind GitHub.
       - artifact_branch (str | None): The artifact branch name being tracked,
           or None when using a pinned version.
@@ -106,19 +134,16 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         tt_studio_root:  Absolute path to the tt-studio repo root.
         get_env_var_fn:  run.py's get_env_var() so we can read .env without
                          duplicating its parsing logic.
+        dev_mode:        True when started with --dev; relaxes the release-branch
+                         sync requirement to an informational note.
     """
     result = {
         "tt_studio_behind": False,
         "artifact_behind": False,
         "artifact_branch": None,
         "tt_studio_branch_is_release": False,
+        "tt_studio_blocks_startup": False,
     }
-
-    # Branches where being behind GitHub should hard-stop startup. Feature
-    # branches just warn — devs often have in-flight local work and shouldn't
-    # be blocked from running the stack.
-    _RELEASE_BRANCHES = {"main", "dev", "tt_qb2_launch_branch"}
-    _RELEASE_PREFIXES = ("rc/", "release/")
 
     verbose = is_verbose()
     ok_items = []     # (short_label, "✓ …" line) — confirmed up to date (verbose-only)
@@ -161,11 +186,7 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     # this was overridden to qb2_branch in QB2 mode, which blocked devs whose
     # local branch differed from the QB2 launch branch.)
     studio_check_branch = local_branch
-    if local_branch and (
-        local_branch in _RELEASE_BRANCHES
-        or local_branch.startswith(_RELEASE_PREFIXES)
-    ):
-        result["tt_studio_branch_is_release"] = True
+    result["tt_studio_branch_is_release"] = is_release_branch(local_branch)
 
     if local_sha and studio_check_branch and studio_check_branch not in ("HEAD", ""):
         remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", studio_check_branch)
@@ -176,10 +197,19 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
                 f"[success]✓[/success] tt-studio '{studio_check_branch}': up to date [muted]({local_sha[:7]})[/muted]"))
         else:
             result["tt_studio_behind"] = True
-            if result["tt_studio_branch_is_release"]:
+            result["tt_studio_blocks_startup"] = blocks_startup(
+                True, result["tt_studio_branch_is_release"], dev_mode
+            )
+            if result["tt_studio_blocks_startup"]:
                 # Release branch behind → hard-stop follows; this is actionable.
                 actionable.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}[/warning]")
                 actionable.append("[warning]     → git pull, then re-run python run.py  (release branch — cannot continue)[/warning]")
+                actionable.append("[muted]       or run with --dev to start anyway[/muted]")
+            elif result["tt_studio_branch_is_release"]:
+                # Release branch behind, but --dev opts out of the sync
+                # requirement → continue, note it for --verbose.
+                quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")
+                quiet.append("[muted]     (release-branch sync not enforced in --dev)[/muted]")
             else:
                 # Feature branch just behind-but-continuing → informational only.
                 quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")

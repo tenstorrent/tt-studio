@@ -61,7 +61,9 @@ import WelcomePage from "../pages/WelcomePage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
-import CodingAgentsPage from "../pages/CodingAgentsPage";
+import TrainingPage from "../pages/TrainingPage";
+import TrainingJobDetailPage from "../pages/TrainingJobDetailPage";
+import AppsPage from "../pages/AppsPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -171,8 +173,21 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/coding-agents",
-      element: <CodingAgentsPage />,
+      // Hidden for this release — training models are filtered out of the
+      // catalog (shared_config/model_config.py) until the pinned inference
+      // server supports them. Flip back to true when training ships.
+      path: "/training",
+      element: <TrainingPage />,
+      condition: false,
+    },
+    {
+      path: "/training/:jobId",
+      element: <TrainingJobDetailPage />,
+      condition: false,
+    },
+    {
+      path: "/apps",
+      element: <AppsPage />,
       condition: true,
     },
     {

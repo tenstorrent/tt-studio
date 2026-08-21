@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+# Enforce Conventional Commits on PR titles.
+# Since we squash-merge to dev, the PR title becomes the commit message,
+# so validating the title is sufficient.
+#
+# Release branches are exempt: `rc-*` and `tt_qb2_launch_branch` PRs into `main`
+# are conventionally titled `Rc vX.Y.Z` (what `gh pr create --fill` produces from
+# the branch name). `release: vX.Y.Z` is also accepted if you prefer a
+# conventional title — see commitlint.config.js and CONTRIBUTING (Release Process).
+
+name: Lint PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  commitlint:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install commitlint
+        run: npm install --save-dev @commitlint/cli@^19.7.1 @commitlint/config-conventional@^19.7.1
+
+      - name: Lint PR title
+        if: >-
+          !startsWith(github.head_ref, 'rc-') &&
+          github.head_ref != 'tt_qb2_launch_branch'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: echo "$PR_TITLE" | npx commitlint
+
+      - name: Release PR — conventional title not required
+        if: >-
+          startsWith(github.head_ref, 'rc-') ||
+          github.head_ref == 'tt_qb2_launch_branch'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: echo "Release branch $HEAD_REF - skipping conventional title check."

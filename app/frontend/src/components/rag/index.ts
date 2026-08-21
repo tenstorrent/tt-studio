@@ -14,6 +14,23 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * True for the documentation collection the backend seeds at startup, as
+ * opposed to a collection the user created.
+ *
+ * It doesn't belong in a "Your Collections" picker: the user didn't make it, and
+ * the backend already merges it into every collection query
+ * (`vector_db_control/views.py`), so "All Collections" reaches it either way.
+ * Mirrors the signals RagManagement already keys off.
+ */
+export const isSystemKnowledgeCollection = (collection: {
+  name?: string;
+  metadata?: { type?: string; created_by?: string } | null;
+}): boolean =>
+  collection?.metadata?.type === "internal_knowledge" ||
+  collection?.metadata?.created_by === "system" ||
+  collection?.name === "tenstorrent_internal_knowledge";
+
 export const fetchCollections = async () => {
   try {
     const response = await axios.get(`${collectionsAPIURL}/`);
@@ -89,6 +106,10 @@ export const uploadDocument = async ({
     );
   } catch (error) {
     console.error("Error uploading document:", error);
+    // Surface the backend's reason (e.g. "Unsupported file type") to callers
+    if (axios.isAxiosError(error) && error.response?.data?.error) {
+      throw new Error(error.response.data.error);
+    }
     throw error;
   }
 };

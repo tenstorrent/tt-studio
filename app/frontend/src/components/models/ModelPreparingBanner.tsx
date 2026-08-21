@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { X, Zap, ScrollText, Download, Check, Clock } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ModelRow } from "../../types/models";
@@ -46,22 +46,35 @@ function resolvePhaseOrder(
 function formatBytes(n?: number | null): string {
   if (n === undefined || n === null || n < 0) return "—";
   if (n === 0) return "0 B";
+  // Decimal (1000-based) units to match HuggingFace's reported sizes.
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let v = n;
   let u = 0;
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024;
+  while (v >= 1000 && u < units.length - 1) {
+    v /= 1000;
     u += 1;
   }
   const decimals = v >= 100 || u === 0 ? 0 : v >= 10 ? 1 : 2;
   return `${v.toFixed(decimals)} ${units[u]}`;
 }
 
-// Wall-clock seconds since the row mounted (i.e. since warmup became visible).
-function useElapsedSeconds(): number {
+// Seconds since the deploy started. Anchored to the server's elapsed_seconds
+// when available (so the clock survives page refreshes); otherwise falls back
+// to time-since-mount. Wall-clock (Date.now) based so backgrounded tabs don't
+// undercount.
+function useElapsedSeconds(serverElapsed?: number | null): number {
+  const anchorRef = useRef<number>(Date.now());
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    if (serverElapsed != null && serverElapsed >= 0) {
+      anchorRef.current = Date.now() - serverElapsed * 1000;
+    }
+  }, [serverElapsed]);
+  useEffect(() => {
+    const tick = () =>
+      setSeconds(Math.max(0, Math.floor((Date.now() - anchorRef.current) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
   return seconds;
@@ -282,7 +295,7 @@ function PreparingRow({
   const haveSize =
     phase?.downloaded_bytes != null || phase?.total_bytes != null;
   const indeterminate = isDownloading && !haveSize;
-  const elapsed = useElapsedSeconds();
+  const elapsed = useElapsedSeconds(phase?.elapsed_seconds);
 
   return (
     <div className="w-full">
@@ -292,7 +305,9 @@ function PreparingRow({
           <span className="text-stone-100 text-sm font-semibold truncate">
             {model.name}
           </span>
-          {isCached && <CachedBadge bytes={cachedBytes ?? undefined} />}
+          {isCached && phase?.download_in_container && (
+            <CachedBadge bytes={cachedBytes ?? undefined} />
+          )}
           <span className="text-stone-500 text-[11px] truncate">
             {phaseLabel}
           </span>
@@ -365,7 +380,11 @@ function PreparingRow({
         </div>
       )}
 
-      <PhaseTrack phase={phase} phaseKey={phaseKey} hideDownload={isCached} />
+      <PhaseTrack
+        phase={phase}
+        phaseKey={phaseKey}
+        hideDownload={isCached || !phase?.download_in_container}
+      />
     </div>
   );
 }

@@ -75,6 +75,8 @@ Pick a short, descriptive kebab-case feature name (`reset-view-fix`,
 
 - Touch only the files required for the stated task. No drive-by refactors,
   no reformatting, no unrelated renames, no dependency bumps "while we're here."
+- If two approaches would both work, take the more minimal one — fewer files,
+  fewer lines, less new machinery.
 - New code files (`.py` / `.ts` / `.tsx` / `.js`) **must** carry the SPDX
   headers required by `.cursor/rules/general.mdc`:
   ```
@@ -140,23 +142,50 @@ untracked dirs.
 ### 7. Commit with a human message
 
 Imperative, specific, professional. Describe what changed and why, as a
-teammate would. No AI attribution, no `Co-Authored-By` AI trailers.
+teammate would. No AI attribution, no `Co-Authored-By` AI trailers. Use the same
+Conventional Commits form as the PR title (step 8) so a squash-merge reads cleanly
+either way.
 
 ```
-git commit -m "Hide board reset button while a model is deployed"
+git commit -m "fix: hide board reset button while a model is deployed"
 ```
 
 ### 8. Push and open the PR against dev
 
+The PR title **must** follow [Conventional Commits](https://www.conventionalcommits.org/)
+— `<type>(<optional scope>): <subject>`. CI (`Validate PR Title`) rejects anything
+else, and since the repo squash-merges, this title becomes the commit message on
+`dev`. Allowed types are listed in [CONTRIBUTING.md](../../../CONTRIBUTING.md#allowed-types):
+`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
+`revert`, `release`. The subject after the type still has to read like a teammate
+wrote it — lowercase, imperative, specific:
+
+```
+fix: hide board reset button while a model is deployed
+feat(ui): add Wan2.2 video model to the deploy list
+```
+
 ```bash
 git push -u origin <username>/<short-kebab-feature>
 gh pr create --base dev \
-  --title "<human, professional title>" \
+  --title "<type>(<scope>): <human, specific subject>" \
   --body "<what changed, why, and how it was verified>"
 ```
 
-PR description guidance: summarize the problem, the change, and the
-verification (endpoints hit / tests run). Plain, human prose — no AI mention.
+(`release: vX.Y.Z` and the bare `Rc vX.Y.Z` title are for `rc-*` release PRs into
+`main` only — not for feature work.)
+
+PR description guidance: keep it short and human — a few plain sentences on
+what changed and why, then a simple to-do list of the changes (and how they
+were verified). No walls of text, no section headers, no AI mention. Example:
+
+```
+Board reset button was clickable mid-deploy and could wedge the chip.
+
+- [x] Hide reset button while a model is deployed
+- [x] Verified against /up/ and the deploy flow
+```
+
 The repo squash-merges into `dev`; **leave the merge to a human reviewer unless
 the user explicitly tells you to merge.**
 
@@ -178,3 +207,5 @@ git checkout "$ORIG"
   create.
 - **Don't** mention Claude / Claude Code / AI tooling, or add AI co-author
   trailers, in commits, PR text, or review comments.
+- **Don't** open a PR with a prose title (`Hide board reset button...`) — commitlint
+  fails it. Prefix a Conventional Commits type: `fix: hide board reset button...`.

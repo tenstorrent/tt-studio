@@ -40,7 +40,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | Option | Description |
 | --- | --- |
 | `--help`, `-h` | Display the help message with all options grouped by panel. |
-| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. |
+| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. Also skips the release-branch sync requirement (see below), so a checkout behind `origin/main`/`origin/dev` still starts. |
 | `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
 | `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
 | `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
@@ -73,8 +73,9 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--purge-all` | Stop and wipe **everything** including the persistent volume and `.env`. (Deprecated alias: `--cleanup-all`.) |
-| `--yes`, `-y` | Skip the `--purge-all` confirmation prompt (for non-interactive/scripted runs). |
+| `--purge-all` | Stop and wipe **everything** including the persistent volume, TT Studio's HuggingFace-cached model weights, and `.env`. (Deprecated alias: `--cleanup-all`.) |
+| `--purge-model MODEL` | Uninstall **one model** (or several — repeat the flag or comma-separate names): its weights, Docker volume, env file, and running container; the Docker image too when no other installed model shares it. Run it bare to pick from an interactive list of installed models. See the [purge-model guide](purge-model-guide.md). |
+| `--yes`, `-y` | Skip the `--purge-all` / `--purge-model` confirmation prompt (for non-interactive/scripted runs). |
 | `--uninstall` | Full uninstall: run the `--purge-all` teardown **and** remove the `tt-studio` shell shortcut from your shell config. Declining the confirmation leaves both untouched. |
 
 ### Advanced
@@ -84,6 +85,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
 | `--resync` | Force a resync of the model catalog. |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
+| `--build-images` | Build the container images locally instead of pulling prebuilt ones from ghcr.io. By default `run.py` pulls the images CI published for the exact checkout (release tag, else `sha-<12>`) and falls back to a local build automatically when they aren't available (feature branch, local changes, offline, custom frontend config). |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
 | `--skip-docker-control` | Skip starting the Docker Control Service (port 8002). |
 | `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
@@ -105,6 +107,7 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 | `--help-env` | Show detailed help for environment variables. |
 | `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
 | `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
+| `--no-clear` | Don't clear the terminal at startup — keep whatever was already on screen and stream the full per-phase detail. Like `--verbose`, but it also preserves your scrollback. |
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
@@ -136,6 +139,15 @@ sudo/FastAPI steps) instead of the collapsed summary. Reach for it first when a
 phase reports ⚠ or ⛔ and you want the underlying error. For a run that already
 finished, `--logs` and `--status` (below) are the equivalent live views, and
 `--report-bug` bundles the logs for you.
+
+To watch every step **without** losing whatever is already in your terminal, use
+`--no-clear`. It implies `--verbose` (full per-phase output) and additionally
+never clears the screen, so the calm sticky-header splash is skipped and your
+existing scrollback stays put:
+
+```bash
+python run.py --no-clear
+```
 
 > The design of the calm output (phase stepper, sticky header, status glyphs) is
 > documented in [Launcher terminal design](launcher-terminal-design.md) — read
@@ -426,6 +438,23 @@ startup is never blocked or warned on hardware grounds.
 `IS_QB2` is independent of `TT_INFERENCE_ARTIFACT_BRANCH` / `TT_QB2_LAUNCH_BRANCH`,
 which only select which inference-server build to download.
 
+### Release-branch sync check
+
+At the Checks phase, startup compares your checkout against the same branch on
+GitHub. What happens when you're behind depends on the branch:
+
+| Checked-out branch | Behind `origin` | Result |
+|---|---|---|
+| Release (`main`, `dev`, `tt_qb2_launch_branch`, `rc/*`, `release/*`) | yes | ⛔ **stops** — `git pull` and re-run, **or** use `--dev` |
+| Any of the above, with `--dev` | yes | proceeds; note shown under `--verbose` |
+| Feature branch (e.g. `you/your-feature`) | yes | proceeds; note shown under `--verbose` |
+| Any branch | no | proceeds silently (✓ under `--verbose`) |
+
+`--dev` opts out because dev mode exists for iterating on local work — refusing
+to start there would block exactly the people who need the stack running while
+their branch is behind. Offline or unreachable GitHub is never a failure; the
+check is skipped with a muted note.
+
 ---
 
 ## Authentication Requirements
@@ -486,6 +515,20 @@ python run.py --stop
 ```bash
 python run.py --purge-all
 ```
+
+### Purging a Single Model
+```bash
+python run.py --purge-model                       # interactive picker over installed models
+python run.py --purge-model Qwen3-32B             # one model by name
+python run.py --purge-model Qwen3-32B,YOLOv4      # several at once (or repeat the flag)
+```
+Removes everything belonging to just the named model(s) — weights on disk, the
+Docker weights volume, its env file, and any running container — while leaving
+the rest of TT-Studio (and every other model) untouched. Shared Docker images
+are reference-counted and only removed when no other installed model still uses
+the same tag. An inventory with sizes is shown before anything is deleted;
+`--yes` skips the confirmation. Full walkthrough:
+[purge-model guide](purge-model-guide.md).
 
 ### A Shorter Command (`tt-studio`)
 ```bash
