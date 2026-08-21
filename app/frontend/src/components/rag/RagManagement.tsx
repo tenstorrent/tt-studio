@@ -136,6 +136,7 @@ export default function RagManagement() {
     []
   );
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadBoxKey, setUploadBoxKey] = useState(0);
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -269,6 +270,9 @@ export default function RagManagement() {
       customToast.info(
         `Creating datasource "${collectionName}" and uploading document...`
       );
+    },
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
     },
     onError: (error: any, { file, collectionName }) => {
       setCollectionsUploading((prev) =>
@@ -953,7 +957,7 @@ export default function RagManagement() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
-          <GentleFileUpload onChange={handleFileUpload} />
+          <GentleFileUpload key={uploadBoxKey} onChange={handleFileUpload} />
         </Card>
 
         <Card
