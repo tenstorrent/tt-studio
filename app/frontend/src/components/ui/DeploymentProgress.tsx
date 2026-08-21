@@ -41,7 +41,19 @@ interface DeploymentProgressProps {
   /** True once the image has been pulled in this deploy. When set, the bar reserves
    *  a leading pull segment; otherwise the download owns the front of the bar. */
   imagePulled?: boolean;
+  /** True when the server reports no HuggingFace token configured. Sharpens the
+   *  stall troubleshooting message — a missing token is the most common reason a
+   *  deploy freezes at 0% (the inference server waits for credentials). */
+  hfTokenMissing?: boolean;
 }
+
+/** How long the backend progress record may go without an update, while still in
+ *  the pre-download stages, before we surface troubleshooting steps. Normal runs
+ *  leave these stages within seconds; a run waiting on a missing HF token (or one
+ *  that died before emitting progress) never does. Later stages (setup, weights
+ *  download) legitimately go quiet for minutes and are excluded. */
+const EARLY_STALL_MS = 120_000;
+const EARLY_STALL_STAGES = new Set(['starting', 'initialization', 'unknown']);
 
 /** Friendly, stable sub-text for the container-start stages. The backend message for
  *  these can be noisy (e.g. the raw `docker run` command), so we describe the phase
@@ -107,7 +119,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   onCancel,
   onViewLogs,
   startTime,
-  imagePulled = false
+  imagePulled = false,
+  hfTokenMissing = false
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -131,6 +144,16 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isStalled = status === 'stalled';
   const isCancelled = status === 'cancelled';
   const isRunning = status === 'running' || status === 'starting';
+
+  // Stalled before any real work started: the backend record hasn't moved in
+  // minutes and the deploy never left the pre-download stages. The 1s elapsed
+  // ticker above keeps this re-evaluating while the panel is visible.
+  const lastUpdatedMs = progress.last_updated ? progress.last_updated * 1000 : null;
+  const stalledEarly =
+    isRunning &&
+    EARLY_STALL_STAGES.has(progress.stage) &&
+    lastUpdatedMs !== null &&
+    Date.now() - lastUpdatedMs > EARLY_STALL_MS;
 
   const formatBytes = (bytes?: number | null) => {
     if (bytes === undefined || bytes === null || bytes < 0) return '—';
@@ -323,6 +346,33 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
         />
       </div>
+
+      {/* The deploy froze before doing any real work — walk the user through the
+          usual fix (missing HF token) instead of leaving a silent 0% bar. */}
+      {stalledEarly && (
+        <div className="mb-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 p-3" role="alert">
+          <p className="text-xs font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+            Deployment isn't reporting progress
+          </p>
+          <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2">
+            {hfTokenMissing
+              ? 'No Hugging Face token is configured — the server is most likely waiting for credentials it will never receive.'
+              : 'The server has not sent an update in a few minutes. The most common cause is a missing or unreadable Hugging Face token.'}
+          </p>
+          <ol className="list-decimal list-inside space-y-1 text-xs text-yellow-700 dark:text-yellow-300">
+            <li>
+              Set your Hugging Face token in Settings (gear icon in the navbar), or add{' '}
+              <code className="font-mono">HF_TOKEN</code> to the <code className="font-mono">.env</code>{' '}
+              file at the repo root and restart TT-Studio.
+            </li>
+            <li>Cancel this deployment and deploy the model again.</li>
+            <li>
+              Still stuck? Check <code className="font-mono">logs/model_run.log</code> for{' '}
+              "HF_TOKEN not set", and run <code className="font-mono">python run.py --report-bug</code>.
+            </li>
+          </ol>
+        </div>
+      )}
 
       {/* Confirm the pull finished while the container spins up. */}
       {imagePulled && isContainerStarting && (
