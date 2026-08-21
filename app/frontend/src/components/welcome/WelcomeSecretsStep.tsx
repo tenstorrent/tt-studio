@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ExternalLink, Eye, EyeOff, Lock } from "lucide-react";
+import { Check, ExternalLink, Eye, EyeOff } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -89,7 +89,6 @@ export default function WelcomeSecretsStep({
   isSaving,
 }: Props) {
   const loading = !current;
-  const artifact = current?.artifact;
 
   return (
     <motion.div
@@ -132,30 +131,6 @@ export default function WelcomeSecretsStep({
           >
             Generate a token <ExternalLink className="w-3 h-3" />
           </a>
-        </p>
-      </div>
-
-      <div className="rounded-md border border-stone-200 dark:border-stone-800 p-3 space-y-2">
-        <div className="flex items-center gap-1 text-sm font-medium">
-          <Lock className="w-3.5 h-3.5" /> tt-inference artifact (read-only)
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <div className="text-stone-500">Branch</div>
-            <div className="font-mono truncate">
-              {artifact?.branch || "—"}
-            </div>
-          </div>
-          <div>
-            <div className="text-stone-500">Version</div>
-            <div className="font-mono truncate">
-              {artifact?.version || "—"}
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-stone-500">
-          {artifact?.description ||
-            "Pins which tt-inference-server release TT Studio is built against."}
         </p>
       </div>
 
