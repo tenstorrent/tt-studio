@@ -39,7 +39,7 @@ Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#
 
 The easiest way is the pip package — it installs the latest release into
 `~/.tt-studio` for you and keeps itself updated with each new release
-(requires Python 3.12+ and git):
+(requires Python 3.12+ and git; running from a source clone works with older Python versions):
 
 ```bash
 pipx install tt-studio   # or: pip install tt-studio
