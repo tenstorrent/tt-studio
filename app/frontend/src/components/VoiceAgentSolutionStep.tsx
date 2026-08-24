@@ -406,12 +406,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
     ];
 
-    const results = await Promise.all(
-      steps.map(async ([modelId, deviceId, setState, currentState, label, poll]) => ({
+    // Deploy sequentially: the inference server holds a single run lock and
+    // rejects concurrent /run requests with 409 deploy_in_flight.
+    const results: { label: string; ok: boolean }[] = [];
+    for (const [modelId, deviceId, setState, currentState, label, poll] of steps) {
+      results.push({
         label,
         ok: await submitOne(modelId, deviceId, setState, currentState, label, poll),
-      }))
-    );
+      });
+    }
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);
