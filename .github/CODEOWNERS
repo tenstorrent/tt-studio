@@ -12,11 +12,11 @@
 *                                       @anirudTT
 
 # ---------------------------------------------------------------------------
-# Launcher & setup harness 
+# Launcher & setup harness
 # ---------------------------------------------------------------------------
 /run.py                                 @anirudTT @jashansinghTT
-/test_run_cleanup.py                    @anirudTT @jashansinghTT
-/startup_checks.py                      @anirudTT @jashansinghTT
+/tt_setup/                              @anirudTT @jashansinghTT
+/tests/                                 @anirudTT @jashansinghTT
 
 # ---------------------------------------------------------------------------
 # Frontend
@@ -24,21 +24,27 @@
 /app/frontend/                          @anirudTT @jashansinghTT
 
 # ---------------------------------------------------------------------------
-# Backend 
+# Backend
 # ---------------------------------------------------------------------------
-/app/backend/                           @anirudTT @rnabeelTT @stisiTT
-/docker-control-service/                @anirudTT @rnabeelTT @stisiTT
+/app/backend/                           @anirudTT @rnabeelTT
+/docker-control-service/                @anirudTT @rnabeelTT
 
 # ---------------------------------------------------------------------------
-# Inference server API
+# Model catalog & inference-server integration — Sam
+# (the backend apps that own model definitions, deploys, and the FastAPI
+#  wrapper; Sam's review lane, kept narrower than all of /app/backend/)
 # ---------------------------------------------------------------------------
+/app/backend/shared_config/             @anirudTT @rnabeelTT @stisiTT
+/app/backend/docker_control/            @anirudTT @rnabeelTT @stisiTT
+/app/backend/model_control/             @anirudTT @rnabeelTT @stisiTT
 /inference-api/                         @anirudTT @rnabeelTT @stisiTT
-/app/agent/                             @anirudTT @jashansinghTT 
+
+/app/agent/                             @anirudTT @jashansinghTT
 
 # ---------------------------------------------------------------------------
 # Deployment / image-pull progress bar — Raahem
 # (frontend pieces; the backend container-start tracking lives under
-#  /app/backend/ above, already owned by Raahem & Sam)
+#  /app/backend/ above, already owned by Raahem)
 # ---------------------------------------------------------------------------
 /app/frontend/src/hooks/useDeploymentProgress.ts             @anirudTT @rnabeelTT
 /app/frontend/src/components/ui/DeploymentProgress.tsx       @anirudTT @rnabeelTT
@@ -61,10 +67,28 @@
 /app/backend/shared_config/models_from_inference_server.json @anirudTT @jashansinghTT @rnabeelTT @stisiTT
 
 # ---------------------------------------------------------------------------
+# CI, tooling & repo config
+# ---------------------------------------------------------------------------
+/.github/workflows/                     @anirudTT @jashansinghTT @rnabeelTT
+/ci/                                    @anirudTT @rnabeelTT
+/dev-tools/                             @anirudTT @jashansinghTT
+/pyproject.toml                         @anirudTT @jashansinghTT
+/commitlint.config.js                   @anirudTT @jashansinghTT
+/.env.default                           @anirudTT @jashansinghTT @rnabeelTT
+
+# ---------------------------------------------------------------------------
+# Assistant & editor config
+# ---------------------------------------------------------------------------
+/.claude/                               @anirudTT @jashansinghTT
+/.cursor/                               @anirudTT @jashansinghTT
+/CLAUDE.md                              @anirudTT @jashansinghTT
+
+# ---------------------------------------------------------------------------
 # Docs & README — whole team
 # ---------------------------------------------------------------------------
-/README.md                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
-/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
+/README.md                              @anirudTT @jashansinghTT @rnabeelTT @housTT
+/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @housTT
+/SECURITY.md                            @anirudTT @housTT
 
 # ---------------------------------------------------------------------------
 # Hosted landing page (GitHub Pages, served from docs/ root) — Adam
