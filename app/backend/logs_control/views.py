@@ -572,6 +572,43 @@ class BugReportDataView(APIView):
             return JsonResponse({"error": str(e)}, status=500)
 
 
+def _build_bundle_zip(data: dict) -> bytes:
+    """Serialize collected bug-report data into the ZIP bytes (see
+    BUG_REPORT_MANIFEST for the archive layout)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("backend.log", data["backend_log"]["content"])
+        zf.writestr("model_run.log", data["model_run_log"]["content"])
+        zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
+        zf.writestr("startup.log", data["startup_log"]["content"])
+        zf.writestr("agent.log", data["agent_log"]["content"])
+
+        for entry in data["model_run_deployment_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"model_run_logs/{fname}", entry["content"])
+
+        for entry in data["inference_run_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/run_logs/{fname}", entry["content"])
+
+        for entry in data["inference_docker_server_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/docker_server/{fname}", entry["content"])
+
+        for entry in data["inference_run_specs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/run_specs/{fname}", entry["content"])
+
+        zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
+        zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
+        zf.writestr(
+            "current_models.json",
+            json.dumps(data["current_models"], indent=2, default=str),
+        )
+    buf.seek(0)
+    return buf.read()
+
+
 class BugReportDownloadView(APIView):
     """
     Returns a ZIP archive containing all TT-Studio log files for download.
@@ -581,43 +618,10 @@ class BugReportDownloadView(APIView):
     def get(self, request, *args, **kwargs):
         logger.info("BugReportDownloadView endpoint hit")
         try:
-            data = _collect_bug_report_data()
-            buf = io.BytesIO()
-
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr("backend.log", data["backend_log"]["content"])
-                zf.writestr("model_run.log", data["model_run_log"]["content"])
-                zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
-                zf.writestr("startup.log", data["startup_log"]["content"])
-                zf.writestr("agent.log", data["agent_log"]["content"])
-
-                for entry in data["model_run_deployment_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"model_run_logs/{fname}", entry["content"])
-
-                for entry in data["inference_run_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_logs/{fname}", entry["content"])
-
-                for entry in data["inference_docker_server_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/docker_server/{fname}", entry["content"])
-
-                for entry in data["inference_run_specs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_specs/{fname}", entry["content"])
-
-                zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
-                zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
-                zf.writestr(
-                    "current_models.json",
-                    json.dumps(data["current_models"], indent=2, default=str),
-                )
-
-            buf.seek(0)
+            zip_bytes = _build_bundle_zip(_collect_bug_report_data())
             timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
             filename = f"tt-studio-logs-{timestamp}.zip"
-            response = HttpResponse(buf.read(), content_type="application/zip")
+            response = HttpResponse(zip_bytes, content_type="application/zip")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
             return response
 
@@ -693,3 +697,120 @@ class GitHubIssueView(APIView):
         except Exception as e:
             logger.error(f"Failed to create GitHub issue: {e}")
             return JsonResponse({"error": str(e)}, status=500)
+
+
+class JiraIssueView(APIView):
+    """
+    Creates a Jira ticket (project from JIRA_PROJECT_KEY, default DEVSTACK) for a
+    bug report, with the full log bundle ZIP attached and the ticket assigned to
+    the owning component's primary codeowner (shared_config/component_owners.json).
+
+    Falls back to a pre-built GitHub new-issue URL when Jira credentials
+    (JIRA_EMAIL/JIRA_API_TOKEN) aren't configured, or when the Jira API fails —
+    same response shape as GitHubIssueView's no-PAT path, so the frontend
+    handles both identically.
+
+    POST body (JSON): { ref, title, description?, steps?, expected?, actual? }
+    Success response:  { issue_url, issue_key, component, assignee,
+                         attachment_uploaded, created_via_api: true }   (201)
+    Fallback response: { url, created_via_api: false, jira_error? }     (200)
+    """
+
+    GITHUB_NEW_ISSUE_URL = "https://github.com/tenstorrent/tt-studio/issues/new"
+
+    def post(self, request, *args, **kwargs):
+        from logs_control import jira_client
+
+        try:
+            body_data = json.loads(request.body)
+        except Exception:
+            return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+        ref = (body_data.get("ref") or "").strip() or "ttbr-unknown"
+        title = (body_data.get("title") or "").strip()
+        form = {
+            key: (body_data.get(key) or "").strip()
+            for key in ("description", "steps", "expected", "actual")
+        }
+
+        cfg = jira_client.load_jira_config()
+        if cfg is None:
+            return self._github_fallback(ref, title, form)
+
+        try:
+            data = _collect_bug_report_data()
+
+            table = jira_client.load_owner_table()
+            error_sources = jira_client.error_bearing_sources(
+                [
+                    ("backend.log", data.get("backend_log", {}).get("content", "")),
+                    ("docker-control-service.log", data.get("docker_control_log", {}).get("content", "")),
+                    ("model_run.log", data.get("model_run_log", {}).get("content", "")),
+                    ("agent.log", data.get("agent_log", {}).get("content", "")),
+                ]
+            )
+            component = jira_client.classify_component(table, error_sources)
+            entry = table.get("components", {}).get(component, {})
+
+            account_id = None
+            if entry.get("jira_email"):
+                try:
+                    account_id = jira_client.find_account_id(cfg, entry["jira_email"])
+                except Exception as e:
+                    logger.warning(f"Jira assignee lookup failed (ticket stays unassigned): {e}")
+
+            labels = ["tt-studio", "bug-report", entry.get("label", f"component-{component}")]
+            issue_key, issue_url = jira_client.create_jira_issue(
+                cfg,
+                jira_client.build_summary(ref, title),
+                jira_client.build_wiki_description(ref, form, component, entry),
+                labels,
+                account_id=account_id,
+            )
+
+            attached = False
+            try:
+                zip_bytes = _build_bundle_zip(data)
+                attached = jira_client.attach_zip_bytes(
+                    cfg, issue_key, zip_bytes, f"tt-studio-logs-{ref}.zip"
+                )
+            except Exception as e:
+                logger.warning(f"Jira attachment upload failed for {issue_key}: {e}")
+
+            return JsonResponse(
+                {
+                    "issue_url": issue_url,
+                    "issue_key": issue_key,
+                    "component": component,
+                    "assignee": entry.get("jira_email") if account_id else None,
+                    "attachment_uploaded": attached,
+                    "created_via_api": True,
+                },
+                status=201,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create Jira issue, falling back to GitHub URL: {e}")
+            return self._github_fallback(ref, title, form, jira_error=str(e))
+
+    def _github_fallback(self, ref, title, form, jira_error=None):
+        """Pre-filled GitHub new-issue URL, mirroring GitHubIssueView's no-PAT path."""
+        gh_title = f"TT-Studio bug report — {title} [{ref}]" if title else f"TT-Studio bug report [{ref}]"
+        body_sections = [f"## Bug Report\n\n**Reference:** `{ref}`"]
+        for heading, key in (
+            ("Description", "description"),
+            ("Steps to Reproduce", "steps"),
+            ("Expected Behavior", "expected"),
+            ("Actual Behavior", "actual"),
+        ):
+            if form.get(key):
+                body_sections.append(f"### {heading}\n{form[key]}")
+        body_sections.append(
+            f"Please attach the log bundle `tt-studio-logs-{ref}.zip` "
+            "(downloadable from the Bug Report dialog)."
+        )
+        body = "\n\n".join(body_sections)
+        params = urlencode({"title": gh_title, "body": body[:8000], "labels": "bug,auto-generated"})
+        payload = {"url": f"{self.GITHUB_NEW_ISSUE_URL}?{params}", "created_via_api": False}
+        if jira_error:
+            payload["jira_error"] = jira_error
+        return JsonResponse(payload, status=200)

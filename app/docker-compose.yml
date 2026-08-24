@@ -69,6 +69,10 @@ services:
       - TOKEN_ID
       - GITHUB_USERNAME
       - GITHUB_PAT
+      - JIRA_URL
+      - JIRA_EMAIL
+      - JIRA_API_TOKEN
+      - JIRA_PROJECT_KEY
       - VITE_ENABLE_DEPLOYED
       - WAKEWORD_MODEL
       - WAKEWORD_THRESHOLD

@@ -10,6 +10,7 @@ from .views import (
     BugReportDataView,
     BugReportDownloadView,
     GitHubIssueView,
+    JiraIssueView,
 )
 
 urlpatterns = [
@@ -19,6 +20,7 @@ urlpatterns = [
     path("bug-report/", BugReportDataView.as_view(), name="bug_report_data"),
     path("bug-report/download/", BugReportDownloadView.as_view(), name="bug_report_download"),
     path("github-issue/", GitHubIssueView.as_view(), name="github_issue"),
+    path("jira-issue/", JiraIssueView.as_view(), name="jira_issue"),
     path("", ListLogsView.as_view(), name="list_logs"),
     path("<path:filename>/", GetLogView.as_view(), name="get_log"),  # catch-all
 ]

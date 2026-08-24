@@ -64,7 +64,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     issueResult,
     startCollection,
     downloadZip,
-    createGitHubIssue,
+    createIssue,
     copyToClipboard,
     reset,
   } = useBugReport();
@@ -118,7 +118,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
   const handleCreateIssue = async () => {
     setIssueError(null);
     try {
-      await createGitHubIssue();
+      await createIssue();
     } catch (err) {
       setIssueError(
         err instanceof Error ? err.message : "Failed to create issue"
@@ -183,8 +183,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             <p className="text-sm text-muted-foreground leading-relaxed">
               Describe what went wrong, then use{" "}
               <strong className="text-foreground">Collect Logs</strong> on the next
-              steps to bundle diagnostics. You don’t need GitHub until{" "}
-              <strong className="text-foreground">step 3</strong>.
+              steps to bundle diagnostics. In{" "}
+              <strong className="text-foreground">step 3</strong> a Jira ticket is
+              filed for you with the log bundle attached.
             </p>
 
             <Collapsible
@@ -198,7 +199,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   "hover:bg-stone-100/80 dark:hover:bg-stone-800/50 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-stone-400"
                 )}
               >
-                <span>What we collect &amp; how GitHub fits in</span>
+                <span>What we collect &amp; where the report goes</span>
                 <ChevronDown
                   className={cn(
                     "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -222,12 +223,12 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     (board, telemetry, firmware fields when available).
                   </p>
                   <p>
-                    You do <strong>not</strong> need GitHub on this screen. In{" "}
-                    <strong>step 3</strong>, download the ZIP, then create or open
-                    the issue and attach the file there. Full logs are not pasted
-                    into the issue body; a short{" "}
-                    <strong>ZIP / diagnostics reference</strong> links the issue to
-                    your downloaded file name.
+                    In <strong>step 3</strong> the report is filed as a Jira ticket
+                    with the log ZIP attached automatically and routed to the owning
+                    team. If Jira isn’t configured, a pre-filled GitHub issue opens
+                    instead — download the ZIP and attach it there. A short{" "}
+                    <strong>ZIP / diagnostics reference</strong> links the ticket to
+                    the bundle.
                   </p>
                 </div>
               </CollapsibleContent>
@@ -245,9 +246,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                On GitHub this becomes:{" "}
+                The ticket summary becomes:{" "}
                 <span className="font-medium text-foreground/80">
-                  TT-Studio bug report — …your title… [reference]
+                  tt-studio: bug report [reference] — …your title…
                 </span>{" "}
                 (reference is added when you collect logs).
               </p>
@@ -335,7 +336,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               <code className="rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900/60">
                 ttbr-…
               </code>
-              ) to tie your download to the GitHub issue.
+              ) to tie your download to the ticket.
             </div>
             <ScrollArea className="h-64 pr-2">
               <div className="space-y-2">
@@ -380,7 +381,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   <p className="text-muted-foreground text-xs leading-relaxed">
                     Your browser saves the bundle with this full file name (same as
                     Download Logs as ZIP). Copy it to find the file or paste into a
-                    GitHub comment.
+                    ticket comment.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -414,7 +415,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium text-muted-foreground">
-                    Reference ID (GitHub issue title/body)
+                    Reference ID (ticket summary/body)
                   </p>
                   <div className="flex items-start gap-2">
                     <code className="min-w-0 flex-1 break-all rounded border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-950 px-2 py-1.5 text-xs font-mono leading-snug">
@@ -441,21 +442,16 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             )}
 
             <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-              <p className="font-medium mb-1">Attach diagnostics to GitHub (later)</p>
+              <p className="font-medium mb-1">How submission works</p>
               <ol className="list-decimal list-inside space-y-1 text-amber-900/90 dark:text-amber-100/90">
                 <li>
-                  Click <strong>Download Logs as ZIP</strong> below. The file name
-                  includes the reference above so it lines up with the issue text.
+                  <strong>Create Ticket</strong> files a Jira ticket, attaches this
+                  log bundle automatically, and routes it to the owning team.
                 </li>
                 <li>
-                  Create or open the GitHub issue (button below or link in a new
-                  tab). The issue title/body include the same reference.
-                </li>
-                <li>
-                  On the GitHub issue page, scroll to the bottom of the composer
-                  and <strong>attach the ZIP file</strong>. GitHub cannot take full
-                  logs in the issue URL — the ZIP is required for complete
-                  diagnostics.
+                  If Jira isn’t configured, a pre-filled GitHub issue opens instead
+                  — then click <strong>Download Logs as ZIP</strong> and attach the
+                  file to that issue manually.
                 </li>
               </ol>
             </div>
@@ -463,7 +459,8 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             {issueResult?.created_via_api && issueResult.issue_url && (
               <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm">
                 <p className="font-medium text-blue-800 dark:text-blue-300">
-                  Issue #{issueResult.issue_number} created!
+                  Ticket {issueResult.issue_key ?? `#${issueResult.issue_number}`}{" "}
+                  created!
                 </p>
                 <a
                   href={issueResult.issue_url}
@@ -474,6 +471,13 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   {issueResult.issue_url}
                   <ExternalLink className="h-3 w-3" />
                 </a>
+                <p className="mt-1 text-xs text-blue-700 dark:text-blue-400">
+                  {issueResult.attachment_uploaded
+                    ? "Log bundle attached automatically."
+                    : "Log bundle upload failed — download the ZIP below and attach it to the ticket."}
+                  {issueResult.component &&
+                    ` Routed to component: ${issueResult.component}.`}
+                </p>
               </div>
             )}
 
@@ -514,8 +518,8 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   <GitBranch className="h-4 w-4" />
                 )}
                 {issueResult?.created_via_api
-                  ? "Issue Created"
-                  : "Create GitHub Issue"}
+                  ? "Ticket Created"
+                  : "Create Ticket"}
               </Button>
 
               <Button
@@ -528,6 +532,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </Button>
             </div>
 
+            {issueResult && !issueResult.created_via_api && (
             <div className="rounded-md border border-stone-200 dark:border-stone-700 bg-stone-50/90 dark:bg-stone-900/60 px-4 py-3">
               <label
                 htmlFor="bug-report-confirm-github-zip"
@@ -552,6 +557,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 </p>
               )}
             </div>
+            )}
 
             <div className="flex justify-between pt-1">
               <Button

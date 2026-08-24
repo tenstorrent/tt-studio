@@ -1,0 +1,74 @@
+{
+  "_comment": "Component -> owner routing for bug reports. Mirrors .github/CODEOWNERS. Read by tt_setup/jira_report.py (host) and logs_control/jira_client.py (backend container). Keep the three in sync.",
+  "default": "unknown",
+  "components": {
+    "launcher": {
+      "paths": ["run.py", "tt_setup/", "startup_checks.py", "test_run_cleanup.py"],
+      "log_sources": ["startup.log", "error.txt"],
+      "github_owners": ["jashansinghTT", "anirudTT"],
+      "jira_email": "jashansingh@tenstorrent.com",
+      "label": "component-launcher"
+    },
+    "rag": {
+      "paths": [
+        "app/backend/vector_db_control/",
+        "app/frontend/src/components/rag/",
+        "app/frontend/src/pages/RagAdminPage.tsx",
+        "app/frontend/src/components/chatui/getRagContext.ts"
+      ],
+      "log_sources": [],
+      "github_owners": ["jashansinghTT", "anirudTT"],
+      "jira_email": "jashansingh@tenstorrent.com",
+      "label": "component-rag"
+    },
+    "frontend": {
+      "paths": ["app/frontend/"],
+      "log_sources": [],
+      "github_owners": ["jashansinghTT", "anirudTT"],
+      "jira_email": "jashansingh@tenstorrent.com",
+      "label": "component-frontend"
+    },
+    "agent": {
+      "paths": ["app/agent/"],
+      "log_sources": ["agent.log"],
+      "github_owners": ["jashansinghTT", "anirudTT"],
+      "jira_email": "jashansingh@tenstorrent.com",
+      "label": "component-agent"
+    },
+    "backend": {
+      "paths": ["app/backend/"],
+      "log_sources": ["backend.log"],
+      "github_owners": ["rnabeelTT", "stisiTT", "anirudTT"],
+      "jira_email": "rnabeel@tenstorrent.com",
+      "label": "component-backend"
+    },
+    "docker-control": {
+      "paths": ["docker-control-service/"],
+      "log_sources": ["docker-control-service.log", "docker_control_logs/"],
+      "github_owners": ["rnabeelTT", "stisiTT", "anirudTT"],
+      "jira_email": "rnabeel@tenstorrent.com",
+      "label": "component-docker-control"
+    },
+    "inference": {
+      "paths": ["inference-api/"],
+      "log_sources": ["model_run.log", "model_run_logs/", "inference_artifacts/"],
+      "github_owners": ["rnabeelTT", "stisiTT", "anirudTT"],
+      "jira_email": "rnabeel@tenstorrent.com",
+      "label": "component-inference"
+    },
+    "docs": {
+      "paths": ["docs/", "dev-docs/", "models/licenses/"],
+      "log_sources": [],
+      "github_owners": ["housTT", "anirudTT"],
+      "jira_email": "ahous@tenstorrent.com",
+      "label": "component-docs"
+    },
+    "unknown": {
+      "paths": [],
+      "log_sources": [],
+      "github_owners": ["anirudTT"],
+      "jira_email": "anirud@tenstorrent.com",
+      "label": "component-unknown"
+    }
+  }
+}

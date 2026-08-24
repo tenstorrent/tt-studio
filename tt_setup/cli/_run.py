@@ -135,6 +135,18 @@ def _run(args):
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
 
+{C_YELLOW}{C_BOLD}Bug Reporting — Jira (optional):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}JIRA_EMAIL{C_RESET}                          Atlassian account email for bug reports
+  {C_YELLOW}JIRA_API_TOKEN{C_RESET}                      API token (id.atlassian.com → Security →
+                                      API tokens). With both set, --report-bug
+                                      and the web UI file Jira tickets with the
+                                      log bundle attached; otherwise they fall
+                                      back to a pre-filled GitHub issue URL.
+  {C_YELLOW}JIRA_URL{C_RESET}                            Jira base URL
+                                      (default https://tenstorrent.atlassian.net)
+  {C_YELLOW}JIRA_PROJECT_KEY{C_RESET}                    Target project (default DEVSTACK)
+
 {C_ORANGE}{C_BOLD}Hardware:{C_RESET}
 {'=' * 80}
   {C_YELLOW}IS_QB2{C_RESET}                              Opt-in QB2 (Blackhole QuietBox / P300x2)

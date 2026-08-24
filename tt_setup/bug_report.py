@@ -6,8 +6,10 @@
 Mirrors the web UI's Report Bug button (app/frontend/src/components/bug-report/)
 for the CLI: when `python run.py` errors during setup — or when the user runs
 `python run.py --report-bug` — this collects the available host-side logs and
-system info into a `tt-studio-logs-ttbr-<hex>.zip` bundle and builds a pre-filled
-GitHub new-issue URL.
+system info into a `tt-studio-logs-ttbr-<hex>.zip` bundle and files a Jira ticket
+(project DEVSTACK by default, bundle attached, routed per CODEOWNERS — see
+tt_setup/jira_report.py). Without Jira credentials (JIRA_EMAIL/JIRA_API_TOKEN in
+.env) it falls back to the original pre-filled GitHub new-issue URL.
 
 Unlike the UI, this cannot call the backend's /logs-api/bug-report/ endpoint: a
 setup crash usually happens before the Django backend and docker-control-service
@@ -58,7 +60,9 @@ def _git(git_args):
     try:
         result = subprocess.run(
             ["git", "-C", TT_STUDIO_ROOT] + git_args,
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -114,9 +118,8 @@ def collect_bundle(exc=None, args=None):
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         if exc is not None:
-            error_text = (
-                f"{type(exc).__name__}: {exc}\n\n"
-                + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            error_text = f"{type(exc).__name__}: {exc}\n\n" + "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
             )
             zf.writestr("error.txt", error_text)
 
@@ -171,8 +174,8 @@ startup log, error traceback, and system info needed to triage this.
 
 
 def report_bug(exc=None, args=None, open_browser=True):
-    """Collect a diagnostics bundle, build the issue URL, show the next steps, and
-    optionally open the pre-filled GitHub issue in a browser."""
+    """Collect a diagnostics bundle, file a Jira ticket with it attached (or fall
+    back to a pre-filled GitHub issue URL), and show the next steps."""
     try:
         zip_path, ref = collect_bundle(exc=exc, args=args)
     except Exception as e:
@@ -182,19 +185,58 @@ def report_bug(exc=None, args=None, open_browser=True):
         )
         return
 
+    from tt_setup import jira_report
+
+    jira_configured = jira_report.load_jira_config() is not None
+    jira_result = jira_report.report_to_jira(
+        exc=exc, zip_path=zip_path, ref=ref, system_info=_system_info(exc, args)
+    )
+    if jira_result is not None:
+        ticket_url, attached = jira_result
+        attach_note = (
+            "[muted]Log bundle attached to the ticket.[/muted]"
+            if attached
+            else "[muted]Attach the bundle ZIP to the ticket manually (upload failed).[/muted]"
+        )
+        console.print(
+            notice_panel(
+                "[bold]🐞 Bug report filed[/bold]",
+                [
+                    f"[muted]Reference   →[/muted]  {ref}",
+                    f"[muted]Bundle      →[/muted]  {zip_path}",
+                    f"[muted]Jira ticket →[/muted]  {ticket_url}",
+                    "",
+                    attach_note,
+                ],
+                border_style="accent",
+            )
+        )
+        if open_browser:
+            try:
+                webbrowser.open(ticket_url)
+            except Exception:
+                # Headless / no browser — the URL is already printed above.
+                pass
+        return
+
+    if jira_configured:
+        console.print("[muted]Jira unavailable — falling back to GitHub.[/muted]")
+
     issue_url = build_issue_url(ref, exc=exc)
 
-    console.print(notice_panel(
-        "[bold]🐞 Bug report ready[/bold]",
-        [
-            f"[muted]Reference   →[/muted]  {ref}",
-            f"[muted]Bundle      →[/muted]  {zip_path}",
-            f"[muted]Open issue  →[/muted]  {issue_url}",
-            "",
-            "[muted]Attach the bundle ZIP to the GitHub issue after it opens.[/muted]",
-        ],
-        border_style="accent",
-    ))
+    console.print(
+        notice_panel(
+            "[bold]🐞 Bug report ready[/bold]",
+            [
+                f"[muted]Reference   →[/muted]  {ref}",
+                f"[muted]Bundle      →[/muted]  {zip_path}",
+                f"[muted]Open issue  →[/muted]  {issue_url}",
+                "",
+                "[muted]Attach the bundle ZIP to the GitHub issue after it opens.[/muted]",
+            ],
+            border_style="accent",
+        )
+    )
 
     if open_browser:
         try:

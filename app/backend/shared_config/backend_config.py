@@ -36,6 +36,10 @@ class BackendConfig:
     tt_inference_api_url: str
     github_username: str = os.environ.get("GITHUB_USERNAME", "")
     github_pat: str = os.environ.get("GITHUB_PAT", "")
+    jira_url: str = os.environ.get("JIRA_URL", "https://tenstorrent.atlassian.net")
+    jira_email: str = os.environ.get("JIRA_EMAIL", "")
+    jira_api_token: str = os.environ.get("JIRA_API_TOKEN", "")
+    jira_project_key: str = os.environ.get("JIRA_PROJECT_KEY", "DEVSTACK")
 
 
 # environment variables are ideally terminated on import to fail-fast and provide obvious
