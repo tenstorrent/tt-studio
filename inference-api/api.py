@@ -489,6 +489,12 @@ _cancel_lock = threading.Lock()
 _cancelled_jobs: set[str] = set()
 _active_run_job_id: Optional[str] = None
 
+# How long a deploy will wait for the run lock before giving up. Long enough to
+# absorb the handoff between two back-to-back deploys, far short of a weights
+# download — a job that can't start promptly must fail loudly rather than sit
+# queued and invisible.
+_RUN_LOCK_WAIT_SECONDS = 15
+
 
 def _is_job_cancelled(job_id: str) -> bool:
     with _cancel_lock:
@@ -589,6 +595,14 @@ _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist 
 _WORKFLOW_LOGS_PERMISSION_ERROR_RE = re.compile(r"PermissionError.*workflow_logs")
 # setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
 _HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
+# tqdm counter emitted by `hf download`: "Fetching 32 files:  47%|████▋ | 15/32 [...]".
+_HF_FETCH_FILES_RE = re.compile(
+    r"Fetching\s+\d+\s+files:\s*\d+%\|[^|]*\|\s*(?P<done>\d+)/(?P<total>\d+)"
+)
+# Bar band reserved for the host weights download. It runs from the end of setup to
+# the start of container creation, and on a cold deploy it dominates the wall clock.
+_WEIGHTS_PROGRESS_START = 20
+_WEIGHTS_PROGRESS_END = 60
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
@@ -897,6 +911,38 @@ def _build_retry_argv_and_reason(current_argv: list[str], request: "RunRequest")
     return retry_argv, retry_reason
 
 
+# Lines on a subprocess's stderr that actually indicate a problem. Everything else
+# arriving on stderr (tqdm bars, uv resolve/install output, hf CLI hints) is normal
+# progress and must not be surfaced to the user as an error.
+_SUBPROCESS_ERROR_RE = re.compile(
+    r"(?:^|\W)(?:error|errno|traceback|exception|fatal|critical|"
+    r"failed|failure|cannot|could not|permission denied|no such file)\b",
+    re.IGNORECASE,
+)
+# Progress-bar redraws and package-manager chatter — noisy but always benign.
+_SUBPROCESS_BENIGN_RE = re.compile(
+    r"(\d+%\|)|(\bit/s\b)|(\bs/it\b)|(^\s*\+\s\S+==)|"
+    r"(^(Downloading|Downloaded|Installed|Prepared|Resolved|Using|Creating|Activate|Fetching|Hint:))",
+)
+
+
+def _classify_subprocess_line(
+    line: str, levelno: int, levelname: str
+) -> Tuple[int, str]:
+    """Pick the log level for one line of run.py subprocess output.
+
+    Returns the caller's level unchanged for stdout and for error-shaped stderr;
+    downgrades ordinary stderr progress to INFO.
+    """
+    if levelno < logging.WARNING:
+        return levelno, levelname
+    if _SUBPROCESS_BENIGN_RE.search(line):
+        return logging.INFO, "INFO"
+    if _SUBPROCESS_ERROR_RE.search(line):
+        return levelno, levelname
+    return logging.INFO, "INFO"
+
+
 def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
                                pull_state: Dict[str, int], run_logger: logging.Logger) -> None:
     """Read a dev-mode run.py subprocess's stdout/stderr pipe line by line and feed
@@ -910,8 +956,15 @@ def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
             line = line.rstrip("\n")
             if not line:
                 continue
-            run_logger.log(levelno, line)
-            _process_run_output_line(job_id, line, levelname, pull_state)
+            # stderr is not an error channel here: uv, the hf CLI and tqdm all write
+            # ordinary progress to it. Logging every such line at WARNING made a
+            # healthy deploy read as "a bunch of errors" in the UI's log view, so
+            # only genuinely error-shaped lines keep the caller's level.
+            line_levelno, line_levelname = _classify_subprocess_line(
+                line, levelno, levelname
+            )
+            run_logger.log(line_levelno, line)
+            _process_run_output_line(job_id, line, line_levelname, pull_state)
 
 
 def _execute_dev_mode_subprocess(
@@ -1731,11 +1784,24 @@ def _process_run_output_line(
         elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
             stage = "model_preparation"
             progress = 28
-        # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
+        # `hf download` file counter (e.g. "Fetching 32 files:  47%|████▋ | 15/32 [...]").
+        # This is the only progress signal emitted during the host weights download,
+        # which is the longest phase of a cold deploy by a wide margin. Flattening it
+        # to a fixed percent left the bar frozen for the entire download and made a
+        # healthy deploy look hung, so map the real file count onto the bar.
+        elif (_fetch_match := _HF_FETCH_FILES_RE.search(message)) is not None:
+            stage = "model_preparation"
+            done = int(_fetch_match.group("done"))
+            total = int(_fetch_match.group("total"))
+            fraction = (done / total) if total > 0 else 0.0
+            progress = _WEIGHTS_PROGRESS_START + int(
+                fraction * (_WEIGHTS_PROGRESS_END - _WEIGHTS_PROGRESS_START)
+            )
+            message = f"Downloading model weights… ({done}/{total} files)"
         elif "fetching" in message.lower() and "files" in message.lower():
             stage = "model_preparation"
-            progress = 20
-            message = "Downloading model configuration files..."
+            progress = _WEIGHTS_PROGRESS_START
+            message = "Downloading model weights…"
         # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
         elif any(keyword in message.lower() for keyword in [
             "pulling from",
@@ -2304,6 +2370,32 @@ async def run_inference(request: RunRequest):
                 original_device,
                 normalized_device,
             )
+        # Only one deploy can hold the run lock at a time. Refuse a second one up
+        # front rather than handing back a job_id whose background thread would sit
+        # queued behind the current download — the caller would poll that job at 0%
+        # for the entire wait, and it would then start a duplicate container.
+        with _cancel_lock:
+            busy_job_id = _active_run_job_id
+        if busy_job_id is not None:
+            logger.warning(
+                "Rejecting /run for model=%s: deployment job %s is already running",
+                request.model,
+                busy_job_id,
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "error_type": "deploy_in_flight",
+                    "active_job_id": busy_job_id,
+                    "message": (
+                        f"A deployment is already running (job {busy_job_id}). "
+                        "Only one deployment can run at a time — wait for it to "
+                        "finish or cancel it first."
+                    ),
+                },
+            )
+
         # Generate a unique job ID for this deployment
         job_id = str(uuid.uuid4())[:8]
         
@@ -2504,6 +2596,7 @@ async def run_inference(request: RunRequest):
             )
             logger.info("Job %s: skipping --host-hf-cache (%s)", job_id, reason)
         def _run_job_in_background():
+            global _active_run_job_id
             weights_stop_event = threading.Event()
             progress_handler = None
             run_logger = logging.getLogger("run_log")
@@ -2552,8 +2645,17 @@ async def run_inference(request: RunRequest):
 
                 # run_main() relies on process globals (sys.argv, os.environ, cwd), so
                 # serialize this setup/execution phase across concurrent /run requests.
-                with _run_main_lock:
-                    global _active_run_job_id
+                # Bounded, not blocking: a second /run used to wait here for as long as the
+                # holder took (a multi-GB weights download = tens of minutes), reporting 0%
+                # the whole time and then starting a second container on the same devices
+                # and port once the lock freed. Fail the job instead so the caller sees a
+                # real error immediately.
+                if not _run_main_lock.acquire(timeout=_RUN_LOCK_WAIT_SECONDS):
+                    raise RuntimeError(
+                        f"another deployment (job {_active_run_job_id}) is already running; "
+                        "only one deployment can run at a time"
+                    )
+                try:
                     if _is_job_cancelled(job_id):
                         raise RuntimeError("cancelled")
                     _active_run_job_id = job_id
@@ -2711,6 +2813,13 @@ async def run_inference(request: RunRequest):
                                 os.environ.update(prev_env)
                             except Exception:
                                 pass
+                finally:
+                    # Defensive: the branches above clear this in their own finally,
+                    # but a stuck marker would make the /run busy-check reject every
+                    # subsequent deploy for the life of the process.
+                    _active_run_job_id = None
+                    _run_main_lock.release()
+
 
                 if return_code == 0:
                     # Always extract from captured job logs — provides docker_log_file_path

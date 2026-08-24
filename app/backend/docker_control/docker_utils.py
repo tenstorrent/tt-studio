@@ -1239,9 +1239,13 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
-                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
-                None,
+            _impl_id, _impl = next(
+                (
+                    (k, v)
+                    for k, v in model_implmentations.items()
+                    if v.model_name == dep.model_name
+                ),
+                (None, None),
             )
             _grace = (
                 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
@@ -1263,7 +1267,10 @@ def get_canonical_deployments():
                     "device_ids": list(getattr(dep, "device_ids", None) or [])
                                   or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
-                    "model_id": None,
+                    # Resolved from model_name so clients can tie an in-flight start
+                    # back to a catalog entry. model_impl stays None: this deployment
+                    # has no container yet, and consumers key "is it deployed?" off it.
+                    "model_id": _impl_id,
                     "weights_id": None,
                     "internal_url": None,
                     "health_url": None,

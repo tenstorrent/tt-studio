@@ -537,9 +537,36 @@ class DeployView(APIView):
             )
 
             # Multiple concurrent instances of the same model are allowed when chip
-            # capacity is available. Slot allocation below enforces capacity and the
-            # canonical reconciliation frees genuinely stale records, so we must not
-            # stop existing same-model deployments here.
+            # capacity is available: this guard blocks a second concurrent *start*, not
+            # a second running instance. A model still in 'starting' has a deploy in
+            # flight on the inference server, and firing another one achieves nothing —
+            # the inference server serialises /run behind a single process-wide lock, so
+            # the duplicate would either be rejected or sit invisibly queued and then
+            # start a second container on the same devices and port when the first
+            # finished. Deliberately independent of chip-slot accounting so it still
+            # holds if the slot bookkeeping is ever wrong about the board being free.
+            from docker_control.models import ModelDeployment as _ModelDeployment
+            in_flight = _ModelDeployment.objects.filter(
+                model_name=impl.model_name, status="starting"
+            ).first()
+            if in_flight is not None:
+                logger.info(
+                    f"Rejecting duplicate deploy of {impl.model_name}: job "
+                    f"{in_flight.container_id} is already starting"
+                )
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "deploy_in_flight",
+                        "message": (
+                            f"{impl.model_name} is already deploying. Wait for it to "
+                            f"finish, or cancel it from the Deployed Models page before "
+                            f"starting another."
+                        ),
+                        "job_id": in_flight.container_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -1089,6 +1116,8 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
                 return
             if real_container_id:
+                from docker_control.deployment_sync import _warn_if_resurrecting_reaped
+                _warn_if_resurrecting_reaped(dep, job_id)
                 dep.container_id = real_container_id
                 if real_container_name:
                     dep.container_name = real_container_name
