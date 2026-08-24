@@ -1,0 +1,79 @@
+name: Publish PyPI package
+
+# Builds the tt-studio pip shim (packaging/pypi/) and publishes it to PyPI on
+# each release tag, so `pip install tt-studio` always resolves to the newest
+# release. The shim itself installs/updates the real launcher from GitHub at
+# runtime, so most releases don't change the shim code — publishing every tag
+# just keeps the PyPI version number in lockstep with the release.
+#
+# Trigger is the v* tag push only (release tags are pushed from a maintainer
+# machine by the release CLI, so this fires). Deliberately NOT also on
+# `release: published` — that would double-publish, and PyPI rejects the
+# duplicate upload with a hard error.
+#
+# One-time admin setup required before the first publish: create the
+# `tt-studio` project on pypi.org and register this repo + workflow
+# (publish-pypi.yml) as a trusted publisher. Until then this workflow fails at
+# the upload step.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # dry-run: build the wheel, skip the upload
+
+concurrency:
+  group: publish-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Stamp release version into the package
+        run: |
+          set -euo pipefail
+          # v2.10.0 -> 2.10.0 for tag builds; dispatch dry-runs keep 0.0.0.
+          case "$GITHUB_REF" in
+            refs/tags/v*) VERSION="${GITHUB_REF_NAME#v}" ;;
+            *) VERSION="0.0.0" ;;
+          esac
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" packaging/pypi/pyproject.toml
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" packaging/pypi/src/tt_studio/__init__.py
+          echo "Building tt-studio ${VERSION}"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build packaging/pypi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: packaging/pypi/dist/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # PyPI trusted publishing (OIDC) — no API token stored
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
