@@ -98,6 +98,49 @@ def _get_hf_token_from_user_config() -> Optional[str]:
     return None
 
 
+def _resolve_secret_env_vars(
+    jwt_secret: Optional[str] = None,
+    hf_token: Optional[str] = None,
+    ui_hf_token: Optional[str] = None,
+) -> Dict[str, str]:
+    """Build the per-deploy secret env vars from the request and UI config.
+
+    Deliberately does NOT consult os.environ. All deploys share one process and one
+    os.environ: each job applies its secrets there under _run_main_lock and wipes them
+    in a finally. This function runs at request time, OUTSIDE that lock, so a
+    concurrent job holding the lock makes os.getenv("JWT_SECRET") transiently truthy.
+    Skipping the request value on that basis loses it, because the other job's finally
+    removes it before this job ever acquires the lock — the deploy then dies in
+    handle_secrets with "JWT_SECRET is not set". That race is why concurrent deploys
+    (e.g. the Voice Agent's three-at-once) failed while a lone retry succeeded.
+
+    Each job therefore always carries its own copy. A secret already present in the
+    process env (exported from the root .env at startup) still works: it lives in the
+    pristine env the lock restores, so it survives every job's cleanup.
+    """
+    resolved: Dict[str, str] = {}
+    log = logging.getLogger(__name__)
+
+    if jwt_secret:
+        log.info("Setting JWT_SECRET from request")
+        resolved["JWT_SECRET"] = jwt_secret
+    elif not os.getenv("JWT_SECRET"):
+        log.warning("JWT_SECRET not set - this may cause issues")
+
+    # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+    # so changes apply without restarting inference-api or redeploying anything.
+    if ui_hf_token:
+        log.info("Setting HF_TOKEN from TT Studio user_config.env")
+        resolved["HF_TOKEN"] = ui_hf_token
+    elif hf_token:
+        log.info("Setting HF_TOKEN from request")
+        resolved["HF_TOKEN"] = hf_token
+    elif not os.getenv("HF_TOKEN"):
+        log.warning("HF_TOKEN not set - this may cause issues with model downloads")
+
+    return resolved
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -2360,24 +2403,15 @@ async def run_inference(request: RunRequest):
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
-        # Handle secrets - use from request if provided and not already in environment
-        if request.jwt_secret and not os.getenv("JWT_SECRET"):
-            logger.info("Setting JWT_SECRET from request")
-            env_vars_to_set["JWT_SECRET"] = request.jwt_secret
-        elif not os.getenv("JWT_SECRET"):
-            logger.warning("JWT_SECRET not set - this may cause issues")
-            
-        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
-        # so changes apply without restarting inference-api or redeploying anything.
-        ui_hf = _get_hf_token_from_user_config()
-        if ui_hf:
-            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
-            env_vars_to_set["HF_TOKEN"] = ui_hf
-        elif request.hf_token and not os.getenv("HF_TOKEN"):
-            logger.info("Setting HF_TOKEN from request")
-            env_vars_to_set["HF_TOKEN"] = request.hf_token
-        elif not os.getenv("HF_TOKEN"):
-            logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
+        # Handle secrets. See _resolve_secret_env_vars() for why these must not be
+        # conditioned on the current os.environ.
+        env_vars_to_set.update(
+            _resolve_secret_env_vars(
+                jwt_secret=request.jwt_secret,
+                hf_token=request.hf_token,
+                ui_hf_token=_get_hf_token_from_user_config(),
+            )
+        )
             
         # Convert the request to command line arguments
         base_argv = ["run.py"]
