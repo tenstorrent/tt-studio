@@ -107,7 +107,13 @@ async function pollDeployProgress(
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
   const SAFETY_TIMEOUT_MS = 30 * 60 * 1000;
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
-  const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout", "not_found"];
+  // Genuinely terminal: the backend has decided this deploy is over.
+  const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout"];
+  // "not_found" is ambiguous - a truly orphaned job, or one the backend just cannot
+  // resolve at this instant. Treating the first one as fatal failed deploys whose
+  // image was still downloading, so require it to persist before killing the card.
+  const NOT_FOUND_STRIKES = 3;
+  let notFoundCount = 0;
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
@@ -115,6 +121,13 @@ async function pollDeployProgress(
         const data = await resp.json();
         onUpdate?.(data);
         if (data.status === "completed") return { outcome: "done", status: data.status };
+        if (data.status === "not_found") {
+          if (++notFoundCount >= NOT_FOUND_STRIKES) {
+            return { outcome: "error", status: data.status, message: data.message };
+          }
+        } else {
+          notFoundCount = 0;
+        }
         if (TERMINAL_ERRORS.includes(data.status)) {
           return { outcome: "error", status: data.status, message: data.message };
         }
