@@ -925,12 +925,57 @@ class DeployView(APIView):
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
+                    # Reserve the slot for the duration of the pull, as the chat path
+                    # does. Without a record the allocator reports these devices free
+                    # for the whole pull (minutes) even though they are spoken for, and
+                    # the deployment tray has nothing to show because nothing is
+                    # is_pending -- the model's own card shows pull progress from the
+                    # in-memory pull store, so the deploy looks invisible everywhere else.
+                    from docker_control.models import ModelDeployment
+                    try:
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=media_device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
-                    def deploy_fn(_host_port=host_port):
+                    def _refresh_media_placeholder(_pull_id=pull_id):
+                        # A media image pull outlasts the canonical "starting" grace
+                        # window, so keep the placeholder fresh or it gets reconciled
+                        # away mid-pull and frees the slot.
+                        from datetime import datetime, timezone
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def _retire_media_placeholder(_pull_id=pull_id):
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep and dep.status == "starting":
+                                dep.status = "stopped"
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
+
+                    def deploy_fn(_pull_id=pull_id, _host_port=host_port):
                         resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
+                            # Free the slot: the deploy never started.
+                            _retire_media_placeholder(_pull_id)
                             return None, resp.get("message", "Deployment failed")
+                        # run_container has just created the real record keyed by the
+                        # inference job id. Retire the placeholder after it exists, so
+                        # the slot is continuously held and never counted twice.
+                        _retire_media_placeholder(_pull_id)
                         try:
                             SystemResourceService.force_refresh_tt_smi_cache()
                         except Exception:
@@ -943,6 +988,7 @@ class DeployView(APIView):
                         image_tag=image_tag,
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_media_placeholder,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},

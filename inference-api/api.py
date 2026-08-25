@@ -532,11 +532,13 @@ _cancel_lock = threading.Lock()
 _cancelled_jobs: set[str] = set()
 _active_run_job_id: Optional[str] = None
 
-# How long a deploy will wait for the run lock before giving up. Long enough to
-# absorb the handoff between two back-to-back deploys, far short of a weights
-# download — a job that can't start promptly must fail loudly rather than sit
-# queued and invisible.
-_RUN_LOCK_WAIT_SECONDS = 15
+# Concurrent deploys are legitimate — the Voice Agent submits three at once — but
+# run_main() mutates process globals, so only one may execute at a time. A waiting
+# job therefore queues instead of being refused, re-checking this often and
+# publishing its wait as progress so it is never mistaken for a hung deploy.
+_RUN_LOCK_POLL_SECONDS = 2
+# Absolute ceiling on queueing, so a wedged holder cannot strand waiters forever.
+_RUN_LOCK_MAX_WAIT_SECONDS = 2 * 60 * 60
 
 
 def _is_job_cancelled(job_id: str) -> bool:
@@ -2400,6 +2402,46 @@ def sync_tokens_from_tt_studio():
     else:
         logger.info("JWT_SECRET and HF_TOKEN are already synchronized")
 
+def _acquire_run_lock(job_id: str) -> None:
+    """Block until this job owns the run lock, reporting the wait as real progress.
+
+    run_main() relies on process globals (sys.argv, os.environ, cwd), so deploys
+    execute one at a time. Submitting several at once is a supported workflow
+    though — the Voice Agent fires LLM + Whisper + TTS together — so a waiting job
+    queues rather than being rejected.
+
+    The wait is published to progress_store on every poll. An unreported wait is
+    indistinguishable from a hung deploy: it sits at 0% and /run/progress flags it
+    "stalled" once its last_updated goes 120s cold, which is what made a queued job
+    look dead. Refreshing last_updated also keeps the backend's deployment_sync
+    heartbeat alive, so the job holds its chip slots while it waits its turn.
+    """
+    waited = 0.0
+    while not _run_main_lock.acquire(timeout=_RUN_LOCK_POLL_SECONDS):
+        waited += _RUN_LOCK_POLL_SECONDS
+        # Cancelling a queued job must not leave it to start a container later.
+        if _is_job_cancelled(job_id):
+            raise RuntimeError("cancelled")
+        if waited > _RUN_LOCK_MAX_WAIT_SECONDS:
+            raise RuntimeError(
+                f"gave up after {int(waited // 60)} min waiting for deployment "
+                f"{_active_run_job_id} to finish"
+            )
+        ahead = _active_run_job_id
+        with progress_lock:
+            if job_id in progress_store:
+                progress_store[job_id].update({
+                    "status": "running",
+                    "stage": "queued",
+                    "message": (
+                        f"Waiting for deployment {ahead} to finish"
+                        if ahead
+                        else "Waiting for another deployment to finish"
+                    ),
+                    "last_updated": time.time(),
+                })
+
+
 @app.post("/run")
 async def run_inference(request: RunRequest):
     deployment_log_handler = None
@@ -2413,32 +2455,6 @@ async def run_inference(request: RunRequest):
                 original_device,
                 normalized_device,
             )
-        # Only one deploy can hold the run lock at a time. Refuse a second one up
-        # front rather than handing back a job_id whose background thread would sit
-        # queued behind the current download — the caller would poll that job at 0%
-        # for the entire wait, and it would then start a duplicate container.
-        with _cancel_lock:
-            busy_job_id = _active_run_job_id
-        if busy_job_id is not None:
-            logger.warning(
-                "Rejecting /run for model=%s: deployment job %s is already running",
-                request.model,
-                busy_job_id,
-            )
-            return JSONResponse(
-                status_code=409,
-                content={
-                    "status": "error",
-                    "error_type": "deploy_in_flight",
-                    "active_job_id": busy_job_id,
-                    "message": (
-                        f"A deployment is already running (job {busy_job_id}). "
-                        "Only one deployment can run at a time — wait for it to "
-                        "finish or cancel it first."
-                    ),
-                },
-            )
-
         # Generate a unique job ID for this deployment
         job_id = str(uuid.uuid4())[:8]
         
@@ -2684,11 +2700,7 @@ async def run_inference(request: RunRequest):
                 # the whole time and then starting a second container on the same devices
                 # and port once the lock freed. Fail the job instead so the caller sees a
                 # real error immediately.
-                if not _run_main_lock.acquire(timeout=_RUN_LOCK_WAIT_SECONDS):
-                    raise RuntimeError(
-                        f"another deployment (job {_active_run_job_id}) is already running; "
-                        "only one deployment can run at a time"
-                    )
+                _acquire_run_lock(job_id)
                 try:
                     if _is_job_cancelled(job_id):
                         raise RuntimeError("cancelled")

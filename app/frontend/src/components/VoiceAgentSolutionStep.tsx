@@ -25,6 +25,8 @@ import {
 } from "./ui/select";
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
+import { compactPercent } from "../lib/deployProgress";
+import type { DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import {
   isLlama31_8BModel,
@@ -119,11 +121,30 @@ async function pollDeployProgress(
   return { outcome: "error", timedOut: true };
 }
 
-/** Concise per-card sub-status from a progress poll (image pull shows real %). */
-function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
+/** Concise per-card sub-status from a progress poll.
+ *
+ *  The percentage comes from the same compactPercent() the deployment tray uses, so
+ *  a model's card and its tray entry cannot disagree. They previously each derived
+ *  their own number from the same payload — the card showed the raw pull percent,
+ *  the tray showed that pull remapped into its first bar segment — so one could read
+ *  47% while the other read 12% for the same moment. */
+function deployDetailFromProgress(data: {
+  stage?: string;
+  progress?: number;
+  message?: string;
+  downloaded_bytes?: number;
+  total_bytes?: number | null;
+  weights_cached?: boolean;
+}): string | undefined {
   if (data.stage === "pulling_image") {
-    const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
+    const pct = compactPercent(data as DeploymentProgressData, false, true);
     return `Pulling Docker Image… ${pct}%`;
+  }
+  // All three models are submitted at once but execute one at a time, so two cards
+  // are normally waiting their turn. Say so — otherwise they sit at 0% reading as
+  // stuck, which is what made the parallel submission look broken.
+  if (data.stage === "queued") {
+    return data.message ?? "Waiting for another deployment to finish…";
   }
   return undefined;
 }
@@ -426,15 +447,16 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
     ];
 
-    // Deploy sequentially: the inference server holds a single run lock and
-    // rejects concurrent /run requests with 409 deploy_in_flight.
-    const results: { label: string; ok: boolean }[] = [];
-    for (const [modelId, deviceId, setState, currentState, label, poll] of steps) {
-      results.push({
+    // Submit all three at once. The inference server executes deploys one at a
+    // time (run_main mutates process globals) but queues the waiters and reports
+    // the wait, so every card shows live state instead of the pipeline crawling
+    // through one model before the next is even submitted.
+    const results = await Promise.all(
+      steps.map(async ([modelId, deviceId, setState, currentState, label, poll]) => ({
         label,
         ok: await submitOne(modelId, deviceId, setState, currentState, label, poll),
-      });
-    }
+      }))
+    );
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);

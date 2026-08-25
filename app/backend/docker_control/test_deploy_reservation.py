@@ -130,3 +130,118 @@ class DuplicateDeployGuardTests(IsolatedStoreTestCase):
         ).first()
         self.assertIsNotNone(in_flight)
         self.assertEqual(in_flight.container_id, "job_under_test")
+
+
+class MediaPrePullReservationTests(IsolatedStoreTestCase):
+    """A media deploy must hold its slot and be visible during its image pull.
+
+    The media pre-pull branch previously created no ModelDeployment at all, so for
+    the whole pull the allocator reported the device free and nothing was is_pending
+    — the Voice Agent's Whisper/TTS cards showed pull progress while the deployment
+    tray showed nothing.
+    """
+
+    def test_placeholder_reserves_the_slot_and_reads_as_pending(self):
+        dep = ModelDeployment.objects.create(
+            container_id="imgpull_deadbeef",
+            container_name="distil-large-v3",
+            model_name="distil-large-v3",
+            device="p150",
+            device_id=2,
+            device_ids=[2],
+            status="starting",
+            port=7002,
+        )
+        self.assertEqual(dep.status, "starting")
+
+        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
+            occupied = ChipSlotAllocator()._get_occupied_slots()
+        self.assertIn(
+            2,
+            occupied,
+            "an image-pulling media deploy must keep its device reserved",
+        )
+
+    def test_retiring_the_placeholder_frees_the_slot(self):
+        ModelDeployment.objects.create(
+            container_id="imgpull_deadbeef",
+            container_name="distil-large-v3",
+            model_name="distil-large-v3",
+            device="p150",
+            device_id=2,
+            device_ids=[2],
+            status="starting",
+            port=7002,
+        )
+        dep = ModelDeployment.objects.filter(container_id="imgpull_deadbeef").first()
+        dep.status = "stopped"
+        dep.save()
+
+        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
+            occupied = ChipSlotAllocator()._get_occupied_slots()
+        self.assertNotIn(2, occupied)
+
+
+class PlaceholderNameMatchTests(IsolatedStoreTestCase):
+    """An imgpull_ placeholder must not be resolved to a previous deploy's container.
+
+    get_canonical_deployments() falls back to matching a record to a live container by
+    name. A placeholder is created before its image is even pulled, so a name hit can
+    only be an older container — and treating it as live marks an in-flight deploy
+    is_pending=False, which hides it from the tray and from slot accounting on redeploy.
+    """
+
+    def _canonical_with_live_container(self, container_name):
+        from docker_control import docker_utils
+
+        live = {
+            "abc123def456": {
+                "name": container_name,
+                "status": "running",
+                "health": "healthy",
+                "port_bindings": {},
+                "networks": {},
+                "env_vars": {},
+            }
+        }
+        with patch.object(docker_utils, "get_container_status", return_value=live), \
+             patch.object(docker_utils, "_enrich_container_with_model_impl", return_value=False):
+            return docker_utils.get_canonical_deployments()
+
+    def test_placeholder_stays_pending_when_an_older_container_shares_its_name(self):
+        ModelDeployment.objects.create(
+            container_id="imgpull_abcdef",
+            container_name="distil-large-v3",
+            model_name="distil-large-v3",
+            device="p150",
+            device_id=2,
+            device_ids=[2],
+            status="starting",
+            port=7002,
+        )
+        canonical = self._canonical_with_live_container("distil-large-v3")
+        pending = [e for e in canonical.values() if e.get("is_pending")]
+        self.assertEqual(
+            len(pending),
+            1,
+            "an image-pulling deploy must stay pending even when a same-named "
+            "container from a previous deploy is still up",
+        )
+        self.assertEqual(pending[0]["deployment_model_name"], "distil-large-v3")
+
+    def test_real_job_id_records_still_match_their_container_by_name(self):
+        ModelDeployment.objects.create(
+            container_id="a241aacf",
+            container_name="distil-large-v3",
+            model_name="distil-large-v3",
+            device="p150",
+            device_id=2,
+            device_ids=[2],
+            status="starting",
+            port=7002,
+        )
+        canonical = self._canonical_with_live_container("distil-large-v3")
+        self.assertTrue(
+            any(not e.get("is_pending") for e in canonical.values()),
+            "name matching must still resolve a real job-id record to its container",
+        )

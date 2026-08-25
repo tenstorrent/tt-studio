@@ -1214,7 +1214,17 @@ def get_canonical_deployments():
             match_id, match_data = full_id, live_containers[full_id]
         elif short_id and short_id in live_containers:
             match_id, match_data = short_id, live_containers[short_id]
-        elif dep.container_name and dep.container_name in live_by_name:
+        elif (
+            dep.container_name
+            and not full_id.startswith("imgpull_")
+            and dep.container_name in live_by_name
+        ):
+            # Name matching exists so a record whose real container_id hasn't been
+            # swapped in yet still resolves to its container. An imgpull_ placeholder
+            # provably has no container — it is created before the image is even
+            # pulled — so a name hit there is a *previous* deploy's container. Treating
+            # it as live marks a genuinely in-flight deploy "not pending", which hides
+            # it from the deployment tray and, on redeploy, from slot accounting.
             match_id, match_data = live_by_name[dep.container_name]
 
         if match_data is not None:
