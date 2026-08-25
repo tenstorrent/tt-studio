@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Button } from "./ui/button";
+import { HfGatePanel } from "./HfGatePanel";
+import { isHfBlocked } from "../lib/hfStatus";
 import { customToast } from "./CustomToaster";
 import { useHideDeploymentTray } from "../hooks/useHideDeploymentTray";
 import { compactPercent, transferDetailParts } from "../lib/deployProgress";
@@ -33,6 +35,7 @@ import {
   isLlama31_8BModel,
   isP300x2Board,
 } from "../utils/p300x2Placement";
+import { runHfCheck, type HfCheckResult } from "../api/settingsApi";
 import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
@@ -156,6 +159,42 @@ function deployDetailFromProgress(
   return {};
 }
 
+/** Why a deploy request failed, across the shapes the backend sends; undefined for
+ *  a success payload. Only `{status: "error"}` used to be handled, so an HF-gate
+ *  rejection surfaced as the card's "No job ID returned" fallback instead. */
+function deployErrorMessage(httpStatus: number, data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return httpStatus >= 400 ? `Deployment failed (HTTP ${httpStatus})` : undefined;
+  }
+  const body = data as Record<string, unknown>;
+
+  // Gated Hugging Face repo — same wording as the single-model flow in SelectionSteps.
+  if (body.error_code === "hf_access_denied") {
+    const message = typeof body.message === "string" ? body.message : "Hugging Face access denied.";
+    return typeof body.hf_url === "string"
+      ? `${message} Open ${body.hf_url} to request access.`
+      : message;
+  }
+  // Chip-allocation and in-flight conflicts (409).
+  if (body.status === "error") {
+    return typeof body.message === "string" ? body.message : "Deployment failed";
+  }
+  // Board reset in progress (409).
+  if (typeof body.error === "string") return body.error;
+
+  if (httpStatus >= 400) {
+    // DRF serializer errors: {field: ["msg", ...]}.
+    const fields = Object.entries(body)
+      .map(([field, value]) => {
+        const text = Array.isArray(value) ? value.join(" ") : typeof value === "string" ? value : null;
+        return text ? `${field}: ${text}` : null;
+      })
+      .filter((part): part is string => part !== null);
+    return fields.length > 0 ? fields.join("; ") : `Deployment failed (HTTP ${httpStatus})`;
+  }
+  return undefined;
+}
+
 async function deployOneModel(
   modelId: string,
   deviceId: number | string
@@ -165,9 +204,16 @@ async function deployOneModel(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model_id: modelId, weights_id: "", device_id: deviceId }),
   });
-  const data = await resp.json();
-  if (data.status === "error") return { error: data.message || "Deployment failed" };
-  return { jobId: data.job_id };
+  // A 500 can return an HTML error page — don't throw a SyntaxError into the card.
+  let data: unknown = null;
+  try {
+    data = await resp.json();
+  } catch {
+    return { error: `Deployment failed (HTTP ${resp.status})` };
+  }
+  const error = deployErrorMessage(resp.status, data);
+  if (error) return { error };
+  return { jobId: (data as { job_id?: string }).job_id };
 }
 
 type CompatGroup = { compatible: Model[]; incompatible: Model[]; unknown: Model[] };
@@ -250,6 +296,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [isDeploying, setIsDeploying] = useState(false);
   const [allDone, setAllDone] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REDIRECT_MS / 1000);
+
+  // Keyed to the repo it ran for, so switching the LLM isn't judged against the
+  // previous model's result.
+  const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
 
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
@@ -357,6 +407,40 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const requiredSlots = useLlamaCardPair ? 4 : 3;
   const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
+  // The backend refuses a gated deploy outright, so resolve access before offering
+  // the Deploy button rather than after two of three models are already up.
+  const llmHfRepo = selectedLlmModel?.hf_model_id ?? null;
+  const hfRow = hfCheck?.repo === llmHfRepo ? hfCheck.results[0] : undefined;
+  const hfCheckPending = !!llmHfRepo && hfCheck?.repo !== llmHfRepo;
+  const hfGate = isHfBlocked(hfRow) ? hfRow : undefined;
+
+  // Public repos answer 200 to any token, so ungated models are never blocked.
+  useEffect(() => {
+    if (!llmHfRepo) return;
+    let cancelled = false;
+    runHfCheck(undefined, [llmHfRepo])
+      .then((r) => {
+        if (!cancelled) setHfCheck({ repo: llmHfRepo, results: r.results ?? [] });
+      })
+      .catch(() => {
+        if (!cancelled) setHfCheck({ repo: llmHfRepo, results: [] });
+      });
+    return () => { cancelled = true; };
+  }, [llmHfRepo]);
+
+  const recheckHfAccess = async () => {
+    if (!llmHfRepo) return;
+    try {
+      const { results = [] } = await runHfCheck(undefined, [llmHfRepo]);
+      setHfCheck({ repo: llmHfRepo, results });
+      if (isHfBlocked(results[0])) {
+        customToast.error("Hugging Face access still unavailable for this model.");
+      }
+    } catch {
+      customToast.error("Could not reach the Hugging Face access check.");
+    }
+  };
+
   const hasErrors =
     llmState.status === "error" ||
     whisperState.status === "error" ||
@@ -398,6 +482,8 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     !allDone &&
     !hasConflicts &&
     !insufficientDevices &&
+    !hfCheckPending &&
+    !hfGate &&
     !!selectedLlmId &&
     !!selectedWhisperId &&
     !!speechT5Id;
@@ -535,6 +621,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
             <Loader2 className="w-4 h-4 animate-spin" />Loading model catalog…
           </div>
+        ) : hfGate && !isDeploying && !allDone ? (
+          <HfGatePanel
+            gate={hfGate}
+            heading={`Voice Agent needs ${selectedLlmModel?.name ?? "Llama-3.1-8B-Instruct"}`}
+            onRecheck={recheckHfAccess}
+          />
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -715,6 +807,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                     Use Manage slots above to free conflicts before deploying.
                   </p>
                 )}
+                {hfCheckPending && !isDeploying && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Checking Hugging Face access…
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -839,9 +937,11 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
       <CheckCircle2 className="w-3.5 h-3.5" />Deployed
     </div>
   );
+  // The backend's real failure text is a sentence, sometimes with a URL.
   return (
-    <div className="flex items-center gap-1.5 text-xs text-red-500">
-      <AlertTriangle className="w-3.5 h-3.5" />{state.error ?? "Error"}
+    <div className="flex items-start gap-1.5 text-xs text-red-500">
+      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <span className="min-w-0 break-words leading-snug">{state.error ?? "Error"}</span>
     </div>
   );
 }

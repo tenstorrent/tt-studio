@@ -343,6 +343,8 @@ class ContainersView(APIView):
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
                 "chips_required": chips_required,
+                # Lets the UI pre-flight the HF gate before attempting a deploy.
+                "hf_model_id": impl.hf_model_id,
             })
         
         return Response(data, status=status.HTTP_200_OK)

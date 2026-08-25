@@ -9,7 +9,9 @@ import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import { cancelDeployment } from "../api/modelsDeployedApis";
-import { getSettings } from "../api/settingsApi";
+import { getSettings, runHfCheck, type HfCheckResult } from "../api/settingsApi";
+import { isHfBlocked } from "../lib/hfStatus";
+import { HfGatePanel } from "./HfGatePanel";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
@@ -71,6 +73,10 @@ export function DeployModelStep({
   // stalls at 0% — warn up front and sharpen the stall message in the progress
   // card. On lookup failure stay silent rather than warn spuriously.
   const [hfTokenMissing, setHfTokenMissing] = useState(false);
+  // The backend refuses a gated deploy outright, so resolve access for this model's
+  // repo before offering the button. Keyed to the repo it ran for.
+  const [hfRepo, setHfRepo] = useState<string | null>(null);
+  const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,10 +135,12 @@ export function DeployModelStep({
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
           const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel
+            (m: { id: string; name: string; hf_model_id?: string | null }) =>
+              m.id === selectedModel
           );
           if (model) {
             setModelName(model.name);
+            setHfRepo(model.hf_model_id ?? null);
           }
         } catch (error) {
           console.error("Error fetching model name:", error);
@@ -142,6 +150,33 @@ export function DeployModelStep({
 
     fetchModelName();
   }, [selectedModel]);
+
+  // Public repos answer 200 to any token, so ungated models are never blocked.
+  useEffect(() => {
+    if (!hfRepo) return;
+    let cancelled = false;
+    runHfCheck(undefined, [hfRepo])
+      .then((r) => {
+        if (!cancelled) setHfCheck({ repo: hfRepo, results: r.results ?? [] });
+      })
+      .catch(() => {
+        if (!cancelled) setHfCheck({ repo: hfRepo, results: [] });
+      });
+    return () => { cancelled = true; };
+  }, [hfRepo]);
+
+  const hfRow = hfCheck?.repo === hfRepo ? hfCheck.results[0] : undefined;
+  const hfGate = isHfBlocked(hfRow) ? hfRow : undefined;
+
+  const recheckHfAccess = async () => {
+    if (!hfRepo) return;
+    try {
+      const { results = [] } = await runHfCheck(undefined, [hfRepo]);
+      setHfCheck({ repo: hfRepo, results });
+    } catch {
+      /* leave the gate as it is; the panel keeps its actions */
+    }
+  };
 
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
@@ -167,14 +202,15 @@ export function DeployModelStep({
 
   const deployButtonText = useMemo(() => {
     if (isResetting) return "Board Resetting…";
+    if (hfGate) return "Hugging Face Access Needed";
     if (cannotFit) return isMultiModel ? "Devices In Use" : "All Devices Occupied";
     if (!selectedModel) return "Select a Model";
     if (needsSelection) return "Select a Device";
     return "Deploy Model";
-  }, [selectedModel, cannotFit, isMultiModel, needsSelection, isResetting]);
+  }, [selectedModel, cannotFit, isMultiModel, needsSelection, isResetting, hfGate]);
 
   const isDeployDisabled =
-    !selectedModel || cannotFit || needsSelection || isResetting;
+    !selectedModel || cannotFit || needsSelection || isResetting || !!hfGate;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
@@ -331,10 +367,22 @@ export function DeployModelStep({
           </div>
         )}
 
+        {/* This model's own repo is gated and unreachable — blocking, and precise
+            enough to replace the generic token warning below. */}
+        {hfGate && (
+          <div className="w-full max-w-2xl mb-6">
+            <HfGatePanel
+              gate={hfGate}
+              heading={`${modelName || "This model"} is gated on Hugging Face`}
+              onRecheck={recheckHfAccess}
+            />
+          </div>
+        )}
+
         {/* Missing HF token: gated model deploys will hang at 0% waiting for
             credentials, so warn before the user starts one. Non-blocking —
             ungated models still deploy fine without a token. */}
-        {hfTokenMissing && (
+        {hfTokenMissing && !hfGate && (
           <div className="w-full max-w-2xl mb-6">
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
               <div className="flex items-start gap-3">
