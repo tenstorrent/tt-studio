@@ -226,10 +226,6 @@ def _local_weights_overrides(impl) -> dict:
     }
 
 
-# Serializes deploy admission (in-flight check + chip allocation + reservation).
-# These three must be one atomic step or concurrent submissions race past both.
-_DEPLOY_ADMISSION_LOCK = threading.Lock()
-
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -447,52 +443,6 @@ class ChipStatusView(APIView):
 
 
 
-def _claim_reservation(reservation_id, container_id, **fields):
-    """Point the admission reservation at the real pull/job id.
-
-    Admission creates a reservation record so the in-flight guard and the chip
-    allocator see the deploy immediately. Each dispatch path then claims it rather
-    than creating a second record, which would double-count the slot and show two
-    tray cards for one deploy. Falls back to creating a record when the reservation
-    is gone, so a deploy is never left untracked.
-    """
-    from datetime import datetime, timezone as _tz
-    from docker_control.models import ModelDeployment
-    try:
-        dep = (
-            ModelDeployment.objects.filter(container_id=reservation_id).first()
-            if reservation_id
-            else None
-        )
-        if dep is not None:
-            dep.container_id = container_id
-            for key, value in fields.items():
-                setattr(dep, key, value)
-            dep.status = "starting"
-            dep.deployed_at = datetime.now(_tz.utc)
-            dep.save()
-            return
-        ModelDeployment.objects.create(
-            container_id=container_id, status="starting", **fields
-        )
-    except Exception as e:
-        logger.warning(f"Could not claim reservation for {container_id}: {e}")
-
-
-def _release_reservation(reservation_id):
-    """Retire an unclaimed reservation, freeing its chip slot."""
-    from docker_control.models import ModelDeployment
-    if not reservation_id:
-        return
-    try:
-        dep = ModelDeployment.objects.filter(container_id=reservation_id).first()
-        if dep is not None and dep.status == "starting":
-            dep.status = "stopped"
-            dep.save()
-    except Exception as e:
-        logger.warning(f"Could not release reservation {reservation_id}: {e}")
-
-
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
         # Block new deployments while a board/device reset is in progress — deploying
@@ -586,166 +536,140 @@ class DeployView(APIView):
                 and board_type in WHOLE_BOARD_DEFAULT_BOARDS
             )
 
-            # Admission is serialized process-wide. The in-flight check, the chip
-            # allocation and the reservation record that makes both visible to the
-            # next request must land as one step: otherwise two concurrent deploys
-            # of the same model both observe no "starting" record and both proceed,
-            # and two deploys can be handed the same chip slot (ChipSlotAllocator
-            # locks per instance, and every request builds its own).
-            with _DEPLOY_ADMISSION_LOCK:
-                # Multiple concurrent instances of the same model are allowed when chip
-                # capacity is available: this guard blocks a second concurrent *start*, not
-                # a second running instance. A model still in 'starting' has a deploy in
-                # flight on the inference server, and firing another one achieves nothing —
-                # the inference server serialises /run behind a single process-wide lock, so
-                # the duplicate would either be rejected or sit invisibly queued and then
-                # start a second container on the same devices and port when the first
-                # finished. Deliberately independent of chip-slot accounting so it still
-                # holds if the slot bookkeeping is ever wrong about the board being free.
-                from docker_control.models import ModelDeployment as _ModelDeployment
-                in_flight = _ModelDeployment.objects.filter(
-                    model_name=impl.model_name, status="starting"
-                ).first()
-                if in_flight is not None:
-                    logger.info(
-                        f"Rejecting duplicate deploy of {impl.model_name}: job "
-                        f"{in_flight.container_id} is already starting"
-                    )
-                    return Response(
-                        {
-                            "status": "error",
-                            "error_type": "deploy_in_flight",
-                            "message": (
-                                f"{impl.model_name} is already deploying. Wait for it to "
-                                f"finish, or cancel it from the Deployed Models page before "
-                                f"starting another."
-                            ),
-                            "job_id": in_flight.container_id,
-                        },
-                        status=status.HTTP_409_CONFLICT,
-                    )
+            # Multiple concurrent instances of the same model are allowed when chip
+            # capacity is available: this guard blocks a second concurrent *start*, not
+            # a second running instance. A model still in 'starting' has a deploy in
+            # flight on the inference server, and firing another one achieves nothing —
+            # the inference server serialises /run behind a single process-wide lock, so
+            # the duplicate would either be rejected or sit invisibly queued and then
+            # start a second container on the same devices and port when the first
+            # finished. Deliberately independent of chip-slot accounting so it still
+            # holds if the slot bookkeeping is ever wrong about the board being free.
+            from docker_control.models import ModelDeployment as _ModelDeployment
+            in_flight = _ModelDeployment.objects.filter(
+                model_name=impl.model_name, status="starting"
+            ).first()
+            if in_flight is not None:
+                logger.info(
+                    f"Rejecting duplicate deploy of {impl.model_name}: job "
+                    f"{in_flight.container_id} is already starting"
+                )
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "deploy_in_flight",
+                        "message": (
+                            f"{impl.model_name} is already deploying. Wait for it to "
+                            f"finish, or cancel it from the Deployed Models page before "
+                            f"starting another."
+                        ),
+                        "job_id": in_flight.container_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-                # Allocate a chip slot for all model types so device_id and service_port
-                # are always set correctly (port = 7000 + device_id).
-                try:
-                    allocator = ChipSlotAllocator()
-                    if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                        # Whole-board deploy (forced QB2 Llama, a single-chip model on a
-                        # Wormhole mesh board, or a media model like FLUX with no single-chip
-                        # spec) takes over the entire board — reserve all slots.
-                        full_board_validation = allocator._validate_manual_allocation(
-                            0, 4, impl.model_name
+            # Allocate a chip slot for all model types so device_id and service_port
+            # are always set correctly (port = 7000 + device_id).
+            try:
+                allocator = ChipSlotAllocator()
+                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
+                    # Wormhole mesh board, or a media model like FLUX with no single-chip
+                    # spec) takes over the entire board — reserve all slots.
+                    full_board_validation = allocator._validate_manual_allocation(
+                        0, 4, impl.model_name
+                    )
+                    if not full_board_validation["valid"]:
+                        return Response(
+                            {
+                                "status": "error",
+                                "error_type": "multi_chip_conflict",
+                                "message": full_board_validation["message"],
+                            },
+                            status=status.HTTP_409_CONFLICT,
                         )
-                        if not full_board_validation["valid"]:
+                    device_id = 0
+                    device_ids = list(range(min(4, allocator.total_slots)))
+                else:
+                    device_id = allocator.allocate_chip_slot(
+                        impl.model_name,
+                        manual_override=manual_device_id
+                    )
+                    # If multiple device IDs were requested, validate every slot and pass
+                    # them all to the inference server call; otherwise use the allocated slot.
+                    if requested_device_ids and len(requested_device_ids) > 1:
+                        if chips_required != 1:
                             return Response(
                                 {
                                     "status": "error",
-                                    "error_type": "multi_chip_conflict",
-                                    "message": full_board_validation["message"],
+                                    "error_type": "allocation_failed",
+                                    "message": (
+                                        f"{impl.model_name} does not support explicit multi-slot "
+                                        "single-card device_id selection."
+                                    ),
                                 },
                                 status=status.HTTP_409_CONFLICT,
                             )
-                        device_id = 0
-                        device_ids = list(range(min(4, allocator.total_slots)))
-                    else:
-                        device_id = allocator.allocate_chip_slot(
-                            impl.model_name,
-                            manual_override=manual_device_id
-                        )
-                        # If multiple device IDs were requested, validate every slot and pass
-                        # them all to the inference server call; otherwise use the allocated slot.
-                        if requested_device_ids and len(requested_device_ids) > 1:
-                            if chips_required != 1:
+                        normalized_requested_device_ids = []
+                        for requested_slot in requested_device_ids:
+                            if requested_slot in normalized_requested_device_ids:
+                                continue
+                            validation = allocator._validate_manual_allocation(
+                                requested_slot, 1, impl.model_name
+                            )
+                            if not validation["valid"]:
                                 return Response(
                                     {
                                         "status": "error",
                                         "error_type": "allocation_failed",
-                                        "message": (
-                                            f"{impl.model_name} does not support explicit multi-slot "
-                                            "single-card device_id selection."
-                                        ),
+                                        "message": validation["message"],
                                     },
                                     status=status.HTTP_409_CONFLICT,
                                 )
-                            normalized_requested_device_ids = []
-                            for requested_slot in requested_device_ids:
-                                if requested_slot in normalized_requested_device_ids:
-                                    continue
-                                validation = allocator._validate_manual_allocation(
-                                    requested_slot, 1, impl.model_name
-                                )
-                                if not validation["valid"]:
-                                    return Response(
-                                        {
-                                            "status": "error",
-                                            "error_type": "allocation_failed",
-                                            "message": validation["message"],
-                                        },
-                                        status=status.HTTP_409_CONFLICT,
-                                    )
-                                normalized_requested_device_ids.append(requested_slot)
-                            device_ids = normalized_requested_device_ids
-                        else:
-                            device_ids = [device_id]
-                    device_ids_str = ",".join(str(d) for d in device_ids)
-                    # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                    if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                        # Whole-board deploy takes over every slot on the board.
-                        occupied_device_ids = list(range(allocator.total_slots))
-                    elif chips_required > 1:
-                        # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
-                        occupied_device_ids = list(
-                            range(device_id, device_id + chips_required)
-                        )
+                            normalized_requested_device_ids.append(requested_slot)
+                        device_ids = normalized_requested_device_ids
                     else:
-                        # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
-                        occupied_device_ids = device_ids
-                    logger.info(
-                        f"Allocated device_id={device_id} (request={device_ids_str}, "
-                        f"occupies={occupied_device_ids}) for {impl.model_name}"
-                    )
-
-                except MultiChipConflictError as e:
-                    logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
-                    return Response({
-                        "status": "error",
-                        "error_type": "multi_chip_conflict",
-                        "message": str(e),
-                        "conflicts": e.conflicts  # List of conflicting deployments
-                    }, status=status.HTTP_409_CONFLICT)
-
-                except AllocationError as e:
-                    logger.warning(f"Allocation failed for {impl.model_name}: {str(e)}")
-                    return Response({
-                        "status": "error",
-                        "error_type": "allocation_failed",
-                        "message": str(e)
-                    }, status=status.HTTP_409_CONFLICT)
-
-                BASE_SERVICE_PORT = 7000
+                        device_ids = [device_id]
+                device_ids_str = ",".join(str(d) for d in device_ids)
+                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
                 if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                    service_port = BASE_SERVICE_PORT
-                else:
-                    service_port = BASE_SERVICE_PORT + device_id
-
-                # Reserve before dispatching. The record is what the guard above
-                # reads, so creating it only after /run returns would leave the
-                # window this lock exists to close.
-                reservation_id = f"pending_{uuid4().hex}"
-                try:
-                    _ModelDeployment.objects.create(
-                        container_id=reservation_id,
-                        container_name=impl.model_name,
-                        model_name=impl.model_name,
-                        device=str(board_type or ""),
-                        device_id=device_id,
-                        device_ids=occupied_device_ids,
-                        status="starting",
-                        port=service_port,
+                    # Whole-board deploy takes over every slot on the board.
+                    occupied_device_ids = list(range(allocator.total_slots))
+                elif chips_required > 1:
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
+                    occupied_device_ids = list(
+                        range(device_id, device_id + chips_required)
                     )
-                except Exception as e:
-                    logger.warning(f"Could not create reservation {reservation_id}: {e}")
-                    reservation_id = None
+                else:
+                    # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
+                    occupied_device_ids = device_ids
+                logger.info(
+                    f"Allocated device_id={device_id} (request={device_ids_str}, "
+                    f"occupies={occupied_device_ids}) for {impl.model_name}"
+                )
+
+            except MultiChipConflictError as e:
+                logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
+                return Response({
+                    "status": "error",
+                    "error_type": "multi_chip_conflict",
+                    "message": str(e),
+                    "conflicts": e.conflicts  # List of conflicting deployments
+                }, status=status.HTTP_409_CONFLICT)
+
+            except AllocationError as e:
+                logger.warning(f"Allocation failed for {impl.model_name}: {str(e)}")
+                return Response({
+                    "status": "error",
+                    "error_type": "allocation_failed",
+                    "message": str(e)
+                }, status=status.HTTP_409_CONFLICT)
+
+            BASE_SERVICE_PORT = 7000
+            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                service_port = BASE_SERVICE_PORT
+            else:
+                service_port = BASE_SERVICE_PORT + device_id
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
@@ -850,17 +774,21 @@ class DeployView(APIView):
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
                     # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
-                    _claim_reservation(
-                        reservation_id,
-                        pull_id,
-                        container_name=impl.model_name,
-                        model_name=impl.model_name,
-                        device=device,
-                        device_id=device_id,
-                        device_ids=occupied_device_ids,
-                        port=service_port,
-                        tool_calling_enabled=tool_calling_supported,
-                    )
+                    try:
+                        from docker_control.models import ModelDeployment
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                            tool_calling_enabled=tool_calling_supported,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
                     def _refresh_placeholder(_pull_id=pull_id):
                         # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
@@ -923,7 +851,6 @@ class DeployView(APIView):
                 # Image already cached - deploy inline (fast path).
                 result = start_chat_deployment(**chat_deploy_kwargs)
                 if result.status != "success":
-                    _release_reservation(reservation_id)
                     return Response(
                         {"status": "error", "message": result.message},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -933,7 +860,6 @@ class DeployView(APIView):
                         f"start_chat_deployment returned status='success' but job_id is None/empty. "
                         f"api_response={result.api_response!r}"
                     )
-                    _release_reservation(reservation_id)
                     return Response(
                         {
                             "status": "error",
@@ -945,17 +871,21 @@ class DeployView(APIView):
                 # shows IN USE and the allocator tracks this deployment.
                 # Use job_id as a placeholder container_id until the real Docker
                 # container_id is known (updated in DeploymentProgressView on completion).
-                _claim_reservation(
-                    reservation_id,
-                    result.job_id,
-                    container_name=impl.model_name,
-                    model_name=impl.model_name,
-                    device=device,
-                    device_id=device_id,
-                    device_ids=occupied_device_ids,
-                    port=service_port,
-                    tool_calling_enabled=tool_calling_supported,
-                )
+                try:
+                    from docker_control.models import ModelDeployment
+                    ModelDeployment.objects.create(
+                        container_id=result.job_id,
+                        container_name=impl.model_name,
+                        model_name=impl.model_name,
+                        device=device,
+                        device_id=device_id,
+                        device_ids=occupied_device_ids,
+                        status="starting",
+                        port=service_port,
+                        tool_calling_enabled=tool_calling_supported,
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
                 # Spawn a background thread to poll FastAPI and transition the
                 # 'starting' record to 'running' (or 'stopped' on failure).
                 # This makes the lifecycle backend-owned so frontends that do
@@ -1002,16 +932,19 @@ class DeployView(APIView):
                     # is_pending -- the model's own card shows pull progress from the
                     # in-memory pull store, so the deploy looks invisible everywhere else.
                     from docker_control.models import ModelDeployment
-                    _claim_reservation(
-                        reservation_id,
-                        pull_id,
-                        container_name=impl.model_name,
-                        model_name=impl.model_name,
-                        device=media_device,
-                        device_id=device_id,
-                        device_ids=occupied_device_ids,
-                        port=service_port,
-                    )
+                    try:
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=media_device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
                     def _refresh_media_placeholder(_pull_id=pull_id):
                         # A media image pull outlasts the canonical "starting" grace
@@ -1072,11 +1005,6 @@ class DeployView(APIView):
                 # Use job_id from API response, or fallback to container_id or container_name
                 if not response.get("job_id"):
                     response["job_id"] = response.get("container_id") or response.get("container_name")
-
-                # run_container creates its own record keyed by the inference job id,
-                # so the reservation has served its purpose either way. Retiring it
-                # after that record exists keeps the slot continuously held.
-                _release_reservation(reservation_id)
 
                 # Check if deployment failed
                 if response.get("status") == "error":

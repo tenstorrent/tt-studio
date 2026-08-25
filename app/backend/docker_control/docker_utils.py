@@ -1216,12 +1216,12 @@ def get_canonical_deployments():
             match_id, match_data = short_id, live_containers[short_id]
         elif (
             dep.container_name
-            and not full_id.startswith(("imgpull_", "pending_"))
+            and not full_id.startswith("imgpull_")
             and dep.container_name in live_by_name
         ):
             # Name matching exists so a record whose real container_id hasn't been
-            # swapped in yet still resolves to its container. imgpull_/pending_ records
-            # provably have no container — they are created before the image is even
+            # swapped in yet still resolves to its container. An imgpull_ placeholder
+            # provably has no container — it is created before the image is even
             # pulled — so a name hit there is a *previous* deploy's container. Treating
             # it as live marks a genuinely in-flight deploy "not pending", which hides
             # it from the deployment tray and, on redeploy, from slot accounting.
@@ -1237,12 +1237,6 @@ def get_canonical_deployments():
             entry["deployed_at"] = dep.deployed_at.isoformat() if dep.deployed_at else None
             entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
             entry["deployment_id"] = dep.id
-            # The record's own lifecycle state, which is not the container's. A
-            # container exists well before deployment_sync marks the deploy complete
-            # (vLLM still loading weights), and clients need to know the deploy is
-            # still in flight during that window — is_pending only covers the phase
-            # before any container exists.
-            entry["deployment_status"] = dep.status
             entry["deployment_model_name"] = dep.model_name
             entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
             entry["jwt_secret"] = getattr(dep, "jwt_secret", None)

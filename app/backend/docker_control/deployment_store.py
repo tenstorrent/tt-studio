@@ -205,30 +205,6 @@ class _Manager:
             _save_raw(data)
         return ModelDeployment._from_dict(record)
 
-    def touch_starting(self, container_id: str) -> bool:
-        """Refresh deployed_at for a record still in 'starting', atomically.
-
-        The read-modify-write a caller would otherwise do (filter().first(), mutate,
-        save()) is not safe here: save() rewrites the whole record from a detached
-        copy, so a cancel landing between the read and the write is silently undone —
-        status goes back to 'starting' and stopped_by_user back to False, leaving a
-        cancelled deploy holding its devices and eligible to be resurrected on
-        completion. Re-reading and writing under the store lock closes that window.
-
-        Returns True if a record was refreshed.
-        """
-        with _lock:
-            data = _load_raw()
-            for record in data["records"]:
-                if record.get("container_id") != container_id:
-                    continue
-                if record.get("status") != "starting" or record.get("stopped_by_user"):
-                    return False
-                record["deployed_at"] = _now().isoformat()
-                _save_raw(data)
-                return True
-        return False
-
     def all(self) -> _QuerySet:
         with _lock:
             data = _load_raw()

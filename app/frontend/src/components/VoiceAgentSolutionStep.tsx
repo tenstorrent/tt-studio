@@ -150,11 +150,14 @@ function deployDetailFromProgress(
     if (data.weights_cached) return { detail: `Weights cached — preparing… ${pct}%` };
     return { detail: `Downloading weights… ${pct}%`, transfer };
   }
-  // All three models are submitted at once but execute one at a time, so two cards
-  // are normally waiting their turn. Say so — otherwise they sit at 0% reading as
-  // stuck, which is what made the parallel submission look broken.
-  if (data.stage === "queued") {
-    return { detail: data.message ?? "Waiting for another deployment to finish…" };
+  // Last resort only. All three models are submitted at once but execute one at a
+  // time, so two cards are normally waiting their turn behind the LLM. Say so — but
+  // ONLY when there is no real progress to show, because a queued job usually does
+  // have some (its image pull and weights monitor both keep reporting while it
+  // waits). Announcing the wait in place of that is what previously replaced live
+  // numbers with "Waiting for <job id> to finish".
+  if (data.waiting_for_job_id) {
+    return { detail: "Waiting for another deployment to finish…" };
   }
   return {};
 }

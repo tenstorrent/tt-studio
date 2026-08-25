@@ -16,19 +16,10 @@ export function compactPercent(
   const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
   const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
   const [startLo, startHi] = [95, 99];
-  const clamp01 = (f: number) => Math.min(1, Math.max(0, f));
-  // Prefer bytes; fall back to the `hf download` file counter. Byte totals are absent
-  // whenever the weights monitor can't resolve the repo size, and with no fallback the
-  // download segment stayed pinned at its floor for the whole cold download.
-  const byteFrac =
+  const frac =
     p.total_bytes && p.downloaded_bytes != null
-      ? clamp01(p.downloaded_bytes / p.total_bytes)
-      : null;
-  const fileFrac =
-    p.weights_files_total && p.weights_files_done != null
-      ? clamp01(p.weights_files_done / p.weights_files_total)
-      : null;
-  const frac = byteFrac ?? fileFrac ?? 0;
+      ? Math.min(1, Math.max(0, p.downloaded_bytes / p.total_bytes))
+      : 0;
   const lerp = (lo: number, hi: number, f: number) =>
     lo + (hi - lo) * Math.min(1, Math.max(0, f));
   const containerStartStages = new Set([

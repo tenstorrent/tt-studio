@@ -1814,8 +1814,6 @@ def _process_run_output_line(
         stage = "unknown"
         progress = 0
         status = "running"
-        # Explicit weights file counts, when the `hf download` counter reports them.
-        weights_files = None
 
         # Based on the model_run.log patterns, parse deployment stages
         if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
@@ -1840,12 +1838,6 @@ def _process_run_output_line(
             stage = "model_preparation"
             done = int(_fetch_match.group("done"))
             total = int(_fetch_match.group("total"))
-            # Published alongside the percent because the UI derives its download bar
-            # from a byte fraction, and byte totals are unavailable whenever the
-            # weights monitor can't resolve the repo size. Without an explicit
-            # fraction the bar would sit at 0 for the whole cold download even though
-            # `progress` below advances.
-            weights_files = (done, total)
             fraction = (done / total) if total > 0 else 0.0
             progress = _WEIGHTS_PROGRESS_START + int(
                 fraction * (_WEIGHTS_PROGRESS_END - _WEIGHTS_PROGRESS_START)
@@ -1946,9 +1938,6 @@ def _process_run_output_line(
                         if pull_state["pull_layers_total"] > 0:
                             update_payload["pull_layers_complete"] = pull_state["pull_layers_complete"]
                             update_payload["pull_layers_total"] = pull_state["pull_layers_total"]
-                        if weights_files is not None:
-                            update_payload["weights_files_done"] = weights_files[0]
-                            update_payload["weights_files_total"] = weights_files[1]
                         progress_store[job_id].update(update_payload)
                 else:
                     # Initialize if not exists
@@ -2421,11 +2410,9 @@ def _acquire_run_lock(job_id: str) -> None:
     though — the Voice Agent fires LLM + Whisper + TTS together — so a waiting job
     queues rather than being rejected.
 
-    The wait is published to progress_store on every poll. An unreported wait is
-    indistinguishable from a hung deploy: it sits at 0% and /run/progress flags it
-    "stalled" once its last_updated goes 120s cold, which is what made a queued job
-    look dead. Refreshing last_updated also keeps the backend's deployment_sync
-    heartbeat alive, so the job holds its chip slots while it waits its turn.
+    The wait is recorded additively (waiting_for_job_id) and must stay that way: a
+    queued job still has live progress of its own from its image pull and weights
+    monitor, and a placeholder written here replaces it with "Waiting for ...".
     """
     waited = 0.0
     while not _run_main_lock.acquire(timeout=_RUN_LOCK_POLL_SECONDS):
@@ -2438,19 +2425,16 @@ def _acquire_run_lock(job_id: str) -> None:
                 f"gave up after {int(waited // 60)} min waiting for deployment "
                 f"{_active_run_job_id} to finish"
             )
-        ahead = _active_run_job_id
         with progress_lock:
-            if job_id in progress_store:
-                progress_store[job_id].update({
-                    "status": "running",
-                    "stage": "queued",
-                    "message": (
-                        f"Waiting for deployment {ahead} to finish"
-                        if ahead
-                        else "Waiting for another deployment to finish"
-                    ),
-                    "last_updated": time.time(),
-                })
+            # Record the wait additively — never touch the fields the UI renders.
+            # A queued job is NOT idle: its image pull and its weights monitor both
+            # publish to progress_store before the lock is acquired, so Whisper and
+            # TTS show real numeric progress while they wait their turn behind the
+            # LLM. Writing {stage: "queued", progress: 0, message: "Waiting for
+            # <job id>"} here every poll overwrote exactly that.
+            entry = progress_store.get(job_id)
+            if entry is not None:
+                entry["waiting_for_job_id"] = _active_run_job_id
 
 
 @app.post("/run")

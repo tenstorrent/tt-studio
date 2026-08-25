@@ -19,10 +19,9 @@ export interface DeploymentProgressData {
   eta_seconds?: number | null;
   speed_bps?: number | null;
   weights_cached?: boolean;
-  // Fallback download fraction: byte totals are unavailable whenever the weights
-  // monitor can't resolve the repo size, and `hf download` reports files either way.
-  weights_files_done?: number;
-  weights_files_total?: number;
+  // Set additively while a deploy waits for the inference server's run lock. Never
+  // replaces the progress fields — a queued job keeps reporting its own progress.
+  waiting_for_job_id?: string;
 }
 
 export type DeploymentLifecycle = "active" | "completed" | "failed";
@@ -67,8 +66,6 @@ const DISMISSED_TTL_MS = 2 * 60 * 1000;
 // Only the fields we need from a canonical entry; the payload carries far more.
 interface CanonicalDeploymentEntry {
   is_pending?: boolean;
-  /** The deployment record's own state, distinct from the container's. */
-  deployment_status?: string;
   name?: string;
   model_id?: string | null;
   device_ids?: number[] | null;
@@ -255,15 +252,9 @@ export function useActiveDeployments(
           dismissedRef.current.forEach((at, jobId) => {
             if (at < cutoff) dismissedRef.current.delete(jobId);
           });
-          // Two in-flight phases to cover. is_pending is the window before any
-          // container exists (image pull, host weights download). After that a
-          // container matches and is_pending flips false, but the deploy is still
-          // running — vLLM loads weights for minutes before deployment_sync marks it
-          // complete — and the record stays 'starting' throughout. Adopting only
-          // is_pending left a tab opened during warm-up with no card at all.
-          const pending = Object.entries(data).filter(
-            ([, e]) => e?.is_pending || e?.deployment_status === "starting"
-          );
+          // is_pending marks a started-but-not-yet-containerised deploy — exactly
+          // the window the tray exists to cover.
+          const pending = Object.entries(data).filter(([, e]) => e?.is_pending);
 
           setDeployments((prev) => {
             const known = new Set(prev.map((d) => d.jobId));

@@ -29,13 +29,13 @@ def api():
     module._RUN_LOCK_POLL_SECONDS = 0.05
     yield module
     module._RUN_LOCK_POLL_SECONDS = original
+    # Replace the lock outright: a test failing mid-way leaves a waiter thread blocked
+    # in _acquire_run_lock, which would grab the old lock the instant teardown released
+    # it and hang every later test. A leaked waiter polls the discarded lock instead.
+    module._run_main_lock = threading.Lock()
+    module._active_run_job_id = None
     module._cancelled_jobs.discard("job_queued")
     module._cancelled_jobs.discard("job_cancelled")
-    if module._run_main_lock.locked():
-        try:
-            module._run_main_lock.release()
-        except RuntimeError:
-            pass
 
 
 def _seed(api, job_id):
@@ -67,10 +67,7 @@ def test_waits_for_the_holder_instead_of_failing(api):
     time.sleep(0.3)
 
     assert not acquired.is_set(), "should still be queued while the holder runs"
-    snapshot = dict(api.progress_store["job_queued"])
-    assert snapshot["stage"] == "queued"
-    assert "job_ahead" in snapshot["message"]
-    assert snapshot["last_updated"] > 0, "wait must refresh last_updated, or it reads as stalled"
+    assert api.progress_store["job_queued"]["waiting_for_job_id"] == "job_ahead"
 
     api._active_run_job_id = None
     api._run_main_lock.release()
@@ -103,3 +100,40 @@ def test_gives_up_if_the_holder_never_finishes(api, monkeypatch):
             api._acquire_run_lock("job_queued")
     finally:
         api._run_main_lock.release()
+
+
+def test_waiting_does_not_clobber_a_queued_job_s_own_progress(api):
+    """A queued job keeps showing its real progress while it waits.
+
+    Its image pull and weights monitor publish to progress_store before the lock is
+    acquired, which is how Whisper and TTS show live numeric progress behind the LLM.
+    A previous revision overwrote status/stage/progress/message on every poll with a
+    "queued" placeholder, replacing that with "Waiting for <job id> to finish".
+    """
+    _seed(api, "job_queued")
+    with api.progress_lock:
+        api.progress_store["job_queued"].update({
+            "status": "running", "stage": "pulling_image", "progress": 63,
+            "message": "Pulling Docker Image... (4/7 layers)",
+            "downloaded_bytes": 1234, "total_bytes": 5678,
+        })
+    api._run_main_lock.acquire()
+    api._active_run_job_id = "job_ahead"
+
+    done = threading.Event()
+    threading.Thread(
+        target=lambda: (api._acquire_run_lock("job_queued"), done.set()), daemon=True
+    ).start()
+    time.sleep(0.3)
+
+    snap = dict(api.progress_store["job_queued"])
+    assert snap["stage"] == "pulling_image", "real stage must survive the wait"
+    assert snap["progress"] == 63, "real percentage must survive the wait"
+    assert snap["message"] == "Pulling Docker Image... (4/7 layers)"
+    assert snap["downloaded_bytes"] == 1234 and snap["total_bytes"] == 5678
+    assert snap["waiting_for_job_id"] == "job_ahead"
+
+    api._active_run_job_id = None
+    api._run_main_lock.release()
+    done.wait(timeout=5)
+    api._run_main_lock.release()
