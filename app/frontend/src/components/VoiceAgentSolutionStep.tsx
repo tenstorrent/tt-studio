@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { Fragment, useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -25,7 +25,7 @@ import {
 } from "./ui/select";
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
-import { compactPercent } from "../lib/deployProgress";
+import { compactPercent, transferDetailParts } from "../lib/deployProgress";
 import type { DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import {
@@ -41,6 +41,8 @@ interface DeployState {
   error?: string;
   // Live sub-status shown while deploying (e.g. "Pulling Docker Image… 45%").
   detail?: string;
+  /** Secondary line: bytes / speed / ETA parts while a transfer is running. */
+  transfer?: string[];
 }
 
 interface OccupiedDevice {
@@ -94,7 +96,7 @@ type DeployPollResult = {
 
 async function pollDeployProgress(
   jobId: string,
-  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
+  onUpdate?: (data: DeploymentProgressData) => void
 ): Promise<DeployPollResult> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
@@ -121,32 +123,40 @@ async function pollDeployProgress(
   return { outcome: "error", timedOut: true };
 }
 
-/** Concise per-card sub-status from a progress poll.
+/** Per-card sub-status from a progress poll.
  *
- *  The percentage comes from the same compactPercent() the deployment tray uses, so
- *  a model's card and its tray entry cannot disagree. They previously each derived
- *  their own number from the same payload — the card showed the raw pull percent,
- *  the tray showed that pull remapped into its first bar segment — so one could read
- *  47% while the other read 12% for the same moment. */
-function deployDetailFromProgress(data: {
-  stage?: string;
-  progress?: number;
-  message?: string;
-  downloaded_bytes?: number;
-  total_bytes?: number | null;
-  weights_cached?: boolean;
-}): string | undefined {
+ *  The percentage comes from the same compactPercent() the deployment tray uses, so a
+ *  model's card and its tray entry cannot disagree. They previously each derived their
+ *  own number from the same payload — the card showed the raw pull percent, the tray
+ *  showed that pull remapped into its first bar segment — so one could read 47% while
+ *  the other read 12% for the same moment.
+ *
+ *  `transfer` carries the byte/speed/ETA line. It matters most for the LLM: its weights
+ *  download happens on the host BEFORE any container exists, so without these figures
+ *  the card sits on a single percentage for the longest phase of the deploy. */
+function deployDetailFromProgress(
+  data: DeploymentProgressData,
+  hadImagePull: boolean
+): { detail?: string; transfer?: string[] } {
+  const pct = compactPercent(data, false, hadImagePull);
+  const parts = transferDetailParts(data);
+  const transfer = parts.length > 0 ? parts : undefined;
+
   if (data.stage === "pulling_image") {
-    const pct = compactPercent(data as DeploymentProgressData, false, true);
-    return `Pulling Docker Image… ${pct}%`;
+    return { detail: `Pulling Docker Image… ${pct}%`, transfer };
+  }
+  if (data.stage === "model_preparation") {
+    // weights_cached short-circuits the download, so don't imply one is running.
+    if (data.weights_cached) return { detail: `Weights cached — preparing… ${pct}%` };
+    return { detail: `Downloading weights… ${pct}%`, transfer };
   }
   // All three models are submitted at once but execute one at a time, so two cards
   // are normally waiting their turn. Say so — otherwise they sit at 0% reading as
   // stuck, which is what made the parallel submission look broken.
   if (data.stage === "queued") {
-    return data.message ?? "Waiting for another deployment to finish…";
+    return { detail: data.message ?? "Waiting for another deployment to finish…" };
   }
-  return undefined;
+  return {};
 }
 
 async function deployOneModel(
@@ -417,9 +427,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           return false;
         }
         if (pollProgress) {
-          const progress = await pollDeployProgress(result.jobId, (data) =>
-            setState({ status: "deploying", detail: deployDetailFromProgress(data) })
-          );
+          // Mirrors the tray's rule so both size the progress bands identically.
+          let hadImagePull = false;
+          const progress = await pollDeployProgress(result.jobId, (data) => {
+            if (data.stage === "pulling_image") hadImagePull = true;
+            setState({
+              status: "deploying",
+              ...deployDetailFromProgress(data, hadImagePull),
+            });
+          });
           if (progress.outcome === "error") {
             // Show the backend's own failure text; fall back to a generic string only
             // when we genuinely gave up waiting or the payload carried no message.
@@ -789,9 +805,26 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
     );
   }
   if (state.status === "deploying") return (
-    <div className="flex items-center gap-1.5 text-xs text-blue-500">
-      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-      {state.detail ?? "Deploying…"}
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        {state.detail ?? "Deploying…"}
+      </div>
+      {/* Bytes / speed / ETA. pl-5 aligns it under the label rather than the spinner
+          (icon 3.5 + gap 1.5 = 5), and it wraps instead of overflowing the narrow card.
+          Styling mirrors the same figures in DeploymentProgress: 11px, muted, tabular
+          figures so the digits don't jitter as they tick, and an aria-hidden separator
+          so screen readers don't announce "middle dot". */}
+      {state.transfer && state.transfer.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-5 text-[11px] tabular-nums text-muted-foreground">
+          {state.transfer.map((part, i) => (
+            <Fragment key={part}>
+              {i > 0 && <span aria-hidden="true">·</span>}
+              <span>{part}</span>
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
   if (state.status === "done") return (
