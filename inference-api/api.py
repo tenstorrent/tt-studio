@@ -1901,7 +1901,13 @@ def _process_run_output_line(
             stage = "complete"
             progress = 100
             status = "completed"
-        elif any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token"]) and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"]):
+        elif (
+            # A real auth-failure signal is required; merely mentioning HF_TOKEN
+            # (e.g. "✅ HF_TOKEN is valid.") must not flip the job to error.
+            any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"])
+            and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"])
+            and not any(p in message.lower() for p in ["✅", "is valid"])
+        ):
             status = "error"
             stage = "error"
             message = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
@@ -3006,11 +3012,14 @@ async def run_inference(request: RunRequest):
                             )
                 else:
                     # Scan recent logs for auth errors to surface a clear message
-                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token", "gatedrepoerror"]
+                    # "hf_token" is deliberately absent from the failure indicators:
+                    # benign lines like "✅ HF_TOKEN is valid." must not be scored
+                    # as auth errors.
+                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"]
                     auth_error_msg = None
                     for entry in reversed(list(log_store.get(job_id, []))):
                         msg = entry.get("message", "").lower()
-                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]) and not any(p in msg for p in ["✅", "is valid"]):
                             auth_error_msg = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
                             break
                     with progress_lock:
