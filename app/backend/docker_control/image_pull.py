@@ -30,20 +30,24 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from shared_config.logger_config import get_logger
 from docker_control.docker_control_client import get_docker_client
+from docker_control import image_pull_store as store
 
 logger = get_logger(__name__)
 
-# pull_id -> snapshot dict (see _new_entry)
-_image_pull_jobs: Dict[str, dict] = {}
-_lock = threading.Lock()
+# Progress lives in image_pull_store (JSON in the persistent volume), NOT in a
+# module global: the backend runs multiple uvicorn workers, so the process that
+# mints a pull_id is usually not the one serving the client's progress polls.
 
 _POLL_INTERVAL_SECONDS = 1.5
 _PULL_TIMEOUT_SECONDS = 2 * 60 * 60  # 2h hard cap; large multi-GB images
-_ENTRY_TTL_SECONDS = 3600            # evict finished entries after an hour
+# How long the pull backend may stop answering before we call the pull dead.
+# Previously a None snapshot was treated as a transient hiccup and the loop ran
+# the full 2h reporting 0%, with no way to tell a stalled pull from a slow one.
+_UNREACHABLE_GRACE_SECONDS = 120
 # A pull can run for many minutes — longer than the canonical "starting" grace
 # window — so we periodically refresh the placeholder deployment record's
 # timestamp (via heartbeat_fn) to keep it alive and its chip slot reserved.
@@ -77,34 +81,38 @@ def _new_entry(image_ref: str) -> dict:
 def request_pull_cancel(pull_id: str) -> bool:
     """Flag a pull job for cancellation so its worker bails before starting the
     deploy. Returns True if the pull job was tracked."""
-    with _lock:
-        entry = _image_pull_jobs.get(pull_id)
-        if entry is None:
-            return False
-        entry["cancelled"] = True
-        return True
+    return store.update_entry(pull_id, cancelled=True) is not None
 
 
 def _is_pull_cancelled(pull_id: str) -> bool:
-    with _lock:
-        entry = _image_pull_jobs.get(pull_id)
-        return bool(entry and entry.get("cancelled"))
+    entry = store.get_entry(pull_id)
+    return bool(entry and entry.get("cancelled"))
 
 
 def get_pull_job(pull_id: str) -> Optional[dict]:
-    """Return a copy of the pull-job snapshot, or None if not tracked."""
-    with _lock:
-        entry = _image_pull_jobs.get(pull_id)
-        return dict(entry) if entry is not None else None
+    """Return the pull-job snapshot, or None if not tracked.
+
+    A pull whose owning process died (backend restart, dev-mode --reload, crash)
+    stops being heartbeated. Rather than reporting it as perpetually "pulling",
+    surface it as an error with an actionable message — the caller can then tell
+    the user what happened instead of showing a bare failure.
+    """
+    entry = store.get_entry(pull_id)
+    if entry is None:
+        return None
+    if store.is_stalled(entry):
+        entry = dict(entry)
+        entry["status"] = "error"
+        entry["error"] = "Image pull was interrupted"
+        entry["message"] = (
+            "Image pull was interrupted (the server restarted while it ran). "
+            "Retry the deployment — already-downloaded layers are reused."
+        )
+    return entry
 
 
 def _update(pull_id: str, **changes) -> None:
-    with _lock:
-        entry = _image_pull_jobs.get(pull_id)
-        if entry is None:
-            return
-        entry.update(changes)
-        entry["updated_at"] = time.time()
+    store.update_entry(pull_id, **changes)
 
 
 def clamp_progress_pct(pull_id: str, pct: int) -> int:
@@ -118,23 +126,7 @@ def clamp_progress_pct(pull_id: str, pct: int) -> int:
     (mirroring the single-deploy bar's client-side ``maxPctRef`` clamp). Scoped per
     pull_id, so each deploy starts fresh.
     """
-    with _lock:
-        entry = _image_pull_jobs.get(pull_id)
-        if entry is None:
-            return pct
-        peak = max(int(entry.get("peak_progress") or 0), pct)
-        entry["peak_progress"] = peak
-        return peak
-
-
-def _evict_stale_locked() -> None:
-    now = time.time()
-    stale = [
-        pid for pid, e in _image_pull_jobs.items()
-        if e["status"] != "pulling" and now - e["updated_at"] > _ENTRY_TTL_SECONDS
-    ]
-    for pid in stale:
-        _image_pull_jobs.pop(pid, None)
+    return store.bump_peak_progress(pull_id, pct)
 
 
 def start_prepull_and_deploy(
@@ -151,9 +143,8 @@ def start_prepull_and_deploy(
     heartbeat_fn (optional) is invoked periodically while the pull runs — used to
     keep the placeholder deployment record fresh so it isn't reconciled away.
     """
-    with _lock:
-        _evict_stale_locked()
-        _image_pull_jobs[pull_id] = _new_entry(image_ref)
+    store.evict_stale()
+    store.create_entry(pull_id, _new_entry(image_ref))
 
     thread = threading.Thread(
         target=_worker,
@@ -204,6 +195,7 @@ def _worker(
             last_t: Optional[float] = None
             last_bytes: Optional[int] = None
             last_heartbeat = 0.0
+            unreachable_since: Optional[float] = None
             while time.time() < deadline:
                 if _is_pull_cancelled(pull_id):
                     break
@@ -214,8 +206,32 @@ def _worker(
 
                 snap = client.get_image_pull_progress(pull_id)
                 if snap is None:
+                    # The pull backend isn't answering for this id. Briefly this is
+                    # a normal hiccup (service restart, a dropped request), but if it
+                    # persists nobody is driving the pull any more — report it instead
+                    # of looping for the full 2h timeout showing 0%.
+                    now = time.time()
+                    if unreachable_since is None:
+                        unreachable_since = now
+                    elif now - unreachable_since > _UNREACHABLE_GRACE_SECONDS:
+                        logger.warning(
+                            f"[image_pull] pull backend stopped answering for {pull_id} "
+                            f"after {_UNREACHABLE_GRACE_SECONDS}s; marking stalled"
+                        )
+                        _update(
+                            pull_id,
+                            status="error",
+                            error="Image pull stalled",
+                            message=(
+                                "Image pull stalled — the pull service stopped "
+                                "responding. Retry the deployment; already-downloaded "
+                                "layers are reused."
+                            ),
+                        )
+                        return
                     time.sleep(_POLL_INTERVAL_SECONDS)
                     continue
+                unreachable_since = None
 
                 downloaded = int(snap.get("downloaded_bytes") or 0)
                 total = int(snap.get("total_bytes") or 0)
