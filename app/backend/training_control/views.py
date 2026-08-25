@@ -178,6 +178,31 @@ def _safe_dataset_filename(name):
     return base
 
 
+def _resolve_dataset_path(directory, name):
+    """Return the on-disk path for *name* inside *directory*, or ``None``.
+
+    The datasets directory is world-writable + sticky (``01777``) so the training
+    container can drop files into it. That also means a hostile symlink (e.g.
+    ``leak.json`` → ``/app/secret.json``) could be planted there. Name-based
+    validation alone is not enough: ``os.path.isfile``/``open`` follow symlinks,
+    so we additionally reject symlinks and require the fully-resolved path to stay
+    within the resolved datasets directory.
+    """
+    filename = _safe_dataset_filename(name)
+    if filename is None:
+        return None
+    path = os.path.join(directory, filename)
+    # Reject the final component being a symlink outright.
+    if os.path.islink(path):
+        return None
+    # Defend against a symlinked directory / any traversal via resolution.
+    real_dir = os.path.realpath(directory)
+    real_path = os.path.realpath(path)
+    if real_path != os.path.join(real_dir, filename):
+        return None
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Views
 # ---------------------------------------------------------------------------
@@ -196,8 +221,8 @@ class CustomDatasetsView(View):
         datasets = []
         try:
             for entry in sorted(os.listdir(directory)):
-                path = os.path.join(directory, entry)
-                if not os.path.isfile(path) or not entry.lower().endswith(".json"):
+                path = _resolve_dataset_path(directory, entry)
+                if path is None or not os.path.isfile(path):
                     continue
                 try:
                     stat = os.stat(path)
@@ -297,16 +322,15 @@ class CustomDatasetDetailView(View):
     """
 
     def get(self, request, name, *args, **kwargs):
-        filename = _safe_dataset_filename(name)
-        if filename is None:
+        if _safe_dataset_filename(name) is None:
             return JsonResponse(
                 {"error": "Invalid dataset name. Only .json datasets are supported."},
                 status=400,
             )
 
         directory = _custom_datasets_dir()
-        path = os.path.join(directory, filename)
-        if not os.path.isfile(path):
+        path = _resolve_dataset_path(directory, name)
+        if path is None or not os.path.isfile(path):
             return JsonResponse({"error": "Dataset not found."}, status=404)
 
         try:
@@ -344,8 +368,8 @@ class CustomDatasetDetailView(View):
             )
 
         directory = _custom_datasets_dir()
-        path = os.path.join(directory, filename)
-        if not os.path.isfile(path):
+        path = _resolve_dataset_path(directory, name)
+        if path is None or not os.path.isfile(path):
             return JsonResponse({"error": "Dataset not found."}, status=404)
 
         try:
