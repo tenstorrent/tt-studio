@@ -25,6 +25,7 @@ import {
 } from "./ui/select";
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
+import { useHideDeploymentTray } from "../hooks/useHideDeploymentTray";
 import { compactPercent, transferDetailParts } from "../lib/deployProgress";
 import type { DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Model, getModelsUrl } from "./SelectionSteps";
@@ -150,15 +151,8 @@ function deployDetailFromProgress(
     if (data.weights_cached) return { detail: `Weights cached — preparing… ${pct}%` };
     return { detail: `Downloading weights… ${pct}%`, transfer };
   }
-  // Last resort only. All three models are submitted at once but execute one at a
-  // time, so two cards are normally waiting their turn behind the LLM. Say so — but
-  // ONLY when there is no real progress to show, because a queued job usually does
-  // have some (its image pull and weights monitor both keep reporting while it
-  // waits). Announcing the wait in place of that is what previously replaced live
-  // numbers with "Waiting for <job id> to finish".
-  if (data.waiting_for_job_id) {
-    return { detail: "Waiting for another deployment to finish…" };
-  }
+  // No sub-status for any other stage: the card falls back to "Deploying…", which
+  // is what it has always shown while a model has nothing specific to report.
   return {};
 }
 
@@ -236,6 +230,9 @@ function ModelSelectItems({ models }: { models: Model[] }) {
 const AUTO_REDIRECT_MS = 3000;
 
 export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) {
+  // This page shows a card per model; the tray would be a second, independently
+  // polled copy of the same three deploys and the two percentages drift apart.
+  useHideDeploymentTray();
   const navigate = useNavigate();
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
@@ -460,10 +457,17 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       }
     };
 
+    // Whisper and SpeechT5 first, LLM last. All three are submitted together, but
+    // the inference server executes one deploy at a time (run_main mutates process
+    // globals), so whoever takes the lock first blocks the rest. The two media
+    // models share one image and finish in seconds — ordering them ahead lets them
+    // pull and start together, showing matching progress, while the LLM runs its
+    // long weights download afterwards instead of holding both of them behind it.
+    // Total time is unchanged; what changes is that no card sits blank for minutes.
     const steps: [string, number | string, (s: DeployState) => void, DeployState, string, boolean][] = [
-      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
       [selectedWhisperId, whisperDeviceId, setWhisperState, whisperState, "Whisper", true],
       [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
+      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
     ];
 
     // Submit all three at once. The inference server executes deploys one at a
