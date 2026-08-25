@@ -98,6 +98,49 @@ def _get_hf_token_from_user_config() -> Optional[str]:
     return None
 
 
+def _resolve_secret_env_vars(
+    jwt_secret: Optional[str] = None,
+    hf_token: Optional[str] = None,
+    ui_hf_token: Optional[str] = None,
+) -> Dict[str, str]:
+    """Build the per-deploy secret env vars from the request and UI config.
+
+    Deliberately does NOT consult os.environ. All deploys share one process and one
+    os.environ: each job applies its secrets there under _run_main_lock and wipes them
+    in a finally. This function runs at request time, OUTSIDE that lock, so a
+    concurrent job holding the lock makes os.getenv("JWT_SECRET") transiently truthy.
+    Skipping the request value on that basis loses it, because the other job's finally
+    removes it before this job ever acquires the lock — the deploy then dies in
+    handle_secrets with "JWT_SECRET is not set". That race is why concurrent deploys
+    (e.g. the Voice Agent's three-at-once) failed while a lone retry succeeded.
+
+    Each job therefore always carries its own copy. A secret already present in the
+    process env (exported from the root .env at startup) still works: it lives in the
+    pristine env the lock restores, so it survives every job's cleanup.
+    """
+    resolved: Dict[str, str] = {}
+    log = logging.getLogger(__name__)
+
+    if jwt_secret:
+        log.info("Setting JWT_SECRET from request")
+        resolved["JWT_SECRET"] = jwt_secret
+    elif not os.getenv("JWT_SECRET"):
+        log.warning("JWT_SECRET not set - this may cause issues")
+
+    # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+    # so changes apply without restarting inference-api or redeploying anything.
+    if ui_hf_token:
+        log.info("Setting HF_TOKEN from TT Studio user_config.env")
+        resolved["HF_TOKEN"] = ui_hf_token
+    elif hf_token:
+        log.info("Setting HF_TOKEN from request")
+        resolved["HF_TOKEN"] = hf_token
+    elif not os.getenv("HF_TOKEN"):
+        log.warning("HF_TOKEN not set - this may cause issues with model downloads")
+
+    return resolved
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -289,6 +332,119 @@ def _patched_check_model_weights_dir(self, host_weights_dir):
 
 
 _setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
+
+# Patch the artifact's HF_TOKEN hard-gates so public (non-gated) models deploy
+# without a token.
+#
+# tt-inference-server requires a non-empty HF_TOKEN in three places, all of which
+# either block on an interactive getpass() prompt (which hangs forever inside this
+# headless process, leaving the deploy frozen at 0%) or assert:
+#   1. run.handle_secrets()                       — prompt/assert before anything runs
+#   2. HostSetupManager.get_hf_env_vars()         — assert check_hf_access(token)
+#   3. HostSetupManager.setup_weights_huggingface — `assert self.hf_token` before download
+#
+# Public models need none of that: huggingface_hub treats an empty HF_TOKEN env var
+# as no token and downloads anonymously (utils._auth._clean_token("") -> None). So
+# when no token is configured we pass a truthy-but-empty token through the asserts,
+# and replace the token validation with an anonymous repo check that fails fast —
+# with an actionable message — only for genuinely gated repos.
+import run as _run_module  # noqa: E402
+
+
+class _AnonymousHFToken(str):
+    """Truthy empty string: satisfies the artifact's `assert self.hf_token` gates
+    while exporting an empty HF_TOKEN env var, which downstream tooling
+    (huggingface_hub / the `hf` CLI) treats as anonymous access."""
+    __slots__ = ()
+
+    def __new__(cls):
+        return super().__new__(cls, "")
+
+    def __bool__(self):
+        return True
+
+
+# getattr-guarded: the test suite imports api against stub artifact modules that
+# don't define these attributes; the real artifact always does.
+_orig_handle_secrets = getattr(_run_module, "handle_secrets", None)
+
+
+def _patched_handle_secrets(runtime_config):
+    if os.getenv("HF_TOKEN"):
+        return _orig_handle_secrets(runtime_config)
+    # Keep the original's JWT gate as a fail-fast instead of a hidden prompt.
+    jwt_required = (
+        str(runtime_config.workflow).lower() == "server"
+        and runtime_config.docker_server
+        and not runtime_config.interactive
+        and not runtime_config.no_auth
+    )
+    if jwt_required and not os.getenv("JWT_SECRET"):
+        raise RuntimeError(
+            "JWT_SECRET is not set — refusing to start a docker-server deploy."
+        )
+    logging.getLogger(__name__).warning(
+        "HF_TOKEN not set — deploying anonymously. Public models download "
+        "normally; gated models (Llama, Gemma, ...) need a token set in "
+        "TT-Studio Settings or .env."
+    )
+
+
+if _orig_handle_secrets is not None:
+    _run_module.handle_secrets = _patched_handle_secrets
+
+_orig_get_hf_env_vars = getattr(_setup_host_module.HostSetupManager, "get_hf_env_vars", None)
+
+
+def _patched_get_hf_env_vars(self):
+    if not (self.hf_token or os.getenv("HF_TOKEN")):
+        self.hf_token = _AnonymousHFToken()
+    return _orig_get_hf_env_vars(self)
+
+
+if _orig_get_hf_env_vars is not None:
+    _setup_host_module.HostSetupManager.get_hf_env_vars = _patched_get_hf_env_vars
+
+_orig_check_hf_access = getattr(_setup_host_module.HostSetupManager, "check_hf_access", None)
+
+
+def _patched_check_hf_access(self, token):
+    if token and not isinstance(token, _AnonymousHFToken):
+        return _orig_check_hf_access(self, token)
+    # Anonymous path: usable iff the repo is public. The models API serves gated
+    # repos' metadata anonymously, so inspect the `gated` field rather than the
+    # HTTP status.
+    repo = self.model_spec.hf_weights_repo
+    log = logging.getLogger(__name__)
+    url = f"https://huggingface.co/api/models/{repo}"
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "tt-studio/anon-access-check"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            info = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        log.error(
+            "⛔ Anonymous Hugging Face access check failed for %s: %s. "
+            "Set a HF token in TT-Studio Settings (or HF_TOKEN in .env) and retry.",
+            repo, exc,
+        )
+        return False
+    if info.get("gated"):
+        log.error(
+            "⛔ %s is a gated model — it cannot be downloaded anonymously. "
+            "Set your Hugging Face token in TT-Studio Settings (or HF_TOKEN in .env).",
+            repo,
+        )
+        return False
+    if not info.get("siblings"):
+        log.error("⛔ No files found in repository %s.", repo)
+        return False
+    return True
+
+
+if _orig_check_hf_access is not None:
+    _setup_host_module.HostSetupManager.check_hf_access = _patched_check_hf_access
 
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
@@ -2247,24 +2403,15 @@ async def run_inference(request: RunRequest):
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
-        # Handle secrets - use from request if provided and not already in environment
-        if request.jwt_secret and not os.getenv("JWT_SECRET"):
-            logger.info("Setting JWT_SECRET from request")
-            env_vars_to_set["JWT_SECRET"] = request.jwt_secret
-        elif not os.getenv("JWT_SECRET"):
-            logger.warning("JWT_SECRET not set - this may cause issues")
-            
-        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
-        # so changes apply without restarting inference-api or redeploying anything.
-        ui_hf = _get_hf_token_from_user_config()
-        if ui_hf:
-            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
-            env_vars_to_set["HF_TOKEN"] = ui_hf
-        elif request.hf_token and not os.getenv("HF_TOKEN"):
-            logger.info("Setting HF_TOKEN from request")
-            env_vars_to_set["HF_TOKEN"] = request.hf_token
-        elif not os.getenv("HF_TOKEN"):
-            logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
+        # Handle secrets. See _resolve_secret_env_vars() for why these must not be
+        # conditioned on the current os.environ.
+        env_vars_to_set.update(
+            _resolve_secret_env_vars(
+                jwt_secret=request.jwt_secret,
+                hf_token=request.hf_token,
+                ui_hf_token=_get_hf_token_from_user_config(),
+            )
+        )
             
         # Convert the request to command line arguments
         base_argv = ["run.py"]

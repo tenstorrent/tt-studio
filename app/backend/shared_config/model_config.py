@@ -317,6 +317,11 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
+        # Training models are hidden for this release: the pinned inference-server
+        # artifact can't run the training-lora impl yet, so offering them only
+        # produces deploys that die at dispatch. Remove this once training ships.
+        if entry.get("model_type") == "TRAINING":
+            continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
             image_name, image_tag = docker_image.rsplit(":", 1)
