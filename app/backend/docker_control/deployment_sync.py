@@ -171,14 +171,12 @@ def _heartbeat_starting_record(job_id: str) -> None:
     Only 'starting' records are touched: once deployment_sync swaps in the real
     container_id and flips to 'running', Docker itself is the liveness signal.
     """
-    from django.utils import timezone as dj_timezone
     from docker_control.models import ModelDeployment
 
     try:
-        dep = ModelDeployment.objects.filter(container_id=job_id).first()
-        if dep is not None and dep.status == "starting":
-            dep.deployed_at = dj_timezone.now()
-            dep.save()
+        # Atomic conditional update: a plain read-mutate-save would rewrite the whole
+        # record from a detached copy and could undo a cancel that landed in between.
+        ModelDeployment.objects.touch_starting(job_id)
     except Exception as e:
         logger.debug(f"[deployment_sync] heartbeat failed for job {job_id}: {e}")
 

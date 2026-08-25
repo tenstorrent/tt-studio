@@ -1814,6 +1814,8 @@ def _process_run_output_line(
         stage = "unknown"
         progress = 0
         status = "running"
+        # Explicit weights file counts, when the `hf download` counter reports them.
+        weights_files = None
 
         # Based on the model_run.log patterns, parse deployment stages
         if any(keyword in message.lower() for keyword in ["validate_runtime_args", "handle_secrets", "validate_local_setup"]):
@@ -1838,6 +1840,12 @@ def _process_run_output_line(
             stage = "model_preparation"
             done = int(_fetch_match.group("done"))
             total = int(_fetch_match.group("total"))
+            # Published alongside the percent because the UI derives its download bar
+            # from a byte fraction, and byte totals are unavailable whenever the
+            # weights monitor can't resolve the repo size. Without an explicit
+            # fraction the bar would sit at 0 for the whole cold download even though
+            # `progress` below advances.
+            weights_files = (done, total)
             fraction = (done / total) if total > 0 else 0.0
             progress = _WEIGHTS_PROGRESS_START + int(
                 fraction * (_WEIGHTS_PROGRESS_END - _WEIGHTS_PROGRESS_START)
@@ -1938,6 +1946,9 @@ def _process_run_output_line(
                         if pull_state["pull_layers_total"] > 0:
                             update_payload["pull_layers_complete"] = pull_state["pull_layers_complete"]
                             update_payload["pull_layers_total"] = pull_state["pull_layers_total"]
+                        if weights_files is not None:
+                            update_payload["weights_files_done"] = weights_files[0]
+                            update_payload["weights_files_total"] = weights_files[1]
                         progress_store[job_id].update(update_payload)
                 else:
                     # Initialize if not exists
