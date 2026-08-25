@@ -84,16 +84,17 @@
 /CLAUDE.md                              @anirudTT @jashansinghTT
 
 # ---------------------------------------------------------------------------
-# Docs & README — whole team
+# Docs & README — whole team, with Nate on documentation
 # ---------------------------------------------------------------------------
-/README.md                              @anirudTT @jashansinghTT @rnabeelTT @housTT
-/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @housTT
-/SECURITY.md                            @anirudTT @housTT
+/README.md                              @anirudTT @jashansinghTT @rnabeelTT @housTT @ndalyTT
+/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @housTT @ndalyTT
+/CONTRIBUTING.md                        @anirudTT @housTT @ndalyTT
+/SECURITY.md                            @anirudTT @housTT @ndalyTT
 
 # ---------------------------------------------------------------------------
-# Hosted landing page (GitHub Pages, served from docs/ root) — Adam
+# Hosted landing page (GitHub Pages, served from docs/ root) — Adam & Nate
 # ---------------------------------------------------------------------------
-/docs/                                  @anirudTT @housTT
+/docs/                                  @anirudTT @housTT @ndalyTT
 
 # ---------------------------------------------------------------------------
 # Model license compliance — Adam
