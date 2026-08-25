@@ -19,6 +19,9 @@ export interface DeploymentProgressData {
   eta_seconds?: number | null;
   speed_bps?: number | null;
   weights_cached?: boolean;
+  // False for models whose weights ship inside the image (Whisper/SpeechT5 on the
+  // media server). Absent on older payloads, where a weights phase is assumed.
+  expects_weights?: boolean;
   // Set additively while a deploy waits for the inference server's run lock. Never
   // replaces the progress fields — a queued job keeps reporting its own progress.
   waiting_for_job_id?: string;

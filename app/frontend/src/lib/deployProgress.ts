@@ -13,8 +13,16 @@ export function compactPercent(
   if (!p) return 0;
   const isPull = p.stage === "pulling_image";
   const hasPull = isPull || hadImagePull;
-  const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
-  const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
+  // Models that carry their weights in the image (Whisper/SpeechT5) have no download
+  // phase, so reserving 25-95 for one stranded their card at 25% for the whole pull
+  // and then jumped it to 95. Give the pull the full band instead. Undefined means a
+  // weights phase is expected, which keeps every other model on the 25/95 split.
+  const expectsWeights = p.expects_weights !== false;
+  const pullHi = expectsWeights ? 25 : 95;
+  const [pullLo, dlHi] = [0, 95];
+  // With no weights phase the download band collapses onto the pull's ceiling, so a
+  // stray model_preparation payload holds at 95 rather than snapping backwards.
+  const dlLo = hasPull ? pullHi : 0;
   const [startLo, startHi] = [95, 99];
   const frac =
     p.total_bytes && p.downloaded_bytes != null

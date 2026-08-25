@@ -991,6 +991,9 @@ class DeployView(APIView):
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
                         heartbeat_fn=_refresh_media_placeholder,
+                        # The media server image ships Whisper/SpeechT5 weights, so
+                        # nothing downloads after the pull — the pull is the deploy.
+                        expects_weights=False,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
@@ -1297,6 +1300,9 @@ class DeploymentProgressView(APIView):
                             "speed_bps": pull_job.get("speed_bps"),
                             "eta_seconds": pull_job.get("eta_seconds"),
                             "weights_repo": pull_job.get("image_ref"),
+                            # Lets the client size the progress bands: a model with no
+                            # weights-download phase gives the pull the whole bar.
+                            "expects_weights": pull_job.get("expects_weights", True),
                         },
                         status=status.HTTP_200_OK,
                     )
