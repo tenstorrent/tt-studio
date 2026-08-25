@@ -79,10 +79,21 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 // ---- helpers --------------------------------------------------------------
 
 
+/** Terminal result of a deploy poll. `message` carries the backend's own failure text
+ *  (e.g. "Deployment error: JWT_SECRET is not set …") so the card can show the real
+ *  reason instead of a generic string. `timedOut` distinguishes a genuine safety-timeout
+ *  expiry from a backend-reported failure — previously both collapsed into "error". */
+type DeployPollResult = {
+  outcome: "done" | "error";
+  status?: string;
+  message?: string;
+  timedOut?: boolean;
+};
+
 async function pollDeployProgress(
   jobId: string,
   onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
-): Promise<"done" | "error"> {
+): Promise<DeployPollResult> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
@@ -95,15 +106,17 @@ async function pollDeployProgress(
       if (resp.ok) {
         const data = await resp.json();
         onUpdate?.(data);
-        if (data.status === "completed") return "done";
-        if (TERMINAL_ERRORS.includes(data.status)) return "error";
+        if (data.status === "completed") return { outcome: "done", status: data.status };
+        if (TERMINAL_ERRORS.includes(data.status)) {
+          return { outcome: "error", status: data.status, message: data.message };
+        }
       }
     } catch {
       // network hiccup — keep polling
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  return "error";
+  return { outcome: "error", timedOut: true };
 }
 
 /** Concise per-card sub-status from a progress poll (image pull shows real %). */
@@ -383,11 +396,18 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           return false;
         }
         if (pollProgress) {
-          const outcome = await pollDeployProgress(result.jobId, (data) =>
+          const progress = await pollDeployProgress(result.jobId, (data) =>
             setState({ status: "deploying", detail: deployDetailFromProgress(data) })
           );
-          if (outcome === "error") {
-            setState({ status: "error", error: "Deployment failed or timed out" });
+          if (progress.outcome === "error") {
+            // Show the backend's own failure text; fall back to a generic string only
+            // when we genuinely gave up waiting or the payload carried no message.
+            setState({
+              status: "error",
+              error:
+                progress.message ??
+                (progress.timedOut ? "Deployment timed out" : "Deployment failed"),
+            });
             return false;
           }
         }
