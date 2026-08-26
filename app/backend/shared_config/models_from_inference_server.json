@@ -1069,7 +1069,7 @@
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "tt-media-server-forge:local",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:7dd06205408f80831c0c9abb93f85e13d4b20a81_22f431c_97985089226",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",
