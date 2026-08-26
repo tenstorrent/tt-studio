@@ -96,6 +96,28 @@ const getStatusBadge = (deployment: Deployment) => {
       </TooltipProvider>
     );
   }
+  if (
+    (status === "exited" || status === "dead" || status === "stopped") &&
+    failure_reason === "hf_model_not_found"
+  ) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="destructive" className="cursor-help bg-orange-600 hover:bg-orange-700">
+              Model Not Found on Hugging Face
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-sm">
+              {failure_message ??
+                "The requested model repository was not found or is unavailable on Hugging Face."}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
   if (status === "exited" || status === "dead") {
     return (
       <TooltipProvider>
@@ -146,6 +168,13 @@ export default function DeploymentHistoryPage() {
   const [selectedModelName, setSelectedModelName] = useState<
     string | undefined
   >(undefined);
+  const [selectedFailureReason, setSelectedFailureReason] = useState<
+    string | null
+  >(null);
+  const [selectedFailureMessage, setSelectedFailureMessage] = useState<
+    string | null
+  >(null);
+  const [selectedHfUrl, setSelectedHfUrl] = useState<string | null>(null);
   const [selectedDiedUnexpectedly, setSelectedDiedUnexpectedly] =
     useState(false);
   const [selectedStoppedByUser, setSelectedStoppedByUser] = useState(false);
@@ -162,19 +191,29 @@ export default function DeploymentHistoryPage() {
   const closeLogDialog = () => {
     setSelectedDeploymentId(null);
     setSelectedModelName(undefined);
+    setSelectedFailureReason(null);
+    setSelectedFailureMessage(null);
+    setSelectedHfUrl(null);
     setSelectedDiedUnexpectedly(false);
     setSelectedStoppedByUser(false);
   };
 
   const handleOpenLogs = (deployment: Deployment) => {
     if (deployment.workflow_log_path) {
+      const isHfFailure =
+        deployment.failure_reason === "hf_auth" ||
+        deployment.failure_reason === "hf_model_not_found";
       const diedUnexpectedly =
         !deployment.stopped_by_user &&
+        !isHfFailure &&
         (deployment.status === "exited" || deployment.status === "dead");
       setSelectedDeploymentId(deployment.id);
       setSelectedModelName(deployment.model_name);
+      setSelectedFailureReason(deployment.failure_reason);
+      setSelectedFailureMessage(deployment.failure_message);
+      setSelectedHfUrl(deployment.hf_url);
       setSelectedDiedUnexpectedly(diedUnexpectedly);
-      setSelectedStoppedByUser(deployment.stopped_by_user && !diedUnexpectedly);
+      setSelectedStoppedByUser(deployment.stopped_by_user && !diedUnexpectedly && !isHfFailure);
     }
   };
 
@@ -322,6 +361,9 @@ export default function DeploymentHistoryPage() {
         open={selectedDeploymentId !== null}
         deploymentId={selectedDeploymentId}
         modelName={selectedModelName}
+        failureReason={selectedFailureReason}
+        failureMessage={selectedFailureMessage}
+        hfUrl={selectedHfUrl}
         diedUnexpectedly={selectedDiedUnexpectedly}
         stoppedByUser={selectedStoppedByUser}
         onClose={closeLogDialog}

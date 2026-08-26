@@ -97,6 +97,18 @@ class ClassifyFailureTests(SimpleTestCase):
         )
         self.assertEqual(_classify_failure(msg), ("hf_auth", msg))
 
+    def test_hf_model_not_found_repository_error(self):
+        msg = "huggingface_hub.utils._errors.RepositoryNotFoundError: 404 Client Error: Repository Not Found for url"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
+
+    def test_hf_model_not_found_entry_error(self):
+        msg = "EntryNotFoundError: 404 Client Error: Entry Not Found for url"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
+
+    def test_hf_model_not_found_generic_404(self):
+        msg = "Model meta-llama/non-existent could not be loaded from hugging face: 404 client error: repository not found"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
+
     def test_unknown_failure(self):
         msg = "CUDA out of memory"
         self.assertEqual(_classify_failure(msg), ("unknown", msg))
@@ -133,6 +145,28 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        self.assertEqual(
+            response.data.get("hf_url"),
+            f"https://huggingface.co/{self.hf_repo}",
+        )
+        # Pre-check must short-circuit before any ModelDeployment query.
+        filter_mock.assert_not_called()
+
+    @patch("api.hf_access._check_repo", return_value=404)
+    @patch("shared_config.user_config.get_hf_token", return_value="fake-token")
+    def test_returns_400_when_hf_repo_not_found(self, _token_mock, _repo_mock):
+        with patch(
+            "docker_control.models.ModelDeployment.objects.filter"
+        ) as filter_mock:
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("error_code"), "hf_model_not_found")
+        self.assertIn("could not be found", response.data.get("message", ""))
         self.assertEqual(
             response.data.get("hf_url"),
             f"https://huggingface.co/{self.hf_repo}",

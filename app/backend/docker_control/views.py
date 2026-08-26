@@ -504,26 +504,35 @@ class DeployView(APIView):
 
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
-            if hf_repo:
+            if hf_repo and "/" in hf_repo:
                 from shared_config.user_config import get_hf_token
                 token = get_hf_token()
-                if token:
-                    from api.hf_access import _check_repo, _status_from_code
-                    code = _check_repo(token, hf_repo)
-                    # diffusers repos (FLUX/Wan) have no root config.json and 404;
-                    # retry with model_index.json so a gated diffusers repo still
-                    # surfaces denied/auth_failed instead of a false "error".
-                    if code == 404:
-                        code = _check_repo(token, hf_repo, "model_index.json")
-                    if _status_from_code(code) in ("denied", "auth_failed"):
-                        return Response(
-                            {
-                                "error_code": "hf_access_denied",
-                                "message": f"Your Hugging Face token does not have access to {hf_repo}.",
-                                "hf_url": f"https://huggingface.co/{hf_repo}",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
+                from api.hf_access import _check_repo, _status_from_code
+                code = _check_repo(token or "", hf_repo)
+                # diffusers repos (FLUX/Wan) have no root config.json and 404;
+                # retry with model_index.json so a gated diffusers repo still
+                # surfaces denied/auth_failed instead of a false "error".
+                if code == 404:
+                    code = _check_repo(token or "", hf_repo, "model_index.json")
+                status_str = _status_from_code(code)
+                if status_str in ("denied", "auth_failed"):
+                    return Response(
+                        {
+                            "error_code": "hf_access_denied",
+                            "message": f"Your Hugging Face token does not have access to {hf_repo}.",
+                            "hf_url": f"https://huggingface.co/{hf_repo}",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                elif status_str == "not_found" or code == 404:
+                    return Response(
+                        {
+                            "error_code": "hf_model_not_found",
+                            "message": f"The Hugging Face model repository '{hf_repo}' could not be found or is unavailable.",
+                            "hf_url": f"https://huggingface.co/{hf_repo}",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
             # On Wormhole mesh boards a single-chip-capable model deploys across the whole
             # board by default; only an explicit slot selection ("1 Device") pins it to a
