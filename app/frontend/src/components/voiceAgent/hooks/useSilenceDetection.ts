@@ -52,7 +52,14 @@ export function useSilenceDetection({
 
     return () => {
       cancelled = true;
-      vadRef.current?.destroy();
+      // destroy() reaches for the audio pipeline unconditionally and throws if it
+      // was never built - the state a detector is in when it loaded but never
+      // recorded (startOnLoad is false).
+      try {
+        vadRef.current?.destroy();
+      } catch {
+        /* nothing to tear down */
+      }
       vadRef.current = null;
       setReady(false);
     };
