@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -99,7 +99,15 @@ async function pollDeployProgress(
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
   const SAFETY_TIMEOUT_MS = 30 * 60 * 1000;
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
-  const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout", "not_found"];
+  const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout"];
+  // `not_found` is NOT terminal on sight. A job can legitimately read as unknown for
+  // a short window — the record is still being registered, or a backend worker that
+  // hasn't seen it yet serves the poll. Treating the first one as fatal killed cards
+  // within seconds of a perfectly healthy deploy. useDeploymentProgress.ts and
+  // useActiveDeployments.ts both allow 90s; match them rather than inventing a
+  // third policy.
+  const NOT_FOUND_GRACE_MS = 90 * 1000;
+  const startedAt = Date.now();
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
@@ -107,7 +115,18 @@ async function pollDeployProgress(
         const data = await resp.json();
         onUpdate?.(data);
         if (data.status === "completed") return { outcome: "done", status: data.status };
-        if (TERMINAL_ERRORS.includes(data.status)) {
+        if (data.status === "not_found") {
+          if (Date.now() - startedAt >= NOT_FOUND_GRACE_MS) {
+            return {
+              outcome: "error",
+              status: data.status,
+              message:
+                data.message ??
+                "Deployment could not be tracked — the job is no longer known to the server.",
+            };
+          }
+          // Inside the grace window: keep polling.
+        } else if (TERMINAL_ERRORS.includes(data.status)) {
           return { outcome: "error", status: data.status, message: data.message };
         }
       }
@@ -119,13 +138,60 @@ async function pollDeployProgress(
   return { outcome: "error", timedOut: true };
 }
 
-/** Concise per-card sub-status from a progress poll (image pull shows real %). */
-function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
-  if (data.stage === "pulling_image") {
-    const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
-    return `Pulling Docker Image… ${pct}%`;
+type PullProgressData = {
+  stage?: string;
+  progress?: number;
+  message?: string;
+  downloaded_bytes?: number;
+  total_bytes?: number | null;
+  speed_bps?: number | null;
+  eta_seconds?: number | null;
+};
+
+const formatGB = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+
+const formatSpeed = (bps: number) =>
+  bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1e3))} KB/s`;
+
+const formatEta = (seconds: number) => {
+  const mins = Math.round(seconds / 60);
+  if (mins < 1) return "under a minute left";
+  if (mins < 60) return `~${mins} min left`;
+  return `~${Math.floor(mins / 60)}h ${mins % 60}m left`;
+};
+
+/** Concise per-card sub-status from a progress poll.
+ *
+ *  The backend already sends bytes, speed, ETA and a layer count for image pulls
+ *  (DeploymentProgressView); this previously discarded all of it and re-derived a
+ *  bare percentage, so a multi-GB pull looked identical to a stalled one. Show the
+ *  same detail the model-weights download gets. */
+function deployDetailFromProgress(data: PullProgressData): string | undefined {
+  if (data.stage !== "pulling_image") return undefined;
+
+  const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
+  const downloaded = data.downloaded_bytes ?? 0;
+  const total = data.total_bytes ?? 0;
+  const parts: string[] = [`Pulling image… ${pct}%`];
+
+  if (total > 0 && downloaded > 0) {
+    parts.push(`${formatGB(downloaded)} / ${formatGB(total)}`);
   }
-  return undefined;
+  if (data.speed_bps && data.speed_bps > 0) {
+    parts.push(formatSpeed(data.speed_bps));
+  }
+  // Early in a pull the rate is measured over very few samples and the ETA can be
+  // off by 5-10x (a run that finished in 16 min was projecting 106 min at 5%).
+  // Withhold it until enough of the image has landed for the estimate to mean
+  // something, rather than showing a number that pushes people to cancel.
+  if (data.eta_seconds && data.eta_seconds > 0 && total > 0 && downloaded / total > 0.1) {
+    parts.push(formatEta(data.eta_seconds));
+  }
+
+  const detail = parts.join(" • ");
+  // The backend's message carries the layer count, e.g. "(36/46 layers)".
+  const layers = data.message?.match(/\((\d+\/\d+) layers\)/)?.[1];
+  return layers ? `${detail} • ${layers} layers` : detail;
 }
 
 async function deployOneModel(
@@ -220,6 +286,45 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [allDone, setAllDone] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REDIRECT_MS / 1000);
 
+  /** Re-read which devices are in use. Deliberately callable on demand: this used to
+   *  run once on mount only, so after a deploy finished (or its containers went away)
+   *  the page kept showing minutes-old occupancy — and because that state feeds
+   *  `canDeploy`, the Deploy button stayed disabled with a generic tooltip while the
+   *  backend reported every slot free. A swallowed click is indistinguishable from a
+   *  broken app, so keep this fresh. */
+  const refreshOccupiedDevices = useCallback(
+    () =>
+      fetch("/docker-api/status/")
+        .then((r) => r.json())
+        .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
+          const occupied = Object.values(data)
+            .map((c) => {
+              const normalizedDeviceIds = Array.isArray(c.device_ids)
+                ? c.device_ids
+                    .map((slot) => Number(slot))
+                    .filter((slot) => Number.isInteger(slot))
+                : [];
+              const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
+              const resolvedDeviceIds =
+                normalizedDeviceIds.length > 0
+                  ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
+                  : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
+                    ? [fallbackDeviceId]
+                    : [];
+              if (resolvedDeviceIds.length === 0) return undefined;
+              return {
+                device_id: resolvedDeviceIds[0],
+                device_ids: resolvedDeviceIds,
+                name: c.name,
+              };
+            })
+            .filter((item): item is OccupiedDevice => item !== undefined);
+          setOccupiedDevices(occupied);
+        })
+        .catch(() => { /* non-fatal — just no pre-flight warnings */ }),
+    []
+  );
+
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
       .then((r) => r.json())
@@ -255,34 +360,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       })
       .catch(() => customToast.error("Failed to load model catalog"));
 
-    const loadSlots = fetch("/docker-api/status/")
-      .then((r) => r.json())
-      .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
-        const occupied = Object.values(data)
-          .map((c) => {
-            const normalizedDeviceIds = Array.isArray(c.device_ids)
-              ? c.device_ids
-                  .map((slot) => Number(slot))
-                  .filter((slot) => Number.isInteger(slot))
-              : [];
-            const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
-            const resolvedDeviceIds =
-              normalizedDeviceIds.length > 0
-                ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
-                : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
-                  ? [fallbackDeviceId]
-                  : [];
-            if (resolvedDeviceIds.length === 0) return undefined;
-            return {
-              device_id: resolvedDeviceIds[0],
-              device_ids: resolvedDeviceIds,
-              name: c.name,
-            };
-          })
-          .filter((item): item is OccupiedDevice => item !== undefined);
-        setOccupiedDevices(occupied);
-      })
-      .catch(() => { /* non-fatal — just no pre-flight warnings */ });
+    const loadSlots = refreshOccupiedDevices();
 
     // Board slot count for the device pre-flight check.
     const loadSlotCount = fetch("/docker-api/chip-status/")
@@ -293,7 +371,20 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       .catch(() => { /* non-fatal */ });
 
     Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
-  }, []);
+  }, [refreshOccupiedDevices]);
+
+  // Keep occupancy fresh without polling hard: refresh when the tab regains focus
+  // (the common case — the user was elsewhere while a deploy finished) and on a
+  // slow interval as a backstop.
+  useEffect(() => {
+    const onFocus = () => { void refreshOccupiedDevices(); };
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(onFocus, 30000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(timer);
+    };
+  }, [refreshOccupiedDevices]);
 
   // Auto-redirect countdown after all done
   useEffect(() => {
@@ -435,6 +526,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);
+    // Whatever the outcome, occupancy just changed — slots were taken, or a failed
+    // deploy released the ones it had reserved. Re-read it so a retry isn't blocked
+    // by stale conflicts.
+    void refreshOccupiedDevices();
     if (failures.length === 0) {
       setAllDone(true);
       customToast.success("Voice Agent pipeline submitted! Redirecting…");

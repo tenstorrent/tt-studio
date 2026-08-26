@@ -741,7 +741,14 @@ class DeployView(APIView):
                     try:
                         need_pull = not get_docker_client().image_exists(image_name, image_tag)
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        # Deliberately fall through to an inline deploy: image_pull's
+                        # design rule is that this feature never blocks a deploy. The
+                        # inference server pulls the image itself as it always has —
+                        # the only loss is the byte-level progress bar.
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}; "
+                            "deploying without a pre-pull (no image-pull progress bar)"
+                        )
                         need_pull = False
 
                 if need_pull:
@@ -893,7 +900,14 @@ class DeployView(APIView):
                     try:
                         need_pull = not get_docker_client().image_exists(image_name, image_tag)
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        # Deliberately fall through to an inline deploy: image_pull's
+                        # design rule is that this feature never blocks a deploy. The
+                        # inference server pulls the image itself as it always has —
+                        # the only loss is the byte-level progress bar.
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}; "
+                            "deploying without a pre-pull (no image-pull progress bar)"
+                        )
                         need_pull = False
 
                 if need_pull:
@@ -1165,6 +1179,62 @@ class CancelDeploymentView(APIView):
 
 
 class DeploymentProgressView(APIView):
+    @staticmethod
+    def _reconcile_orphaned_pull(pull_id):
+        """Decide the true outcome of a pull whose progress record is gone.
+
+        Returns a terminal progress Response either way, but never a bare status:
+        the client can only explain itself to the user if we send a message.
+        """
+        from docker_control.models import ModelDeployment
+
+        # The chat deploy path parks a placeholder record under the pull_id. If the
+        # deploy went on to succeed, that record was updated with the real container
+        # and the pull genuinely completed.
+        try:
+            placeholder = ModelDeployment.objects.filter(container_id=pull_id).first()
+        except Exception as e:
+            logger.warning(f"orphaned pull {pull_id}: could not read deployment record: {e}")
+            placeholder = None
+
+        if placeholder is not None:
+            record_status = getattr(placeholder, "status", None)
+            if record_status in ("running", "healthy", "ready"):
+                logger.info(f"orphaned pull {pull_id} reconciled to a running deployment")
+                return Response(
+                    {
+                        "status": "completed",
+                        "stage": "complete",
+                        "progress": 100,
+                        "message": "Deployment completed successfully",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            # Still parked at "starting" with nobody driving it: the pull died. Free
+            # the chip slot it reserved, otherwise the board reads as in use forever
+            # and the next deploy is blocked by a phantom.
+            try:
+                placeholder.status = "stopped"
+                placeholder.save()
+                logger.info(f"orphaned pull {pull_id}: released placeholder chip slot")
+            except Exception as e:
+                logger.warning(f"orphaned pull {pull_id}: could not release placeholder: {e}")
+
+        return Response(
+            {
+                "status": "error",
+                "stage": "error",
+                "progress": 0,
+                "message": (
+                    "Image pull was interrupted and its progress was lost "
+                    "(the server most likely restarted while it ran). Retry the "
+                    "deployment — already-downloaded layers are reused, so it will "
+                    "pick up where it left off."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
         import time
@@ -1225,12 +1295,16 @@ class DeploymentProgressView(APIView):
                     )
 
             # An imgpull_ id that isn't a tracked pull job (job_id is reassigned to
-            # the real inference id on handoff above) is an orphan — its in-memory
-            # pull job was lost, e.g. the backend restarted mid-pull. It maps to no
-            # real container, so the container fallback below would fabricate endless
-            # fake progress. Report it terminal so the client stops polling.
+            # the real inference id on handoff above) is an orphan — its pull record
+            # is gone, e.g. it aged out or the persistent store was unavailable. It
+            # maps to no real container, so the container fallback below would
+            # fabricate endless fake progress.
+            #
+            # Before calling it a failure, reconcile against reality: a pull that
+            # completed and handed off just before its record vanished did in fact
+            # succeed, and reporting that as "Deployment failed" is simply wrong.
             if job_id.startswith("imgpull_"):
-                return Response({"status": "not_found"}, status=status.HTTP_200_OK)
+                return self._reconcile_orphaned_pull(job_id)
 
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
@@ -1545,7 +1619,60 @@ class DeploymentLogsView(APIView):
         """Get deployment logs from FastAPI inference server"""
         try:
             logger.info(f"Fetching deployment logs for job_id: {job_id}")
-            
+
+            # An imgpull_ id is ours, not the inference server's — asking FastAPI for
+            # it always 404s, which surfaced in the UI as a dead "View logs" button.
+            # Resolve it to the real job once the handoff has happened; until then,
+            # report the pull's own state so the button shows something useful.
+            if job_id.startswith("imgpull_"):
+                pull_job = get_pull_job(job_id)
+                if pull_job is None:
+                    return Response(
+                        {
+                            "job_id": job_id,
+                            "logs": [
+                                {
+                                    "level": "ERROR",
+                                    "message": (
+                                        "Image pull was interrupted and its record is "
+                                        "gone. Retry the deployment — already-downloaded "
+                                        "layers are reused."
+                                    ),
+                                }
+                            ],
+                            "total_messages": 1,
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                real_job_id = pull_job.get("real_job_id")
+                if real_job_id:
+                    job_id = real_job_id
+                else:
+                    downloaded = pull_job.get("downloaded_bytes") or 0
+                    total = pull_job.get("total_bytes") or 0
+                    lines = [
+                        {
+                            "level": "ERROR" if pull_job.get("status") == "error" else "INFO",
+                            "message": pull_job.get("message") or "Pulling image…",
+                        },
+                        {
+                            "level": "INFO",
+                            "message": (
+                                f"Image: {pull_job.get('image_ref')} — "
+                                f"{downloaded / 1e9:.2f} GB of "
+                                f"{(total / 1e9) if total else 0:.2f} GB, "
+                                f"{pull_job.get('layers_done') or 0}/"
+                                f"{pull_job.get('layers_total') or 0} layers"
+                            ),
+                        },
+                    ]
+                    if pull_job.get("error"):
+                        lines.append({"level": "ERROR", "message": str(pull_job["error"])})
+                    return Response(
+                        {"job_id": job_id, "logs": lines, "total_messages": len(lines)},
+                        status=status.HTTP_200_OK,
+                    )
+
             # Try to get logs from FastAPI inference server
             try:
                 fastapi_url = _build_fastapi_url(f"run/logs/{job_id}")
