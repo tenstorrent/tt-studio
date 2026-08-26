@@ -1214,7 +1214,17 @@ def get_canonical_deployments():
             match_id, match_data = full_id, live_containers[full_id]
         elif short_id and short_id in live_containers:
             match_id, match_data = short_id, live_containers[short_id]
-        elif dep.container_name and dep.container_name in live_by_name:
+        elif (
+            dep.container_name
+            and not full_id.startswith("imgpull_")
+            and dep.container_name in live_by_name
+        ):
+            # Name matching exists so a record whose real container_id hasn't been
+            # swapped in yet still resolves to its container. An imgpull_ placeholder
+            # provably has no container — it is created before the image is even
+            # pulled — so a name hit there is a *previous* deploy's container. Treating
+            # it as live marks a genuinely in-flight deploy "not pending", which hides
+            # it from the deployment tray and, on redeploy, from slot accounting.
             match_id, match_data = live_by_name[dep.container_name]
 
         if match_data is not None:
@@ -1239,9 +1249,13 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
-                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
-                None,
+            _impl_id, _impl = next(
+                (
+                    (k, v)
+                    for k, v in model_implmentations.items()
+                    if v.model_name == dep.model_name
+                ),
+                (None, None),
             )
             _grace = (
                 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
@@ -1263,7 +1277,10 @@ def get_canonical_deployments():
                     "device_ids": list(getattr(dep, "device_ids", None) or [])
                                   or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
-                    "model_id": None,
+                    # Resolved from model_name so clients can tie an in-flight start
+                    # back to a catalog entry. model_impl stays None: this deployment
+                    # has no container yet, and consumers key "is it deployed?" off it.
+                    "model_id": _impl_id,
                     "weights_id": None,
                     "internal_url": None,
                     "health_url": None,

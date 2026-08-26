@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from './progress';
+import { formatBytes, formatEtaRemaining } from '../../lib/deployProgress';
 
 /** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
 function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
@@ -154,37 +155,6 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     EARLY_STALL_STAGES.has(progress.stage) &&
     lastUpdatedMs !== null &&
     Date.now() - lastUpdatedMs > EARLY_STALL_MS;
-
-  const formatBytes = (bytes?: number | null) => {
-    if (bytes === undefined || bytes === null || bytes < 0) return '—';
-    if (bytes === 0) return '0 B';
-    // Decimal (1000-based) units to match HuggingFace's reported sizes
-    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    let value = bytes;
-    let u = 0;
-    while (value >= 1000 && u < units.length - 1) {
-      value /= 1000;
-      u += 1;
-    }
-    const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;
-    return `${value.toFixed(decimals)} ${units[u]}`;
-  };
-
-  /** Human-readable remaining time; avoids noisy seconds when minutes or hours fit better. */
-  const formatEtaRemaining = (eta: number | null | undefined): string | null => {
-    if (eta === undefined || eta === null || !Number.isFinite(eta) || eta < 0) return null;
-    if (eta > 86400 * 2) return 'More than 2 days left';
-    if (eta < 50) return `~${Math.max(1, Math.round(eta))} s left`;
-    if (eta < 90) return '~1 min left';
-    if (eta < 3600) {
-      const mins = Math.max(1, Math.round(eta / 60));
-      return `~${mins} min left`;
-    }
-    const hours = Math.floor(eta / 3600);
-    const mins = Math.round((eta % 3600) / 60);
-    if (mins === 0) return `~${hours} h left`;
-    return `~${hours} h ${mins} min left`;
-  };
 
   // The byte/speed/ETA detail block lights up both for the host-side image pull
   // (stage 'pulling_image') and the in-container weights download ('model_preparation').

@@ -80,9 +80,15 @@ export async function updateSettings(
   return data;
 }
 
-export async function runHfCheck(token?: string): Promise<HfCheckResponse> {
+/** Checks the default gated set against the saved token; pass `repos` to check
+ *  specific repos instead. */
+export async function runHfCheck(
+  token?: string,
+  repos?: string[]
+): Promise<HfCheckResponse> {
   const { data } = await axios.post<HfCheckResponse>(HF_CHECK_URL, {
     ...(token ? { hf_token: token } : {}),
+    ...(repos && repos.length > 0 ? { repos } : {}),
   });
   return data;
 }
