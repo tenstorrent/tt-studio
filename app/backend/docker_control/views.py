@@ -343,6 +343,8 @@ class ContainersView(APIView):
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
                 "chips_required": chips_required,
+                # Lets the UI pre-flight the HF gate before attempting a deploy.
+                "hf_model_id": impl.hf_model_id,
             })
         
         return Response(data, status=status.HTTP_200_OK)
@@ -537,9 +539,36 @@ class DeployView(APIView):
             )
 
             # Multiple concurrent instances of the same model are allowed when chip
-            # capacity is available. Slot allocation below enforces capacity and the
-            # canonical reconciliation frees genuinely stale records, so we must not
-            # stop existing same-model deployments here.
+            # capacity is available: this guard blocks a second concurrent *start*, not
+            # a second running instance. A model still in 'starting' has a deploy in
+            # flight on the inference server, and firing another one achieves nothing —
+            # the inference server serialises /run behind a single process-wide lock, so
+            # the duplicate would either be rejected or sit invisibly queued and then
+            # start a second container on the same devices and port when the first
+            # finished. Deliberately independent of chip-slot accounting so it still
+            # holds if the slot bookkeeping is ever wrong about the board being free.
+            from docker_control.models import ModelDeployment as _ModelDeployment
+            in_flight = _ModelDeployment.objects.filter(
+                model_name=impl.model_name, status="starting"
+            ).first()
+            if in_flight is not None:
+                logger.info(
+                    f"Rejecting duplicate deploy of {impl.model_name}: job "
+                    f"{in_flight.container_id} is already starting"
+                )
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "deploy_in_flight",
+                        "message": (
+                            f"{impl.model_name} is already deploying. Wait for it to "
+                            f"finish, or cancel it from the Deployed Models page before "
+                            f"starting another."
+                        ),
+                        "job_id": in_flight.container_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -898,12 +927,57 @@ class DeployView(APIView):
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
+                    # Reserve the slot for the duration of the pull, as the chat path
+                    # does. Without a record the allocator reports these devices free
+                    # for the whole pull (minutes) even though they are spoken for, and
+                    # the deployment tray has nothing to show because nothing is
+                    # is_pending -- the model's own card shows pull progress from the
+                    # in-memory pull store, so the deploy looks invisible everywhere else.
+                    from docker_control.models import ModelDeployment
+                    try:
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=media_device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
-                    def deploy_fn(_host_port=host_port):
+                    def _refresh_media_placeholder(_pull_id=pull_id):
+                        # A media image pull outlasts the canonical "starting" grace
+                        # window, so keep the placeholder fresh or it gets reconciled
+                        # away mid-pull and frees the slot.
+                        from datetime import datetime, timezone
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def _retire_media_placeholder(_pull_id=pull_id):
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep and dep.status == "starting":
+                                dep.status = "stopped"
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
+
+                    def deploy_fn(_pull_id=pull_id, _host_port=host_port):
                         resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
+                            # Free the slot: the deploy never started.
+                            _retire_media_placeholder(_pull_id)
                             return None, resp.get("message", "Deployment failed")
+                        # run_container has just created the real record keyed by the
+                        # inference job id. Retire the placeholder after it exists, so
+                        # the slot is continuously held and never counted twice.
+                        _retire_media_placeholder(_pull_id)
                         try:
                             SystemResourceService.force_refresh_tt_smi_cache()
                         except Exception:
@@ -916,6 +990,10 @@ class DeployView(APIView):
                         image_tag=image_tag,
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_media_placeholder,
+                        # The media server image ships Whisper/SpeechT5 weights, so
+                        # nothing downloads after the pull — the pull is the deploy.
+                        expects_weights=False,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
@@ -1089,6 +1167,8 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
                 return
             if real_container_id:
+                from docker_control.deployment_sync import _warn_if_resurrecting_reaped
+                _warn_if_resurrecting_reaped(dep, job_id)
                 dep.container_id = real_container_id
                 if real_container_name:
                     dep.container_name = real_container_name
@@ -1220,6 +1300,9 @@ class DeploymentProgressView(APIView):
                             "speed_bps": pull_job.get("speed_bps"),
                             "eta_seconds": pull_job.get("eta_seconds"),
                             "weights_repo": pull_job.get("image_ref"),
+                            # Lets the client size the progress bands: a model with no
+                            # weights-download phase gives the pull the whole bar.
+                            "expects_weights": pull_job.get("expects_weights", True),
                         },
                         status=status.HTTP_200_OK,
                     )
