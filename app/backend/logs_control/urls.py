@@ -9,7 +9,7 @@ from .views import (
     TtInferenceLogsView,
     BugReportDataView,
     BugReportDownloadView,
-    GitHubIssueView,
+    SupportEmailView,
 )
 
 urlpatterns = [
@@ -18,7 +18,7 @@ urlpatterns = [
     path("tt-inference/", TtInferenceLogsView.as_view(), name="tt_inference_logs"),
     path("bug-report/", BugReportDataView.as_view(), name="bug_report_data"),
     path("bug-report/download/", BugReportDownloadView.as_view(), name="bug_report_download"),
-    path("github-issue/", GitHubIssueView.as_view(), name="github_issue"),
+    path("support-email/", SupportEmailView.as_view(), name="support_email"),
     path("", ListLogsView.as_view(), name="list_logs"),
     path("<path:filename>/", GetLogView.as_view(), name="get_log"),  # catch-all
 ]

@@ -34,6 +34,16 @@ export interface BugReportForm {
   actual: string;
 }
 
+/** Pre-filled support-email draft returned by POST /logs-api/support-email/. */
+export interface SupportEmailDraft {
+  to: string;
+  subject: string;
+  body: string;
+  mailto_url: string;
+  assignee: { name: string; email: string };
+  ref: string;
+}
+
 export interface LogSourceState {
   label: string;
   key: string;

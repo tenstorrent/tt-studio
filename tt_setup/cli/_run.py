@@ -203,7 +203,7 @@ def _run(args):
   {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
   {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
   {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
-  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + open a pre-filled GitHub issue
+  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + draft a support email
   {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
   {C_CYAN}python run.py --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
   {C_CYAN}python run.py --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
@@ -1003,9 +1003,9 @@ def _run(args):
             border_style="error",
         ))
 
-        # Offer to package logs + a pre-filled GitHub issue right now, mirroring
-        # the web UI's Report Bug button. Guard the prompt: a Ctrl+C here should
-        # exit cleanly rather than surface a second traceback.
+        # Offer to package logs + a pre-filled support-email draft right now,
+        # mirroring the web UI's Report Bug button. Guard the prompt: a Ctrl+C
+        # here should exit cleanly rather than surface a second traceback.
         try:
             if confirm("Generate a diagnostics bundle to report this bug now?", default=False):
                 report_bug(exc=e, args=args, open_browser=not args.no_browser)
