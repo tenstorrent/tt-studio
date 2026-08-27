@@ -95,8 +95,25 @@ RUN_PY_SRC = """
     class DeviceTypes(Enum):
         CPU = "cpu"
 
+    def handle_secrets(runtime_config):
+        # Mirrors the real artifact: with no HF_TOKEN in the env this prompts,
+        # which under the subprocess's /dev/null stdin raises EOFError. The
+        # run_py_entry.py shim must have replaced this before main() runs.
+        import getpass
+        val = os.environ.get("HF_TOKEN")
+        if not val:
+            val = getpass.getpass("Enter your HF_TOKEN: ").strip()
+        print("ORIGINAL_HANDLE_SECRETS_RAN", flush=True)
+
     def main():
         argv = sys.argv[1:]
+        if os.environ.get("FAKE_RUN_CALL_HANDLE_SECRETS") == "1":
+            cfg = type("Cfg", (), {
+                "workflow": "server", "docker_server": True,
+                "interactive": False, "no_auth": False,
+            })()
+            handle_secrets(cfg)
+            print("SECRETS_STAGE_PASSED", flush=True)
         dump_path = os.environ.get("FAKE_RUN_DUMP_PATH")
         if dump_path:
             with open(dump_path, "a") as f:
@@ -248,6 +265,72 @@ class TestDevModeSubprocess(TestCase):
         self.assertEqual(len(dumps), 2)
         self.assertIn("--host-volume", dumps[0]["argv"])
         self.assertNotIn("--host-volume", dumps[1]["argv"])
+
+    def test_no_hf_token_deploy_skips_secrets_prompt(self):
+        """A token-less deploy must not die at the artifact's getpass() prompt:
+        the run_py_entry.py shim replaces handle_secrets inside the child."""
+        initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
+        env_vars = {
+            "AUTOMATIC_HOST_SETUP": "True",
+            "FAKE_RUN_CALL_HANDLE_SECRETS": "1",
+            "JWT_SECRET": "test-secret",
+        }
+        request = SimpleNamespace(skip_system_sw_validation=False)
+
+        prev_hf_token = os.environ.pop("HF_TOKEN", None)
+        try:
+            return_code, _ = self.api._run_dev_mode_job(
+                self.job_id, initial_argv, self.artifact_dir, env_vars, request, self.run_logger
+            )
+        finally:
+            if prev_hf_token is not None:
+                os.environ["HF_TOKEN"] = prev_hf_token
+
+        self.assertEqual(return_code, 0)
+        messages = self._log_messages()
+        self.assertTrue(any("SECRETS_STAGE_PASSED" in m for m in messages))
+        self.assertFalse(any("ORIGINAL_HANDLE_SECRETS_RAN" in m for m in messages))
+
+    def test_with_hf_token_uses_original_handle_secrets(self):
+        initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
+        env_vars = {
+            "AUTOMATIC_HOST_SETUP": "True",
+            "FAKE_RUN_CALL_HANDLE_SECRETS": "1",
+            "JWT_SECRET": "test-secret",
+            "HF_TOKEN": "hf_dummy_token",
+        }
+        request = SimpleNamespace(skip_system_sw_validation=False)
+
+        return_code, _ = self.api._run_dev_mode_job(
+            self.job_id, initial_argv, self.artifact_dir, env_vars, request, self.run_logger
+        )
+
+        self.assertEqual(return_code, 0)
+        messages = self._log_messages()
+        self.assertTrue(any("ORIGINAL_HANDLE_SECRETS_RAN" in m for m in messages))
+
+    def test_no_hf_token_and_no_jwt_secret_fails_fast(self):
+        """The patched handle_secrets keeps the JWT gate as a fail-fast."""
+        initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
+        env_vars = {
+            "AUTOMATIC_HOST_SETUP": "True",
+            "FAKE_RUN_CALL_HANDLE_SECRETS": "1",
+        }
+        request = SimpleNamespace(skip_system_sw_validation=False)
+
+        prev = {k: os.environ.pop(k, None) for k in ("HF_TOKEN", "JWT_SECRET")}
+        try:
+            return_code, _ = self.api._run_dev_mode_job(
+                self.job_id, initial_argv, self.artifact_dir, env_vars, request, self.run_logger
+            )
+        finally:
+            for k, v in prev.items():
+                if v is not None:
+                    os.environ[k] = v
+
+        self.assertNotEqual(return_code, 0)
+        messages = self._log_messages()
+        self.assertFalse(any("SECRETS_STAGE_PASSED" in m for m in messages))
 
     def test_retries_once_then_still_fails(self):
         initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]

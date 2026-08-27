@@ -334,117 +334,13 @@ def _patched_check_model_weights_dir(self, host_weights_dir):
 _setup_host_module.HostSetupManager.check_model_weights_dir = _patched_check_model_weights_dir
 
 # Patch the artifact's HF_TOKEN hard-gates so public (non-gated) models deploy
-# without a token.
-#
-# tt-inference-server requires a non-empty HF_TOKEN in three places, all of which
-# either block on an interactive getpass() prompt (which hangs forever inside this
-# headless process, leaving the deploy frozen at 0%) or assert:
-#   1. run.handle_secrets()                       — prompt/assert before anything runs
-#   2. HostSetupManager.get_hf_env_vars()         — assert check_hf_access(token)
-#   3. HostSetupManager.setup_weights_huggingface — `assert self.hf_token` before download
-#
-# Public models need none of that: huggingface_hub treats an empty HF_TOKEN env var
-# as no token and downloads anonymously (utils._auth._clean_token("") -> None). So
-# when no token is configured we pass a truthy-but-empty token through the asserts,
-# and replace the token validation with an anonymous repo check that fails fast —
-# with an actionable message — only for genuinely gated repos.
+# without a token. The patch logic lives in hf_anon_patch so the dev-mode
+# subprocess entrypoint (run_py_entry.py) can apply the identical patches inside
+# its own fresh interpreter — a subprocess can't inherit these in-memory patches.
 import run as _run_module  # noqa: E402
+from hf_anon_patch import apply_hf_anon_patches  # noqa: E402
 
-
-class _AnonymousHFToken(str):
-    """Truthy empty string: satisfies the artifact's `assert self.hf_token` gates
-    while exporting an empty HF_TOKEN env var, which downstream tooling
-    (huggingface_hub / the `hf` CLI) treats as anonymous access."""
-    __slots__ = ()
-
-    def __new__(cls):
-        return super().__new__(cls, "")
-
-    def __bool__(self):
-        return True
-
-
-# getattr-guarded: the test suite imports api against stub artifact modules that
-# don't define these attributes; the real artifact always does.
-_orig_handle_secrets = getattr(_run_module, "handle_secrets", None)
-
-
-def _patched_handle_secrets(runtime_config):
-    if os.getenv("HF_TOKEN"):
-        return _orig_handle_secrets(runtime_config)
-    # Keep the original's JWT gate as a fail-fast instead of a hidden prompt.
-    jwt_required = (
-        str(runtime_config.workflow).lower() == "server"
-        and runtime_config.docker_server
-        and not runtime_config.interactive
-        and not runtime_config.no_auth
-    )
-    if jwt_required and not os.getenv("JWT_SECRET"):
-        raise RuntimeError(
-            "JWT_SECRET is not set — refusing to start a docker-server deploy."
-        )
-    logging.getLogger(__name__).warning(
-        "HF_TOKEN not set — deploying anonymously. Public models download "
-        "normally; gated models (Llama, Gemma, ...) need a token set in "
-        "TT-Studio Settings or .env."
-    )
-
-
-if _orig_handle_secrets is not None:
-    _run_module.handle_secrets = _patched_handle_secrets
-
-_orig_get_hf_env_vars = getattr(_setup_host_module.HostSetupManager, "get_hf_env_vars", None)
-
-
-def _patched_get_hf_env_vars(self):
-    if not (self.hf_token or os.getenv("HF_TOKEN")):
-        self.hf_token = _AnonymousHFToken()
-    return _orig_get_hf_env_vars(self)
-
-
-if _orig_get_hf_env_vars is not None:
-    _setup_host_module.HostSetupManager.get_hf_env_vars = _patched_get_hf_env_vars
-
-_orig_check_hf_access = getattr(_setup_host_module.HostSetupManager, "check_hf_access", None)
-
-
-def _patched_check_hf_access(self, token):
-    if token and not isinstance(token, _AnonymousHFToken):
-        return _orig_check_hf_access(self, token)
-    # Anonymous path: usable iff the repo is public. The models API serves gated
-    # repos' metadata anonymously, so inspect the `gated` field rather than the
-    # HTTP status.
-    repo = self.model_spec.hf_weights_repo
-    log = logging.getLogger(__name__)
-    url = f"https://huggingface.co/api/models/{repo}"
-    try:
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "tt-studio/anon-access-check"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            info = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
-        log.error(
-            "⛔ Anonymous Hugging Face access check failed for %s: %s. "
-            "Set a HF token in TT-Studio Settings (or HF_TOKEN in .env) and retry.",
-            repo, exc,
-        )
-        return False
-    if info.get("gated"):
-        log.error(
-            "⛔ %s is a gated model — it cannot be downloaded anonymously. "
-            "Set your Hugging Face token in TT-Studio Settings (or HF_TOKEN in .env).",
-            repo,
-        )
-        return False
-    if not info.get("siblings"):
-        log.error("⛔ No files found in repository %s.", repo)
-        return False
-    return True
-
-
-if _orig_check_hf_access is not None:
-    _setup_host_module.HostSetupManager.check_hf_access = _patched_check_hf_access
+apply_hf_anon_patches(_run_module, _setup_host_module)
 
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
@@ -1032,7 +928,12 @@ def _execute_dev_mode_subprocess(
     of the `if return_code == 0:` block, which only ever reads log_store[job_id].
     """
     attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
-    argv = [sys.executable, str(script_dir / "run.py")] + argv_for_attempt[1:]
+    # Launch through run_py_entry.py, not run.py directly: the shim re-applies
+    # the hf_anon_patch monkeypatches inside the child interpreter. Without it a
+    # token-less deploy dies at the artifact's getpass("Enter your HF_TOKEN: ")
+    # prompt (EOFError — stdin is /dev/null below).
+    _shim = Path(__file__).resolve().parent / "run_py_entry.py"
+    argv = [sys.executable, str(_shim), str(script_dir / "run.py")] + argv_for_attempt[1:]
 
     child_env = os.environ.copy()       # per-call snapshot; never mutates api.py's own os.environ
     child_env.update(env_vars_to_set)   # AUTOMATIC_HOST_SETUP, SERVICE_PORT, HF_HUB_DISABLE_XET,
