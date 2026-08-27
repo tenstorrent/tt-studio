@@ -106,3 +106,45 @@ class SettingsViewGetTests(SimpleTestCase):
         tts = response.data["tts_api_key"]
         self.assertFalse(tts["editable"])
         self.assertIsNone(tts["value"])
+
+
+@patch("api.views.get_hf_token", return_value="")
+class HfCheckViewNoTokenTests(SimpleTestCase):
+    """With no token saved, explicit repos are still checked anonymously so
+    public (ungated) models don't get falsely blocked from deploying."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch("api.hf_access._check_repo", return_value=200)
+    def test_public_repo_is_granted_without_token(self, _repo_mock, _token_mock):
+        response = self.client.post(
+            "/settings/hf-check/", {"repos": ["Qwen/Qwen3.5-9B"]}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(response.data["results"][0]["status"], "granted")
+
+    @patch("api.hf_access._check_repo", return_value=401)
+    def test_gated_repo_reads_no_token_not_auth_failed(self, _repo_mock, _token_mock):
+        # Anonymous 401 means "gated and no token saved", not a bad credential.
+        response = self.client.post(
+            "/settings/hf-check/",
+            {"repos": ["meta-llama/Llama-3.1-8B-Instruct"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["ok"])
+        self.assertEqual(response.data["results"][0]["status"], "no_token")
+
+    def test_default_gated_set_short_circuits_without_network(self, _token_mock):
+        # No repos requested: keep the old behavior — the default set is all
+        # gated, so answer no_token for each without calling Hugging Face.
+        with patch("api.hf_access._check_repo") as repo_mock:
+            response = self.client.post("/settings/hf-check/", {}, format="json")
+        repo_mock.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["ok"])
+        self.assertTrue(
+            all(r["status"] == "no_token" for r in response.data["results"])
+        )
