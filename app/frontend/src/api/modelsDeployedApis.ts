@@ -66,6 +66,8 @@ export const ModelType = {
   Embedding: "Embedding",
   CNN: "CNN",
   Training: "Training",
+  /** Registered container whose model could not be identified: status only, no interaction page. */
+  Unknown: "Unknown",
 };
 
 /**
@@ -98,6 +100,8 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.CNN;
     case "training":
       return ModelType.Training;
+    case "unknown":
+      return ModelType.Unknown;
     default:
       return ModelType.ChatModel;
   }

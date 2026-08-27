@@ -2704,9 +2704,16 @@ class RegisterExternalModelView(APIView):
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
-            # Derive any remaining identity fields, then validate
+            # Derive any remaining identity fields, then settle on a model type
             if not model_type and hf_model_id:
                 model_type = _infer_model_type(hf_model_id)
+            if not model_type:
+                # No HF id to go on — fall back to the container's name/image.
+                model_type = _infer_model_type_from_container(container_info)
+                if model_type:
+                    corrections.append(
+                        f"Model type '{model_type}' inferred from the container image."
+                    )
             if not model_name:
                 model_name = (
                     hf_model_id.split("/")[-1]
@@ -2714,16 +2721,20 @@ class RegisterExternalModelView(APIView):
                     else (container_info.get("name") or container_id).lstrip("/")
                 )
 
-            if not model_type:
-                return Response(
-                    {"status": "error", "message": "Could not determine the model type from the container. Please specify model_type."},
-                    status=status.HTTP_400_BAD_REQUEST,
+            # An unidentifiable model is still registerable: it is tracked, shown
+            # with its status and manageable (logs/delete), just with no
+            # interaction UI. Only a type we can actually route is kept.
+            if model_type and model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
+                corrections.append(
+                    f"Model type '{model_type}' is not one TT Studio can drive — "
+                    "registering it without an interaction page."
                 )
-            if model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
-                valid_types = ", ".join(sorted(self._VALID_MODEL_TYPES))
-                return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                model_type = ""
+            if not model_type:
+                model_type = "unknown"
+                corrections.append(
+                    "Could not determine what this container serves. It is registered "
+                    "for monitoring only — no chat/TTS page will be offered."
                 )
 
             # Record if the model was launched with tool-calling capability and
@@ -2796,12 +2807,18 @@ class RegisterExternalModelView(APIView):
             try:
                 from docker_control.models import ModelDeployment
 
-                # Check for duplicate registration
+                # Reuse any record already pointing at this container, whatever its
+                # status: re-registering the same container must revive its record
+                # rather than leave a stopped duplicate behind for every attempt.
                 existing = ModelDeployment.objects.filter(
-                    container_id=container_id, status="running"
-                )
+                    container_id__in=[container_id, container_id[:12]]
+                ).order_by("-deployed_at")
                 if existing.exists():
                     rec = list(existing)[0]
+                    rec.status = "running"
+                    rec.stopped_at = None
+                    rec.stopped_by_user = False
+                    rec.container_name = container_name
                     rec.device = "external"
                     rec.device_id = device_id
                     rec.device_ids = device_ids
@@ -2809,8 +2826,10 @@ class RegisterExternalModelView(APIView):
                     rec.port = int(service_port) if service_port else 7000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
+                    rec.model_type = model_type
+                    rec.hf_model_id = hf_model_id
                     rec.save()
-                    corrections.append("Deployment record already existed — updated device mapping.")
+                    corrections.append("Reused this container's existing deployment record.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
                 else:
                     ModelDeployment.objects.create(
@@ -2825,6 +2844,8 @@ class RegisterExternalModelView(APIView):
                         port=int(service_port) if service_port else 7000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
+                        model_type=model_type,
+                        hf_model_id=hf_model_id,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
@@ -3440,6 +3461,42 @@ def _infer_model_type(hf_id: str) -> str:
     return "chat"
 
 
+# Keyword -> model_type, applied to a container's name/image when the model has
+# no HF id to infer from. Ordered: earlier entries win (a "*_tts" name contains
+# "speech", so TTS must be tested before speech recognition).
+_IMAGE_TYPE_HINTS = (
+    (("-tts-", "_tts", "tts-", "tts_", "xtts", "bark", "speecht5", "fastspeech"), "tts"),
+    (("whisper", "wav2vec", "-asr", "speech-recognition", "speech_recognition", "-stt"), "speech_recognition"),
+    (("llava", "idefics", "vision", "blip", "-vl-", "-vl:"), "vlm"),
+    (("stable-diffusion", "sdxl", "flux", "image-generation"), "image_generation"),
+    (("yolo", "objdetection", "object-detection"), "object_detection"),
+    (("wan2", "video-generation", "mochi"), "video_generation"),
+    (("embed", "-e5-", "bge-", "gte-"), "embedding"),
+    (("vllm", "llama", "qwen", "mistral", "gemma", "phi-", "deepseek"), "chat"),
+)
+
+
+def _infer_model_type_from_container(container_info: dict) -> str:
+    """Best-effort model_type from a container's name and image, for models with
+    no HF id to go on. Returns "" when nothing recognisable is found — unlike
+    _infer_model_type there is no chat default, because a wrong guess here would
+    offer an interaction page that cannot work."""
+    config_image = (container_info.get("Config") or {}).get("Image")
+    haystack = " ".join(
+        str(v or "").lower()
+        for v in (
+            container_info.get("name"),
+            container_info.get("image"),
+            container_info.get("image_name"),
+            config_image,
+        )
+    )
+    for keywords, model_type in _IMAGE_TYPE_HINTS:
+        if any(kw in haystack for kw in keywords):
+            return model_type
+    return ""
+
+
 def _parse_vllm_logs(text: str) -> dict:
     """Extract the model id and serving port from vLLM startup log lines."""
     result = {}
@@ -3541,6 +3598,12 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
 
     if result.get("hf_model_id"):
         result["model_type"] = _infer_model_type(result["hf_model_id"])
+    else:
+        # No model id anywhere — the container's name/image is all that's left.
+        # Registration applies the same fallback, so the form shows what it will do.
+        inferred = _infer_model_type_from_container(container_info)
+        if inferred:
+            result["model_type"] = inferred
     return result
 
 

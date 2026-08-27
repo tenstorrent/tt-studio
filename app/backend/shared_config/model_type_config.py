@@ -17,3 +17,6 @@ class ModelTypes(Enum):
     EMBEDDING = "embedding"
     CNN = "cnn"
     TRAINING = "training"
+    # Registered external container whose model type could not be determined.
+    # It is tracked and manageable, but no interaction UI is offered for it.
+    UNKNOWN = "unknown"

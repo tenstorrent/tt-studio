@@ -384,8 +384,15 @@ export default function NavBar() {
   }, [modelIdsKey]);
 
   // Only models that are actually healthy/usable should surface in the navbar.
+  // Externally-registered containers whose model we could not identify have no
+  // interaction page, so they are managed from the Models page only.
   const healthyModels = useMemo(
-    () => models.filter((m) => healthById[m.id] === "healthy"),
+    () =>
+      models.filter(
+        (m) =>
+          healthById[m.id] === "healthy" &&
+          m.model_type !== "unknown"
+      ),
     [models, healthById]
   );
 

@@ -93,6 +93,9 @@ export default React.memo(function ManageCell({
   const modelType = model_type
     ? getModelTypeFromBackendType(model_type)
     : getModelTypeFromName(name ?? "");
+  // An externally-registered container whose model we could not identify has no
+  // interaction page and no known API shape, so only management actions apply.
+  const isUnidentified = modelType === ModelType.Unknown;
   const openLabel =
     modelType === ModelType.ImageGeneration
       ? "Image Gen"
@@ -208,30 +211,34 @@ export default React.memo(function ManageCell({
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">
-      <Button
-        variant="outline"
-        size="sm"
-        effect="expandIcon"
-        icon={FileCode2}
-        iconPlacement="right"
-        onClick={() => onOpenApi(id)}
-        disabled={health !== "healthy"}
-        className={`${baseBtn} ${blueBtn}`}
-      >
-        API
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        effect="expandIcon"
-        icon={OpenIcon}
-        iconPlacement="left"
-        onClick={() => onNavigateToModel(id, name ?? id)}
-        disabled={health !== "healthy"}
-        className={`${baseBtn} ${amberBtn}`}
-      >
-        {openLabel}
-      </Button>
+      {!isUnidentified && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={FileCode2}
+            iconPlacement="right"
+            onClick={() => onOpenApi(id)}
+            disabled={health !== "healthy"}
+            className={`${baseBtn} ${blueBtn}`}
+          >
+            API
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={OpenIcon}
+            iconPlacement="left"
+            onClick={() => onNavigateToModel(id, name ?? id)}
+            disabled={health !== "healthy"}
+            className={`${baseBtn} ${amberBtn}`}
+          >
+            {openLabel}
+          </Button>
+        </>
+      )}
       <Button
         variant="outline"
         size="sm"
