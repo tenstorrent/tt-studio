@@ -74,6 +74,19 @@ def apply_hf_anon_patches(run_module, setup_host_module):
             "normally; gated models (Llama, Gemma, ...) need a token set in "
             "TT-Studio Settings or .env."
         )
+        # Keep the original's side effect of materializing the repo-root .env:
+        # run_docker_server.py passes it to `docker run --env-file`
+        # unconditionally, and docker errors out if the file doesn't exist.
+        # Write the secrets that ARE present (JWT_SECRET); HF_TOKEN is simply
+        # absent, which downstream tooling treats as anonymous access.
+        load_dotenv = getattr(run_module, "load_dotenv", None)
+        write_dotenv = getattr(run_module, "write_dotenv", None)
+        if load_dotenv is not None and write_dotenv is not None:
+            if not load_dotenv():
+                write_dotenv(
+                    {k: os.environ[k] for k in ("JWT_SECRET",) if os.getenv(k)}
+                )
+                load_dotenv()
 
     if _orig_handle_secrets is not None:
         run_module.handle_secrets = _patched_handle_secrets
