@@ -941,7 +941,18 @@ def _enrich_container_with_model_impl(con, con_id):
             deployment_found = False
             try:
                 from docker_control.models import ModelDeployment
-                deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                # Match on either id form (records may hold the short id the
+                # caller passed) and fall back to the name. Registration does not
+                # rename the container, so the record is the only link between a
+                # container and the model it serves — this lookup has to be robust.
+                deployment = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[con_id, con_id[:12]]
+                    ).first()
+                    or ModelDeployment.objects.filter(
+                        container_name=con["name"]
+                    ).first()
+                )
 
                 if deployment:
                     for _k, v in model_implmentations.items():

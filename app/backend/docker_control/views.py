@@ -2754,26 +2754,10 @@ class RegisterExternalModelView(APIView):
             if jwt_secret:
                 corrections.append("Detected the container's JWT secret for authenticated inference.")
 
-            # --- Rename container based on model name ---
-            current_name = container_info.get("name", container_id)
-            if current_name.startswith("/"):
-                current_name = current_name[1:]
-
-            # Sanitize desired name: lowercase, replace problematic chars
-            desired_name = model_name.lower().replace("/", "-").replace(" ", "_")
-            # Remove any chars that aren't alphanumeric, hyphens, or underscores
-            desired_name = "".join(c for c in desired_name if c.isalnum() or c in "-_.")
-
-            container_name = current_name
-            if desired_name and current_name != desired_name:
-                try:
-                    docker_client.rename_container(container_id, desired_name)
-                    corrections.append(f"Container renamed from '{current_name}' to '{desired_name}'")
-                    container_name = desired_name
-                    logger.info(f"Renamed container '{current_name}' to '{desired_name}'")
-                except Exception as e:
-                    logger.warning(f"Could not rename container: {e}")
-                    container_name = current_name
+            # --- Container name ---
+            # Left exactly as the launching tool set it. TT Studio identifies the
+            # container by id (the deployment record carries the model name for display)
+            container_name = container_info.get("name", container_id).lstrip("/")
 
             # --- Connect container to tt_studio_network ---
             network_name = backend_config.docker_bridge_network_name
