@@ -138,6 +138,7 @@ from model_control.model_utils import (
     stream_to_cloud_model,
 )
 from shared_config.model_config import model_implmentations
+from shared_config.model_type_config import ModelTypes
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
 from shared_config.user_config import get_tts_api_key, get_tavily_api_key
@@ -185,6 +186,13 @@ class InferenceView(View):
 
         deploy_id = data.pop("deploy_id")
         deploy = get_deploy_cache()[deploy_id]
+        # A registered container whose model we could not identify has no known
+        # request shape — never guess one at it.
+        if getattr(deploy.get("model_impl"), "model_type", None) == ModelTypes.UNKNOWN:
+            return JsonResponse(
+                {"error": "This container's model was not identified, so TT Studio cannot run inference against it."},
+                status=400,
+            )
         internal_url = "http://" + deploy["internal_url"]
         auth_token = token_for(deploy.get("jwt_secret"))
         logger.info(f"internal_url:= {internal_url}")
@@ -347,6 +355,16 @@ class ModelHealthView(APIView):
         if serializer.is_valid():
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
+            # An externally-registered container whose model we could not identify
+            # has no known health route, so report health as unknown (the client
+            # treats any other status that way) rather than probing a guess and
+            # rendering a running container as unavailable.
+            model_impl = deploy.get("model_impl")
+            if getattr(model_impl, "model_type", None) == ModelTypes.UNKNOWN:
+                return Response(
+                    {"message": "Unknown", "details": "This container's model was not identified, so its health cannot be probed."},
+                    status=status.HTTP_501_NOT_IMPLEMENTED,
+                )
             health_url = "http://" + deploy["health_url"]
             check_passed, health_content = health_check(health_url, json_data=None, auth_token=token_for(deploy.get('jwt_secret')))
             if check_passed is True:

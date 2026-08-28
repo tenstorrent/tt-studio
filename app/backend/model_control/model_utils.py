@@ -92,6 +92,12 @@ def get_model_context_length(internal_url: str, auth_token: str = None):
             data = response.json().get("data", [])
             if data:
                 return data[0].get("max_model_len")
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        # A model that is still starting refuses connections until vLLM binds its
+        # port — minutes on a large model. That is the expected state during a
+        # healthy deploy, not a fault; at WARNING it produced hundreds of
+        # connection-refused lines that read like the deploy was broken.
+        logger.debug(f"max_model_len not available yet from {internal_url}: {e}")
     except Exception as e:
         logger.warning(f"Failed to fetch max_model_len from {internal_url}: {e}")
     return None
@@ -124,6 +130,10 @@ def get_model_name_from_container(internal_url: str, fallback: str, auth_token: 
                 f"GET {models_url} returned {response.status_code}, using fallback: {fallback}"
             )
             return fallback
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        # Same warm-up window as _fetch_max_model_len: not yet listening != broken.
+        logger.debug(f"/v1/models not available yet ({e}), using fallback: {fallback}")
+        return fallback
     except Exception as e:
         logger.warning(f"Failed to query /v1/models ({e}), using fallback: {fallback}")
         return fallback

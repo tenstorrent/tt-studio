@@ -52,15 +52,7 @@ import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 import type { ChipStatus } from "../../types/chipStatus";
-
-const deviceIdsForRow = (
-  row?: { device_ids?: number[]; device_id?: number | null },
-): number[] | undefined => {
-  if (!row) return undefined;
-  if (Array.isArray(row.device_ids) && row.device_ids.length > 0) return row.device_ids;
-  if (row.device_id != null) return [row.device_id];
-  return undefined;
-};
+import { deviceIdsForRow } from "../../utils/deviceIds";
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight, controlPlaneDegraded } = useModels();
@@ -274,10 +266,25 @@ export default function ModelsDeployedCard(): JSX.Element {
     seenLiveIdsRef.current.clear();
   }
 
-  const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
-    const next: Record<string, FailedDeploymentInfo> = {};
+  // Newest history record per container. A container can accumulate several
+  // records (a re-registration, a redeploy under the same id), and only the
+  // latest describes its current state — without this, one old stopped record
+  // marked a live, running container as "Died Unexpectedly" forever.
+  const latestHistoryByContainer = useMemo(() => {
+    const latest = new Map<string, HistoryRecord>();
     for (const d of history) {
       if (!d.container_id || d.container_id.startsWith("pending_")) continue;
+      const prev = latest.get(d.container_id);
+      if (!prev || (d.deployed_at ?? "") >= (prev.deployed_at ?? "")) {
+        latest.set(d.container_id, d);
+      }
+    }
+    return latest;
+  }, [history]);
+
+  const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
+    const next: Record<string, FailedDeploymentInfo> = {};
+    for (const d of latestHistoryByContainer.values()) {
       if (d.stopped_by_user) continue;
       // Only flag deployments we've actually seen alive this session OR that
       // are still in the live set (so a row that's currently visible can flip
@@ -303,8 +310,8 @@ export default function ModelsDeployedCard(): JSX.Element {
       }
     }
     console.debug(
-      "[failed-detect] history:",
-      history.length,
+      "[failed-detect] containers:",
+      latestHistoryByContainer.size,
       "live:",
       liveContainerIds.size,
       "seen-this-session:",
@@ -313,7 +320,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       Object.keys(next),
     );
     return next;
-  }, [history, liveContainerIds]);
+  }, [latestHistoryByContainer, liveContainerIds]);
 
   // Build synthetic rows ONLY for failed containers that were alive in this
   // session but have since disappeared from /docker-api/status/. This keeps
@@ -321,9 +328,8 @@ export default function ModelsDeployedCard(): JSX.Element {
   // failure and click Remove. We do not surface historical failures.
   const syntheticFailedRows = useMemo<ModelRow[]>(() => {
     const out: ModelRow[] = [];
-    for (const d of history) {
+    for (const d of latestHistoryByContainer.values()) {
       const cid = d.container_id;
-      if (!cid || cid.startsWith("pending_")) continue;
       if (!failedMap[cid]) continue;
       if (liveContainerIds.has(cid)) continue;
       if (!seenLiveIdsRef.current.has(cid)) continue;
@@ -337,7 +343,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       });
     }
     return out;
-  }, [history, failedMap, liveContainerIds, resetAllNonce]);
+  }, [latestHistoryByContainer, failedMap, liveContainerIds, resetAllNonce]);
 
   const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
     const merged: Record<string, HealthStatus> = { ...healthMap };
