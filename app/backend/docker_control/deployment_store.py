@@ -98,10 +98,16 @@ def _load_raw() -> dict:
 
 def _save_raw(data: dict) -> None:
     _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _STORE_PATH.with_suffix(".tmp")
+    # Unique per-process tmp name. A shared one lets a second writer rename the file
+    # out from under the first (ENOENT on replace), or interleave into it so the
+    # renamed result is a short write overlaid on a longer one - which corrupted the
+    # store into "Extra data: line 67 column 2" and silently dropped every record.
+    tmp = _STORE_PATH.with_name(f"deployments.{os.getpid()}.tmp")
     try:
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, _STORE_PATH)
     except Exception as e:
         logger.error(f"Failed to save deployment store: {e}")

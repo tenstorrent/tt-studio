@@ -3,7 +3,7 @@
     "artifact_version": "0.20.0",
     "generated_at": "2026-08-17T18:22:32.785689+00:00"
   },
-  "total_models": 60,
+  "total_models": 59,
   "models": [
     {
       "model_name": "distil-large-v3",
@@ -1465,23 +1465,6 @@
       "inference_artifact_ref": {
         "P300x2": "tt-studio/qwen3.8-27b-p300x2"
       }
-    },
-    {
-      "model_name": "Z-Image-Turbo",
-      "model_type": "IMAGE_GENERATION",
-      "display_model_type": "IMAGE",
-      "device_configurations": [
-        "P300x2"
-      ],
-      "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
-      "inference_engine": "media",
-      "status": "FUNCTIONAL",
-      "version": "0.17.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
-      "service_route": "/v1/images/generations",
-      "health_route": "/health",
-      "env_vars": {},
-      "param_count": null
     }
   ]
 }

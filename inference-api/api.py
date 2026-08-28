@@ -98,6 +98,49 @@ def _get_hf_token_from_user_config() -> Optional[str]:
     return None
 
 
+def _resolve_secret_env_vars(
+    jwt_secret: Optional[str] = None,
+    hf_token: Optional[str] = None,
+    ui_hf_token: Optional[str] = None,
+) -> Dict[str, str]:
+    """Build the per-deploy secret env vars from the request and UI config.
+
+    Deliberately does NOT consult os.environ. All deploys share one process and one
+    os.environ: each job applies its secrets there under _run_main_lock and wipes them
+    in a finally. This function runs at request time, OUTSIDE that lock, so a
+    concurrent job holding the lock makes os.getenv("JWT_SECRET") transiently truthy.
+    Skipping the request value on that basis loses it, because the other job's finally
+    removes it before this job ever acquires the lock — the deploy then dies in
+    handle_secrets with "JWT_SECRET is not set". That race is why concurrent deploys
+    (e.g. the Voice Agent's three-at-once) failed while a lone retry succeeded.
+
+    Each job therefore always carries its own copy. A secret already present in the
+    process env (exported from the root .env at startup) still works: it lives in the
+    pristine env the lock restores, so it survives every job's cleanup.
+    """
+    resolved: Dict[str, str] = {}
+    log = logging.getLogger(__name__)
+
+    if jwt_secret:
+        log.info("Setting JWT_SECRET from request")
+        resolved["JWT_SECRET"] = jwt_secret
+    elif not os.getenv("JWT_SECRET"):
+        log.warning("JWT_SECRET not set - this may cause issues")
+
+    # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+    # so changes apply without restarting inference-api or redeploying anything.
+    if ui_hf_token:
+        log.info("Setting HF_TOKEN from TT Studio user_config.env")
+        resolved["HF_TOKEN"] = ui_hf_token
+    elif hf_token:
+        log.info("Setting HF_TOKEN from request")
+        resolved["HF_TOKEN"] = hf_token
+    elif not os.getenv("HF_TOKEN"):
+        log.warning("HF_TOKEN not set - this may cause issues with model downloads")
+
+    return resolved
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -489,6 +532,14 @@ _cancel_lock = threading.Lock()
 _cancelled_jobs: set[str] = set()
 _active_run_job_id: Optional[str] = None
 
+# Concurrent deploys are legitimate — the Voice Agent submits three at once — but
+# run_main() mutates process globals, so only one may execute at a time. A waiting
+# job therefore queues instead of being refused, re-checking this often and
+# publishing its wait as progress so it is never mistaken for a hung deploy.
+_RUN_LOCK_POLL_SECONDS = 2
+# Absolute ceiling on queueing, so a wedged holder cannot strand waiters forever.
+_RUN_LOCK_MAX_WAIT_SECONDS = 2 * 60 * 60
+
 
 def _is_job_cancelled(job_id: str) -> bool:
     with _cancel_lock:
@@ -589,6 +640,14 @@ _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist 
 _WORKFLOW_LOGS_PERMISSION_ERROR_RE = re.compile(r"PermissionError.*workflow_logs")
 # setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
 _HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
+# tqdm counter emitted by `hf download`: "Fetching 32 files:  47%|████▋ | 15/32 [...]".
+_HF_FETCH_FILES_RE = re.compile(
+    r"Fetching\s+\d+\s+files:\s*\d+%\|[^|]*\|\s*(?P<done>\d+)/(?P<total>\d+)"
+)
+# Bar band reserved for the host weights download. It runs from the end of setup to
+# the start of container creation, and on a cold deploy it dominates the wall clock.
+_WEIGHTS_PROGRESS_START = 20
+_WEIGHTS_PROGRESS_END = 60
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
@@ -962,6 +1021,38 @@ def _build_retry_argv_and_reason(current_argv: list[str], request: "RunRequest")
     return retry_argv, retry_reason
 
 
+# Lines on a subprocess's stderr that actually indicate a problem. Everything else
+# arriving on stderr (tqdm bars, uv resolve/install output, hf CLI hints) is normal
+# progress and must not be surfaced to the user as an error.
+_SUBPROCESS_ERROR_RE = re.compile(
+    r"(?:^|\W)(?:error|errno|traceback|exception|fatal|critical|"
+    r"failed|failure|cannot|could not|permission denied|no such file)\b",
+    re.IGNORECASE,
+)
+# Progress-bar redraws and package-manager chatter — noisy but always benign.
+_SUBPROCESS_BENIGN_RE = re.compile(
+    r"(\d+%\|)|(\bit/s\b)|(\bs/it\b)|(^\s*\+\s\S+==)|"
+    r"(^(Downloading|Downloaded|Installed|Prepared|Resolved|Using|Creating|Activate|Fetching|Hint:))",
+)
+
+
+def _classify_subprocess_line(
+    line: str, levelno: int, levelname: str
+) -> Tuple[int, str]:
+    """Pick the log level for one line of run.py subprocess output.
+
+    Returns the caller's level unchanged for stdout and for error-shaped stderr;
+    downgrades ordinary stderr progress to INFO.
+    """
+    if levelno < logging.WARNING:
+        return levelno, levelname
+    if _SUBPROCESS_BENIGN_RE.search(line):
+        return logging.INFO, "INFO"
+    if _SUBPROCESS_ERROR_RE.search(line):
+        return levelno, levelname
+    return logging.INFO, "INFO"
+
+
 def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
                                pull_state: Dict[str, int], run_logger: logging.Logger) -> None:
     """Read a dev-mode run.py subprocess's stdout/stderr pipe line by line and feed
@@ -975,8 +1066,15 @@ def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
             line = line.rstrip("\n")
             if not line:
                 continue
-            run_logger.log(levelno, line)
-            _process_run_output_line(job_id, line, levelname, pull_state)
+            # stderr is not an error channel here: uv, the hf CLI and tqdm all write
+            # ordinary progress to it. Logging every such line at WARNING made a
+            # healthy deploy read as "a bunch of errors" in the UI's log view, so
+            # only genuinely error-shaped lines keep the caller's level.
+            line_levelno, line_levelname = _classify_subprocess_line(
+                line, levelno, levelname
+            )
+            run_logger.log(line_levelno, line)
+            _process_run_output_line(job_id, line, line_levelname, pull_state)
 
 
 def _execute_dev_mode_subprocess(
@@ -1796,11 +1894,24 @@ def _process_run_output_line(
         elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
             stage = "model_preparation"
             progress = 28
-        # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
+        # `hf download` file counter (e.g. "Fetching 32 files:  47%|████▋ | 15/32 [...]").
+        # This is the only progress signal emitted during the host weights download,
+        # which is the longest phase of a cold deploy by a wide margin. Flattening it
+        # to a fixed percent left the bar frozen for the entire download and made a
+        # healthy deploy look hung, so map the real file count onto the bar.
+        elif (_fetch_match := _HF_FETCH_FILES_RE.search(message)) is not None:
+            stage = "model_preparation"
+            done = int(_fetch_match.group("done"))
+            total = int(_fetch_match.group("total"))
+            fraction = (done / total) if total > 0 else 0.0
+            progress = _WEIGHTS_PROGRESS_START + int(
+                fraction * (_WEIGHTS_PROGRESS_END - _WEIGHTS_PROGRESS_START)
+            )
+            message = f"Downloading model weights… ({done}/{total} files)"
         elif "fetching" in message.lower() and "files" in message.lower():
             stage = "model_preparation"
-            progress = 20
-            message = "Downloading model configuration files..."
+            progress = _WEIGHTS_PROGRESS_START
+            message = "Downloading model weights…"
         # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
         elif any(keyword in message.lower() for keyword in [
             "pulling from",
@@ -1855,7 +1966,13 @@ def _process_run_output_line(
             stage = "complete"
             progress = 100
             status = "completed"
-        elif any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token"]) and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"]):
+        elif (
+            # A real auth-failure signal is required; merely mentioning HF_TOKEN
+            # (e.g. "✅ HF_TOKEN is valid.") must not flip the job to error.
+            any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"])
+            and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"])
+            and not any(p in message.lower() for p in ["✅", "is valid"])
+        ):
             status = "error"
             stage = "error"
             message = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
@@ -2361,6 +2478,41 @@ def sync_tokens_from_tt_studio():
     else:
         logger.info("JWT_SECRET and HF_TOKEN are already synchronized")
 
+def _acquire_run_lock(job_id: str) -> None:
+    """Block until this job owns the run lock, reporting the wait as real progress.
+
+    run_main() relies on process globals (sys.argv, os.environ, cwd), so deploys
+    execute one at a time. Submitting several at once is a supported workflow
+    though — the Voice Agent fires LLM + Whisper + TTS together — so a waiting job
+    queues rather than being rejected.
+
+    The wait is recorded additively (waiting_for_job_id) and must stay that way: a
+    queued job still has live progress of its own from its image pull and weights
+    monitor, and a placeholder written here replaces it with "Waiting for ...".
+    """
+    waited = 0.0
+    while not _run_main_lock.acquire(timeout=_RUN_LOCK_POLL_SECONDS):
+        waited += _RUN_LOCK_POLL_SECONDS
+        # Cancelling a queued job must not leave it to start a container later.
+        if _is_job_cancelled(job_id):
+            raise RuntimeError("cancelled")
+        if waited > _RUN_LOCK_MAX_WAIT_SECONDS:
+            raise RuntimeError(
+                f"gave up after {int(waited // 60)} min waiting for deployment "
+                f"{_active_run_job_id} to finish"
+            )
+        with progress_lock:
+            # Record the wait additively — never touch the fields the UI renders.
+            # A queued job is NOT idle: its image pull and its weights monitor both
+            # publish to progress_store before the lock is acquired, so Whisper and
+            # TTS show real numeric progress while they wait their turn behind the
+            # LLM. Writing {stage: "queued", progress: 0, message: "Waiting for
+            # <job id>"} here every poll overwrote exactly that.
+            entry = progress_store.get(job_id)
+            if entry is not None:
+                entry["waiting_for_job_id"] = _active_run_job_id
+
+
 @app.post("/run")
 async def run_inference(request: RunRequest):
     deployment_log_handler = None
@@ -2430,24 +2582,15 @@ async def run_inference(request: RunRequest):
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
-        # Handle secrets - use from request if provided and not already in environment
-        if request.jwt_secret and not os.getenv("JWT_SECRET"):
-            logger.info("Setting JWT_SECRET from request")
-            env_vars_to_set["JWT_SECRET"] = request.jwt_secret
-        elif not os.getenv("JWT_SECRET"):
-            logger.warning("JWT_SECRET not set - this may cause issues")
-            
-        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
-        # so changes apply without restarting inference-api or redeploying anything.
-        ui_hf = _get_hf_token_from_user_config()
-        if ui_hf:
-            logger.info("Setting HF_TOKEN from TT Studio user_config.env")
-            env_vars_to_set["HF_TOKEN"] = ui_hf
-        elif request.hf_token and not os.getenv("HF_TOKEN"):
-            logger.info("Setting HF_TOKEN from request")
-            env_vars_to_set["HF_TOKEN"] = request.hf_token
-        elif not os.getenv("HF_TOKEN"):
-            logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
+        # Handle secrets. See _resolve_secret_env_vars() for why these must not be
+        # conditioned on the current os.environ.
+        env_vars_to_set.update(
+            _resolve_secret_env_vars(
+                jwt_secret=request.jwt_secret,
+                hf_token=request.hf_token,
+                ui_hf_token=_get_hf_token_from_user_config(),
+            )
+        )
             
         # Convert the request to command line arguments
         base_argv = ["run.py"]
@@ -2610,6 +2753,7 @@ async def run_inference(request: RunRequest):
             )
             logger.info("Job %s: skipping --host-hf-cache (%s)", job_id, reason)
         def _run_job_in_background():
+            global _active_run_job_id
             weights_stop_event = threading.Event()
             progress_handler = None
             run_logger = logging.getLogger("run_log")
@@ -2658,8 +2802,13 @@ async def run_inference(request: RunRequest):
 
                 # run_main() relies on process globals (sys.argv, os.environ, cwd), so
                 # serialize this setup/execution phase across concurrent /run requests.
-                with _run_main_lock:
-                    global _active_run_job_id
+                # Bounded, not blocking: a second /run used to wait here for as long as the
+                # holder took (a multi-GB weights download = tens of minutes), reporting 0%
+                # the whole time and then starting a second container on the same devices
+                # and port once the lock freed. Fail the job instead so the caller sees a
+                # real error immediately.
+                _acquire_run_lock(job_id)
+                try:
                     if _is_job_cancelled(job_id):
                         raise RuntimeError("cancelled")
                     _active_run_job_id = job_id
@@ -2817,6 +2966,13 @@ async def run_inference(request: RunRequest):
                                 os.environ.update(prev_env)
                             except Exception:
                                 pass
+                finally:
+                    # Defensive: the branches above clear this in their own finally,
+                    # but a stuck marker would make the /run busy-check reject every
+                    # subsequent deploy for the life of the process.
+                    _active_run_job_id = None
+                    _run_main_lock.release()
+
 
                 if return_code == 0:
                     # Always extract from captured job logs — provides docker_log_file_path
@@ -2962,11 +3118,14 @@ async def run_inference(request: RunRequest):
                             )
                 else:
                     # Scan recent logs for auth errors to surface a clear message
-                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token", "gatedrepoerror"]
+                    # "hf_token" is deliberately absent from the failure indicators:
+                    # benign lines like "✅ HF_TOKEN is valid." must not be scored
+                    # as auth errors.
+                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"]
                     auth_error_msg = None
                     for entry in reversed(list(log_store.get(job_id, []))):
                         msg = entry.get("message", "").lower()
-                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]) and not any(p in msg for p in ["✅", "is valid"]):
                             auth_error_msg = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
                             break
                     with progress_lock:

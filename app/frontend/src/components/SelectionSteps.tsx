@@ -37,6 +37,8 @@ export interface Model {
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
   chips_required?: number; // Number of chips required (1 or 4)
+  /** Hugging Face repo backing this model; null when it has no HF source. */
+  hf_model_id?: string | null;
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
