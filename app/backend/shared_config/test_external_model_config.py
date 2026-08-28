@@ -42,6 +42,13 @@ class TestBuildExternalModelImpl:
         assert impl.service_port == 8000
         assert impl.hf_model_id == "org/my-tts"
 
+    def test_embedding_uses_the_media_enqueue_contract(self):
+        # Not a chat route: media embedding models serve /enqueue, and TT Studio
+        # has no embedding UI to drive a chat endpoint anyway.
+        impl = build_external_model_impl("some-embedder", "embedding")
+        assert impl.service_route == "/enqueue"
+        assert impl.inference_engine == "media"
+
     def test_chat_model_routes_like_a_catalog_chat_model(self):
         impl = build_external_model_impl("some-llm", "chat")
         assert impl.service_route == "/v1/chat/completions"

@@ -20,6 +20,7 @@ import type { HealthStatus } from "../../../types/models";
 import {
   getModelTypeFromName,
   getModelTypeFromBackendType,
+  hasInteractionPage,
   ModelType,
 } from "../../../api/modelsDeployedApis";
 import {
@@ -93,9 +94,9 @@ export default React.memo(function ManageCell({
   const modelType = model_type
     ? getModelTypeFromBackendType(model_type)
     : getModelTypeFromName(name ?? "");
-  // An externally-registered container whose model we could not identify has no
-  // interaction page and no known API shape, so only management actions apply.
-  const isUnidentified = modelType === ModelType.Unknown;
+  // Embedding models have no UI, and an unidentified container has no known API
+  // shape — neither gets an interaction or API button, only management actions.
+  const noInteraction = !hasInteractionPage(modelType);
   const openLabel =
     modelType === ModelType.ImageGeneration
       ? "Image Gen"
@@ -211,7 +212,7 @@ export default React.memo(function ManageCell({
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">
-      {!isUnidentified && (
+      {!noInteraction && (
         <>
           <Button
             variant="outline"

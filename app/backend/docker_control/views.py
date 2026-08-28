@@ -2794,11 +2794,14 @@ class RegisterExternalModelView(APIView):
                 # Reuse any record already pointing at this container, whatever its
                 # status: re-registering the same container must revive its record
                 # rather than leave a stopped duplicate behind for every attempt.
-                existing = ModelDeployment.objects.filter(
-                    container_id__in=[container_id, container_id[:12]]
-                ).order_by("-deployed_at")
-                if existing.exists():
-                    rec = list(existing)[0]
+                rec = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[container_id, container_id[:12]]
+                    )
+                    .order_by("-deployed_at")
+                    .first()
+                )
+                if rec is not None:
                     rec.status = "running"
                     rec.stopped_at = None
                     rec.stopped_by_user = False

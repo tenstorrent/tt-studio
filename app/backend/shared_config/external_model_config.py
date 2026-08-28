@@ -27,7 +27,9 @@ _TYPE_ROUTING = {
     ModelTypes.MOCK: ("/v1/chat/completions", "vllm"),
     ModelTypes.VLM: ("/v1/chat/completions", "vllm"),
     ModelTypes.CNN: ("/v1/chat/completions", "forge"),
-    ModelTypes.EMBEDDING: ("/v1/chat/completions", "vllm"),
+    # Embedding models on the media server take /enqueue, not a chat route.
+    # TT Studio has no embedding UI, so this is for identification/parity only.
+    ModelTypes.EMBEDDING: ("/enqueue", "media"),
     ModelTypes.TTS: ("/v1/audio/speech", "media"),
     ModelTypes.SPEECH_RECOGNITION: ("/v1/audio/transcriptions", "media"),
     ModelTypes.IMAGE_GENERATION: ("/v1/images/generations", "media"),
@@ -82,9 +84,9 @@ def build_external_model_impl(
 ) -> ExternalModelImpl:
     """Build the stand-in impl for an externally-registered container.
 
-    An UNKNOWN type still gets an impl (so the container is tracked and its
-    health can be probed) but keeps a bare service route: nothing in the UI
-    offers inference against it.
+    An UNKNOWN type still gets an impl (so the container is tracked) but keeps a
+    bare service route: nothing in the UI offers inference against it, and health
+    is reported as unknown rather than probing a guessed endpoint.
     """
     resolved_type = normalize_external_model_type(
         getattr(model_type, "value", model_type)
