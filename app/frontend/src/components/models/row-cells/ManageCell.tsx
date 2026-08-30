@@ -20,6 +20,7 @@ import type { HealthStatus } from "../../../types/models";
 import {
   getModelTypeFromName,
   getModelTypeFromBackendType,
+  hasInteractionPage,
   ModelType,
 } from "../../../api/modelsDeployedApis";
 import {
@@ -93,6 +94,9 @@ export default React.memo(function ManageCell({
   const modelType = model_type
     ? getModelTypeFromBackendType(model_type)
     : getModelTypeFromName(name ?? "");
+  // Embedding models have no UI, and an unidentified container has no known API
+  // shape — neither gets an interaction or API button, only management actions.
+  const noInteraction = !hasInteractionPage(modelType);
   const openLabel =
     modelType === ModelType.ImageGeneration
       ? "Image Gen"
@@ -208,30 +212,34 @@ export default React.memo(function ManageCell({
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">
-      <Button
-        variant="outline"
-        size="sm"
-        effect="expandIcon"
-        icon={FileCode2}
-        iconPlacement="right"
-        onClick={() => onOpenApi(id)}
-        disabled={health !== "healthy"}
-        className={`${baseBtn} ${blueBtn}`}
-      >
-        API
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        effect="expandIcon"
-        icon={OpenIcon}
-        iconPlacement="left"
-        onClick={() => onNavigateToModel(id, name ?? id)}
-        disabled={health !== "healthy"}
-        className={`${baseBtn} ${amberBtn}`}
-      >
-        {openLabel}
-      </Button>
+      {!noInteraction && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={FileCode2}
+            iconPlacement="right"
+            onClick={() => onOpenApi(id)}
+            disabled={health !== "healthy"}
+            className={`${baseBtn} ${blueBtn}`}
+          >
+            API
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={OpenIcon}
+            iconPlacement="left"
+            onClick={() => onNavigateToModel(id, name ?? id)}
+            disabled={health !== "healthy"}
+            className={`${baseBtn} ${amberBtn}`}
+          >
+            {openLabel}
+          </Button>
+        </>
+      )}
       <Button
         variant="outline"
         size="sm"
