@@ -343,6 +343,8 @@ class ContainersView(APIView):
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
                 "chips_required": chips_required,
+                # Lets the UI pre-flight the HF gate before attempting a deploy.
+                "hf_model_id": impl.hf_model_id,
             })
         
         return Response(data, status=status.HTTP_200_OK)
@@ -537,9 +539,36 @@ class DeployView(APIView):
             )
 
             # Multiple concurrent instances of the same model are allowed when chip
-            # capacity is available. Slot allocation below enforces capacity and the
-            # canonical reconciliation frees genuinely stale records, so we must not
-            # stop existing same-model deployments here.
+            # capacity is available: this guard blocks a second concurrent *start*, not
+            # a second running instance. A model still in 'starting' has a deploy in
+            # flight on the inference server, and firing another one achieves nothing —
+            # the inference server serialises /run behind a single process-wide lock, so
+            # the duplicate would either be rejected or sit invisibly queued and then
+            # start a second container on the same devices and port when the first
+            # finished. Deliberately independent of chip-slot accounting so it still
+            # holds if the slot bookkeeping is ever wrong about the board being free.
+            from docker_control.models import ModelDeployment as _ModelDeployment
+            in_flight = _ModelDeployment.objects.filter(
+                model_name=impl.model_name, status="starting"
+            ).first()
+            if in_flight is not None:
+                logger.info(
+                    f"Rejecting duplicate deploy of {impl.model_name}: job "
+                    f"{in_flight.container_id} is already starting"
+                )
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "deploy_in_flight",
+                        "message": (
+                            f"{impl.model_name} is already deploying. Wait for it to "
+                            f"finish, or cancel it from the Deployed Models page before "
+                            f"starting another."
+                        ),
+                        "job_id": in_flight.container_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -898,12 +927,57 @@ class DeployView(APIView):
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
+                    # Reserve the slot for the duration of the pull, as the chat path
+                    # does. Without a record the allocator reports these devices free
+                    # for the whole pull (minutes) even though they are spoken for, and
+                    # the deployment tray has nothing to show because nothing is
+                    # is_pending -- the model's own card shows pull progress from the
+                    # in-memory pull store, so the deploy looks invisible everywhere else.
+                    from docker_control.models import ModelDeployment
+                    try:
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=media_device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
-                    def deploy_fn(_host_port=host_port):
+                    def _refresh_media_placeholder(_pull_id=pull_id):
+                        # A media image pull outlasts the canonical "starting" grace
+                        # window, so keep the placeholder fresh or it gets reconciled
+                        # away mid-pull and frees the slot.
+                        from datetime import datetime, timezone
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def _retire_media_placeholder(_pull_id=pull_id):
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep and dep.status == "starting":
+                                dep.status = "stopped"
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
+
+                    def deploy_fn(_pull_id=pull_id, _host_port=host_port):
                         resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
+                            # Free the slot: the deploy never started.
+                            _retire_media_placeholder(_pull_id)
                             return None, resp.get("message", "Deployment failed")
+                        # run_container has just created the real record keyed by the
+                        # inference job id. Retire the placeholder after it exists, so
+                        # the slot is continuously held and never counted twice.
+                        _retire_media_placeholder(_pull_id)
                         try:
                             SystemResourceService.force_refresh_tt_smi_cache()
                         except Exception:
@@ -916,6 +990,10 @@ class DeployView(APIView):
                         image_tag=image_tag,
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_media_placeholder,
+                        # The media server image ships Whisper/SpeechT5 weights, so
+                        # nothing downloads after the pull — the pull is the deploy.
+                        expects_weights=False,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
@@ -1089,6 +1167,8 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
                 return
             if real_container_id:
+                from docker_control.deployment_sync import _warn_if_resurrecting_reaped
+                _warn_if_resurrecting_reaped(dep, job_id)
                 dep.container_id = real_container_id
                 if real_container_name:
                     dep.container_name = real_container_name
@@ -1220,6 +1300,9 @@ class DeploymentProgressView(APIView):
                             "speed_bps": pull_job.get("speed_bps"),
                             "eta_seconds": pull_job.get("eta_seconds"),
                             "weights_repo": pull_job.get("image_ref"),
+                            # Lets the client size the progress bands: a model with no
+                            # weights-download phase gives the pull the whole bar.
+                            "expects_weights": pull_job.get("expects_weights", True),
                         },
                         status=status.HTTP_200_OK,
                     )
@@ -2621,9 +2704,16 @@ class RegisterExternalModelView(APIView):
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
-            # Derive any remaining identity fields, then validate
+            # Derive any remaining identity fields, then settle on a model type
             if not model_type and hf_model_id:
                 model_type = _infer_model_type(hf_model_id)
+            if not model_type:
+                # No HF id to go on — fall back to the container's name/image.
+                model_type = _infer_model_type_from_container(container_info)
+                if model_type:
+                    corrections.append(
+                        f"Model type '{model_type}' inferred from the container image."
+                    )
             if not model_name:
                 model_name = (
                     hf_model_id.split("/")[-1]
@@ -2631,16 +2721,20 @@ class RegisterExternalModelView(APIView):
                     else (container_info.get("name") or container_id).lstrip("/")
                 )
 
-            if not model_type:
-                return Response(
-                    {"status": "error", "message": "Could not determine the model type from the container. Please specify model_type."},
-                    status=status.HTTP_400_BAD_REQUEST,
+            # An unidentifiable model is still registerable: it is tracked, shown
+            # with its status and manageable (logs/delete), just with no
+            # interaction UI. Only a type we can actually route is kept.
+            if model_type and model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
+                corrections.append(
+                    f"Model type '{model_type}' is not one TT Studio can drive — "
+                    "registering it without an interaction page."
                 )
-            if model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
-                valid_types = ", ".join(sorted(self._VALID_MODEL_TYPES))
-                return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                model_type = ""
+            if not model_type:
+                model_type = "unknown"
+                corrections.append(
+                    "Could not determine what this container serves. It is registered "
+                    "for monitoring only — no chat/TTS page will be offered."
                 )
 
             # Record if the model was launched with tool-calling capability and
@@ -2660,26 +2754,10 @@ class RegisterExternalModelView(APIView):
             if jwt_secret:
                 corrections.append("Detected the container's JWT secret for authenticated inference.")
 
-            # --- Rename container based on model name ---
-            current_name = container_info.get("name", container_id)
-            if current_name.startswith("/"):
-                current_name = current_name[1:]
-
-            # Sanitize desired name: lowercase, replace problematic chars
-            desired_name = model_name.lower().replace("/", "-").replace(" ", "_")
-            # Remove any chars that aren't alphanumeric, hyphens, or underscores
-            desired_name = "".join(c for c in desired_name if c.isalnum() or c in "-_.")
-
-            container_name = current_name
-            if desired_name and current_name != desired_name:
-                try:
-                    docker_client.rename_container(container_id, desired_name)
-                    corrections.append(f"Container renamed from '{current_name}' to '{desired_name}'")
-                    container_name = desired_name
-                    logger.info(f"Renamed container '{current_name}' to '{desired_name}'")
-                except Exception as e:
-                    logger.warning(f"Could not rename container: {e}")
-                    container_name = current_name
+            # --- Container name ---
+            # Left exactly as the launching tool set it. TT Studio identifies the
+            # container by id (the deployment record carries the model name for display)
+            container_name = container_info.get("name", container_id).lstrip("/")
 
             # --- Connect container to tt_studio_network ---
             network_name = backend_config.docker_bridge_network_name
@@ -2713,12 +2791,21 @@ class RegisterExternalModelView(APIView):
             try:
                 from docker_control.models import ModelDeployment
 
-                # Check for duplicate registration
-                existing = ModelDeployment.objects.filter(
-                    container_id=container_id, status="running"
+                # Reuse any record already pointing at this container, whatever its
+                # status: re-registering the same container must revive its record
+                # rather than leave a stopped duplicate behind for every attempt.
+                rec = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[container_id, container_id[:12]]
+                    )
+                    .order_by("-deployed_at")
+                    .first()
                 )
-                if existing.exists():
-                    rec = list(existing)[0]
+                if rec is not None:
+                    rec.status = "running"
+                    rec.stopped_at = None
+                    rec.stopped_by_user = False
+                    rec.container_name = container_name
                     rec.device = "external"
                     rec.device_id = device_id
                     rec.device_ids = device_ids
@@ -2726,8 +2813,10 @@ class RegisterExternalModelView(APIView):
                     rec.port = int(service_port) if service_port else 7000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
+                    rec.model_type = model_type
+                    rec.hf_model_id = hf_model_id
                     rec.save()
-                    corrections.append("Deployment record already existed — updated device mapping.")
+                    corrections.append("Reused this container's existing deployment record.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
                 else:
                     ModelDeployment.objects.create(
@@ -2742,6 +2831,8 @@ class RegisterExternalModelView(APIView):
                         port=int(service_port) if service_port else 7000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
+                        model_type=model_type,
+                        hf_model_id=hf_model_id,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
@@ -3357,6 +3448,42 @@ def _infer_model_type(hf_id: str) -> str:
     return "chat"
 
 
+# Keyword -> model_type, applied to a container's name/image when the model has
+# no HF id to infer from. Ordered: earlier entries win (a "*_tts" name contains
+# "speech", so TTS must be tested before speech recognition).
+_IMAGE_TYPE_HINTS = (
+    (("-tts-", "_tts", "tts-", "tts_", "xtts", "bark", "speecht5", "fastspeech"), "tts"),
+    (("whisper", "wav2vec", "-asr", "speech-recognition", "speech_recognition", "-stt"), "speech_recognition"),
+    (("llava", "idefics", "vision", "blip", "-vl-", "-vl:"), "vlm"),
+    (("stable-diffusion", "sdxl", "flux", "image-generation"), "image_generation"),
+    (("yolo", "objdetection", "object-detection"), "object_detection"),
+    (("wan2", "video-generation", "mochi"), "video_generation"),
+    (("embed", "-e5-", "bge-", "gte-"), "embedding"),
+    (("vllm", "llama", "qwen", "mistral", "gemma", "phi-", "deepseek"), "chat"),
+)
+
+
+def _infer_model_type_from_container(container_info: dict) -> str:
+    """Best-effort model_type from a container's name and image, for models with
+    no HF id to go on. Returns "" when nothing recognisable is found — unlike
+    _infer_model_type there is no chat default, because a wrong guess here would
+    offer an interaction page that cannot work."""
+    config_image = (container_info.get("Config") or {}).get("Image")
+    haystack = " ".join(
+        str(v or "").lower()
+        for v in (
+            container_info.get("name"),
+            container_info.get("image"),
+            container_info.get("image_name"),
+            config_image,
+        )
+    )
+    for keywords, model_type in _IMAGE_TYPE_HINTS:
+        if any(kw in haystack for kw in keywords):
+            return model_type
+    return ""
+
+
 def _parse_vllm_logs(text: str) -> dict:
     """Extract the model id and serving port from vLLM startup log lines."""
     result = {}
@@ -3458,6 +3585,12 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
 
     if result.get("hf_model_id"):
         result["model_type"] = _infer_model_type(result["hf_model_id"])
+    else:
+        # No model id anywhere — the container's name/image is all that's left.
+        # Registration applies the same fallback, so the form shows what it will do.
+        inferred = _infer_model_type_from_container(container_info)
+        if inferred:
+            result["model_type"] = inferred
     return result
 
 

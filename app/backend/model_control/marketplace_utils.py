@@ -9,18 +9,32 @@ gateway by container hostname, so no host-gateway hop is needed. Launching is
 asynchronous — image pulls take minutes — so `start_launch` returns immediately
 and the state of the job it started is reported by `serialize_app`.
 
+Launch state is deliberately not held in process memory: production serves the
+backend with several uvicorn workers, so the worker answering a poll is rarely
+the one running the launch. Everything the UI reports is therefore derived from
+state every worker can see — Docker itself, plus a small locked job file shared
+by the workers of one backend container.
+
 The views for these helpers live in `views.py` (MarketplaceAppsView and friends);
 the app catalog itself is in `shared_config.marketplace_config`.
 """
 
+import fcntl
+import json
 import os
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import requests
 
-from docker_control.docker_control_client import get_docker_client
+from docker_control.docker_control_client import (
+    ContainerNotFound,
+    get_docker_client,
+    http_status_of,
+)
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 from shared_config.marketplace_config import (
@@ -50,43 +64,78 @@ PULL_POLL_INTERVAL_S = 2
 # no resources: an "error" job is kept only so the UI can explain the failure.
 ACTIVE_JOB_STATES = ("pulling", "starting")
 
-# Launch jobs in flight, keyed by app id — so this holds at most one entry per
-# app, never one per launch. Covers the pull/start/readiness window; afterwards
-# Docker is the source of truth for app state.
-_jobs: Dict[str, dict] = {}
-_jobs_lock = threading.Lock()
-# Serializes port allocation so concurrent launches get distinct ports.
-_allocation_lock = threading.Lock()
+# Launch jobs, keyed by app id — at most one entry per app, never one per
+# launch. Covers the pull/start/readiness window; afterwards Docker is the
+# source of truth. Shared by every uvicorn worker of this backend container.
+_JOBS_PATH = Path(backend_config.backend_cache_root) / "marketplace_jobs.json"
+# Each launch stage refreshes its job every couple of seconds, so a job that has
+# gone quiet for this long belongs to a worker that died or a backend that
+# restarted mid-launch. Treating it as finished lets the UI recover on its own.
+JOB_STALE_AFTER_S = 60
 
 
 # --- Job tracking -----------------------------------------------------------
 
 
+@contextmanager
+def _job_table() -> Iterator[Dict[str, dict]]:
+    """The shared job table, exclusively locked and written back on exit.
+
+    A file is what all workers of the backend container have in common, and the
+    flock keeps concurrent read-modify-write safe across both processes and
+    threads. An unreadable table is rebuilt rather than raised: losing progress
+    reporting is recoverable, refusing to launch anything is not.
+    """
+    _JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_JOBS_PATH, "a+", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            handle.seek(0)
+            contents = handle.read()
+            try:
+                jobs = json.loads(contents) if contents.strip() else {}
+            except json.JSONDecodeError:
+                logger.warning("marketplace: job table unreadable, starting fresh")
+                jobs = {}
+            yield jobs
+            handle.seek(0)
+            handle.truncate()
+            json.dump(jobs, handle)
+            # Flush before unlocking: the buffer would otherwise be written when
+            # the file closes, by which point another worker holds the lock and
+            # has already read the previous contents.
+            handle.flush()
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def _set_job(app_id: str, state: str, message: str, **extra) -> None:
-    with _jobs_lock:
-        previous = _jobs.get(app_id) or {}
-        job = {"state": state, "message": message, **extra}
+    with _job_table() as jobs:
+        previous = jobs.get(app_id) or {}
+        job = {"state": state, "message": message, "updated_at": time.time(), **extra}
         # The claimed port outlives the individual stages of a launch.
         if "host_port" not in job and previous.get("host_port"):
             job["host_port"] = previous["host_port"]
-        _jobs[app_id] = job
+        jobs[app_id] = job
 
 
 def get_job(app_id: str) -> Optional[dict]:
-    """A copy of the in-flight launch job for an app, if one is running."""
-    with _jobs_lock:
-        job = _jobs.get(app_id)
+    """The launch job recorded for an app by any worker, if there is one."""
+    with _job_table() as jobs:
+        job = jobs.get(app_id)
         return dict(job) if job else None
 
 
 def clear_job(app_id: str) -> None:
-    with _jobs_lock:
-        _jobs.pop(app_id, None)
+    with _job_table() as jobs:
+        jobs.pop(app_id, None)
 
 
 def is_job_active(job: Optional[dict]) -> bool:
     """Whether a launch is still in progress, as opposed to finished or failed."""
-    return bool(job) and job.get("state") in ACTIVE_JOB_STATES
+    if not job or job.get("state") not in ACTIVE_JOB_STATES:
+        return False
+    return time.time() - (job.get("updated_at") or 0) <= JOB_STALE_AFTER_S
 
 
 # --- Containers and ports ---------------------------------------------------
@@ -138,28 +187,27 @@ def _used_host_ports(containers: List[dict]) -> set:
     return used
 
 
-def _ports_claimed_by_jobs() -> set:
+def _ports_claimed_by_jobs(jobs: Dict[str, dict]) -> set:
     """Ports promised to launches that haven't bound them yet.
 
     Only active launches hold a port. A failed job keeps its host_port for
     reporting, but counting it would withhold that port from the block for good
     and push the app off its own default port when retried.
     """
-    with _jobs_lock:
-        return {
-            job["host_port"]
-            for job in _jobs.values()
-            if job.get("host_port") and is_job_active(job)
-        }
+    return {
+        job["host_port"]
+        for job in jobs.values()
+        if job.get("host_port") and is_job_active(job)
+    }
 
 
 def _allocate_host_port(
-    app: MarketplaceApp, containers: List[dict]
+    app: MarketplaceApp, containers: List[dict], jobs: Dict[str, dict]
 ) -> Optional[int]:
     """Pick the app's default host port, or the next free one in the app block."""
     taken = (
         _used_host_ports(containers) | set(RESERVED_HOST_PORTS)
-    ) | _ports_claimed_by_jobs()
+    ) | _ports_claimed_by_jobs(jobs)
     if app.default_host_port and app.default_host_port not in taken:
         return app.default_host_port
     for port in APP_PORT_RANGE:
@@ -174,14 +222,19 @@ def _allocate_host_port(
 def claim_host_port(app: MarketplaceApp, containers: List[dict]) -> Optional[int]:
     """Reserve a host port for an imminent launch, or None if the block is full.
 
-    Allocating and claiming happen under one lock so two concurrent launches
-    cannot pick the same port.
+    Allocating and recording the claim happen inside one hold of the job table,
+    so two launches — in this worker or another — cannot pick the same port.
     """
-    with _allocation_lock:
-        host_port = _allocate_host_port(app, containers)
+    with _job_table() as jobs:
+        host_port = _allocate_host_port(app, containers, jobs)
         if host_port is None:
             return None
-        _set_job(app.id, "starting", f"Preparing {app.name}…", host_port=host_port)
+        jobs[app.id] = {
+            "state": "starting",
+            "message": f"Preparing {app.name}…",
+            "updated_at": time.time(),
+            "host_port": host_port,
+        }
         return host_port
 
 
@@ -325,9 +378,11 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
     container = find_container(containers, app)
     job = get_job(app.id)
 
-    # A job outranks the container's own state: a container can be up while the
-    # app inside it is still booting, and "Open" must not appear until it serves.
-    if job:
+    # An in-flight launch outranks the container's own state: a container can be
+    # up while the app inside it is still booting, and "Open" must not appear
+    # until it serves. A finished or abandoned job never outranks Docker, so a
+    # stale entry cannot pin a card that is really running.
+    if is_job_active(job):
         payload.update(status=job["state"], message=job["message"])
         if "progress" in job:
             payload["progress"] = job["progress"]
@@ -338,6 +393,9 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
             host_port=published_host_port(container, app.container_port),
             open_path=app.open_path,
         )
+    elif job and job.get("state") == "error":
+        # Kept after the launch failed so the card can explain why.
+        payload.update(status="error", message=job["message"])
     elif container:
         # Exited or created but not running — e.g. the daemon was restarted.
         payload.update(status="stopped", container_id=container.get("id"))
@@ -424,6 +482,30 @@ def _run_post_ready_hook(app: MarketplaceApp) -> None:
 # --- Launching and stopping -------------------------------------------------
 
 
+def _container_state(client, name: str) -> Optional[str]:
+    """The container's Docker state, or None when no such container exists."""
+    try:
+        return client.get_container(name).get("status")
+    except ContainerNotFound:
+        return None
+
+
+def _adopt_or_clear(client, app: MarketplaceApp) -> bool:
+    """True if an already-running container was adopted instead of replaced.
+
+    Two workers can reach this point for the same app, and the one arriving
+    second must not tear down the container the first just started — nor one the
+    user is already using. Anything not running is a leftover and gets cleared.
+    """
+    state = _container_state(client, app.container_name)
+    if state == "running":
+        logger.info(f"marketplace: {app.id} is already running, adopting it")
+        return True
+    if state is not None:
+        remove_container_if_present(client, app.container_name)
+    return False
+
+
 def remove_container_if_present(client, name: str) -> None:
     """Remove a container, treating "no such container" as already done.
 
@@ -433,7 +515,7 @@ def remove_container_if_present(client, name: str) -> None:
     try:
         client.remove_container(name, force=True)
     except requests.exceptions.HTTPError as e:
-        if e.response is None or e.response.status_code != 404:
+        if http_status_of(e) != 404:
             raise
 
 
@@ -466,24 +548,27 @@ def _launch(app: MarketplaceApp, host_port: int) -> None:
                 return
 
         _set_job(app.id, "starting", f"Starting {app.name}…")
-        remove_container_if_present(client, app.container_name)
+        adopted = _adopt_or_clear(client, app)
     except Exception as e:
         logger.error(f"marketplace: {app.id} preparation failed: {e}")
         _set_job(app.id, "error", f"Could not prepare {app.name}: {e}")
         return
 
     try:
-        client.run_container(
-            image=app.image,
-            name=app.container_name,
-            hostname=app.container_name,
-            ports={f"{app.container_port}/tcp": host_port},
-            environment={**app.env, **_model_env(app)},
-            volumes=dict(app.volumes),
-            network=backend_config.docker_bridge_network_name,
-            cap_add=list(app.cap_add),
-        )
-        logger.info(f"marketplace: launched {app.id} on host port {host_port}")
+        if adopted:
+            logger.info(f"marketplace: {app.id} was already started elsewhere")
+        else:
+            client.run_container(
+                image=app.image,
+                name=app.container_name,
+                hostname=app.container_name,
+                ports={f"{app.container_port}/tcp": host_port},
+                environment={**app.env, **_model_env(app)},
+                volumes=dict(app.volumes),
+                network=backend_config.docker_bridge_network_name,
+                cap_add=list(app.cap_add),
+            )
+            logger.info(f"marketplace: launched {app.id} on host port {host_port}")
     except Exception as e:
         logger.error(f"marketplace: {app.id} failed to start: {e}")
         _set_job(app.id, "error", f"Could not start {app.name}: {e}")
@@ -543,10 +628,25 @@ def _await_ready(app: MarketplaceApp) -> bool:
         threading.Event().wait(READY_POLL_INTERVAL_S)
 
     logger.warning(f"marketplace: {app.id} did not become ready in time")
-    _set_job(
-        app.id,
-        "error",
-        f"{app.name} started but did not respond within "
-        f"{app.ready_timeout_s}s. Check its container logs.",
-    )
+    message = f"{app.name} started but did not respond within {app.ready_timeout_s}s."
+    # The reason is almost always in the app's own output — a bad mount, a
+    # permission error — and the container is often gone by the time anyone
+    # looks, so carry the tail of it into the message the card shows.
+    excerpt = _log_excerpt(app)
+    message += f" Last output: {excerpt}" if excerpt else " Check its container logs."
+    _set_job(app.id, "error", message)
     return False
+
+
+def _log_excerpt(app: MarketplaceApp, lines: int = 4, max_chars: int = 400) -> str:
+    """The tail of an app container's log, trimmed to fit in an error message."""
+    try:
+        recent = [
+            line.strip()
+            for line in get_docker_client().tail_logs(app.container_name, tail=40)
+            if line.strip()
+        ]
+    except Exception as e:
+        logger.warning(f"marketplace: could not read {app.id} logs: {e}")
+        return ""
+    return " | ".join(recent[-lines:])[:max_chars]

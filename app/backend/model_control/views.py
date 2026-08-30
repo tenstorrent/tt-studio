@@ -138,9 +138,10 @@ from model_control.model_utils import (
     stream_to_cloud_model,
 )
 from shared_config.model_config import model_implmentations
+from shared_config.model_type_config import ModelTypes
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
-from shared_config.user_config import get_tts_api_key
+from shared_config.user_config import get_tts_api_key, get_tavily_api_key
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -185,6 +186,13 @@ class InferenceView(View):
 
         deploy_id = data.pop("deploy_id")
         deploy = get_deploy_cache()[deploy_id]
+        # A registered container whose model we could not identify has no known
+        # request shape — never guess one at it.
+        if getattr(deploy.get("model_impl"), "model_type", None) == ModelTypes.UNKNOWN:
+            return JsonResponse(
+                {"error": "This container's model was not identified, so TT Studio cannot run inference against it."},
+                status=400,
+            )
         internal_url = "http://" + deploy["internal_url"]
         auth_token = token_for(deploy.get("jwt_secret"))
         logger.info(f"internal_url:= {internal_url}")
@@ -261,12 +269,31 @@ class AgentView(View):
         return response
 
 
+class AgentAuthTokenView(APIView):
+    """Mint the bearer token the agent uses to call a deployed model's OpenAI API.
+
+    The agent cannot resolve the JWT secret itself: when JWT_SECRET is unset in .env
+    the backend keeps it in the UI-managed config, which is root-owned and 0600 while
+    the agent runs non-root. Handing over a signed token keeps one source of truth.
+
+    No new exposure: GET /models/api-info/ already returns jwt_secret and jwt_token
+    over the same proxies, so this is strictly less sensitive. Returns the shared
+    backend token; a registered external container running its own secret still needs
+    the per-model token from auth_headers().
+    """
+
+    def get(self, request, *args, **kwargs):
+        return Response({"token": token_for()}, status=status.HTTP_200_OK)
+
+
 class AgentStatusView(APIView):
     def get(self, request, *args, **kwargs):
         """Get agent status and discovery information"""
         import time
 
-        tavily_raw = os.environ.get("TAVILY_API_KEY", "")
+        # Read via user_config so a key saved from the Settings dialog takes
+        # effect without restarting the backend container.
+        tavily_raw = get_tavily_api_key() or ""
         tavily_configured = bool(tavily_raw) and tavily_raw != "tavily-api-key-not-configured"
 
         try:
@@ -328,6 +355,16 @@ class ModelHealthView(APIView):
         if serializer.is_valid():
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
+            # An externally-registered container whose model we could not identify
+            # has no known health route, so report health as unknown (the client
+            # treats any other status that way) rather than probing a guess and
+            # rendering a running container as unavailable.
+            model_impl = deploy.get("model_impl")
+            if getattr(model_impl, "model_type", None) == ModelTypes.UNKNOWN:
+                return Response(
+                    {"message": "Unknown", "details": "This container's model was not identified, so its health cannot be probed."},
+                    status=status.HTTP_501_NOT_IMPLEMENTED,
+                )
             health_url = "http://" + deploy["health_url"]
             check_passed, health_content = health_check(health_url, json_data=None, auth_token=token_for(deploy.get('jwt_secret')))
             if check_passed is True:
@@ -342,6 +379,22 @@ class ModelHealthView(APIView):
                 # the container's stdout. Best-effort: if anything fails we still
                 # return the basic 202 so the badge logic is unaffected.
                 content["phase"] = _get_startup_phase(deploy_id)
+                # Anchor the frontend's warmup clock to the deploy start time so
+                # it survives page refreshes. Server-computed to avoid client
+                # clock skew; omitted if deployed_at is missing/unparseable.
+                if content["phase"] is not None:
+                    deployed_at = deploy.get("deployed_at")
+                    if deployed_at:
+                        try:
+                            started = datetime.datetime.fromisoformat(deployed_at)
+                            if started.tzinfo is None:
+                                started = started.replace(tzinfo=datetime.timezone.utc)
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            content["phase"]["elapsed_seconds"] = max(
+                                0.0, (now - started).total_seconds()
+                            )
+                        except (ValueError, TypeError):
+                            pass
                 # Bound the per-deploy progress state to currently-tracked deploys so it can't accumulate.
                 from .download_progress import prune_state
                 prune_state(set(get_deploy_cache().keys()))
