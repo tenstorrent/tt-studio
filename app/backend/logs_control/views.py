@@ -4,13 +4,14 @@
 import io
 import json
 import os
+import re
 import glob
 import subprocess
 import urllib.request
 import urllib.error
 import zipfile
 import docker
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from urllib.parse import unquote, urlencode
 from django.http import JsonResponse, HttpResponse, Http404
@@ -315,6 +316,59 @@ def _read_log_tail(file_path: str, max_lines: int = 500) -> str:
         return f"[Error reading {os.path.basename(file_path)}: {e}]"
 
 
+# How far back a bug report reaches. A flat line-count tail is the wrong unit for
+# the backend log: chip-status polling alone writes ~10 lines/second, so 500 lines
+# was roughly the last three minutes and a deploy that failed five minutes before
+# the report was already gone. Bound by time first, with a generous line cap only
+# to keep the archive sane.
+BUG_REPORT_WINDOW_MINUTES = 90
+BUG_REPORT_WINDOW_MAX_LINES = 40000
+
+_LOG_TIMESTAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")
+
+
+def _read_log_window(
+    file_path: str,
+    since_minutes: int = BUG_REPORT_WINDOW_MINUTES,
+    max_lines: int = BUG_REPORT_WINDOW_MAX_LINES,
+) -> str:
+    """Read the last `since_minutes` of a timestamped log file.
+
+    Lines without a leading timestamp (tracebacks, wrapped output) inherit the last
+    timestamp seen, so multi-line records are kept whole. Falls back to a plain tail
+    if the file carries no parseable timestamps at all.
+    """
+    try:
+        with open(file_path, "r", errors="replace") as f:
+            lines = f.readlines()
+    except Exception as e:
+        return f"[Error reading {os.path.basename(file_path)}: {e}]"
+
+    cutoff = datetime.now() - timedelta(minutes=since_minutes)
+    start_index = None
+    saw_timestamp = False
+    for i, line in enumerate(lines):
+        m = _LOG_TIMESTAMP_RE.match(line)
+        if not m:
+            continue
+        saw_timestamp = True
+        try:
+            stamp = datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        if stamp >= cutoff:
+            start_index = i
+            break
+
+    if not saw_timestamp:
+        return "".join(lines[-max_lines:])
+    if start_index is None:
+        # Every line predates the window — the log is idle. Keep a short tail so the
+        # bundle still shows what the last activity was.
+        return "".join(lines[-500:])
+    return "".join(lines[start_index:][-max_lines:])
+
+
 def _collect_current_models_snapshot() -> dict:
     """
     Lightweight snapshot of running containers and deploy-cache entries.
@@ -422,7 +476,25 @@ def _collect_bug_report_data() -> dict:
             reverse=True,
         )
         if log_files:
-            data["backend_log"] = {"file": log_files[0], "content": _read_log_tail(log_files[0], 500)}
+            # Each backend start writes more than one file here, so the newest by
+            # mtime alone can be a near-empty stub. Include every file still active
+            # inside the report window, oldest first, so the log reads chronologically.
+            window_cutoff = datetime.now() - timedelta(minutes=BUG_REPORT_WINDOW_MINUTES)
+            in_window = [
+                f for f in log_files
+                if datetime.fromtimestamp(os.path.getmtime(f)) >= window_cutoff
+            ] or log_files[:1]
+            sections = []
+            for path in sorted(in_window, key=os.path.getmtime):
+                sections.append(
+                    f"===== {os.path.basename(path)} "
+                    f"(last {BUG_REPORT_WINDOW_MINUTES} min) =====\n"
+                    + _read_log_window(path)
+                )
+            data["backend_log"] = {
+                "file": ", ".join(os.path.basename(f) for f in in_window),
+                "content": "\n".join(sections),
+            }
         else:
             data["backend_log"] = {"file": None, "content": "No backend log files found"}
     else:

@@ -13,6 +13,7 @@ from django.core.cache import caches
 from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations, _impl_selector
+from shared_config.external_model_config import build_external_model_impl
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tavily_api_key
@@ -702,6 +703,23 @@ def get_managed_containers():
     containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
+
+    # Containers TT Studio was explicitly told about. An externally-registered
+    # container can run an arbitrary image with none of the env vars checked
+    # below (nothing forces it to be a tt-inference-server image), so without
+    # this it never appears in the listing and get_canonical_deployments
+    # reconciles its perfectly healthy record to "stopped".
+    registered_ids, registered_names = set(), set()
+    try:
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            if dep.container_id:
+                registered_ids.add(dep.container_id)
+                registered_ids.add(dep.container_id[:12])
+            if dep.container_name:
+                registered_names.add(dep.container_name)
+    except Exception as e:
+        logger.warning(f"Could not load registered containers: {e}")
+
     managed_containers = []
 
     for container_data in containers_list:
@@ -742,8 +760,14 @@ def get_managed_containers():
         # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
+        # Method 2: it has an active deployment record (deployed or registered by us)
+        elif (
+            (container.id and (container.id in registered_ids or container.id[:12] in registered_ids))
+            or (container.name and container.name in registered_names)
+        ):
+            managed_containers.append(container)
         else:
-            # Method 2: Check for TT Inference Server containers by environment variables
+            # Method 3: Check for TT Inference Server containers by environment variables
             # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
             env_list = container.attrs.get("Config", {}).get("Env", [])
             if not env_list:
@@ -852,6 +876,44 @@ def get_container_status():
     return data
 
 
+def _external_model_impl(con_id, con):
+    """Synthetic model_impl for a container registered via Register Model whose
+    model has no catalog entry. Returns None when the container was not
+    externally registered (so callers keep their existing "unmatched" behaviour).
+
+    The identity was derived from the container at registration time and stored on
+    the deployment record, so we don't have to re-inspect the container here.
+    """
+    try:
+        # Match on either id form: registration stores whatever id the caller
+        # passed (usually the short one), the live listing keys on the full one.
+        active = ModelDeployment.objects.filter(
+            device="external", status__in=["running", "starting"]
+        )
+        dep = (
+            active.filter(container_id__in=[con_id, con_id[:12]]).first()
+            or active.filter(container_name=con["name"]).first()
+        )
+    except Exception as e:
+        logger.warning(f"Could not look up external deployment for {con_id}: {e}")
+        return None
+    if dep is None:
+        return None
+
+    impl = build_external_model_impl(
+        model_name=dep.model_name or con["name"],
+        model_type=dep.model_type,
+        hf_model_id=dep.hf_model_id,
+        service_port=dep.port or 7000,
+        tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
+    )
+    logger.debug(
+        f"Using external model_impl for '{con['name']}' "
+        f"(type={impl.model_type.value}, not in catalog)"
+    )
+    return impl
+
+
 def _enrich_container_with_model_impl(con, con_id):
     """Resolve ``model_impl`` for a live Docker container and populate the
     derived fields (``model_id``, ``weights_id``, ``model_impl``,
@@ -882,7 +944,18 @@ def _enrich_container_with_model_impl(con, con_id):
             deployment_found = False
             try:
                 from docker_control.models import ModelDeployment
-                deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                # Match on either id form (records may hold the short id the
+                # caller passed) and fall back to the name. Registration does not
+                # rename the container, so the record is the only link between a
+                # container and the model it serves — this lookup has to be robust.
+                deployment = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[con_id, con_id[:12]]
+                    ).first()
+                    or ModelDeployment.objects.filter(
+                        container_name=con["name"]
+                    ).first()
+                )
 
                 if deployment:
                     for _k, v in model_implmentations.items():
@@ -936,6 +1009,8 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
 
                 if not model_impl:
+                    model_impl = _external_model_impl(con_id, con)
+                if not model_impl:
                     logger.warning(
                         f"Could not match TT Inference Server container {con['name']} to any model_impl."
                     )
@@ -952,11 +1027,14 @@ def _enrich_container_with_model_impl(con, con_id):
                     if v.image_version == con["image_name"]
                 ]
             if not candidates:
-                logger.warning(
-                    f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
-                )
-                return False
-            model_impl = candidates[0]
+                model_impl = _external_model_impl(con_id, con)
+                if not model_impl:
+                    logger.warning(
+                        f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
+                    )
+                    return False
+            else:
+                model_impl = candidates[0]
 
     con["model_id"] = model_impl.model_id
     con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
@@ -1217,7 +1295,17 @@ def get_canonical_deployments():
             match_id, match_data = full_id, live_containers[full_id]
         elif short_id and short_id in live_containers:
             match_id, match_data = short_id, live_containers[short_id]
-        elif dep.container_name and dep.container_name in live_by_name:
+        elif (
+            dep.container_name
+            and not full_id.startswith("imgpull_")
+            and dep.container_name in live_by_name
+        ):
+            # Name matching exists so a record whose real container_id hasn't been
+            # swapped in yet still resolves to its container. An imgpull_ placeholder
+            # provably has no container — it is created before the image is even
+            # pulled — so a name hit there is a *previous* deploy's container. Treating
+            # it as live marks a genuinely in-flight deploy "not pending", which hides
+            # it from the deployment tray and, on redeploy, from slot accounting.
             match_id, match_data = live_by_name[dep.container_name]
 
         if match_data is not None:
@@ -1242,9 +1330,13 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
-                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
-                None,
+            _impl_id, _impl = next(
+                (
+                    (k, v)
+                    for k, v in model_implmentations.items()
+                    if v.model_name == dep.model_name
+                ),
+                (None, None),
             )
             _grace = (
                 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
@@ -1266,7 +1358,10 @@ def get_canonical_deployments():
                     "device_ids": list(getattr(dep, "device_ids", None) or [])
                                   or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
-                    "model_id": None,
+                    # Resolved from model_name so clients can tie an in-flight start
+                    # back to a catalog entry. model_impl stays None: this deployment
+                    # has no container yet, and consumers key "is it deployed?" off it.
+                    "model_id": _impl_id,
                     "weights_id": None,
                     "internal_url": None,
                     "health_url": None,

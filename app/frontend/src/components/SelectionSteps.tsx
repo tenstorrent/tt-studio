@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import axios from "axios";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
@@ -14,6 +14,7 @@ import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
+import { useRefresh } from "../hooks/useRefresh";
 import type { ChipStatus } from "../types/chipStatus";
 import {
   autoPlacement,
@@ -36,6 +37,8 @@ export interface Model {
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
   chips_required?: number; // Number of chips required (1 or 4)
+  /** Hugging Face repo backing this model; null when it has no HF source. */
+  hf_model_id?: string | null;
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
@@ -106,6 +109,19 @@ export default function StepperDemo() {
   useEffect(() => {
     fetchChipStatus();
   }, [deploymentSignature, fetchChipStatus]);
+
+  // Refetch chip-status when a board reset completes (the NavBar reset dialog
+  // bumps these), so the model dropdown drops stale "in use by X" entries
+  // immediately instead of waiting for the idle poll or a page refresh.
+  const { refreshTrigger, resetAllNonce } = useRefresh();
+  const skipInitialRefreshRef = useRef(true);
+  useEffect(() => {
+    if (skipInitialRefreshRef.current) {
+      skipInitialRefreshRef.current = false;
+      return;
+    }
+    fetchChipStatus();
+  }, [refreshTrigger, resetAllNonce, fetchChipStatus]);
 
   // Overlay reserved devices onto chip-status so the model list greys out
   // configurations a pending deploy already claimed — before the backend

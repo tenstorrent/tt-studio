@@ -267,3 +267,4 @@ class TestDiagnoseServiceLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
