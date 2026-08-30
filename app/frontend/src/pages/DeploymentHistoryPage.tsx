@@ -104,7 +104,12 @@ const getStatusBadge = (deployment: Deployment) => {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge variant="destructive" className="cursor-help bg-orange-600 hover:bg-orange-700">
+            <Badge
+              tabIndex={0}
+              role="status"
+              variant="destructive"
+              className="cursor-help bg-orange-600 hover:bg-orange-700"
+            >
               Model Not Found on Hugging Face
             </Badge>
           </TooltipTrigger>
@@ -123,7 +128,9 @@ const getStatusBadge = (deployment: Deployment) => {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge variant="destructive" className="cursor-help">Died Unexpectedly</Badge>
+            <Badge tabIndex={0} role="status" variant="destructive" className="cursor-help">
+              Died Unexpectedly
+            </Badge>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs">
             <p className="text-sm">

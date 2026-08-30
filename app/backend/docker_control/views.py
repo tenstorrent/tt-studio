@@ -518,10 +518,15 @@ class DeployView(APIView):
                     code = _check_repo(token or "", hf_repo, "model_index.json")
                 status_str = _status_from_code(code)
                 if status_str in ("denied", "auth_failed"):
+                    message = (
+                        f"Your Hugging Face token does not have access to {hf_repo}."
+                        if token
+                        else f"A Hugging Face token is required to access {hf_repo}. Please add a token in Settings."
+                    )
                     return Response(
                         {
                             "error_code": "hf_access_denied",
-                            "message": f"Your Hugging Face token does not have access to {hf_repo}.",
+                            "message": message,
                             "hf_url": f"https://huggingface.co/{hf_repo}",
                         },
                         status=status.HTTP_400_BAD_REQUEST,

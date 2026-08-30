@@ -145,11 +145,33 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        self.assertIn("does not have access", response.data.get("message", ""))
         self.assertEqual(
             response.data.get("hf_url"),
             f"https://huggingface.co/{self.hf_repo}",
         )
         # Pre-check must short-circuit before any ModelDeployment query.
+        filter_mock.assert_not_called()
+
+    @patch("api.hf_access._check_repo", return_value=401)
+    @patch("shared_config.user_config.get_hf_token", return_value=None)
+    def test_returns_400_when_hf_access_denied_without_token(self, _token_mock, _repo_mock):
+        with patch(
+            "docker_control.models.ModelDeployment.objects.filter"
+        ) as filter_mock:
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        self.assertIn("token is required", response.data.get("message", ""))
+        self.assertEqual(
+            response.data.get("hf_url"),
+            f"https://huggingface.co/{self.hf_repo}",
+        )
         filter_mock.assert_not_called()
 
     @patch("api.hf_access._check_repo", return_value=404)
