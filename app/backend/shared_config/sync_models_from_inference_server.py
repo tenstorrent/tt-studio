@@ -55,13 +55,271 @@ HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned
 # first name match, so keeping both would make them pick arbitrarily.
 HAND_OWNED_MARKER = "hand_owned"
 
-# Models the source artifact advertises but that TT-Studio must not offer.
-# Filtered after merge_hand_owned() so a resync can't reintroduce them.
-# Z-Image-Turbo: wedges Blackhole P300 devices during warmup (eth-core init
-# timeout or a hard device hang mid kernel-compile) hard enough that the host
-# needs a board reset; pull it from the catalog until the media image ships a
-# tt-metal/firmware combo validated on fw 19.7.0.
-EXCLUDED_MODEL_NAMES = {"Z-Image-Turbo"}
+# ---------------------------------------------------------------------------
+# Studio availability
+# ---------------------------------------------------------------------------
+# The source artifact advertises models TT-Studio must not offer in its deploy
+# dropdown. Deleting those rows from the catalog was the old approach and it
+# does not survive: normalize() rebuilds from the source JSON, so every removal
+# had to be re-done by hand after each resync (see the string of "remove
+# non-working models" commits), and the catalog lost the record of *why* a model
+# was pulled. Instead the rows stay and carry a mark, applied on every sync from
+# the two tables below, so hiding a model is a one-line, reproducible edit here
+# rather than a JSON deletion someone has to remember to repeat.
+#
+# Two distinct reasons, deliberately not conflated:
+#   known_broken          - the model does not deploy or does not run correctly
+#                           on TT hardware today. It is a bug, and the details
+#                           say what breaks.
+#   unsupported_in_studio - the model works fine on the inference server, but
+#                           TT-Studio has no UI for its modality yet. Nothing is
+#                           broken; there is just nowhere to put it.
+#
+# These marks are script-owned, NOT hand-owned: the tables here are the single
+# source of truth, so deleting an entry below genuinely unhides the model on the
+# next sync instead of a stale flag in the JSON resurrecting it.
+STUDIO_UNAVAILABLE_REASONS = ("known_broken", "unsupported_in_studio")
+
+# Model types TT-Studio can deploy but has no interface for. These work.
+UNSUPPORTED_STUDIO_MODEL_TYPES = {
+    "EMBEDDING": (
+        "No embeddings UI in TT-Studio yet; the model itself deploys and serves "
+        "correctly on the inference server."
+    ),
+}
+
+# Model-wide overrides, keyed by catalog model_name, for breakage that is
+# genuinely independent of hardware (a bad chat template, a missing weight file,
+# a broken container image). Each value is (reason, details).
+#
+# Prefer STUDIO_UNAVAILABLE_DEVICES: most failures we see are one board's, and a
+# model-wide mark hides the model from boards nobody ever tested. Only add here
+# when the failure is known not to be board-specific -- and say how you know.
+_FORGE_CACHE_ROOT_BUG = (
+    "Broken by the forge container image, not by any board. Studio mounts a "
+    "fresh named Docker volume at CACHE_ROOT; because the image has no "
+    "/home/container_app_user/cache_root directory, Docker creates the volume "
+    "root:root 0755. The media image runs as USER=root and writes to it fine "
+    "(speecht5_tts, whisper), but tt-media-inference-server-forge:0.18.0 runs as "
+    "USER=container_app_user (uid 1000), so the runner's warmup dies in ~0.3s "
+    "with 'PermissionError at .../cache_root/huggingface' while trying to "
+    "download weights that are ALREADY pre-mounted read-only. The device is "
+    "never touched, so this fails identically on every board -- verified on "
+    "P300x2. The worker then never signals warmup, so /health returns 405 "
+    "'Model is not ready' forever while /v1/models keeps answering 200. Remove "
+    "this once the forge image ships a uid-1000-owned cache_root (or Studio "
+    "pre-creates the volume with the right ownership)."
+)
+
+STUDIO_UNAVAILABLE_MODELS: dict[str, tuple[str, str]] = {
+    "Falcon3-7B-Instruct": ("known_broken", _FORGE_CACHE_ROOT_BUG),
+    "yolox_nano": ("known_broken", _FORGE_CACHE_ROOT_BUG),
+}
+
+
+
+# Per-device unavailability: the artifact advertises a model on several boards
+# and it genuinely works on some of them. Marking the whole model hidden would
+# throw away the boards where it runs, so these are keyed by
+# model_name -> {device_configuration: (reason, details)}. Device keys use the
+# tt-studio spelling that lands in "device_configurations" (e.g. "P300x2").
+#
+# The sync REMOVES the named device from device_configurations and records why in
+# an "unavailable_devices" object. That is deliberate: every consumer already
+# gates on device_configurations (docker_control's compatibility check, the
+# frontend's is_compatible badge, infer_chips_required), so per-device hiding
+# needs no new logic anywhere -- the model simply stops claiming a board it
+# cannot run on, and the reason stays in the file for whoever asks later.
+#
+# If every device is removed this way, the model falls back to being hidden
+# outright rather than being left with an empty device list.
+STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
+    "Z-Image-Turbo": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Wedges Blackhole P300 devices during warmup (eth-core init timeout "
+                "or a hard device hang mid kernel-compile) badly enough that the host "
+                "needs a board reset. Re-enable once the media image ships a "
+                "tt-metal/firmware combo validated on fw 19.7.0."
+            ),
+        ),
+    },
+    "Motif-Image-6B-Preview": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Media container never reaches a healthy state. Verified broken on a "
+                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
+                "boards, so it stays available there."
+            ),
+        ),
+    },
+    "gpt-oss-120b": {
+        "P300x2": (
+            "known_broken",
+            (
+                "vLLM container never reaches a healthy state. Verified broken on a "
+                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
+                "boards, so it stays available there."
+            ),
+        ),
+    },
+    "mochi-1-preview": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Deploy fails with the catalog-pinned image; needs a newer media "
+                "image plus a spec-level env override the artifact does not carry. "
+                "Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on "
+                "this model's other boards, so it stays available there."
+            ),
+        ),
+    },
+    "bge-m3": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Non-functional deploy (#869). Separate from the embedding modality "
+                "gap: this model does not run. Verified broken on a P300x2 (4x p300c "
+                "Blackhole) box. Untested on this model's other boards, so it stays "
+                "available there."
+            ),
+        ),
+    },
+    "DeepSeek-R1-Distill-Llama-70B": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Non-functional deploy (#869). Verified broken on a P300x2 (4x p300c "
+                "Blackhole) box. Untested on this model's other boards, so it stays "
+                "available there."
+            ),
+        ),
+    },
+    "Llama-3.1-70B": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Base (non-instruct) 70B pulled alongside the Instruct variant in "
+                "#904; deploy does not resolve a usable image. Verified broken on a "
+                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
+                "boards, so it stays available there."
+            ),
+        ),
+    },
+    "Llama-3.1-70B-Instruct": {
+        "P300x2": (
+            "known_broken",
+            (
+                "Removed from the deploy UI in #904 - deploy needs a docker image "
+                "override the catalog cannot express. Use Llama-3.3-70B-Instruct. "
+                "Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on "
+                "this model's other boards, so it stays available there."
+            ),
+        ),
+    },
+    "Qwen3-8B": {
+        "P300": (
+            "known_broken",
+            (
+                "Removed from the deploy UI in #878 after failing on our Blackhole "
+                "box. Scoped to P300 rather than P300x2 because this model only ever "
+                "claims the single-chip Blackhole device; its Wormhole boards "
+                "(N150/N300/T3K/Galaxy) are untested and stay available."
+            ),
+        ),
+    },
+    "Llama-3.3-70B-Instruct": {
+        "P150x4": (
+            "known_broken",
+            (
+                "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
+            ),
+        ),
+    }
+}
+
+
+def apply_device_availability(models: list) -> list:
+    """Drop per-device entries a board can't actually run, recording why.
+
+    Returns [(model_name, device, reason)] for what was removed. Idempotent: the
+    device is already gone on a re-run, and the recorded reason is rebuilt from
+    the table rather than trusted from the file.
+    """
+    removed = []
+    for model in models:
+        model.pop("unavailable_devices", None)
+        overrides = STUDIO_UNAVAILABLE_DEVICES.get(model["model_name"])
+        if not overrides:
+            continue
+
+        devices = list(model.get("device_configurations") or [])
+        marks = {}
+        for device, (reason, details) in overrides.items():
+            if reason not in STUDIO_UNAVAILABLE_REASONS:
+                raise ValueError(
+                    f"{model['model_name']}/{device}: unknown reason {reason!r}; "
+                    f"expected one of {STUDIO_UNAVAILABLE_REASONS}"
+                )
+            # Record the mark even if the artifact never claimed this device, so a
+            # stale table entry is visible rather than silently doing nothing.
+            marks[device] = {"reason": reason, "details": details}
+            if device in devices:
+                devices.remove(device)
+                removed.append((model["model_name"], device, reason))
+
+        model["device_configurations"] = devices
+        model["unavailable_devices"] = marks
+
+        # Nothing left to deploy on: hide the model rather than shipping an entry
+        # with an empty device list, which every board would read as incompatible
+        # with no explanation.
+        if not devices:
+            model["available_in_studio"] = False
+            model["unavailable_reason"] = "known_broken"
+            model["unavailable_details"] = (
+                "No supported device left: "
+                + "; ".join(f"{d}: {m['details']}" for d, m in sorted(marks.items()))
+            )
+
+    return removed
+
+
+def apply_studio_availability(models: list) -> list:
+    """Stamp availability marks on every model, and return the hidden ones.
+
+    Authoritative and idempotent: any pre-existing mark is cleared first, so the
+    tables above fully determine what is hidden. A model that is available
+    carries no availability fields at all -- the catalog stays readable, and a
+    consumer treats "no mark" as available.
+    """
+    hidden = []
+    for model in models:
+        for key in ("available_in_studio", "unavailable_reason", "unavailable_details"):
+            model.pop(key, None)
+
+        override = STUDIO_UNAVAILABLE_MODELS.get(model["model_name"])
+        if override:
+            reason, details = override
+        elif model.get("model_type") in UNSUPPORTED_STUDIO_MODEL_TYPES:
+            reason = "unsupported_in_studio"
+            details = UNSUPPORTED_STUDIO_MODEL_TYPES[model["model_type"]]
+        else:
+            continue
+
+        if reason not in STUDIO_UNAVAILABLE_REASONS:
+            raise ValueError(
+                f"{model['model_name']}: unknown reason {reason!r}; "
+                f"expected one of {STUDIO_UNAVAILABLE_REASONS}"
+            )
+        model["available_in_studio"] = False
+        model["unavailable_reason"] = reason
+        model["unavailable_details"] = details
+        hidden.append((model["model_name"], reason))
+
+    return hidden
 
 
 def _impl_selector(value):
@@ -483,10 +741,29 @@ def main():
         if "impl" in _m:
             _m["impl"] = _impl_selector(_m.get("impl"))
 
-    excluded = [m["model_name"] for m in models if m["model_name"] in EXCLUDED_MODEL_NAMES]
-    if excluded:
-        models = [m for m in models if m["model_name"] not in EXCLUDED_MODEL_NAMES]
-        print(f"Excluded {len(excluded)} model(s): {', '.join(excluded)}")
+    # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
+    # the next resync doesn't silently reintroduce them and the reason travels
+    # with the catalog.
+    # Order matters: the model-wide pass clears availability fields before
+    # re-stamping them, and the per-device pass may set those same fields when it
+    # strips a model's last device. Device pass second, so that survives.
+    apply_studio_availability(models)
+    dropped = apply_device_availability(models)
+    if dropped:
+        print(f"Blocked {len(dropped)} model/device pair(s):")
+        for name, device, reason in sorted(dropped):
+            print(f"  {name} on {device}: {reason}")
+
+    # Report the FINAL state, not `hidden` from the model-wide pass: the device
+    # pass runs after it and can hide a model outright by taking its last device.
+    final_hidden: dict[str, list[str]] = {}
+    for m in models:
+        if m.get("available_in_studio") is False:
+            final_hidden.setdefault(m["unavailable_reason"], []).append(m["model_name"])
+    if final_hidden:
+        print(f"Hidden from TT-Studio: {sum(len(v) for v in final_hidden.values())} model(s)")
+        for reason, names in sorted(final_hidden.items()):
+            print(f"  {reason}: {', '.join(sorted(names))}")
 
     if preserved:
         print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
@@ -530,6 +807,7 @@ def main():
     status_counts = Counter(m["status"] for m in models)
     type_counts = Counter(m["model_type"] for m in models)
     display_type_counts = Counter(m["display_model_type"] for m in models)
+    print(f"  Shown in TT-Studio:        {sum(1 for m in models if m.get('available_in_studio', True) is not False)} of {len(models)}")
     print(f"  Status distribution:       {dict(status_counts)}")
     print(f"  Type distribution:         {dict(type_counts)}")
     print(f"  Display type distribution: {dict(display_type_counts)}")
