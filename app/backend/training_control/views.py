@@ -15,6 +15,7 @@ from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tts_api_key
 
 logger = get_logger(__name__)
 
@@ -25,8 +26,8 @@ MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
-# Not the JWT used for vLLM/LLM inference endpoints.
-TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+# Not the JWT used for vLLM/LLM inference endpoints. The key is resolved
+# via get_tts_api_key(), so an unset TTS_API_KEY no longer means an empty token.
 
 # Training job endpoints (e.g. /v1/jobs) also require a non-empty org header
 # for multi-tenant scoping. TT Studio is single-tenant, so we send a fixed value.
@@ -81,7 +82,7 @@ def _base_url(entry):
 
 def _auth_headers():
     return {
-        "Authorization": f"Bearer {TTS_API_KEY}",
+        "Authorization": f"Bearer {get_tts_api_key()}",
         ORG_ID_HEADER: ORG_ID,
     }
 
