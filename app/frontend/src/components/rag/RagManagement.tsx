@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+// This file incorporates work covered by the following copyright and permission notice:
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import { Button } from "@/src/components/ui/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/src/components/ui/card";
@@ -136,6 +140,7 @@ export default function RagManagement() {
     []
   );
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadBoxKey, setUploadBoxKey] = useState(0);
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -269,6 +274,9 @@ export default function RagManagement() {
       customToast.info(
         `Creating datasource "${collectionName}" and uploading document...`
       );
+    },
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
     },
     onError: (error: any, { file, collectionName }) => {
       setCollectionsUploading((prev) =>
@@ -417,6 +425,9 @@ export default function RagManagement() {
         prev.includes(collectionName) ? prev : [...prev, collectionName]
       );
       customToast.info("Uploading document...");
+    },
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
     },
     onError: (error: Error, { file, collectionName }) => {
       setCollectionsUploading((prev) =>
@@ -584,6 +595,7 @@ export default function RagManagement() {
         customToast.error(
           `Generated collection name "${collectionName}" is too short. Please rename the file.`
         );
+        setUploadBoxKey((prev) => prev + 1);
         return;
       }
 
@@ -953,7 +965,7 @@ export default function RagManagement() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
-          <GentleFileUpload onChange={handleFileUpload} />
+          <GentleFileUpload key={uploadBoxKey} onChange={handleFileUpload} />
         </Card>
 
         <Card
