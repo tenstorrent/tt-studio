@@ -51,6 +51,8 @@ python run.py --purge-all     # wipe containers, volumes, HF-cached models and .
 python run.py --purge-model   # uninstall specific model(s); bare flag opens a picker
 python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
 python run.py --info          # re-show the "TT Studio is ready" summary (URLs, mode, hardware)
+python run.py --status --json # one-shot NDJSON state dump (services, HEAD, hardware) — no TUI
+python run.py --json-events   # stream bring-up as NDJSON events (see dev-docs/json-events.md)
 python run.py --no-clear      # start without clearing the terminal; stream full startup detail
 python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + open a GitHub issue
 python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/.bashrc)
@@ -95,7 +97,8 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
   [Model interface](dev-docs/model-interface.md),
   [vLLM models](dev-docs/HowToRun_vLLM_Models.md),
   [Launcher terminal design](dev-docs/launcher-terminal-design.md) (read before changing
-  `tt_setup/` terminal output). Also [README](README.md),
+  `tt_setup/` terminal output), [JSON events](dev-docs/json-events.md) (the
+  `--json-events` NDJSON schema). Also [README](README.md),
   [Contributing](CONTRIBUTING.md), [Agent](app/agent/README.md).
 - `.cursor/rules/` — Cursor rules: `general`, `backend`, `frontend`,
   `docker-deployment`, `ai-models`, `project-overview`.
