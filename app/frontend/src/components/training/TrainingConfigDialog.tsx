@@ -61,7 +61,14 @@ const formSchema = z.object({
   lora_rank: z.coerce.number().int().positive().default(4),
   lora_alpha: z.coerce.number().int().positive().default(8),
   lora_target_modules: z.string().default("q_proj,v_proj"),
-  steps_freq: z.coerce.number().int().nonnegative().default(10),
+  // Unlike the other frequencies, 0 is not a valid logging frequency: the
+  // container feeds this straight into `MetricsConfig.steps_freq`, which is
+  // `Field(ge=1)`, and the metrics callback uses it as a modulo divisor.
+  steps_freq: z.coerce
+    .number()
+    .int()
+    .positive("Logging frequency must be at least 1")
+    .default(10),
   val_steps_freq: z.coerce.number().int().nonnegative().default(25),
   save_interval: z.coerce.number().int().nonnegative().default(25),
 });
@@ -160,10 +167,15 @@ export function TrainingConfigDialog({
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        max_steps: values.max_steps || undefined,
-        steps_freq: values.steps_freq || undefined,
-        val_steps_freq: values.val_steps_freq || undefined,
-        save_interval: values.save_interval || undefined,
+        // Send these through as-is. They are `0`-meaningful to the container
+        // (`max_steps: 0` = uncapped, `val_steps_freq: 0` = skip validation,
+        // `save_interval: 0` = checkpoint at the end only), so coalescing a
+        // falsy 0 to `undefined` would drop the key and let the container's
+        // own defaults silently override the user's choice.
+        max_steps: values.max_steps,
+        steps_freq: values.steps_freq,
+        val_steps_freq: values.val_steps_freq,
+        save_interval: values.save_interval,
       });
       form.reset();
       onJobCreated();
