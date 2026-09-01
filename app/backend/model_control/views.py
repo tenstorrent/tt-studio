@@ -1904,6 +1904,7 @@ class ModelAPIInfoView(APIView):
 # Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
 # is the SSOT in shared_config.coding_agent_config.
 from shared_config.coding_agent_config import (  # noqa: E402
+    CODING_AGENT_MODEL_TYPES,
     is_coding_agent_eligible,
     get_gateway_model_names,
     resolve_thinking_variant,
@@ -1919,7 +1920,9 @@ _rr_lock = threading.Lock()
 _rr_counters: dict[str, int] = {}
 
 
-def _running_coding_agent_deploys(require_tool_calling: bool = True) -> list[tuple[str, dict]]:
+def _running_coding_agent_deploys(
+    require_tool_calling: bool = True, require_vetted: bool = True
+) -> list[tuple[str, dict]]:
     """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
 
     Eligibility is decided by is_coding_agent_eligible (shared_config SSOT). By
@@ -1927,6 +1930,13 @@ def _running_coding_agent_deploys(require_tool_calling: bool = True) -> list[tup
     workflow agents send tool_choice:"auto" and a container launched without vLLM
     tool-calling support would silently fail. Pass require_tool_calling=False to
     also get eligible-but-incapable deploys (e.g. to explain why they're unusable).
+
+    require_vetted=False widens it once more, to any running chat/VLM deployment.
+    The allowlist answers "have we verified this against coding agents", which is
+    not the same question as "is a chat model deployed" — a caller that reports
+    deployment state to the user has to ask the second one or it ends up claiming
+    nothing is deployed while a model is serving.
+
     Resilient to deploy-cache failures (e.g. docker-control-service down): logs
     and returns an empty list so callers degrade gracefully instead of 500ing.
     """
@@ -1938,7 +1948,12 @@ def _running_coding_agent_deploys(require_tool_calling: bool = True) -> list[tup
         return out
     for deploy_id, entry in cache.items():
         impl = entry.get("model_impl")
-        if not entry.get("internal_url") or not is_coding_agent_eligible(impl):
+        if not entry.get("internal_url"):
+            continue
+        if require_vetted:
+            if not is_coding_agent_eligible(impl):
+                continue
+        elif getattr(impl, "model_type", None) not in CODING_AGENT_MODEL_TYPES:
             continue
         if require_tool_calling and not entry.get("tool_calling_enabled"):
             continue
@@ -2109,19 +2124,22 @@ class CodingAgentsView(APIView):
             except requests.RequestException:
                 health = "unreachable"
 
-        # Eligible models split into usable (tool-calling capable) and unavailable
-        # (launched without tool-calling support) so the UI can explain the latter
-        # instead of advertising models that would silently fail.
+        # Every deployed chat model, split into usable (vetted and tool-calling
+        # capable) and unavailable, so the UI can explain the latter instead of
+        # either advertising models that would silently fail or -- worse --
+        # reporting nothing deployed while one is serving.
         models = []
         unavailable = []
         seen = set()
-        for _, entry in _running_coding_agent_deploys(require_tool_calling=False):
+        for _, entry in _running_coding_agent_deploys(
+            require_tool_calling=False, require_vetted=False
+        ):
             impl = entry.get("model_impl")
             name = getattr(impl, "model_name", None)
             if not name:
                 continue
             mtype = getattr(getattr(impl, "model_type", None), "value", "chat")
-            capable = bool(entry.get("tool_calling_enabled"))
+            capable = bool(entry.get("tool_calling_enabled")) and is_coding_agent_eligible(impl)
             # Context window + max_tokens ceiling, same policy the gateway and InferenceView enforce
             context_window = entry.get("max_model_len") or get_max_tokens_limit(
                 getattr(impl, "param_count", None)
@@ -2138,7 +2156,7 @@ class CodingAgentsView(APIView):
                         "context_window": context_window,
                         "max_tokens": max_tokens,
                     })
-                else:
+                elif not entry.get("tool_calling_enabled"):
                     unavailable.append({
                         "name": exposed,
                         "type": mtype,
@@ -2146,6 +2164,15 @@ class CodingAgentsView(APIView):
                         "relaunch_with": tool_calling_launch_flags(
                             name, getattr(impl, "hf_model_id", "") or ""
                         ),
+                    })
+                else:
+                    # Can answer tool calls, just not one we have verified against
+                    # coding agents -- so no relaunch flags would help.
+                    unavailable.append({
+                        "name": exposed,
+                        "type": mtype,
+                        "reason": "not_verified",
+                        "relaunch_with": None,
                     })
 
         return Response(
