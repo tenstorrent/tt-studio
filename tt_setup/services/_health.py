@@ -16,6 +16,7 @@ except ImportError:
 from tt_setup.constants import *
 from tt_setup.docker_diag import _resolve_container_name
 from tt_setup.console import console, notice_panel, progress_status
+from tt_setup.services._ports import get_backend_port
 
 
 def probe_service(health_url, timeout=2):
@@ -190,8 +191,12 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     console.print(f"[error]⛔ {service_name} did not become healthy within {timeout}s[/error]")
     console.print(f"   [muted]Last failure: {last_failure}[/muted]")
 
-    # Auto-fetch container logs if this maps to a container
+    # Auto-fetch container logs if this maps to a container. The backend URL
+    # carries a dynamic port (BACKEND_PORT), so its map entry (keyed on the
+    # default 8000) can miss — match it on the /up/ path instead.
     prefix = SERVICE_CONTAINER_PREFIX_MAP.get(health_url)
+    if prefix is None and health_url.endswith("/up/"):
+        prefix = "tt_studio_backend"
     container = _resolve_container_name(prefix) if prefix else None
     if container:
         try:
@@ -220,7 +225,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
 
     services_to_check = [
         ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
-        ("Backend API", "http://localhost:8000/up/"),
+        ("Backend API", f"http://localhost:{get_backend_port()}/up/"),
         ("Frontend", "http://localhost:3000/"),
     ]
     if not skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):

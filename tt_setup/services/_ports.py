@@ -36,6 +36,70 @@ def check_port_available(port):
             return False
 
 
+DEFAULT_BACKEND_PORT = 8000
+
+# Host ports the launcher hands to the other services. The backend's
+# auto-increment must never land on one of these, even if it happens to be
+# free at check time (e.g. the inference server on 8001 starts later).
+RESERVED_SERVICE_PORTS = frozenset({3000, 4000, 8001, 8002, 8080, 8111})
+
+
+def get_backend_port():
+    """The backend's host-published port: BACKEND_PORT from the environment /
+    .env, falling back to 8000. The container-internal port is always 8000."""
+    from tt_setup.env_config import get_env_var
+    try:
+        return int(get_env_var("BACKEND_PORT", str(DEFAULT_BACKEND_PORT)) or DEFAULT_BACKEND_PORT)
+    except (TypeError, ValueError):
+        return DEFAULT_BACKEND_PORT
+
+
+def find_available_port(start_port, max_tries=50, skip_ports=RESERVED_SERVICE_PORTS):
+    """First free port >= start_port that isn't in skip_ports, or None if none
+    of the next `max_tries` candidates is free."""
+    for port in range(start_port, start_port + max_tries):
+        if port in skip_ports:
+            continue
+        if check_port_available(port):
+            return port
+    return None
+
+
+def _port_published_by_backend(port):
+    """True if `port` is published by TT Studio's own backend container. On a
+    restart that port is effectively ours — compose recreates the container —
+    so it must not trigger an increment."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=tt_studio_backend", "--format", "{{.Ports}}"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except Exception:
+        return False
+    return f":{port}->" in (result.stdout or "")
+
+
+def resolve_backend_port(configured_port=None):
+    """Pick the host port to publish the backend on.
+
+    Keeps the configured port (BACKEND_PORT, default 8000) when it is free or
+    held by TT Studio's own backend container. When another process holds it,
+    increments to the next free port instead of failing startup.
+
+    Returns (port, changed). If no free port is found within the scan window,
+    returns the configured port unchanged so the normal free-or-fail path
+    downstream reports it.
+    """
+    if configured_port is None:
+        configured_port = get_backend_port()
+    if check_port_available(configured_port) or _port_published_by_backend(configured_port):
+        return configured_port, False
+    port = find_available_port(configured_port + 1)
+    if port is None:
+        return configured_port, False
+    return port, True
+
+
 def wait_for_port_release(port, timeout=6.0, interval=0.25):
     """Block until `port` is actually free, up to `timeout` seconds.
 

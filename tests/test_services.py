@@ -67,6 +67,61 @@ class TestCheckPortAvailable(unittest.TestCase):
             self.assertFalse(M.check_port_available(12345))
 
 
+class TestGetBackendPort(unittest.TestCase):
+    def test_default_is_8000(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(M.get_backend_port(), 8000)
+
+    def test_env_override(self):
+        with patch.dict(os.environ, {"BACKEND_PORT": "8010"}):
+            self.assertEqual(M.get_backend_port(), 8010)
+
+    def test_garbage_value_falls_back_to_default(self):
+        with patch.dict(os.environ, {"BACKEND_PORT": "not-a-port"}):
+            self.assertEqual(M.get_backend_port(), 8000)
+
+
+class TestFindAvailablePort(unittest.TestCase):
+    def test_returns_start_port_when_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=True):
+            self.assertEqual(M.find_available_port(8000), 8000)
+
+    def test_skips_occupied_and_reserved_ports(self):
+        # 8000 is busy; 8001/8002 are reserved for the inference server and
+        # docker-control even when they look free — the scan must land on 8003.
+        free = {8003}
+        with patch.object(_ports_mod, "check_port_available", side_effect=lambda p: p in free):
+            self.assertEqual(M.find_available_port(8000), 8003)
+
+    def test_returns_none_when_nothing_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=False):
+            self.assertIsNone(M.find_available_port(8000, max_tries=5))
+
+
+class TestResolveBackendPort(unittest.TestCase):
+    def test_keeps_configured_port_when_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=True):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
+
+    def test_keeps_port_held_by_own_backend_container(self):
+        # A restart: our backend container publishes 8000. Compose recreates
+        # it, so the port must be kept rather than incremented away.
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=True):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
+
+    def test_increments_past_a_foreign_listener(self):
+        free = {8003}
+        with patch.object(_ports_mod, "check_port_available", side_effect=lambda p: p in free), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=False):
+            self.assertEqual(M.resolve_backend_port(8000), (8003, True))
+
+    def test_falls_back_to_configured_port_when_scan_finds_nothing(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=False):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
+
+
 class TestPortFreeingNeverKillsDocker(unittest.TestCase):
     """Regression guard: on macOS/Docker Desktop a *published* container port is
     held by `com.docker.backend`. The port-freeing step must NOT kill that PID —

@@ -16,13 +16,13 @@ from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import classify_pull_failure, handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
 from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
-from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env, write_env_var
 from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY, decide_image_source, describe_pull_fallback, frontend_config_drift, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
 from tt_setup.cleanup import cleanup_resources, purge_models
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -531,10 +531,25 @@ def _run(args):
 
         # Check if all required ports are available
 
+        # Backend host port: keep the configured port (default 8000) when it is
+        # free or held by our own backend container; when another process holds
+        # it, bump to the next free port instead of failing startup. The chosen
+        # port is persisted to .env so every later compose invocation (--stop,
+        # --logs, restarts) resolves the same mapping.
+        configured_backend_port = get_backend_port()
+        backend_port, backend_port_changed = resolve_backend_port(configured_backend_port)
+        if backend_port_changed:
+            write_env_var("BACKEND_PORT", str(backend_port))
+            os.environ["BACKEND_PORT"] = str(backend_port)
+            console.print(
+                f"[warning]⚠️  Port {configured_backend_port} (Backend API) is in use — "
+                f"the backend will be published on port {backend_port} instead.[/warning]"
+            )
+
         # Define ports based on mode
         required_ports = [
             (3000, "Frontend"),
-            (8000, "Backend API"),
+            (backend_port, "Backend API"),
             (8080, "Agent Service"),
             (8111, "ChromaDB"),
         ]
