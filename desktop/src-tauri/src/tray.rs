@@ -119,7 +119,7 @@ fn show_main_window(app: &tauri::AppHandle<Wry>) {
 
 /// "Switch machine": bring the window up and navigate it back to the bundled
 /// launcher (the connection picker), regardless of what it currently shows.
-fn back_to_picker(app: &tauri::AppHandle<Wry>) {
+pub(crate) fn back_to_picker(app: &tauri::AppHandle<Wry>) {
     show_main_window(app);
     let Some(url) = crate::ssh::commands::launcher_url(app) else {
         return;

@@ -22,6 +22,7 @@ import {
   TrustHostKeyDialog,
   TunnelBanner,
 } from "./views/TunnelBanner";
+import { describeSessionAge } from "./lib/session";
 import {
   blockedPorts,
   classificationCard,
@@ -54,6 +55,9 @@ import {
   onBringUpExit,
   onBringUpLine,
   onRemoteStopLine,
+  cancelQuit,
+  getSessionInfo,
+  setCloseBehavior,
   onStackHealth,
   onSwitchLine,
   onTunnelStatus,
@@ -72,6 +76,7 @@ import {
   stopHealthPoll,
   stopSshTunnels,
   trustHostKey,
+  type CloseBehavior,
   type HardwareProbe,
   type Profile,
   type StackHealth,
@@ -541,12 +546,23 @@ function App() {
   const [quitStopping, setQuitStopping] = useState(false);
   const [quitStopLines, setQuitStopLines] = useState<string[]>([]);
   const [quitError, setQuitError] = useState<string | null>(null);
+  const [quitHealth, setQuitHealth] = useState<StackHealth | null>(null);
+  const [quitSessionAge, setQuitSessionAge] = useState<number | null>(null);
+  const [quitRemember, setQuitRemember] = useState(false);
 
   useEffect(() => {
     if (screen.name !== "quit") return;
     getActiveRemote()
       .then(setQuitTarget)
       .catch(() => setQuitTarget(null));
+    // The health poller stopped when we navigated to the stack, so take one
+    // snapshot for the dialog. It fills in late and blocks nothing.
+    checkStackHealth()
+      .then(setQuitHealth)
+      .catch(() => setQuitHealth(null));
+    getSessionInfo()
+      .then((info) => setQuitSessionAge(info.age_secs))
+      .catch(() => setQuitSessionAge(null));
     let unlisten: (() => void) | undefined;
     onRemoteStopLine((line) =>
       setQuitStopLines((prev) => [...prev, line]),
@@ -558,10 +574,23 @@ function App() {
     };
   }, [screen.name]);
 
-  const handleStopAndQuit = useCallback(() => {
+  /**
+   * Persist the remembered close preference *before* quitting: quit_app
+   * exits the process, so a fire-and-forget store write can be lost.
+   */
+  const rememberChoice = useCallback(
+    async (behavior: CloseBehavior) => {
+      if (!quitRemember) return;
+      await setCloseBehavior(behavior).catch(() => {});
+    },
+    [quitRemember],
+  );
+
+  const handleStopAndQuit = useCallback(async () => {
     setQuitStopping(true);
     setQuitError(null);
     setQuitStopLines([]);
+    await rememberChoice("stop_stack");
     // On success the app exits before this promise settles visibly; only
     // the failure path matters here.
     quitApp(true).catch((e) => {
@@ -569,14 +598,21 @@ function App() {
       const ssh = asSshError(e);
       setQuitError(ssh ? describeSshError(ssh) : String(e));
     });
-  }, []);
+  }, [rememberChoice]);
 
-  const handleDisconnectQuit = useCallback(() => {
+  const handleDisconnectQuit = useCallback(async () => {
+    await rememberChoice("keep_running");
     quitApp(false).catch((e) => setQuitError(String(e)));
-  }, []);
+  }, [rememberChoice]);
 
   const handleQuitCancel = useCallback(() => {
-    openStack(STACK_URL).catch((e) => setQuitError(String(e)));
+    // Backing out must release the quit latch, or the next close request
+    // would be swallowed as "a prompt is already showing".
+    cancelQuit()
+      .catch(() => {})
+      .finally(() => {
+        openStack(STACK_URL).catch((e) => setQuitError(String(e)));
+      });
   }, []);
 
   /** Tear down whatever the connect flow has started and go back. */
@@ -677,6 +713,10 @@ function App() {
         stopping={quitStopping}
         lines={quitStopLines}
         error={quitError}
+        sessionAge={describeSessionAge(quitSessionAge)}
+        health={quitHealth}
+        remember={quitRemember}
+        onRememberChange={setQuitRemember}
         onStopAndQuit={handleStopAndQuit}
         onDisconnectQuit={handleDisconnectQuit}
         onCancel={handleQuitCancel}

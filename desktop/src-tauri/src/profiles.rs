@@ -148,6 +148,9 @@ pub fn delete_profile(app: tauri::AppHandle<Wry>, id: String) -> Result<Vec<Prof
     let mut profiles = read_store(&app)?;
     remove(&mut profiles, &id);
     write_store(&app, &profiles)?;
+    // A resume record pointing at a machine the user just deleted would send
+    // the next launch somewhere they removed on purpose.
+    crate::session::forget_profile(&app, &id);
     Ok(profiles)
 }
 

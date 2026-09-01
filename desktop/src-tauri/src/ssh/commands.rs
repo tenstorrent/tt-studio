@@ -32,6 +32,9 @@ pub struct TunnelState {
     /// The profile the running tunnels belong to. Drives the quit dialog:
     /// while set, closing the window offers stop-vs-disconnect first.
     active: std::sync::Mutex<Option<Profile>>,
+    /// Unix seconds the active profile was set, so the quit dialog can say
+    /// how long this connection has been up.
+    connected_at: std::sync::Mutex<Option<f64>>,
     /// The marketplace app-port poller (ssh/app_ports.rs), aborted with the
     /// supervisor it feeds.
     app_ports_task: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
@@ -43,7 +46,13 @@ impl TunnelState {
     }
 
     fn set_active(&self, profile: Option<Profile>) {
+        let started = profile.is_some().then(now_secs);
         *self.active.lock().expect("active profile lock") = profile;
+        *self.connected_at.lock().expect("connected_at lock") = started;
+    }
+
+    pub(crate) fn connected_at(&self) -> Option<f64> {
+        *self.connected_at.lock().expect("connected_at lock")
     }
 
     fn stop_app_ports_task(&self) {
@@ -60,6 +69,30 @@ impl TunnelState {
         }
         self.set_active(None);
     }
+}
+
+fn now_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// What the quit dialog needs to describe the session it is about to end.
+#[derive(serde::Serialize)]
+pub struct SessionInfo {
+    pub machine: Option<String>,
+    /// Seconds this connection has been up; None when nothing is connected.
+    pub age_secs: Option<f64>,
+}
+
+#[tauri::command]
+pub fn get_session_info(state: tauri::State<'_, TunnelState>) -> SessionInfo {
+    let machine = state.active_profile().map(|p| p.name);
+    let age_secs = state
+        .connected_at()
+        .map(|started| (now_secs() - started).max(0.0));
+    SessionInfo { machine, age_secs }
 }
 
 /// Build the dial target from a saved profile: agent auth is always tried

@@ -2,7 +2,7 @@
 //
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-use tauri::{Url, WebviewWindow};
+use tauri::{Manager, Url, WebviewWindow};
 
 /// Navigate the launcher window to a running TT-Studio stack.
 ///
@@ -10,9 +10,15 @@ use tauri::{Url, WebviewWindow};
 /// shell only fronts a locally running TT-Studio, never an arbitrary page.
 /// Navigation replaces the bundled launcher in the same window; the remote
 /// origin gets no Tauri IPC (see capabilities/default.json).
+///
+/// Side effect: this is the app's one definition of "we attached to a
+/// stack", so it also stamps the last-session record (session.rs) that the
+/// next launch resumes from. Both the already-healthy and the
+/// just-brought-up paths funnel through here, so there is nothing to forget.
 #[tauri::command]
 pub fn open_stack(window: WebviewWindow, url: String) -> Result<(), String> {
     let target = validate_stack_url(&url)?;
+    crate::session::record_attach(&window.app_handle().clone());
     window.navigate(target).map_err(|e| e.to_string())
 }
 

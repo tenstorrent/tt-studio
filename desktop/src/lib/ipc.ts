@@ -324,6 +324,42 @@ export const getCloseBehavior = () =>
 export const setCloseBehavior = (behavior: CloseBehavior) =>
   invoke<void>("set_close_behavior", { behavior });
 
+/** Release the quit latch after backing out of the quit prompt. */
+export const cancelQuit = () => invoke<void>("cancel_quit");
+
+export interface SessionInfo {
+  machine: string | null;
+  /** Seconds the current connection has been up; null when disconnected. */
+  age_secs: number | null;
+}
+
+export const getSessionInfo = () => invoke<SessionInfo>("get_session_info");
+
+// ---- last session / resume (session.rs) ----
+
+export interface ResumePlan {
+  profile: Profile;
+  stack_left_running: boolean;
+  age_secs: number;
+}
+
+/**
+ * The machine to resume to, or null. Consumes this process's single resume
+ * attempt: every later call returns null, however often the launcher remounts.
+ */
+export const takeResumeTarget = () =>
+  invoke<ResumePlan | null>("take_resume_target");
+
+export const clearLastSession = () => invoke<void>("clear_last_session");
+
+/** Stop auto-resuming, but keep remembering which machine it was. */
+export const suppressResume = () => invoke<void>("suppress_resume");
+
+export const getResumeOnLaunch = () => invoke<boolean>("get_resume_on_launch");
+
+export const setResumeOnLaunch = (enabled: boolean) =>
+  invoke<void>("set_resume_on_launch", { enabled });
+
 // ---- bug reports (bug_report.rs) ----
 
 export interface BugReportResult {

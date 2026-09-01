@@ -8,10 +8,12 @@ mod hardware;
 mod health;
 pub mod launcher;
 pub mod logs;
+pub mod menu;
 pub mod port_holder;
 pub mod profiles;
 pub mod remote;
 mod secrets;
+pub mod session;
 pub mod ssh;
 pub mod stack_checkout;
 pub mod state;
@@ -48,10 +50,16 @@ pub fn run() {
         .manage(ssh::commands::TunnelState::default())
         .manage(remote::RemoteState::default())
         .manage(state::LauncherState::default())
+        .manage(session::ResumeState::default())
         .setup(|app| {
             tray::setup(app.handle())?;
+            // macOS only: take over the app menu's Quit item so Cmd+Q goes
+            // through the same teardown decision as the close button.
+            #[cfg(target_os = "macos")]
+            menu::setup(app.handle())?;
             Ok(())
         })
+        .on_menu_event(|app, event| menu::on_menu_event(app, event.id().as_ref()))
         // Close-button behavior is a setting (teardown.rs): ask via the
         // stop-or-leave dialog / ssh quit prompt (default), minimize to the
         // tray, quit leaving the stack running, or stop the stack first.
@@ -73,6 +81,7 @@ pub fn run() {
             ssh::commands::start_ssh_tunnels,
             ssh::commands::stop_ssh_tunnels,
             ssh::commands::get_tunnel_status,
+            ssh::commands::get_session_info,
             remote::classify_remote_stack,
             remote::start_remote_bring_up,
             remote::cancel_remote_bring_up,
@@ -99,7 +108,23 @@ pub fn run() {
             update::stack::set_stack_update_policy,
             teardown::get_close_behavior,
             teardown::set_close_behavior,
+            teardown::cancel_quit,
+            session::take_resume_target,
+            session::clear_last_session,
+            session::suppress_resume,
+            session::get_resume_on_launch,
+            session::set_resume_on_launch,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // Exit routes the window's close button never sees: macOS Cmd+Q and
+        // Dock -> Quit arrive as Exit with nothing to veto, so the record is
+        // written there; ExitRequested is where a preventable exit lands.
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                teardown::on_exit_requested(app, code, &api);
+            }
+            tauri::RunEvent::Exit => session::record_on_exit(app),
+            _ => {}
+        });
 }
