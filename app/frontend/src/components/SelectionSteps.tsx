@@ -193,12 +193,16 @@ export default function StepperDemo() {
   // Chip requirement of the currently selected model (selectedModel holds the id).
   const selectedModelChips =
     models?.find((m) => m.id === selectedModel)?.chips_required ?? 1;
+  // Model type gates flexible placement (e.g. training builds stay single-chip).
+  const selectedModelType =
+    models?.find((m) => m.id === selectedModel)?.model_type ?? "";
 
   // Supported device configurations for the selected model (single source of truth).
   const placement = getModelPlacement(
     selectedModelName ?? selectedModel ?? "",
     selectedModelChips,
-    effectiveChipStatus?.board_type
+    effectiveChipStatus?.board_type,
+    selectedModelType
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
@@ -635,11 +639,10 @@ export default function StepperDemo() {
                   setShowHardwareConfig((v: boolean) => !v);
                   if (showHardwareConfig) setSelectedDeviceIds([]);
                 }}
-                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${
-                  showHardwareConfig
+                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${showHardwareConfig
                     ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
                 <span>Advanced device configuration</span>

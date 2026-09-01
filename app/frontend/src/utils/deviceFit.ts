@@ -107,8 +107,16 @@ export interface ModelPlacement {
 export function getModelPlacement(
   modelName: string,
   chipsRequired: number,
-  boardType?: string
+  boardType?: string,
+  modelType?: string
 ): ModelPlacement {
+  // All available training runners are currently single-chip, so training is always
+  // pinned to one device regardless of model name or board.
+  const isTraining = (modelType ?? "").toLowerCase() === "training";
+  if (isTraining) {
+    return { allowsSingle: true, allowsFullBoard: false, cardGroups: [] };
+  }
+
   // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board.
   if (isP300x2Board(boardType) && isLlama31_8BModel(modelName)) {
     return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] };

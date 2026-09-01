@@ -505,6 +505,20 @@ class DeployView(APIView):
                     board_type,
                 )
 
+            # All available training runners are currently single-chip, so collapse any
+            # multi-slot device_id to the first slot — mirroring how force_full_board is
+            # ignored above — so a stale/mismatched client can't over-allocate.
+            if impl.model_type == ModelTypes.TRAINING and len(requested_device_ids) > 1:
+                logger.info(
+                    "Ignoring multi-slot device_id=%s for model=%s type=%s; using slot %s only",
+                    requested_device_ids,
+                    impl.model_name,
+                    impl.model_type.value,
+                    requested_device_ids[0],
+                )
+                requested_device_ids = [requested_device_ids[0]]
+                manual_device_id = requested_device_ids[0]
+
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
             if hf_repo:

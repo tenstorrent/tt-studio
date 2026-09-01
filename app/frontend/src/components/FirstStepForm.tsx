@@ -328,7 +328,7 @@ export function FirstStepForm({
   // deployed against the currently free devices.
   const renderModelItem = (model: Model, dotClass: string) => {
     const chips = model.chips_required ?? 1;
-    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type, model.model_type);
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
     const fits =
