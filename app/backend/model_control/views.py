@@ -46,6 +46,7 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from .log_classifier import classify_startup_phase
+from .image_dialects import resolve_dialect, split_route
 
 
 # Module-level latch: tracks the highest phase + cached state we've ever seen
@@ -683,6 +684,11 @@ class ObjectDetectionInferenceCloudView(APIView):
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
+# Upper bound on a single image-generation job. FLUX.2 at 1024x1024/50 steps is
+# minutes of work, so this is a stuck-job backstop, not a performance budget.
+IMAGE_JOB_TIMEOUT_SECONDS = 30 * 60
+
+
 class ImageGenerationInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
@@ -697,8 +703,14 @@ class ImageGenerationInferenceView(APIView):
             try:
                 headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
-                if "/v1/images/generations" in internal_url:
-                    # Synchronous OpenAI-compatible API — returns base64 JSON immediately
+                dialect = resolve_dialect(internal_url)
+                server_root, _ = split_route(internal_url)
+                logger.info(
+                    f"image generation via '{dialect.name}' dialect at {internal_url}"
+                )
+
+                if dialect.mode == "sync":
+                    # The image comes back on the submit call as base64 JSON.
                     inference_data = requests.post(
                         internal_url,
                         json={"prompt": prompt},
@@ -712,34 +724,81 @@ class ImageGenerationInferenceView(APIView):
                     else:
                         b64_image = resp_json["data"][0]["b64_json"]
                     image_bytes = base64.b64decode(b64_image)
-                    django_response = HttpResponse(image_bytes, content_type="image/jpeg")
-                    django_response["Content-Disposition"] = "attachment; filename=image.jpg"
-                    return django_response
-                else:
-                    # Legacy enqueue/poll/fetch API
-                    inference_data = requests.post(
-                        internal_url, json={"prompt": prompt}, headers=headers, timeout=5
+                    django_response = HttpResponse(
+                        image_bytes, content_type=dialect.default_content_type
                     )
-                    inference_data.raise_for_status()
-
-                    ready_latest = False
-                    task_id = inference_data.json().get("task_id")
-                    get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
-                    while not ready_latest:
-                        latest_prompt = requests.get(get_status_url, headers=headers)
-                        if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
-                            latest_prompt.raise_for_status()
-                            if latest_prompt.json()["status"] == "Completed":
-                                ready_latest = True
-                        time.sleep(1)
-
-                    get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                    latest_image = requests.get(get_image_url, headers=headers, stream=True)
-                    latest_image.raise_for_status()
-                    content_type = latest_image.headers.get("Content-Type", "application/octet-stream")
-                    django_response = HttpResponse(latest_image.content, content_type=content_type)
-                    django_response["Content-Disposition"] = "attachment; filename=image.png"
+                    django_response["Content-Disposition"] = (
+                        f"attachment; filename={dialect.default_filename}"
+                    )
                     return django_response
+
+                # Job dialects: submit -> poll for a terminal state -> fetch bytes.
+                payload = {"prompt": prompt}
+                for req_field, server_field in dialect.extra_params.items():
+                    value = data.get(req_field)
+                    if value is not None:
+                        payload[server_field] = value
+
+                inference_data = requests.post(
+                    internal_url, json=payload, headers=headers, timeout=30
+                )
+                inference_data.raise_for_status()
+                job_id = inference_data.json().get(dialect.job_id_field)
+                if not job_id:
+                    logger.error(
+                        f"{dialect.name}: submit response carried no "
+                        f"'{dialect.job_id_field}'; cannot track the job"
+                    )
+                    return Response(status=status.HTTP_502_BAD_GATEWAY)
+
+                status_url = server_root + dialect.status_template.format(job_id=job_id)
+                image_url = server_root + dialect.image_template.format(job_id=job_id)
+
+                # Diffusion on accelerators runs for minutes, so this poll is bounded
+                # generously; it exists to stop a wedged job from hanging the request
+                # forever, not to second-guess a slow-but-healthy generation.
+                deadline = time.time() + IMAGE_JOB_TIMEOUT_SECONDS
+                while True:
+                    if time.time() > deadline:
+                        logger.error(
+                            f"{dialect.name}: job {job_id} did not finish within "
+                            f"{IMAGE_JOB_TIMEOUT_SECONDS}s"
+                        )
+                        return Response(status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+                    poll = requests.get(status_url, headers=headers, timeout=30)
+                    # A job id can briefly 404 before the server registers it.
+                    if poll.status_code != status.HTTP_404_NOT_FOUND:
+                        poll.raise_for_status()
+                        job_state = str(poll.json().get("status", "")).lower()
+                        if job_state in dialect.done_states:
+                            break
+                        if job_state in dialect.error_states:
+                            detail = poll.json().get("error")
+                            logger.error(
+                                f"{dialect.name}: job {job_id} ended as "
+                                f"'{job_state}': {detail}"
+                            )
+                            return Response(
+                                {"error": detail or f"Generation {job_state}."},
+                                status=status.HTTP_502_BAD_GATEWAY,
+                            )
+                    time.sleep(1)
+
+                latest_image = requests.get(
+                    image_url, headers=headers, stream=True, timeout=120
+                )
+                latest_image.raise_for_status()
+                content_type = latest_image.headers.get(
+                    "Content-Type", dialect.default_content_type
+                )
+                django_response = HttpResponse(
+                    latest_image.content, content_type=content_type
+                )
+                django_response["Content-Disposition"] = (
+                    f"attachment; filename={dialect.default_filename}"
+                )
+                return django_response
 
             except requests.exceptions.HTTPError as http_err:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
