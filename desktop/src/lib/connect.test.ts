@@ -9,7 +9,7 @@ import {
   describeStep,
   portConflictCard,
 } from "./connect";
-import type { Profile, TunnelStatus } from "./ipc";
+import type { PortHolder, Profile, TunnelStatus } from "./ipc";
 
 const profile: Profile = {
   id: "p1",
@@ -21,14 +21,15 @@ const profile: Profile = {
 };
 
 function connected(
-  forwards: Array<{ port: number; active: boolean }>,
+  forwards: Array<{ port: number; active: boolean; holder?: PortHolder }>,
 ): TunnelStatus {
   return {
     phase: { state: "connected" },
-    forwards: forwards.map(({ port, active }) => ({
+    forwards: forwards.map(({ port, active, holder }) => ({
       local_port: port,
       remote_port: port,
       active,
+      holder,
     })),
   };
 }
@@ -40,7 +41,17 @@ describe("blockedPorts", () => {
       { port: 8000, active: true },
       { port: 8001, active: false },
     ]);
-    expect(blockedPorts(status)).toEqual([3000, 8001]);
+    expect(blockedPorts(status).map((b) => b.port)).toEqual([3000, 8001]);
+  });
+
+  it("carries the holder the backend probed for each blocked port", () => {
+    const status = connected([
+      { port: 3000, active: false, holder: { pid: 95452, name: "ssh" } },
+    ]);
+    expect(blockedPorts(status)[0].holder).toEqual({
+      pid: 95452,
+      name: "ssh",
+    });
   });
 
   it("ignores the model container port range", () => {
@@ -60,16 +71,60 @@ describe("blockedPorts", () => {
 });
 
 describe("portConflictCard", () => {
-  it("gives 3000 the dev-server guidance", () => {
-    const card = portConflictCard([3000, 8000]);
+  const ssh: PortHolder = { pid: 95452, name: "ssh" };
+
+  it("gives 3000 the dev-server guidance when the holder is unknown", () => {
+    const card = portConflictCard([{ port: 3000 }, { port: 8000 }]);
     expect(card.title).toBe("Port 3000 is already in use");
     expect(card.body).toContain("Another TT-Studio or dev server");
     expect(card.hint).toContain("run.py --stop");
+    expect(card.command).toBeUndefined();
+  });
+
+  it("names the process holding 3000 and offers to kill it", () => {
+    const card = portConflictCard([{ port: 3000, holder: ssh }]);
+    expect(card.body).toContain("held by ssh (pid 95452)");
+    expect(card.body).not.toContain("Another TT-Studio or dev server");
+    expect(card.command).toBe("kill 95452");
+    expect(card.hint).toContain("LocalForward");
+  });
+
+  it("offers one kill when a single process holds every blocked port", () => {
+    const card = portConflictCard([
+      { port: 3000, holder: ssh },
+      { port: 8000, holder: ssh },
+    ]);
+    expect(card.command).toBe("kill 95452");
+  });
+
+  it("offers no kill when the blocked ports have different holders", () => {
+    const card = portConflictCard([
+      { port: 3000, holder: ssh },
+      { port: 8000, holder: { pid: 12, name: "node" } },
+    ]);
+    expect(card.command).toBeUndefined();
+  });
+
+  it("offers no kill when only some blocked ports have a known holder", () => {
+    const card = portConflictCard([
+      { port: 3000, holder: ssh },
+      { port: 8000 },
+    ]);
+    expect(card.command).toBeUndefined();
   });
 
   it("names the taken ports when 3000 is fine", () => {
-    const card = portConflictCard([8001, 8002]);
+    const card = portConflictCard([{ port: 8001 }, { port: 8002 }]);
     expect(card.title).toContain("8001, 8002");
+    expect(card.body).not.toContain("Held by");
+  });
+
+  it("names the holders of non-3000 ports once each", () => {
+    const card = portConflictCard([
+      { port: 8001, holder: ssh },
+      { port: 8002, holder: ssh },
+    ]);
+    expect(card.body).toContain("Held by ssh (pid 95452).");
   });
 });
 

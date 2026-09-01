@@ -8,6 +8,7 @@ mod hardware;
 mod health;
 pub mod launcher;
 pub mod logs;
+pub mod port_holder;
 pub mod profiles;
 pub mod remote;
 mod secrets;

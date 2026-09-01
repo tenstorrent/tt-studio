@@ -130,11 +130,19 @@ export type TunnelPhase =
   | { state: "reconnecting"; attempt: number; next_delay_secs: number }
   | { state: "lost"; error: SshErrorPayload };
 
+/** The process holding a local port the tunnel wanted (ssh/tunnel.rs). */
+export interface PortHolder {
+  pid: number;
+  name: string;
+}
+
 export interface ForwardHealth {
   local_port: number;
   remote_port: number;
   active: boolean;
   last_error?: string;
+  /** Set only when the bind failed because something else holds the port. */
+  holder?: PortHolder | null;
 }
 
 export interface TunnelStatus {

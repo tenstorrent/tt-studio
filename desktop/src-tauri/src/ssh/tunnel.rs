@@ -23,6 +23,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::{SshError, SshTransport};
+use crate::port_holder::{listener_on, PortHolder};
 
 /// One local listener → remote endpoint mapping. `local_port` 0 lets the OS
 /// pick (tests only); the bound port is reported back via [`ForwardHealth`].
@@ -72,6 +73,9 @@ pub struct ForwardHealth {
     pub active: bool,
     /// Most recent per-connection failure, if any.
     pub last_error: Option<String>,
+    /// Process squatting on `local_port`, when the bind failed because
+    /// something else already holds it.
+    pub holder: Option<PortHolder>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -210,19 +214,34 @@ async fn bind_forward(
                     remote_port: spec.remote_port,
                     active: true,
                     last_error: None,
+                    holder: None,
                 },
                 Some(task),
             )
         }
-        Err(e) => (
-            ForwardHealth {
-                local_port: spec.local_port,
-                remote_port: spec.remote_port,
-                active: false,
-                last_error: Some(format!("bind 127.0.0.1:{}: {e}", spec.local_port)),
-            },
-            None,
-        ),
+        Err(e) => {
+            // Only an in-use port has a holder worth naming, and the probe
+            // shells out, so keep it off the accept path's runtime thread.
+            let holder = if e.kind() == std::io::ErrorKind::AddrInUse {
+                let port = spec.local_port;
+                tokio::task::spawn_blocking(move || listener_on(port))
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            (
+                ForwardHealth {
+                    local_port: spec.local_port,
+                    remote_port: spec.remote_port,
+                    active: false,
+                    last_error: Some(format!("bind 127.0.0.1:{}: {e}", spec.local_port)),
+                    holder,
+                },
+                None,
+            )
+        }
     }
 }
 
@@ -837,6 +856,7 @@ mod tests {
                 remote_port: 3000,
                 active: true,
                 last_error: None,
+                holder: None,
             }],
         };
         let json = serde_json::to_value(&status).unwrap();
