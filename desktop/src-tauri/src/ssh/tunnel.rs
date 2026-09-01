@@ -785,12 +785,19 @@ mod tests {
         sup.set_dynamic_forwards(Vec::new());
         let status = wait_for(&mut rx, |s| s.forwards.len() == 1).await;
         assert_eq!(status.forwards[0].remote_port, 9999);
-        assert!(
-            tokio::net::TcpStream::connect(("127.0.0.1", port))
+        // The status update lands when the supervisor drops the forward; the
+        // listener's accept task unwinds a scheduler tick later, and until it
+        // does the kernel still completes handshakes from its backlog.
+        let closed = tokio::time::timeout(Duration::from_secs(2), async {
+            while tokio::net::TcpStream::connect(("127.0.0.1", port))
                 .await
-                .is_err(),
-            "dynamic listener should be gone"
-        );
+                .is_ok()
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(closed.is_ok(), "dynamic listener should be gone");
 
         sup.stop().await;
     }

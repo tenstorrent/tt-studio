@@ -321,22 +321,32 @@ mod tests {
 
     #[tokio::test]
     async fn closed_port_reports_refused() {
-        // Bind-then-drop guarantees nothing listens on the port.
-        let addr = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap()
-        };
-        let target = SshTarget {
-            host: "127.0.0.1".into(),
-            port: addr.port(),
-            user: "u".into(),
-            auth: vec![],
-        };
-        let err = SshSession::connect(&target, Arc::new(AcceptAll))
-            .await
-            .err()
-            .unwrap();
-        assert!(matches!(err, SshError::Refused { .. }), "{err:?}");
+        // Bind-then-drop leaves the port closed, but the OS hands ephemeral
+        // ports out again quickly: if something else claims this one before
+        // we dial it we get its behavior, not a refusal. Retry on a fresh
+        // port rather than asserting against a lost race.
+        let mut last = None;
+        for _ in 0..5 {
+            let port = {
+                let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let target = SshTarget {
+                host: "127.0.0.1".into(),
+                port,
+                user: "u".into(),
+                auth: vec![],
+            };
+            let err = SshSession::connect(&target, Arc::new(AcceptAll))
+                .await
+                .err()
+                .expect("connecting to a closed port must fail");
+            if matches!(err, SshError::Refused { .. }) {
+                return;
+            }
+            last = Some(err);
+        }
+        panic!("never saw a refusal; last error was {last:?}");
     }
 
     #[tokio::test]
