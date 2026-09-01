@@ -526,6 +526,18 @@ export const runInference = async (
       reader.releaseLock();
     }
 
+    // The closing </think> is synthesized when the first content delta arrives,
+    // so a reply that ends while still in the reasoning channel never gets one:
+    // a truncated answer (finish_reason "length"), or a block-diffusion model
+    // like diffusiongemma that emits its whole block as reasoning and no
+    // content. Left open, processContent drops the block and the reply renders
+    // empty, losing the reasoning the model did produce.
+    if (thinkingText && !thinkingDone) {
+      thinkingDone = true;
+      accumulatedText = `<think>${thinkingText}</think>${contentText}`;
+      scheduleUiUpdate();
+    }
+
     t.end = performance.now();
     const ms = (key: string) => (t[key] != null ? `${Math.round(t[key] - t.start)}ms` : "—");
     const serverTtftMs = inferenceStats?.user_ttft_s != null
