@@ -1949,6 +1949,11 @@ def _process_run_output_line(
             stage = "container_started"
             progress = 60
             message = "Container is running..."
+        # Defence in depth for the v0.21.0 readiness gate (see TT_SERVER_BOOT_ATTEMPTS in run_inference).
+        elif "waiting for inference server readiness" in message.lower():
+            stage = "container_started"
+            progress = 61
+            message = "Container is running..."
         elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
             stage = "container_started"
             progress = 64
@@ -2576,6 +2581,19 @@ async def run_inference(request: RunRequest):
         # (e.g., /home/username/.cache/huggingface instead of /root/.cache/huggingface)
         env_vars_to_set = {
             "AUTOMATIC_HOST_SETUP": "True",
+            # tt-inference-server v0.21.0 added a readiness gate to ServerCommand
+            # (workflow_module/commands.py): with TT_SERVER_BOOT_ATTEMPTS > 1 -- its
+            # default of 2 -- bring-up blocks polling /health until the model is fully
+            # warm (up to TT_SERVER_READY_TIMEOUT_SECONDS, default 1h). We call
+            # run_main() in-process and only emit container_started / connect
+            # tt_studio_network / rename *after* it returns, so that gate freezes the
+            # deploy bar at container_setup for the entire warmup and defers the
+            # frontend's redirect to the end of the deploy. Forcing a single attempt
+            # restores v0.20.0's fire-and-forget return (the container is up, the model
+            # is still loading), which is the point we want to hand off from the deploy
+            # bar to the container-log classifier. Warmup progress and hang detection
+            # are already covered on our side by log_classifier + health_monitor.
+            "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
             "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
