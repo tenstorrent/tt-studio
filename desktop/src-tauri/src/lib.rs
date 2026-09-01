@@ -51,12 +51,16 @@ pub fn run() {
         .manage(remote::RemoteState::default())
         .manage(state::LauncherState::default())
         .manage(session::ResumeState::default())
+        // macOS only: our own Quit item, so Cmd+Q reaches the same teardown
+        // decision as the close button instead of an unstoppable terminate:.
+        .menu(|handle| {
+            #[cfg(target_os = "macos")]
+            return menu::build(handle);
+            #[cfg(not(target_os = "macos"))]
+            return tauri::menu::Menu::default(handle);
+        })
         .setup(|app| {
             tray::setup(app.handle())?;
-            // macOS only: take over the app menu's Quit item so Cmd+Q goes
-            // through the same teardown decision as the close button.
-            #[cfg(target_os = "macos")]
-            menu::setup(app.handle())?;
             Ok(())
         })
         .on_menu_event(|app, event| menu::on_menu_event(app, event.id().as_ref()))
