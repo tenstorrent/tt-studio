@@ -2704,6 +2704,28 @@ class RegisterExternalModelView(APIView):
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
+            # What the container serves is a physical fact about it, so read the
+            # routes before falling back to guessing from names. This is also the
+            # only way to learn a route that diverges from the per-type convention
+            # (a tt-dit image server serves /generate, not /v1/images/generations),
+            # which is why the route is kept even when the type came from elsewhere.
+            served_api = _detect_served_api(service_port)
+            service_route = served_api.get("service_route") or None
+            served_type = served_api.get("model_type")
+            if served_type and served_type != model_type:
+                if model_type:
+                    corrections.append(
+                        f"Model type corrected from '{model_type}' to '{served_type}' "
+                        f"based on the routes the container actually serves "
+                        f"({service_route})."
+                    )
+                else:
+                    corrections.append(
+                        f"Model type '{served_type}' detected from the container's "
+                        f"own API ({service_route})."
+                    )
+                model_type = served_type
+
             # Derive any remaining identity fields, then settle on a model type
             if not model_type and hf_model_id:
                 model_type = _infer_model_type(hf_model_id)
@@ -2815,6 +2837,7 @@ class RegisterExternalModelView(APIView):
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
                     rec.hf_model_id = hf_model_id
+                    rec.service_route = service_route
                     rec.save()
                     corrections.append("Reused this container's existing deployment record.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
@@ -2833,6 +2856,7 @@ class RegisterExternalModelView(APIView):
                         jwt_secret=jwt_secret,
                         model_type=model_type,
                         hf_model_id=hf_model_id,
+                        service_route=service_route,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
@@ -3533,6 +3557,60 @@ def _hf_from_container(container_info: dict):
     return None
 
 
+def _detect_served_api(host_port) -> dict:
+    """Read a container's OpenAPI document and report the API it actually serves.
+
+    Returns {"routes": [...], "service_route": str, "model_type": str} for a
+    container whose served routes identify a contract TT Studio can drive, else
+    whatever subset could be determined ({} when the container has no OpenAPI doc).
+
+    This is the strongest identity signal available and needs no name heuristics:
+    a server that answers on ``/generate`` + ``/jobs/<id>/image`` is an image
+    generator whatever its weights are called, and one that serves no route we
+    recognise is not something we should offer an interaction page for.
+    """
+    if not host_port:
+        return {}
+    try:
+        resp = requests.get(
+            f"http://host.docker.internal:{host_port}/openapi.json", timeout=3
+        )
+        resp.raise_for_status()
+        paths = resp.json().get("paths") or {}
+    except Exception:
+        return {}
+
+    result = {"routes": sorted(paths)}
+
+    # Image dialects are the case where the served route genuinely diverges from
+    # the per-type convention, so consult the dialect table rather than
+    # duplicating its route knowledge here.
+    try:
+        from model_control.image_dialects import dialect_from_openapi
+
+        dialect = dialect_from_openapi(paths)
+    except Exception:
+        dialect = None
+    if dialect is not None:
+        result["service_route"] = dialect.submit_route
+        result["model_type"] = "image_generation"
+        return result
+
+    # Otherwise fall back to the routes that identify the remaining types.
+    for route, model_type in (
+        ("/v1/chat/completions", "chat"),
+        ("/v1/audio/transcriptions", "speech_recognition"),
+        ("/v1/audio/speech", "tts"),
+        ("/v1/videos/generations", "video_generation"),
+        ("/objdetection_v2", "object_detection"),
+    ):
+        if route in paths:
+            result["service_route"] = route
+            result["model_type"] = model_type
+            break
+    return result
+
+
 def _detect_model_info(docker_client, container_id, container_info=None) -> dict:
     """Detect {hf_model_id, model_type, port, source} for a running container.
 
@@ -3582,6 +3660,16 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
             result.setdefault("source", "logs")
         if parsed.get("port") and not result.get("port"):
             result["port"] = parsed["port"]
+
+    # What the container serves beats what its weights are named: a DiT image
+    # server and a vLLM chat server can both be called "<org>/<model>", but they
+    # do not expose the same routes.
+    served = _detect_served_api(host_port)
+    if served.get("model_type"):
+        result["model_type"] = served["model_type"]
+        result["service_route"] = served["service_route"]
+        result.setdefault("source", "openapi")
+        return result
 
     if result.get("hf_model_id"):
         result["model_type"] = _infer_model_type(result["hf_model_id"])
