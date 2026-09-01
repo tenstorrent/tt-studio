@@ -17,7 +17,8 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.3-70B-Instruct",
     "Qwen3.6-27B",
     "Qwen3.8-27B",
-    "gemma-4-31B-it"
+    "gemma-4-31B-it",
+    "diffusiongemma-26B-A4B-it",
 }
 
 # Model types coding agents can talk to.
@@ -31,6 +32,7 @@ REASONING_MODELS = {
     "Qwen3.6-27B": "qwen3",
     "Qwen3.8-27B": "qwen3",
     "gemma-4-31B-it": "gemma4",
+    "diffusiongemma-26B-A4B-it": "gemma4",
 }
 
 # Suffix that selects thinking mode for a reasoning model over the gateway,
