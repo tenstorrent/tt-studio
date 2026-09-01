@@ -903,6 +903,7 @@ def _external_model_impl(con_id, con):
         hf_model_id=dep.hf_model_id,
         service_port=dep.port or 7000,
         tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
+        service_route=getattr(dep, "service_route", None),
     )
     logger.debug(
         f"Using external model_impl for '{con['name']}' "

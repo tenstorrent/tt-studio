@@ -81,17 +81,29 @@ def build_external_model_impl(
     hf_model_id: Optional[str] = None,
     service_port: int = 7000,
     tool_calling_enabled: bool = False,
+    service_route: Optional[str] = None,
 ) -> ExternalModelImpl:
     """Build the stand-in impl for an externally-registered container.
 
     An UNKNOWN type still gets an impl (so the container is tracked) but keeps a
     bare service route: nothing in the UI offers inference against it, and health
     is reported as unknown rather than probing a guessed endpoint.
+
+    ``service_route`` overrides the per-type default when registration observed the
+    route the container actually serves (read from its OpenAPI document). The
+    per-type default is only a convention, and stacks that predate or ignore it --
+    tt-metal's DiT image servers serve ``/generate``, not
+    ``/v1/images/generations`` -- would otherwise be handed a route that 404s.
     """
     resolved_type = normalize_external_model_type(
         getattr(model_type, "value", model_type)
     )
-    service_route, engine = _TYPE_ROUTING.get(resolved_type, ("/", "vllm"))
+    resolved_route, engine = _TYPE_ROUTING.get(resolved_type, ("/", "vllm"))
+    # An observed route only applies to a type we can actually drive; UNKNOWN keeps
+    # its bare route so no UI offers inference against it.
+    if service_route and resolved_type is not ModelTypes.UNKNOWN:
+        resolved_route = service_route
+    service_route = resolved_route
     return ExternalModelImpl(
         model_name=model_name,
         model_id=f"id_external-{model_name}",
