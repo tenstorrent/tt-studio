@@ -214,6 +214,30 @@ export function reduceEvent(
 export const ONE_TIME_SETUP_COMMAND = "python run.py";
 
 /**
+ * Whether a blocked prompt is the launcher's first-run terms gate, which the
+ * app can answer properly (show the terms, get a real click, re-run with
+ * `--accept-terms`) instead of sending the user to a terminal.
+ */
+export function isTermsPrompt(prompt: string | null | undefined): boolean {
+  return /agree to (these|the) terms/i.test(prompt ?? "");
+}
+
+/**
+ * Whether a remediation string is something you can actually run, as opposed
+ * to a sentence explaining the situation. The launcher sends prose here, and
+ * rendering prose in a code block with a Copy button invites people to paste
+ * an English sentence into a shell.
+ */
+export function isRunnableCommand(text: string | null | undefined): boolean {
+  const t = text?.trim();
+  if (!t || t.includes("\n")) return false;
+  if (t.length > 120) return false;
+  // Prose markers: backticks quoting a command inside a sentence, sentence
+  // punctuation, or an em dash joining clauses.
+  return !/[`—]|[.?!]\s|,\s/.test(t);
+}
+
+/**
  * The same command, aimed at the machine that actually runs it. A remote
  * bring-up happens on the far side of the SSH connection, so telling someone
  * to "run python run.py" without saying where sends them to the wrong shell.

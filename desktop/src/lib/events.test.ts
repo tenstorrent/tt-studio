@@ -10,6 +10,8 @@ import {
   reduceEvent,
   reduceStream,
   setupCommandFor,
+  isRunnableCommand,
+  isTermsPrompt,
 } from "./events";
 
 
@@ -222,5 +224,43 @@ describe("setupCommandFor", () => {
   it("stays local when there is no remote", () => {
     expect(setupCommandFor(null)).toBe("python run.py");
     expect(setupCommandFor({ host: null })).toBe("python run.py");
+  });
+});
+
+describe("isTermsPrompt", () => {
+  it("recognizes the first-run terms gate the app can answer itself", () => {
+    expect(isTermsPrompt("Do you agree to these terms?")).toBe(true);
+    expect(isTermsPrompt("do you agree to the terms")).toBe(true);
+  });
+
+  it("does not claim other prompts as the terms gate", () => {
+    expect(isTermsPrompt("Enter your Hugging Face token")).toBe(false);
+    expect(isTermsPrompt("Continue? [y/N]")).toBe(false);
+    expect(isTermsPrompt(null)).toBe(false);
+    expect(isTermsPrompt(undefined)).toBe(false);
+  });
+});
+
+describe("isRunnableCommand", () => {
+  it("accepts something you could paste into a shell", () => {
+    expect(isRunnableCommand("python run.py")).toBe(true);
+    expect(isRunnableCommand("ssh qb2 -t 'cd ~/tt-studio && python run.py'")).toBe(
+      true,
+    );
+  });
+
+  it("rejects prose, which must never sit behind a Copy button", () => {
+    // Real remediation strings the launcher emits.
+    expect(isRunnableCommand("set HF_TOKEN in .env, then re-run")).toBe(false);
+    expect(
+      isRunnableCommand(
+        "this run needs interactive input — answer it once by running `python run.py` in a terminal",
+      ),
+    ).toBe(false);
+    expect(isRunnableCommand("Run the setup. Then relaunch.")).toBe(false);
+    expect(isRunnableCommand("line one\nline two")).toBe(false);
+    expect(isRunnableCommand("x".repeat(200))).toBe(false);
+    expect(isRunnableCommand("")).toBe(false);
+    expect(isRunnableCommand(null)).toBe(false);
   });
 });

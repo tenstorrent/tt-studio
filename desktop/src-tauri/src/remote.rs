@@ -60,10 +60,16 @@ pub fn status_command(path: &str) -> String {
     format!("cd {} && python3 run.py --status --json", quote_path(path))
 }
 
-pub fn bring_up_command(path: &str) -> String {
+/// `accept_terms` passes `--accept-terms`, the launcher's own flag for
+/// agreeing to the OS Model Terms non-interactively. It is only ever set
+/// after the user agreed in the app: `--json-events` turns that prompt into
+/// a `prompt_blocked` event, and answering a legal question on someone's
+/// behalf to get past it would not be acceptable.
+pub fn bring_up_command(path: &str, accept_terms: bool) -> String {
     format!(
-        "cd {} && python3 run.py --no-browser --json-events",
-        quote_path(path)
+        "cd {} && python3 run.py --no-browser --json-events{}",
+        quote_path(path),
+        if accept_terms { " --accept-terms" } else { "" }
     )
 }
 
@@ -373,9 +379,10 @@ pub async fn start_remote_bring_up(
     app: tauri::AppHandle,
     state: tauri::State<'_, RemoteState>,
     profile: Profile,
+    accept_terms: Option<bool>,
 ) -> Result<(), SshError> {
     let session = std::sync::Arc::new(connect_session(&app, &profile).await?);
-    let command = bring_up_command(&repo_path(&profile));
+    let command = bring_up_command(&repo_path(&profile), accept_terms.unwrap_or(false));
     let mut stderr_log = stderr_log_file(&app);
     // Tee the NDJSON stream to disk for the logs viewer, next to the stderr log.
     let ndjson_log = app
@@ -681,7 +688,7 @@ mod tests {
             "cd '/opt/tt studio' && python3 run.py --status --json"
         );
         assert_eq!(
-            bring_up_command("~/tt-studio"),
+            bring_up_command("~/tt-studio", false),
             "cd \"$HOME\"/'tt-studio' && python3 run.py --no-browser --json-events"
         );
         assert_eq!(
@@ -727,6 +734,17 @@ mod tests {
         assert_eq!(repo_path(&profile), DEFAULT_REPO_PATH);
         profile.remote_repo_path = Some("/opt/tt-studio".into());
         assert_eq!(repo_path(&profile), "/opt/tt-studio");
+    }
+
+    #[test]
+    fn accept_terms_is_opt_in_and_never_the_default() {
+        let plain = bring_up_command("~/tt-studio", false);
+        assert!(!plain.contains("--accept-terms"), "{plain}");
+        let accepted = bring_up_command("~/tt-studio", true);
+        assert!(
+            accepted.ends_with("--json-events --accept-terms"),
+            "{accepted}"
+        );
     }
 
     #[test]

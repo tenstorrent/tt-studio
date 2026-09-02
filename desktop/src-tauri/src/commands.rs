@@ -75,3 +75,16 @@ mod tests {
         assert!(validate_stack_url("").is_err());
     }
 }
+
+/// The OS Model Terms the launcher's first-run gate asks about.
+pub const TERMS_URL: &str = "https://docs.tenstorrent.com/os-model-terms.html";
+
+/// Open the terms in the user's browser. Takes no argument on purpose: the
+/// URL is fixed, so the webview cannot turn this into an open-anything.
+#[tauri::command]
+pub fn open_terms(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(TERMS_URL, None::<&str>)
+        .map_err(|e| e.to_string())
+}

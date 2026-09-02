@@ -76,6 +76,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::open_stack,
+            commands::open_terms,
             profiles::list_profiles,
             profiles::save_profile,
             profiles::delete_profile,

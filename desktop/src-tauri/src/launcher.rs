@@ -47,12 +47,17 @@ pub struct SpawnSpec {
 /// `--no-sudo` because a GUI child can never answer a sudo password prompt —
 /// anything that genuinely needs root becomes a `prompt_blocked`/`error`
 /// event pointing the user at a one-time terminal run instead of a hang.
-pub fn bring_up_spec(checkout: &Path, stderr_log: PathBuf) -> SpawnSpec {
+pub fn bring_up_spec(checkout: &Path, stderr_log: PathBuf, accept_terms: bool) -> SpawnSpec {
+    let mut args: Vec<String> = ["run.py", "--no-browser", "--json-events", "--no-sudo"]
+        .map(String::from)
+        .to_vec();
+    // Only ever set after the user agreed in the app — see remote.rs.
+    if accept_terms {
+        args.push("--accept-terms".to_string());
+    }
     SpawnSpec {
         program: PYTHON.to_string(),
-        args: ["run.py", "--no-browser", "--json-events", "--no-sudo"]
-            .map(String::from)
-            .to_vec(),
+        args,
         cwd: checkout.to_path_buf(),
         stderr_log,
         envs: Vec::new(),
@@ -171,9 +176,10 @@ fn spawn_bring_up(
     app: &tauri::AppHandle<Wry>,
     state: &state::LauncherState,
     checkout: &Path,
+    accept_terms: bool,
 ) -> Result<u32, String> {
     let logs = log_dir(app)?;
-    let spec = bring_up_spec(checkout, logs.join("bringup.log"));
+    let spec = bring_up_spec(checkout, logs.join("bringup.log"), accept_terms);
     *state.checkout.lock().map_err(|e| e.to_string())? = Some(checkout.to_path_buf());
     state.local_stack.store(true, Ordering::SeqCst);
     // Tee the NDJSON stdout stream to disk for the logs viewer.
@@ -210,9 +216,10 @@ pub fn start_bring_up(
     app: tauri::AppHandle<Wry>,
     state: tauri::State<'_, LauncherState>,
     checkout: String,
+    accept_terms: Option<bool>,
 ) -> Result<u32, String> {
     let path = checked_checkout(&checkout)?;
-    spawn_bring_up(&app, &state, &path)
+    spawn_bring_up(&app, &state, &path, accept_terms.unwrap_or(false))
 }
 
 /// Kill the running launcher child (if any). Returns whether a signal was
@@ -269,7 +276,9 @@ pub async fn restart_stack(
         ));
     }
 
-    spawn_bring_up(&app, &state, &path)
+    // A restart is of a stack that already ran, so the terms were accepted
+    // on the way in and the prompt cannot reappear.
+    spawn_bring_up(&app, &state, &path, false)
 }
 
 // ---- quit flow ----
@@ -367,11 +376,23 @@ mod tests {
 
     #[test]
     fn bring_up_spec_runs_run_py_with_json_events_from_the_checkout() {
-        let spec = bring_up_spec(Path::new("/tmp/stack"), PathBuf::from("/tmp/log"));
+        let spec = bring_up_spec(Path::new("/tmp/stack"), PathBuf::from("/tmp/log"), false);
         assert_eq!(spec.program, "python3");
         assert_eq!(
             spec.args,
             ["run.py", "--no-browser", "--json-events", "--no-sudo"]
+        );
+        // Only after the user agreed in the app; never by default.
+        let accepted = bring_up_spec(Path::new("/tmp/stack"), PathBuf::from("/tmp/log"), true);
+        assert_eq!(
+            accepted.args,
+            [
+                "run.py",
+                "--no-browser",
+                "--json-events",
+                "--no-sudo",
+                "--accept-terms"
+            ]
         );
         // run.py derives TT_STUDIO_ROOT from cwd — this is the contract.
         assert_eq!(spec.cwd, Path::new("/tmp/stack"));

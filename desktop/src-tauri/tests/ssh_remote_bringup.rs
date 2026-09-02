@@ -201,7 +201,7 @@ async fn one_click_flow_probes_brings_up_and_stops_the_remote_stack() {
     let line_sink = lines.clone();
     let exit = session
         .exec_stream(
-            &remote::bring_up_command(REPO),
+            &remote::bring_up_command(REPO, false),
             |line| line_sink.lock().unwrap().push(line.to_string()),
             |_| {},
         )

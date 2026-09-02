@@ -81,7 +81,7 @@ fn wait_exit(rx: &mpsc::Receiver<Msg>, lines: &mut Vec<String>) -> Option<i32> {
 
 fn scenario_spec(dir: &Path, scenario: &str) -> SpawnSpec {
     let checkout = fake_checkout(dir);
-    let mut spec = bring_up_spec(&checkout, dir.join("logs").join("bringup.log"));
+    let mut spec = bring_up_spec(&checkout, dir.join("logs").join("bringup.log"), false);
     spec.program = python();
     spec.envs
         .push(("FAKE_RUN_SCENARIO".to_string(), scenario.to_string()));

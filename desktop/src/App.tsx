@@ -67,6 +67,7 @@ import {
   adoptDetectedHost,
   cancelQuit,
   detectSshHosts,
+  openTerms,
   prepareLocalPorts,
   clearLastSession,
   suppressResume,
@@ -588,6 +589,22 @@ function App() {
       });
   }, [abandonResume]);
 
+  /**
+   * The user agreed to the OS Model Terms in the app: re-run the bring-up
+   * with `--accept-terms` so the launcher's first-run gate passes. Only ever
+   * reached from an explicit click — the app never answers it for them.
+   */
+  const acceptTermsAndRetry = useCallback((target: Profile | null) => {
+    setBringUp(null);
+    if (target) {
+      startRemoteBringUp(target, true).catch((e) => setError(String(e)));
+      return;
+    }
+    resolveStackCheckout()
+      .then((checkout) => startBringUp(checkout.path, true))
+      .catch((e) => setError(String(e)));
+  }, []);
+
   const handleUpdateNow = useCallback(() => {
     if (!pendingUpdate) return;
     const { target, to } = pendingUpdate;
@@ -986,6 +1003,10 @@ function App() {
                 repoPath: target.remote_repo_path,
               }
             }
+            onAcceptTerms={() => acceptTermsAndRetry(target)}
+            onOpenTerms={() => {
+              openTerms().catch((e) => setError(String(e)));
+            }}
             onReady={handleBringUpReady}
             onCancel={cancelConnect}
           />

@@ -65,28 +65,79 @@ describe("BringUpProgress", () => {
 
     const card = screen.getByTestId("bringup-prompt-blocked");
     expect(card.textContent).toContain("Hugging Face");
-    expect(card.textContent).toContain("HF_TOKEN");
-    expect(card.textContent).toContain("one-time setup");
+    // The launcher's remediation is a sentence — it must be readable text,
+    // not something offered for pasting into a shell.
+    expect(card.textContent).toContain("set HF_TOKEN in .env");
   });
 
-  it("copies the remediation command to the clipboard", async () => {
+  it("copies a command you can actually run, not the prose", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     try {
       render(
         <BringUpProgress
           state={reduceStream(PROMPT_BLOCKED_STREAM)}
+          machine={{ host: "qb2.lan", user: "jashan", repoPath: "~/tt-studio" }}
           onReady={() => {}}
         />,
       );
       const button = screen.getByTestId("copy-remediation");
       fireEvent.click(button);
+      // Aimed at the machine that runs it, not the user's laptop.
       expect(writeText).toHaveBeenCalledWith(
-        expect.stringContaining("HF_TOKEN"),
+        "ssh jashan@qb2.lan -t 'cd ~/tt-studio && python run.py'",
       );
       await waitFor(() => expect(button.textContent).toBe("Copied"));
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  describe("the first-run terms gate", () => {
+    const TERMS_STREAM = [
+      `{"v": 1, "ts": 1.0, "event": "phase_begin", "phase": "Configure", "detail": {"index": 2, "total": 5}}`,
+      `{"v": 1, "ts": 2.0, "event": "prompt_blocked", "phase": "Configure", "detail": {"prompt": "Do you agree to these terms?", "remediation": "this run needs interactive input"}}`,
+    ].join("\n");
+
+    it("lets the user agree in the app instead of in a terminal", () => {
+      const onAcceptTerms = vi.fn();
+      render(
+        <BringUpProgress
+          state={reduceStream(TERMS_STREAM)}
+          onAcceptTerms={onAcceptTerms}
+          onReady={() => {}}
+        />,
+      );
+      const card = screen.getByTestId("bringup-prompt-blocked");
+      expect(card.textContent).toContain("OS Model Terms");
+      // No terminal instructions: the question is answerable right here.
+      expect(screen.queryByTestId("copy-remediation")).toBeNull();
+      fireEvent.click(screen.getByTestId("bringup-accept-terms"));
+      expect(onAcceptTerms).toHaveBeenCalledOnce();
+    });
+
+    it("offers the full terms to read first", () => {
+      const onOpenTerms = vi.fn();
+      render(
+        <BringUpProgress
+          state={reduceStream(TERMS_STREAM)}
+          onAcceptTerms={() => {}}
+          onOpenTerms={onOpenTerms}
+          onReady={() => {}}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("bringup-read-terms"));
+      expect(onOpenTerms).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to the terminal when the app can't answer it", () => {
+      // No onAcceptTerms wired (e.g. a build without the retry path): the
+      // user must still be told how to get past it.
+      render(
+        <BringUpProgress state={reduceStream(TERMS_STREAM)} onReady={() => {}} />,
+      );
+      expect(screen.queryByTestId("bringup-accept-terms")).toBeNull();
+      expect(screen.getByTestId("copy-remediation")).toBeTruthy();
+    });
   });
 });

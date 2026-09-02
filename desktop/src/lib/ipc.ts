@@ -184,8 +184,12 @@ export interface BringUpExit {
 export const classifyRemoteStack = (profile: Profile) =>
   invoke<StackClassification>("classify_remote_stack", { profile });
 
-export const startRemoteBringUp = (profile: Profile) =>
-  invoke<void>("start_remote_bring_up", { profile });
+/**
+ * `acceptTerms` passes the launcher's `--accept-terms`. Only ever true after
+ * the user agreed in the app — see BringUpProgress's terms card.
+ */
+export const startRemoteBringUp = (profile: Profile, acceptTerms = false) =>
+  invoke<void>("start_remote_bring_up", { profile, acceptTerms });
 
 export const cancelRemoteBringUp = () =>
   invoke<void>("cancel_remote_bring_up");
@@ -204,8 +208,8 @@ export const resolveStackCheckout = () =>
 export const setStackCheckoutPath = (path: string | null) =>
   invoke<void>("set_stack_checkout_path", { path });
 
-export const startBringUp = (checkout: string) =>
-  invoke<number>("start_bring_up", { checkout });
+export const startBringUp = (checkout: string, acceptTerms = false) =>
+  invoke<number>("start_bring_up", { checkout, acceptTerms });
 
 export const stopBringUp = () => invoke<boolean>("stop_bring_up");
 
@@ -472,5 +476,8 @@ export const exportAppLog = (name: string) =>
   invoke<string | null>("export_app_log", { name });
 
 // ---- navigation ----
+
+/** Open the OS Model Terms in the system browser (fixed URL, Rust-side). */
+export const openTerms = () => invoke<void>("open_terms");
 
 export const openStack = (url: string) => invoke<void>("open_stack", { url });

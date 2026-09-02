@@ -7,7 +7,10 @@
 // ready → open-the-stack transition. Pure view over BringUpState.
 
 import { useEffect, useState } from "react";
+import { btnPrimary } from "./ui";
 import {
+  isRunnableCommand,
+  isTermsPrompt,
   ONE_TIME_SETUP_COMMAND,
   setupCommandFor,
   type BringUpState,
@@ -82,13 +85,37 @@ interface Props {
    * type it into. Null for a local stack (this computer).
    */
   machine?: { host?: string | null; user?: string | null; repoPath?: string | null } | null;
+  /** Agree to the OS Model Terms and re-run. Absent when not offered. */
+  onAcceptTerms?: () => void;
+  /** Open the terms in the browser. */
+  onOpenTerms?: () => void;
   /** Called once the launcher reports ready and the app URL is known. */
   onReady: (appUrl: string) => void;
   /** When set, renders a cancel button that aborts the bring-up. */
   onCancel?: () => void;
 }
 
-function BringUpProgress({ state, machine, onReady, onCancel }: Props) {
+function BringUpProgress({
+  state,
+  machine,
+  onAcceptTerms,
+  onOpenTerms,
+  onReady,
+  onCancel,
+}: Props) {
+  const blocked = state.promptBlocked;
+  const termsGate = Boolean(blocked && isTermsPrompt(blocked.prompt) && onAcceptTerms);
+  // The launcher's remediation is usually a sentence, not a command; only put
+  // it in a code block when it can actually be run.
+  const remediationProse =
+    blocked && !isRunnableCommand(blocked.remediation) ? blocked.remediation : undefined;
+  const remediationCommand =
+    blocked?.remediation &&
+    isRunnableCommand(blocked.remediation) &&
+    blocked.remediation !== ONE_TIME_SETUP_COMMAND
+      ? blocked.remediation
+      : setupCommandFor(machine ?? null);
+
   const appUrl = state.ready?.urls.app;
   useEffect(() => {
     if (appUrl) onReady(appUrl);
@@ -161,24 +188,57 @@ function BringUpProgress({ state, machine, onReady, onCancel }: Props) {
           className="w-full max-w-md rounded-lg border border-amber-900 bg-amber-950/40 p-4"
         >
           <p className="text-sm font-medium text-amber-300">
-            The launcher needs input it can't ask for here
+            {termsGate
+              ? "Agree to the OS Model Terms to continue"
+              : "The launcher needs input it can't ask for here"}
           </p>
-          <p className="mt-1 text-xs text-amber-200/80">
-            {state.promptBlocked.prompt}
-          </p>
-          <p className="mt-2 text-xs text-amber-200/80">
-            {machine?.host
-              ? "Run the one-time setup on that machine, then relaunch: "
-              : "Run the one-time setup in a terminal, then relaunch: "}
-            <Remediation
-              command={
-                state.promptBlocked.remediation === ONE_TIME_SETUP_COMMAND ||
-                !state.promptBlocked.remediation
-                  ? setupCommandFor(machine ?? null)
-                  : state.promptBlocked.remediation
-              }
-            />
-          </p>
+          {termsGate ? (
+            <>
+              <p className="mt-1 text-xs text-amber-200/80">
+                TT-Studio's first run asks you to accept Tenstorrent's OS Model
+                Terms: the models are provided as-is for demonstration,
+                Tenstorrent isn't liable for their output, and you agree to
+                follow the original creators' licences.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onAcceptTerms}
+                  data-testid="bringup-accept-terms"
+                  className={btnPrimary}
+                >
+                  I agree — continue
+                </button>
+                {onOpenTerms && (
+                  <button
+                    type="button"
+                    onClick={onOpenTerms}
+                    data-testid="bringup-read-terms"
+                    className="text-xs text-amber-200/80 underline underline-offset-2 hover:text-amber-100"
+                  >
+                    Read the full terms
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-amber-200/80">
+                {state.promptBlocked.prompt}
+              </p>
+              {remediationProse && (
+                <p className="mt-2 text-xs text-amber-200/80">
+                  {remediationProse}
+                </p>
+              )}
+              <p className="mt-2 text-xs text-amber-200/80">
+                {machine?.host
+                  ? "Answer it once on that machine, then connect again: "
+                  : "Answer it once in a terminal, then start again: "}
+                <Remediation command={remediationCommand} />
+              </p>
+            </>
+          )}
         </section>
       )}
 
