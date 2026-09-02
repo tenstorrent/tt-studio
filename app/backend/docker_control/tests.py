@@ -11,8 +11,8 @@ from rest_framework.test import APIClient
 
 from docker_control.chip_allocator import ChipSlotAllocator
 from docker_control.deployment_sync import _classify_failure
+from docker_control.artifact_resolution import _LLAMA_V014_IMAGE
 from docker_control.views import (
-    _LLAMA_V014_IMAGE,
     _resolve_artifact_ref,
     _resolve_override_docker_image,
 )
