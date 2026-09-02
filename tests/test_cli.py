@@ -788,6 +788,21 @@ class TestHeadlessDeploy(unittest.TestCase):
         self.assertIn("exited during startup", cap.text)
         self.assertNotIn("is serving", cap.text)
 
+    def test_container_that_never_appears_is_a_failure(self):
+        # Dies before /models/deployed/ ever lists it: must not wait out the
+        # whole serving timeout.
+        bodies = []
+        dh = _fake_driver(bodies, deployed={})
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        clock = {"t": 5000.0}
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "time", lambda: clock["t"]), \
+             patch.object(_cli_run.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s)), \
+             _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        self.assertIn("exited during startup", cap.text)
+        self.assertLess(clock["t"] - 5000.0, 300)
+
     def test_three_unavailable_in_a_row_fails(self):
         bodies = []
         dh = _fake_driver(bodies, health=[(503, {"message": "Unavailable", "details": "engine down"})])

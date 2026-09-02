@@ -289,6 +289,8 @@ def _load_deploy_driver():
 
 
 _SERVING_TIMEOUT_SECS = 1800
+# How long a just-launched container may take to show up in /models/deployed/.
+_APPEAR_TIMEOUT_SECS = 120
 
 
 def _wait_until_serving(client, dh, model_id, timeout=_SERVING_TIMEOUT_SECS, interval=10):
@@ -303,21 +305,25 @@ def _wait_until_serving(client, dh, model_id, timeout=_SERVING_TIMEOUT_SECS, int
     """
     from rich.markup import escape
 
-    deadline = time.time() + timeout
-    deploy_id, last, unavailable = None, None, 0
+    start = time.time()
+    deadline = start + timeout
+    deploy_id, last, unavailable, seen = None, None, 0, False
+    died = ("the model container exited during startup. Check the server log under "
+            ".artifacts/tt-inference-server/workflow_logs/docker_server/ (or the "
+            "deployment's logs in the UI) for the reason.")
     while time.time() < deadline:
         st, data = client.get("deployed", timeout=15)
         entries = data if (st == 200 and isinstance(data, dict)) else {}
         deploy_id = next((did for did, e in entries.items()
                           if (e.get("model_impl") or {}).get("model_id") == model_id), None)
         if deploy_id is None:
-            if last is not None:  # was up, now gone from /deployed/ — it died
-                raise dh.SmokeTestError(
-                    "the model container exited during startup. Check the server log under "
-                    ".artifacts/tt-inference-server/workflow_logs/docker_server/ (or the "
-                    "deployment's logs in the UI) for the reason.")
+            # Was up and is now gone, or never showed up at all (a container that
+            # dies within seconds of launch may never be listed) — both mean it died.
+            if seen or time.time() - start > _APPEAR_TIMEOUT_SECS:
+                raise dh.SmokeTestError(died)
             time.sleep(interval)
             continue
+        seen = True
 
         st, data = client.get("health", timeout=20, query={"deploy_id": deploy_id})
         if not isinstance(data, dict):
