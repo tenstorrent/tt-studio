@@ -9,7 +9,9 @@ import {
   parseEventLine,
   reduceEvent,
   reduceStream,
+  setupCommandFor,
 } from "./events";
+
 
 // Fixture streams mirroring dev-docs/json-events.md.
 
@@ -158,5 +160,67 @@ describe("applyExit (child died — was the stream self-explanatory?)", () => {
 
     const killed = applyExit(initialBringUpState(), null);
     expect(killed.errors[0].message).toContain("interrupted");
+  });
+});
+
+describe("applyExit and the ambiguity of exit code 2", () => {
+  const blank = initialBringUpState();
+
+  it("reads a bare code 2 as a blocked prompt (the --json-events contract)", () => {
+    const state = applyExit(blank, 2);
+    expect(state.promptBlocked).toBeTruthy();
+    expect(state.errors).toHaveLength(0);
+  });
+
+  it("still reads code 2 as a prompt once the stream got going", () => {
+    // A real prompt can happen mid-run, after phases have been reported.
+    const running = reduceEvent(blank, {
+      v: 1,
+      ts: 0,
+      event: "phase_begin",
+      phase: "Checks",
+      detail: { index: 1, total: 5 },
+    });
+    const state = applyExit(running, 2, "some trailing chatter");
+    expect(state.promptBlocked).toBeTruthy();
+  });
+
+  it("reports a usage error as the error it is, not a prompt", () => {
+    // Typer exits 2 for a bad flag. Zero events plus a message on stderr is
+    // a launcher that never started, not one waiting on input.
+    const state = applyExit(blank, 2, "No such option: --json-events");
+    expect(state.promptBlocked).toBeNull();
+    expect(state.errors[0].message).toBe("No such option: --json-events");
+  });
+
+  it("prefers the launcher's own words over a bare exit code", () => {
+    const state = applyExit(blank, 1, "docker: permission denied");
+    expect(state.errors[0].message).toBe("docker: permission denied");
+    // …and falls back to the code when it said nothing.
+    expect(applyExit(blank, 1).errors[0].message).toContain("code 1");
+    expect(applyExit(blank, 1, "   ").errors[0].message).toContain("code 1");
+  });
+
+  it("stays quiet on success", () => {
+    expect(applyExit(blank, 0, "noise")).toBe(blank);
+  });
+});
+
+describe("setupCommandFor", () => {
+  it("aims the command at the machine that runs it", () => {
+    expect(
+      setupCommandFor({ host: "qb2.lan", user: "jashan", repoPath: "~/tt-studio" }),
+    ).toBe("ssh jashan@qb2.lan -t 'cd ~/tt-studio && python run.py'");
+  });
+
+  it("falls back to the default repo path and a bare host", () => {
+    expect(setupCommandFor({ host: "qb2.lan" })).toBe(
+      "ssh qb2.lan -t 'cd ~/tt-studio && python run.py'",
+    );
+  });
+
+  it("stays local when there is no remote", () => {
+    expect(setupCommandFor(null)).toBe("python run.py");
+    expect(setupCommandFor({ host: null })).toBe("python run.py");
   });
 });

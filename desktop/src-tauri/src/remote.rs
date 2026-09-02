@@ -301,8 +301,45 @@ pub struct BringUpExit {
     /// Remote exit code; `None` when the channel closed without one (killed
     /// session, network drop) — pair with `error` for the reason if known.
     pub exit_code: Option<u32>,
+    /// Why it failed, when the remote said so on stderr. Without this the UI
+    /// only has the exit code to go on, and code 2 is ambiguous: it is the
+    /// `--json-events` contract for "needed interactive input" *and* what
+    /// Typer returns for a usage error, so a bad flag was being reported to
+    /// the user as a prompt they had to answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// The last few stderr lines, for the exit event. Bounded because stderr can
+/// be a whole TUI render; the tail is where the reason is.
+fn stderr_tail(raw: &[u8]) -> Option<String> {
+    const MAX_LINES: usize = 6;
+    const MAX_CHARS: usize = 600;
+    let text = String::from_utf8_lossy(raw);
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        // Drop the box-drawing scaffolding of a rich/Typer error panel; the
+        // message inside it is what matters.
+        .map(|l| l.trim_matches(|c: char| "│╭╰─╮╯ ".contains(c)))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let tail = lines
+        .iter()
+        .rev()
+        .take(MAX_LINES)
+        .rev()
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let tail = tail.trim().to_string();
+    if tail.is_empty() {
+        return None;
+    }
+    Some(match tail.char_indices().nth(MAX_CHARS) {
+        Some((idx, _)) => format!("{}…", &tail[..idx]),
+        None => tail,
+    })
 }
 
 /// At most one remote bring-up runs at a time. Holds the session so
@@ -351,6 +388,8 @@ pub async fn start_remote_bring_up(
     let task = tauri::async_runtime::spawn(async move {
         use std::io::Write;
         use tauri::Emitter;
+        const STDERR_KEEP: usize = 8 * 1024;
+        let mut stderr_seen: Vec<u8> = Vec::new();
         let line_app = app.clone();
         let result = task_session
             .exec_stream(
@@ -365,6 +404,12 @@ pub async fn start_remote_bring_up(
                     if let Some(f) = &mut stderr_log {
                         let _ = f.write_all(chunk);
                     }
+                    // Keep a bounded copy so a failure can say why, not just
+                    // what exit code it had.
+                    if stderr_seen.len() < STDERR_KEEP {
+                        stderr_seen.extend_from_slice(chunk);
+                        stderr_seen.truncate(STDERR_KEEP);
+                    }
                 },
             )
             .await;
@@ -372,7 +417,12 @@ pub async fn start_remote_bring_up(
         let exit = match result {
             Ok(exit_code) => BringUpExit {
                 exit_code,
-                error: None,
+                // Only on failure: a successful run's stderr is just the
+                // launcher's own display output.
+                error: match exit_code {
+                    Some(0) => None,
+                    _ => stderr_tail(&stderr_seen),
+                },
             },
             Err(e) => BringUpExit {
                 exit_code: None,
@@ -677,5 +727,55 @@ mod tests {
         assert_eq!(repo_path(&profile), DEFAULT_REPO_PATH);
         profile.remote_repo_path = Some("/opt/tt-studio".into());
         assert_eq!(repo_path(&profile), "/opt/tt-studio");
+    }
+
+    #[test]
+    fn stderr_tail_pulls_the_reason_out_of_a_typer_error_panel() {
+        // Verbatim shape of what a bad flag produces on the remote.
+        let raw = b"Usage: run.py [OPTIONS] COMMAND [ARGS]...\n\
+Try 'run.py -h' for help.\n\
+\xe2\x95\xad\xe2\x94\x80 Error \xe2\x94\x80\xe2\x95\xae\n\
+\xe2\x94\x82 No such option: --json-events   \xe2\x94\x82\n\
+\xe2\x95\xb0\xe2\x94\x80\xe2\x95\xaf\n";
+        let tail = stderr_tail(raw).expect("a reason");
+        assert!(
+            tail.contains("No such option: --json-events"),
+            "got {tail:?}"
+        );
+        assert!(!tail.contains('\u{2502}'), "box drawing should be stripped");
+    }
+
+    #[test]
+    fn stderr_tail_says_nothing_when_there_is_nothing_to_say() {
+        assert_eq!(stderr_tail(b""), None);
+        assert_eq!(stderr_tail(b"   \n\n  \n"), None);
+    }
+
+    #[test]
+    fn stderr_tail_keeps_only_the_end_and_caps_length() {
+        let many: String = (0..50).map(|i| format!("line {i}\n")).collect();
+        let tail = stderr_tail(many.as_bytes()).unwrap();
+        assert!(tail.contains("line 49"), "the end is the interesting part");
+        assert!(!tail.contains("line 10"));
+        let huge = "x".repeat(5000);
+        assert!(stderr_tail(huge.as_bytes()).unwrap().len() <= 700);
+    }
+
+    #[test]
+    fn a_failed_exit_carries_its_reason_to_the_ui() {
+        let exit = BringUpExit {
+            exit_code: Some(2),
+            error: Some("No such option: --json-events".into()),
+        };
+        let json = serde_json::to_value(&exit).unwrap();
+        assert_eq!(json["exit_code"], 2);
+        assert_eq!(json["error"], "No such option: --json-events");
+        // A clean exit stays quiet.
+        let ok = serde_json::to_value(BringUpExit {
+            exit_code: Some(0),
+            error: None,
+        })
+        .unwrap();
+        assert!(ok.get("error").is_none());
     }
 }

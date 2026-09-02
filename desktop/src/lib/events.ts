@@ -214,6 +214,20 @@ export function reduceEvent(
 export const ONE_TIME_SETUP_COMMAND = "python run.py";
 
 /**
+ * The same command, aimed at the machine that actually runs it. A remote
+ * bring-up happens on the far side of the SSH connection, so telling someone
+ * to "run python run.py" without saying where sends them to the wrong shell.
+ */
+export function setupCommandFor(
+  machine: { host?: string | null; user?: string | null; repoPath?: string | null } | null,
+): string {
+  if (!machine?.host) return ONE_TIME_SETUP_COMMAND;
+  const target = machine.user ? `${machine.user}@${machine.host}` : machine.host;
+  const path = machine.repoPath ?? "~/tt-studio";
+  return `ssh ${target} -t 'cd ${path} && ${ONE_TIME_SETUP_COMMAND}'`;
+}
+
+/**
  * Fold the child's exit code into the state. A healthy stream carries its
  * own terminal event (ready / error / prompt_blocked); this fills the gap
  * when the process dies without one — a crash, a kill, or exit code 2 from
@@ -223,10 +237,20 @@ export const ONE_TIME_SETUP_COMMAND = "python run.py";
 export function applyExit(
   state: BringUpState,
   code: number | null,
+  /** What the launcher said on stderr, when it said anything. */
+  reason?: string | null,
 ): BringUpState {
   if (state.ready || code === 0) return state;
-  // Exit code 2 is the --json-events contract for "needed interactive input".
-  if (code === 2) {
+  // Empty-after-trim counts as "said nothing": `??` alone would let a
+  // whitespace-only stderr through as a blank error message.
+  const said = reason?.trim() || undefined;
+  // Exit code 2 is the --json-events contract for "needed interactive input",
+  // but Typer returns 2 for a usage error too. Only read it as a prompt when
+  // the launcher actually got going: a run that produced no events and left a
+  // message on stderr failed for the reason it gave, and reporting that as
+  // "answer a prompt" sends the user looking for one that doesn't exist.
+  const startedUp = state.phases.length > 0 || state.notes.length > 0;
+  if (code === 2 && (startedUp || !said)) {
     return state.promptBlocked
       ? state
       : {
@@ -244,9 +268,10 @@ export function applyExit(
       ...state.errors,
       {
         message:
-          code === null
+          said ??
+          (code === null
             ? "Bring-up was interrupted before it finished"
-            : `Bring-up exited with code ${code}`,
+            : `Bring-up exited with code ${code}`),
         remediation: ONE_TIME_SETUP_COMMAND,
       },
     ],

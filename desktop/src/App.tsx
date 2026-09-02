@@ -510,22 +510,12 @@ function App() {
     // drop, blocked prompt before the stream existed) still needs an error
     // card — synthesize one from the exit notification instead of spinning.
     onBringUpExit((exit) => {
-      setBringUp((prev) => {
-        const state = prev ?? initialBringUpState();
-        if (!exit.error) return applyExit(state, exit.exit_code);
-        if (state.ready || state.errors.length > 0) return state;
-        return reduceEvent(state, {
-          v: 1,
-          ts: 0,
-          event: "error",
-          phase: null,
-          detail: {
-            message: exit.error,
-            remediation:
-              "Check remote-bringup.log in the app's log folder, then try connecting again.",
-          },
-        });
-      });
+      setBringUp((prev) =>
+        // applyExit owns the exit-code-vs-stderr judgement (events.ts): a
+        // usage error and a blocked prompt both exit 2, and only the message
+        // tells them apart.
+        applyExit(prev ?? initialBringUpState(), exit.exit_code, exit.error),
+      );
     }).then((fn) => {
       unlistenExit = fn;
     });
@@ -989,6 +979,13 @@ function App() {
         <>
           <BringUpProgress
             state={bringUp}
+            machine={
+              target && {
+                host: target.host,
+                user: target.user,
+                repoPath: target.remote_repo_path,
+              }
+            }
             onReady={handleBringUpReady}
             onCancel={cancelConnect}
           />

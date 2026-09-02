@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import {
   ONE_TIME_SETUP_COMMAND,
+  setupCommandFor,
   type BringUpState,
   type PhaseState,
 } from "../lib/events";
@@ -76,13 +77,18 @@ function PhaseRow({ phase, total }: { phase: PhaseState; total: number | null })
 
 interface Props {
   state: BringUpState;
+  /**
+   * The remote this bring-up runs on, so a remediation says which shell to
+   * type it into. Null for a local stack (this computer).
+   */
+  machine?: { host?: string | null; user?: string | null; repoPath?: string | null } | null;
   /** Called once the launcher reports ready and the app URL is known. */
   onReady: (appUrl: string) => void;
   /** When set, renders a cancel button that aborts the bring-up. */
   onCancel?: () => void;
 }
 
-function BringUpProgress({ state, onReady, onCancel }: Props) {
+function BringUpProgress({ state, machine, onReady, onCancel }: Props) {
   const appUrl = state.ready?.urls.app;
   useEffect(() => {
     if (appUrl) onReady(appUrl);
@@ -161,9 +167,16 @@ function BringUpProgress({ state, onReady, onCancel }: Props) {
             {state.promptBlocked.prompt}
           </p>
           <p className="mt-2 text-xs text-amber-200/80">
-            Run the one-time setup in a terminal, then relaunch:{" "}
+            {machine?.host
+              ? "Run the one-time setup on that machine, then relaunch: "
+              : "Run the one-time setup in a terminal, then relaunch: "}
             <Remediation
-              command={state.promptBlocked.remediation ?? ONE_TIME_SETUP_COMMAND}
+              command={
+                state.promptBlocked.remediation === ONE_TIME_SETUP_COMMAND ||
+                !state.promptBlocked.remediation
+                  ? setupCommandFor(machine ?? null)
+                  : state.promptBlocked.remediation
+              }
             />
           </p>
         </section>
