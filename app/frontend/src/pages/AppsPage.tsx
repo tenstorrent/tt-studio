@@ -36,6 +36,7 @@ import { customToast } from "../components/CustomToaster";
 import {
   fetchCodingAgentsInfo,
   type CodingAgentsInfo,
+  type UnavailableCodingAgentModel,
 } from "../api/modelsDeployedApis";
 import {
   fetchMarketplaceApps,
@@ -138,6 +139,10 @@ export default function AppsPage() {
 
   const models = useMemo(() => gateway?.models ?? [], [gateway]);
   const modelNames = useMemo(() => models.map((m) => m.name), [models]);
+  // Deployed chat models the apps here cannot drive. They are still deployed, so
+  // they decide between "nothing to talk to" and "something to talk to, once you
+  // relaunch it" -- the two used to be conflated into the first message.
+  const unavailable = useMemo(() => gateway?.unavailable ?? [], [gateway]);
   const activeModel =
     selectedModel && modelNames.includes(selectedModel)
       ? selectedModel
@@ -248,7 +253,11 @@ export default function AppsPage() {
               onSelectModel={setSelectedModel}
             />
 
-            {modelNames.length === 0 && (
+            {modelNames.length === 0 && unavailable.length > 0 && (
+              <UnusableModelsNote unavailable={unavailable} />
+            )}
+
+            {modelNames.length === 0 && unavailable.length === 0 && (
               <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:gap-4">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-500">
                   <AlertCircle className="h-5 w-5" />
@@ -354,6 +363,59 @@ export default function AppsPage() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Chat models are deployed, but none can be driven from here yet. Says which
+// and why, rather than the old "no chat model is deployed" -- which contradicts
+// the Models page and sends the user off to deploy a second one.
+function UnusableModelsNote({
+  unavailable,
+}: {
+  unavailable: UnavailableCodingAgentModel[];
+}) {
+  // -thinking variants repeat their base model's reason; one row each is enough.
+  const rows = unavailable.filter((m) => !m.name.endsWith("-thinking"));
+  const relaunchFlags = rows.find((m) => m.relaunch_with)?.relaunch_with;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-500">
+          <AlertCircle className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            {rows.length === 1 ? "A deployed model" : "Deployed models"} cannot be
+            used by apps yet
+          </p>
+          <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+            {rows.map((model) => (
+              <li key={model.name}>
+                <code className="font-mono text-xs text-gray-900 dark:text-gray-200">
+                  {model.name}
+                </code>{" "}
+                —{" "}
+                {model.reason === "tool_calling_disabled"
+                  ? "was launched without tool calling; redeploy it from the Home page to turn it on"
+                  : "has not been verified against the apps here yet"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {relaunchFlags && (
+        <div className="pl-12">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wide text-gray-500">
+            Flags a redeploy adds
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs dark:border-gray-800 dark:bg-black">
+            <CopyableText text={relaunchFlags} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
