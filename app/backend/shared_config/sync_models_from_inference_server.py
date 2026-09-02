@@ -183,6 +183,15 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
         ),
     },
     "DeepSeek-R1-Distill-Llama-70B": {
+        "P150X4": (
+            "known_broken",
+            (
+                "Does not deploy on P150X4 either. Blocked alongside this model's "
+                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
+                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
+                "specs are untested and stay available."
+            ),
+        ),
         "P300x2": (
             "known_broken",
             (
@@ -193,6 +202,15 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
         ),
     },
     "Llama-3.1-70B": {
+        "P150X4": (
+            "known_broken",
+            (
+                "Does not deploy on P150X4 either. Blocked alongside this model's "
+                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
+                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
+                "specs are untested and stay available."
+            ),
+        ),
         "P300x2": (
             "known_broken",
             (
@@ -204,6 +222,15 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
         ),
     },
     "Llama-3.1-70B-Instruct": {
+        "P150X4": (
+            "known_broken",
+            (
+                "Does not deploy on P150X4 either. Blocked alongside this model's "
+                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
+                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
+                "specs are untested and stay available."
+            ),
+        ),
         "P300x2": (
             "known_broken",
             (
