@@ -265,6 +265,38 @@ except ImportError as e:
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
 
+# Media and forge runners read configuration from container environment
+# variables rather than vLLM's additional_config. Preserve the artifact's
+# override merge, then mirror trace_region_size into the env_vars that
+# run_docker_server passes as Docker -e arguments.
+import workflows.model_spec as _model_spec_module  # noqa: E402
+
+_orig_apply_model_spec_overrides = _model_spec_module.ModelSpec.apply_overrides
+
+
+def _patched_apply_model_spec_overrides(self, runtime_config):
+    result = _orig_apply_model_spec_overrides(self, runtime_config)
+    if runtime_config.override_tt_config and self.inference_engine in (
+        "media",
+        "forge",
+    ):
+        trace_region_size = self.device_model_spec.override_tt_config.get(
+            "trace_region_size"
+        )
+        if trace_region_size is not None:
+            object.__setattr__(
+                self,
+                "env_vars",
+                {
+                    **self.env_vars,
+                    "TRACE_REGION_SIZE": str(trace_region_size),
+                },
+            )
+    return result
+
+
+_model_spec_module.ModelSpec.apply_overrides = _patched_apply_model_spec_overrides
+
 # Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
 #
 # Two on-disk layouts must be handled:
