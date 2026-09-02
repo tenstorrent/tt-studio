@@ -24,6 +24,51 @@ try:
 except ImportError:
     _dc_mod = M
 
+# Browser/health helpers live in the _health submodule; patch the names it looks
+# up (wait_for_service_health, webbrowser) there.
+try:
+    from tt_setup.services import _health as _health_mod
+except ImportError:
+    _health_mod = M
+
+
+class TestWaitForFrontendAndOpenBrowser(unittest.TestCase):
+    """URL assembly for the browser open — path + optional auto-deploy query."""
+
+    def _opened_url(self, **kwargs):
+        with patch.object(_health_mod, "wait_for_service_health", return_value=True), \
+             patch.object(_health_mod, "webbrowser") as wb:
+            ok = _health_mod.wait_for_frontend_and_open_browser(**kwargs)
+        self.assertTrue(ok)
+        wb.open.assert_called_once()
+        return wb.open.call_args[0][0]
+
+    def test_plain_root(self):
+        url = self._opened_url(host="localhost", port=3000)
+        self.assertEqual(url, "http://localhost:3000/")
+
+    def test_path_opens_subpage(self):
+        url = self._opened_url(host="localhost", port=3000, path="models-deployed")
+        self.assertEqual(url, "http://localhost:3000/models-deployed")
+
+    def test_auto_deploy_without_device_id(self):
+        url = self._opened_url(host="localhost", port=3000, auto_deploy_model="Qwen3-32B")
+        self.assertIn("auto-deploy=Qwen3-32B", url)
+        self.assertNotIn("device-id", url)  # unset -> backend allocates by model
+
+    def test_auto_deploy_with_device_id(self):
+        url = self._opened_url(host="localhost", port=3000,
+                               auto_deploy_model="Qwen3-32B", device_id=2)
+        self.assertIn("auto-deploy=Qwen3-32B", url)
+        self.assertIn("device-id=2", url)
+
+    def test_returns_false_when_frontend_never_ready(self):
+        with patch.object(_health_mod, "wait_for_service_health", return_value=False), \
+             patch.object(_health_mod, "webbrowser") as wb:
+            ok = _health_mod.wait_for_frontend_and_open_browser(timeout=0)
+        self.assertFalse(ok)
+        wb.open.assert_not_called()
+
 
 class TestGetFrontendConfig(unittest.TestCase):
     def test_defaults(self):

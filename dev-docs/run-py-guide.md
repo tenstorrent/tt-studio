@@ -28,6 +28,30 @@ The script will guide you through all configuration options and set up everythin
 - TAVILY_API_KEY for search functionality (optional)
 - Other optional configuration options
 
+### `run <model>` — one-command deploy
+
+```bash
+python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
+python run.py run                           # omit the model to pick from the catalog interactively
+python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
+python run.py run Llama3.1-8B --device-id 0,1 # pin a multi-chip model to chips 0 and 1
+python run.py run Qwen3-32B --headless      # deploy from the terminal instead of the web UI
+```
+
+`run <model>` brings the whole stack up and deploys the named model in one step.
+The model name is checked against the catalog up front (a typo fails fast with
+suggestions), and it supports shell completion. Omit `MODEL_NAME` entirely to get
+an interactive picker listing the catalog.
+
+By default the deploy runs **through the web UI** — the browser opens and drives
+it. Pass `--headless` to deploy against the backend API from the terminal instead
+(progress streams in the terminal, and the browser opens at `/models-deployed`
+only so you can watch). Suppress the browser in either mode with `--no-browser`.
+
+If `--device-id` is omitted, the backend allocates a slot based on the model's
+chip requirements; pass it only to pin a specific chip. Multi-chip models take a
+comma-separated list (e.g. `--device-id 0,1`).
+
 ---
 
 ## Command-Line Options
@@ -50,15 +74,13 @@ panels. Run with no flags for the default minimal setup; every flag is optional.
 
 | Option | Description |
 | --- | --- |
-| `--auto-deploy MODEL_NAME` | Auto-deploy the given model once the stack is up. |
-| `--device-id CHIP_ID` | Chip slot index (0–7) to target with `--auto-deploy` (default `0`). |
+| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Deploys via the web UI by default (see the [`run <model>`](#run-model--one-command-deploy) subcommand); add `--headless` to deploy from the terminal. Supports shell completion of catalog model names. |
+| `--device-id CHIP_IDS` | Chip slot(s) to target: a single slot (`0`) or a comma-separated list (`0,1`) for multi-chip models. Omit to let the backend allocate based on the model's chip requirements. |
+| `--headless` | With an auto-deploy, deploy against the backend API from the terminal instead of handing off to the web UI. |
 
-> **⚠️ Not yet available**: `--auto-deploy` (and its `--device-id`) is a
-> **work in progress and not fully developed**. The launcher currently only
-> forwards the request to the frontend as a URL parameter
-> (`?auto-deploy=<model>&device-id=<id>`); end-to-end automatic deployment is not
-> functional yet. Deploy models from the UI for now. This flag and note will be
-> updated once the feature lands.
+> **Tip**: `python run.py run <model>` is the ergonomic front door for this —
+> it brings the stack up and deploys the model in one command. See
+> [`run <model>`](#run-model--one-command-deploy) above.
 
 ### Lifecycle
 
