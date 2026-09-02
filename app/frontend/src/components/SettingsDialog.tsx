@@ -8,7 +8,7 @@ import type { UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, ExternalLink, Eye, EyeOff, Lock } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
 
 import {
   Dialog,
@@ -264,27 +264,6 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
             </div>
           </SecretField>
 
-          <div className="space-y-1">
-            <Label className="flex items-center gap-1">
-              <Lock className="w-3.5 h-3.5" /> TTS API key
-            </Label>
-            <Input
-              readOnly
-              disabled
-              value={
-                isLoading ? "Loading…" : data?.tts_api_key.masked || "Auto-managed"
-              }
-            />
-            <p className="text-xs text-stone-500">
-              Auto-managed for media / voice (TTS &amp; STT) auth. Matches the
-              media inference server's default; to use a custom key, set{" "}
-              <code className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-0.5 font-mono">
-                TTS_API_KEY
-              </code>{" "}
-              in the root .env and redeploy.
-            </p>
-          </div>
-
           <SecretField
             id="tavily_api_key"
             label="Tavily API key"
@@ -298,52 +277,6 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               next search.
             </p>
           </SecretField>
-
-          <div className="space-y-1">
-            <Label className="flex items-center gap-1">
-              <Lock className="w-3.5 h-3.5" /> JWT secret
-            </Label>
-            <Input
-              readOnly
-              disabled
-              value={
-                isLoading ? "Loading…" : data?.jwt_secret.masked || "Auto-managed"
-              }
-            />
-            <p className="text-xs text-stone-500">
-              Auto-managed by the backend for LLM serving auth. Persisted across
-              restarts.
-            </p>
-          </div>
-
-          <div className="rounded-md border border-stone-200 dark:border-stone-800 p-3 space-y-2">
-            <div className="flex items-center gap-1 text-sm font-medium">
-              <Lock className="w-3.5 h-3.5" /> tt-inference artifact (read-only)
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <div className="text-stone-500">Branch</div>
-                <div className="font-mono truncate">
-                  {data?.artifact.branch || "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-stone-500">Version</div>
-                <div className="font-mono truncate">
-                  {data?.artifact.version || "—"}
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-stone-500">
-              {data?.artifact.description ||
-                "Pins which tt-inference-server release TT Studio is built against."}{" "}
-              To change it, run{" "}
-              <code className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-0.5 font-mono">
-                python run.py --reconfigure-inference-server
-              </code>{" "}
-              and redeploy.
-            </p>
-          </div>
 
           <DialogFooter className="gap-2 pt-2">
             <Button

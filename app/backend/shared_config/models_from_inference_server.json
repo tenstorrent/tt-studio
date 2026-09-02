@@ -3,7 +3,7 @@
     "artifact_version": "0.20.0",
     "generated_at": "2026-08-17T18:22:32.785689+00:00"
   },
-  "total_models": 61,
+  "total_models": 60,
   "models": [
     {
       "model_name": "distil-large-v3",
@@ -876,6 +876,44 @@
       "param_count": null
     },
     {
+      "model_name": "diffusiongemma-26B-A4B-it",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "google/diffusiongemma-26B-A4B-it",
+      "inference_engine": "vLLM",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.21.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.21.0-bc4c4df-be7d805",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "1800000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+        "DISABLE_METAL_OP_TIMEOUT": "1",
+        "DG_VLLM_GUMBEL_MODE": "device",
+        "DG_UPFRONT_CAPTURE": "1",
+        "DG_MODEL_OWNED_HYBRID_KV": "1",
+        "DG_UPFRONT_COARSE_PREFILL_BUCKETS": "1",
+        "DG_UPFRONT_LAZY_PREFILL_RECAPTURE": "1",
+        "DG_PREFILL_FIXED_CHUNKS": "1",
+        "DG_PREFILL_CHUNK_SIZE": "4096",
+        "DG_PREFILL_RAGGED_CHUNK": "1024",
+        "DG_DENOISE_REVEAL_PMAX": "262144",
+        "DG_DENOISE_SLIDING_WINDOW": "1",
+        "DG_UPFRONT_PREFILL_WARMUP_LENS": "32,64,96",
+        "DG_TRACE_REGION_SIZE": "3758096384"
+      },
+      "param_count": 4
+    },
+    {
       "model_name": "efficientnet",
       "model_type": "CNN",
       "display_model_type": "CNN",
@@ -892,37 +930,6 @@
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
       "env_vars": {},
-      "param_count": null
-    },
-    {
-      "model_name": "gemma-1.1-2b-it",
-      "hand_owned": true,
-      "model_type": "TRAINING",
-      "display_model_type": "TRAINING",
-      "device_configurations": [
-        "P150"
-      ],
-      "hf_model_id": "google/gemma-1.1-2b-it",
-      "inference_engine": "forge",
-      "impl": "training-lora",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "EXPERIMENTAL",
-      "version": "0.0.1",
-      "docker_image": "tt-media-server-forge:local",
-      "service_route": "/v1/jobs",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "MODEL_RUNNER": "training-lora",
-        "TRAINING_MODEL": "gemma-1.1-2b-it",
-        "ENABLE_JOB_PERSISTENCE": true,
-        "JOB_CLEANUP_INTERVAL_SECONDS": 10000,
-        "JOB_MAX_STUCK_TIME_SECONDS": 100000,
-        "REQUEST_PROCESSING_TIMEOUT_SECONDS": 100000
-      },
       "param_count": null
     },
     {
@@ -1464,23 +1471,6 @@
       "inference_artifact_ref": {
         "P300x2": "tt-studio/qwen3.8-27b-p300x2"
       }
-    },
-    {
-      "model_name": "Z-Image-Turbo",
-      "model_type": "IMAGE_GENERATION",
-      "display_model_type": "IMAGE",
-      "device_configurations": [
-        "P300x2"
-      ],
-      "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
-      "inference_engine": "media",
-      "status": "FUNCTIONAL",
-      "version": "0.17.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
-      "service_route": "/v1/images/generations",
-      "health_route": "/health",
-      "env_vars": {},
-      "param_count": null
     }
   ]
 }

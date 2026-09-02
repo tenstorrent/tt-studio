@@ -55,6 +55,14 @@ HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned
 # first name match, so keeping both would make them pick arbitrarily.
 HAND_OWNED_MARKER = "hand_owned"
 
+# Models the source artifact advertises but that TT-Studio must not offer.
+# Filtered after merge_hand_owned() so a resync can't reintroduce them.
+# Z-Image-Turbo: wedges Blackhole P300 devices during warmup (eth-core init
+# timeout or a hard device hang mid kernel-compile) hard enough that the host
+# needs a board reset; pull it from the catalog until the media image ships a
+# tt-metal/firmware combo validated on fw 19.7.0.
+EXCLUDED_MODEL_NAMES = {"Z-Image-Turbo"}
+
 
 def _impl_selector(value):
     """Reduce tt-inference-server's impl object to the string its endpoints match on.
@@ -474,6 +482,11 @@ def main():
     for _m in models:
         if "impl" in _m:
             _m["impl"] = _impl_selector(_m.get("impl"))
+
+    excluded = [m["model_name"] for m in models if m["model_name"] in EXCLUDED_MODEL_NAMES]
+    if excluded:
+        models = [m for m in models if m["model_name"] not in EXCLUDED_MODEL_NAMES]
+        print(f"Excluded {len(excluded)} model(s): {', '.join(excluded)}")
 
     if preserved:
         print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
