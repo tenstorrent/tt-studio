@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, AuthResult, Handle};
-use russh::keys::{self, HashAlg, PrivateKeyWithHashAlg, PublicKey};
+use russh::keys::{self, HashAlg, PrivateKeyWithHashAlg};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
@@ -61,7 +61,19 @@ struct Checker {
 impl client::Handler for Checker {
     type Error = SshError;
 
-    async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        key: &keys::PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        // A host *certificate* is a different trust decision from the key we
+        // pinned — it delegates to a CA — and the app's known_hosts stores
+        // plain keys. Reject rather than quietly trusting the embedded key.
+        let keys::PublicKeyOrCertificate::PublicKey { key, .. } = key else {
+            return Err(SshError::Handshake {
+                message: "server offered a host certificate; only plain host keys are supported"
+                    .into(),
+            });
+        };
         self.verifier.verify(&self.host, self.port, key)?;
         Ok(true)
     }
@@ -215,7 +227,12 @@ where
         return Err("agent holds no identities".into());
     }
     let count = identities.len();
-    for key in identities {
+    for identity in identities {
+        // Certificates from the agent aren't supported: the server-side trust
+        // path for them is a CA, which this app doesn't configure.
+        let keys::agent::AgentIdentity::PublicKey { key, .. } = identity else {
+            continue;
+        };
         let hash_alg = rsa_hash_for(handle, &key.algorithm()).await;
         match handle
             .authenticate_publickey_with(user, key, hash_alg, &mut agent)
@@ -299,7 +316,7 @@ mod tests {
 
     struct AcceptAll;
     impl HostKeyVerifier for AcceptAll {
-        fn verify(&self, _: &str, _: u16, _: &PublicKey) -> Result<(), SshError> {
+        fn verify(&self, _: &str, _: u16, _: &keys::PublicKey) -> Result<(), SshError> {
             Ok(())
         }
     }

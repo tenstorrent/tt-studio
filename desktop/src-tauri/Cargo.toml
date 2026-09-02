@@ -31,7 +31,7 @@ serde_json = "1"
 # Health endpoints are plain http on localhost — no TLS backend needed.
 reqwest = { version = "0.12", default-features = false }
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
-russh = { version = "0.54", default-features = false, features = ["ring", "flate2"] }
+russh = { version = "0.63", default-features = false, features = ["ring", "flate2"] }
 async-trait = "0.1.92"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
