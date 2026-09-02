@@ -310,13 +310,14 @@ export default function StepperDemo() {
       // for multi-chip models. Send a number for one chip, a joined string for
       // several — matching the manual deploy path in DeployModelStep.
       const deviceIdParam = searchParams.get("device-id");
-      if (deviceIdParam !== null && deviceIdParam !== "") {
-        const ids = parseDeviceIds(deviceIdParam);
-        if (ids.length === 1) {
-          deployPayload.device_id = ids[0];
-        } else if (ids.length > 1) {
-          deployPayload.device_id = ids.join(",");
-        }
+      const requestedDeviceIds =
+        deviceIdParam !== null && deviceIdParam !== ""
+          ? parseDeviceIds(deviceIdParam)
+          : [];
+      if (requestedDeviceIds.length === 1) {
+        deployPayload.device_id = requestedDeviceIds[0];
+      } else if (requestedDeviceIds.length > 1) {
+        deployPayload.device_id = requestedDeviceIds.join(",");
       }
 
       console.log("Auto-deploy payload:", deployPayload);
@@ -333,6 +334,18 @@ export default function StepperDemo() {
       );
 
       console.log("Auto-deploy response:", deployResponse);
+      // Hand the job to the session tracker so Models Deployed shows its
+      // progress card, exactly as a manual deploy would.
+      const jobId: string | undefined = deployResponse.data?.job_id;
+      if (jobId) {
+        addDeployment({
+          jobId,
+          modelId: model.id,
+          modelName: model.name,
+          deviceIds: requestedDeviceIds,
+          startedAt: Date.now(),
+        });
+      }
       customToast.success(`Model "${modelName}" deployment started!`);
       setAutoDeployStatus("Deployment started — opening Models Deployed…");
 

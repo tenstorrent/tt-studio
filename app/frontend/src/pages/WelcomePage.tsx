@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -28,6 +28,7 @@ const STEPS = ["Welcome", "HF token", "Access check", "Done"] as const;
 
 export default function WelcomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [stepIndex, setStepIndex] = useState(0);
   const [secrets, setSecrets] = useState<WelcomeSecrets>({
@@ -81,7 +82,7 @@ export default function WelcomePage() {
     mutationFn: () => updateSettings({ setup_complete: true }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
-      navigate("/", { replace: true });
+      navigate({ pathname: "/", search: location.search }, { replace: true });
     },
     onError: (err: any) => {
       customToast.error(

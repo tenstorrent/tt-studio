@@ -31,9 +31,11 @@ function FirstRunGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!data) return;
     if (!data.setup_complete && location.pathname !== "/welcome") {
-      navigate("/welcome", { replace: true });
+      // Keep the query string: a CLI-launched `?auto-deploy=` must survive the
+      // first-run detour so the deploy fires once setup completes.
+      navigate({ pathname: "/welcome", search: location.search }, { replace: true });
     }
-  }, [data, location.pathname, navigate]);
+  }, [data, location.pathname, location.search, navigate]);
 
   return <>{children}</>;
 }
