@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """Tests for the Typer CLI: parsing, help, and dispatch (logic mocked)."""
+import contextlib
 import json
 import os
 import tempfile
@@ -369,12 +370,23 @@ class TestBuildArgs(unittest.TestCase):
 
     def test_field_set_matches_entry_namespace(self):
         # The `run` command and `_entry` must agree on the field set, else _run
-        # hits an AttributeError. _build_args is that contract — assert it carries
-        # every field _run reads.
+        # hits an AttributeError. Derive the expected set from _entry's own
+        # signature so a flag added to the callback but not to _build_args fails
+        # here instead of at runtime.
+        import inspect
         ns = _cli_args._build_args()
-        for field in ("dev", "cleanup", "cleanup_all", "auto_deploy", "device_id",
-                      "headless", "no_browser", "skip_fastapi", "wait_for_services"):
-            self.assertTrue(hasattr(ns, field), f"missing field: {field}")
+        # Callback-only params: consumed inside _entry, or renamed before _run.
+        consumed = {"ctx", "verbose", "no_clear"}
+        renamed = {"stop": "cleanup", "purge_all": "cleanup_all"}
+        for name in inspect.signature(_cli_args._entry).parameters:
+            if name in consumed:
+                continue
+            field = renamed.get(name, name)
+            self.assertTrue(hasattr(ns, field), f"_build_args lacks field for --{name}")
+
+    def test_purge_model_defaults_to_empty_list(self):
+        # _entry always passes a list; the `run` path must match that shape.
+        self.assertEqual(_cli_args._build_args().purge_model, [])
 
 
 class TestPromptForModel(unittest.TestCase):
@@ -406,6 +418,39 @@ class TestPromptForModel(unittest.TestCase):
              patch.object(_cli_args.typer, "prompt", return_value="1"):
             # All 4 shown, grouped LLM(2)->IMAGE(1)->AUDIO(1); #1 is a real name.
             self.assertIn(_cli_args._prompt_for_model(), [m["name"] for m in self.CATALOG])
+
+
+    def test_training_and_unknown_groups_get_labels(self):
+        # Every catalog display type gets a header; anything unmapped lands under
+        # "Other" rather than a raw enum name.
+        catalog = [
+            {"name": "Llama-3.1-8B-Instruct-train", "group": "TRAINING", "boards": ["P300x2"]},
+            {"name": "mystery-model", "group": "NEW_KIND", "boards": ["P300x2"]},
+        ]
+        with patch.object(_cli_args, "_catalog_models", return_value=catalog), \
+             patch.object(_cli_args, "_detect_board", return_value=""), \
+             patch.object(_cli_args.typer, "prompt", return_value="1"), \
+             patch.object(_cli_args.console, "print") as out:
+            _cli_args._prompt_for_model()
+        text = " ".join(str(a) for c in out.call_args_list for a in c.args)
+        self.assertIn("Training", text)
+        self.assertIn("New_Kind", text)  # unmapped groups are title-cased, not shouted
+
+    def test_catalog_groups_use_display_type_only(self):
+        # display_model_type (LLM/VLM/...) and model_type (CHAT/...) are different
+        # vocabularies; the picker must not mix them.
+        entries = {"models": [
+            {"model_name": "A", "display_model_type": "LLM", "model_type": "CHAT"},
+            {"model_name": "B", "model_type": "CHAT"},
+        ]}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "app", "backend", "shared_config")
+            os.makedirs(path)
+            with open(os.path.join(path, "models_from_inference_server.json"), "w") as f:
+                json.dump(entries, f)
+            with patch.object(_cli_args, "TT_STUDIO_ROOT", d):
+                groups = {m["name"]: m["group"] for m in _cli_args._catalog_models()}
+        self.assertEqual(groups, {"A": "LLM", "B": "OTHER"})
 
 
 class TestValidateModelName(unittest.TestCase):
@@ -460,25 +505,78 @@ class _FakeSmokeTestError(Exception):
     pass
 
 
-def _fake_driver(bodies, resolve_fn=None):
-    """A stand-in for ci/deploy_healthcheck.py that records deploy payloads."""
+_CATALOG = {
+    "status": "success",
+    "models": {
+        "model_ABC": {"model_name": "Qwen3-32B"},
+        "model_LL8": {"model_name": "Llama-3.1-8B-Instruct"},
+        "model_LL70": {"model_name": "Llama-3.3-70B-Instruct"},
+    },
+}
+
+
+def _fake_driver(bodies, catalog=None, progress=None, get_fn=None, bases=None):
+    """A stand-in for ci/deploy_healthcheck.py that records deploy payloads.
+
+    `progress` is a list of progress payloads served in order (the last one
+    repeats); `get_fn` overrides GET handling entirely; `bases` collects the
+    base URLs the Client was built with.
+    """
+    catalog = _CATALOG if catalog is None else catalog
+    progress = progress or [{"status": "completed", "progress": 100, "message": "ready"}]
+    calls = {"progress": 0}
+
     class FakeClient:
         def __init__(self, base, proxy):
-            pass
+            if bases is not None:
+                bases.append(base)
+
+        def get(self, key, timeout=30, query=None, **fmt):
+            if get_fn is not None:
+                return get_fn(key, **fmt)
+            if key == "catalog":
+                return 200, catalog
+            if key == "progress":
+                i = min(calls["progress"], len(progress) - 1)
+                calls["progress"] += 1
+                return 200, progress[i]
+            raise AssertionError(f"unexpected GET {key}")
 
         def post(self, key, body, timeout=60):
             bodies.append(body)
             return 200, {"status": "success", "job_id": "job-1"}
 
-    def default_resolve(client, name, explicit):
-        return "model_ABC"
-
     return types.SimpleNamespace(
         SmokeTestError=_FakeSmokeTestError,
         Client=FakeClient,
-        resolve_model_id=resolve_fn or default_resolve,
-        poll_progress=lambda client, job, timeout, interval: None,
+        PROGRESS_FAIL={"error", "failed", "timeout", "cancelled"},
     )
+
+
+class _Capture:
+    """Collect everything the headless deploy prints, with notice panels
+    flattened to their text so assertions can read them."""
+
+    def __init__(self):
+        self.lines = []
+
+    def __enter__(self):
+        self._stack = contextlib.ExitStack()
+        self._stack.enter_context(patch.object(
+            _cli_run, "notice_panel",
+            side_effect=lambda title, lines, **kw: f"[{title}] " + " ".join(lines)))
+        self._stack.enter_context(patch.object(
+            _cli_run.console, "print",
+            side_effect=lambda *a, **k: self.lines.append(" ".join(str(x) for x in a))))
+        return self
+
+    def __exit__(self, *exc):
+        self._stack.close()
+        return False
+
+    @property
+    def text(self):
+        return "\n".join(self.lines)
 
 
 class TestHeadlessDeploy(unittest.TestCase):
@@ -503,10 +601,10 @@ class TestHeadlessDeploy(unittest.TestCase):
         # Multi-chip list is passed straight through to the deploy payload.
         bodies = []
         dh = _fake_driver(bodies)
-        args = _cli_args._build_args(auto_deploy="Llama3.1-8B", device_id="0,1")
+        args = _cli_args._build_args(auto_deploy="Llama-3.1-8B-Instruct", device_id="0,1")
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC", "device_id": "0,1"}])
+        self.assertEqual(bodies, [{"model_id": "model_LL8", "device_id": "0,1"}])
 
     def test_device_id_zero_is_explicit(self):
         # 0 is a real slot, distinct from "unset" — it must reach the payload.
@@ -524,33 +622,131 @@ class TestHeadlessDeploy(unittest.TestCase):
 
     def test_unresolved_model_does_not_deploy(self):
         bodies = []
-
-        def boom(client, name, explicit):
-            raise _FakeSmokeTestError("no catalog model matches 'X'")
-
-        dh = _fake_driver(bodies, resolve_fn=boom)
-        args = _cli_args._build_args(auto_deploy="X")
-        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="not-a-model")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             _Capture() as cap:
             _cli_run._headless_deploy(args)
         self.assertEqual(bodies, [])  # a real miss never posts a deploy
+        text = cap.text
+        self.assertIn("No catalog model matches", text)
+        self.assertIn("Qwen3-32B", text)  # lists what is available
+
+    def test_ambiguous_match_error_has_no_ci_flag_text(self):
+        # "Llama" matches two catalog entries. The message must speak `run`'s
+        # language — never the CI driver's `--model-id` flag.
+        bodies = []
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="Llama")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        self.assertEqual(bodies, [])
+        text = cap.text
+        self.assertIn("matches several models", text)
+        self.assertIn("Re-run with the exact model name", text)
+        self.assertNotIn("--model-id", text)
+
+    def test_unique_substring_match_resolves(self):
+        bodies = []
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="qwen3")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
+            _cli_run._headless_deploy(args)
+        self.assertEqual(bodies, [{"model_id": "model_ABC"}])
 
     def test_retries_on_backend_warmup_then_succeeds(self):
         bodies = []
         calls = {"n": 0}
 
-        def flaky(client, name, explicit):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise _FakeSmokeTestError("cannot reach http://localhost:8000/catalog/")
-            return "model_ABC"
+        def flaky(key, **fmt):
+            if key == "catalog":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise _FakeSmokeTestError("cannot reach http://localhost:8000/docker/catalog/")
+                return 200, _CATALOG
+            return 200, {"status": "completed", "progress": 100}
 
-        dh = _fake_driver(bodies, resolve_fn=flaky)
-        args = _cli_args._build_args(auto_deploy="X")
+        dh = _fake_driver(bodies, get_fn=flaky)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
              patch.object(_cli_run.time, "sleep"):
             _cli_run._headless_deploy(args)
         self.assertEqual(calls["n"], 2)          # retried once past the warmup error
         self.assertEqual(len(bodies), 1)         # then deployed
+
+    def test_not_found_job_fails_fast_after_grace(self):
+        # An orphaned job (backend restarted, imgpull id evicted) must not spin
+        # for the full timeout: past the grace period `not_found` is a failure.
+        bodies = []
+        dh = _fake_driver(bodies, progress=[{"status": "not_found"}])
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        clock = {"t": 1000.0}
+
+        def fake_time():
+            return clock["t"]
+
+        def fake_sleep(secs):
+            clock["t"] += secs
+
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "time", fake_time), \
+             patch.object(_cli_run.time, "sleep", fake_sleep), \
+             _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        elapsed = clock["t"] - 1000.0
+        self.assertLess(elapsed, 120)  # well inside the 3600 s deploy timeout
+        text = cap.text
+        self.assertIn("no longer reports this deploy job", text)
+
+    def test_failed_status_reports_reason(self):
+        bodies = []
+        dh = _fake_driver(bodies, progress=[
+            {"status": "running", "progress": 10, "message": "pulling image"},
+            {"status": "failed", "progress": 10, "message": "no space left on device"},
+        ])
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "sleep"), \
+             _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        text = cap.text
+        self.assertIn("no space left on device", text)
+
+    def test_keyboard_interrupt_while_polling_exits_cleanly(self):
+        bodies = []
+
+        def interrupt(key, **fmt):
+            if key == "catalog":
+                return 200, _CATALOG
+            raise KeyboardInterrupt
+
+        dh = _fake_driver(bodies, get_fn=interrupt)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             _Capture() as cap:
+            _cli_run._headless_deploy(args)  # must not propagate
+        text = cap.text
+        self.assertIn("keeps deploying", text)
+
+    def test_base_url_honours_env_override(self):
+        bodies, bases = [], []
+        dh = _fake_driver(bodies, bases=bases)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.dict(os.environ, {"TTSTUDIO_BASE_URL": "http://box:8010/"}):
+            _cli_run._headless_deploy(args)
+        self.assertEqual(bases, ["http://box:8010"])
+
+    def test_base_url_defaults_to_local_backend(self):
+        bodies, bases = [], []
+        dh = _fake_driver(bodies, bases=bases)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        env = {k: v for k, v in os.environ.items() if k != "TTSTUDIO_BASE_URL"}
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.dict(os.environ, env, clear=True):
+            _cli_run._headless_deploy(args)
+        self.assertEqual(bases, ["http://localhost:8000"])
 
 
 def _fake_chip_driver(slots, raise_get=False):

@@ -34,7 +34,7 @@ The script will guide you through all configuration options and set up everythin
 python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
 python run.py run                           # omit the model to pick from the catalog interactively
 python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
-python run.py run Llama3.1-8B --device-id 0,1 # pin a multi-chip model to chips 0 and 1
+python run.py run Llama-3.1-8B-Instruct --device-id 0,1   # pin a multi-chip model to chips 0 and 1
 python run.py run Qwen3-32B --headless      # deploy from the terminal instead of the web UI
 ```
 
@@ -47,6 +47,8 @@ By default the deploy runs **through the web UI** — the browser opens and driv
 it. Pass `--headless` to deploy against the backend API from the terminal instead
 (progress streams in the terminal, and the browser opens at `/models-deployed`
 only so you can watch). Suppress the browser in either mode with `--no-browser`.
+In `--headless` mode, Ctrl-C only stops watching: the deploy keeps running in the
+backend and can be followed from **Models Deployed** or `python run.py --status`.
 
 If `--device-id` is omitted, the backend allocates a slot based on the model's
 chip requirements; pass it only to pin a specific chip. Multi-chip models take a

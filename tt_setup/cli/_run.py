@@ -122,6 +122,103 @@ def _auto_deploy_query(model, device_id):
     return f"?{urlencode(query)}"
 
 
+def _backend_base_url():
+    """Backend base URL for the headless deploy driver. Honours TTSTUDIO_BASE_URL
+    (the same override ci/deploy_healthcheck.py accepts) so a non-default backend
+    can be targeted; defaults to the launcher's own backend."""
+    return os.environ.get("TTSTUDIO_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def _resolve_model_id(client, dh, model_name):
+    """Resolve a catalog model_id from a human model name via the live catalog.
+
+    Exact model_name match first, then a unique case-insensitive substring match —
+    the same rule the web UI's auto-deploy applies, so both paths agree. Returns
+    (model_id, None) on success or (None, message) for a definitive miss, worded
+    for `run <model>` users. Raises dh.SmokeTestError for transient conditions
+    (backend unreachable, catalog not ready) so the caller can retry.
+    """
+    st, data = client.get("catalog", timeout=30)
+    if st != 200 or not isinstance(data, dict) or data.get("status") != "success":
+        raise dh.SmokeTestError(f"catalog fetch failed (HTTP {st}): {data}")
+    models = data.get("models") or {}
+    if not models:
+        raise dh.SmokeTestError("catalog returned no models")
+
+    exact = [mid for mid, m in models.items() if m.get("model_name") == model_name]
+    if exact:
+        return exact[0], None
+    needle = model_name.lower()
+    loose = [mid for mid, m in models.items()
+             if needle in (m.get("model_name") or "").lower()]
+    if len(loose) == 1:
+        return loose[0], None
+    if loose:
+        names = ", ".join(sorted(models[mid].get("model_name") or mid for mid in loose))
+        return None, (f"'{model_name}' matches several models: {names}.\n"
+                      "Re-run with the exact model name.")
+    available = ", ".join(sorted(m.get("model_name") or "" for m in models.values()))
+    return None, f"No catalog model matches '{model_name}'.\nAvailable: {available}"
+
+
+# How long a fresh deploy job may report `not_found` before we treat it as gone
+# (the progress record can lag the deploy POST by a few seconds).
+_NOT_FOUND_GRACE_SECS = 30
+
+
+def _deploy_log_tail(client, dh, job_id):
+    fetch = getattr(dh, "fetch_deploy_logs", None)
+    if fetch is None:
+        return ""
+    try:
+        return fetch(client, job_id) or ""
+    except Exception:
+        return ""
+
+
+def _poll_deploy_progress(client, dh, job_id, timeout=3600, interval=10):
+    """Stream change-only progress lines until the deploy completes.
+
+    Returns on `completed`. Raises dh.SmokeTestError on a failure status, on a
+    job the backend no longer knows about (`not_found` past a short grace
+    period, so an orphaned job can't spin for the whole timeout), or on timeout.
+    Prints through the launcher console rather than the CI driver's logger.
+    """
+    from rich.markup import escape
+
+    start = time.time()
+    deadline = start + timeout
+    fail = set(getattr(dh, "PROGRESS_FAIL", ())) | {"error", "failed", "timeout", "cancelled"}
+    last = None
+    while time.time() < deadline:
+        st, data = client.get("progress", timeout=15, job_id=job_id)
+        if st != 200 or not isinstance(data, dict):
+            time.sleep(interval)
+            continue
+        status_ = (data.get("status") or "").lower()
+        pct = data.get("progress")
+        msg = data.get("message") or ""
+        line = status_
+        if pct not in (None, ""):
+            line += f" {pct}%"
+        if msg:
+            line += f" — {msg}"
+        if line != last:
+            console.print(f"  [muted]{time.strftime('%H:%M:%S')}[/muted] {escape(line)}")
+            last = line
+        if status_ == "completed":
+            return
+        orphaned = status_ == "not_found" and time.time() - start > _NOT_FOUND_GRACE_SECS
+        if status_ in fail or orphaned:
+            reason = "the backend no longer reports this deploy job" if orphaned else (msg or status_)
+            tail = _deploy_log_tail(client, dh, job_id)
+            raise dh.SmokeTestError(f"deployment {status_}: {reason}" + (f"\n  {tail}" if tail else ""))
+        time.sleep(interval)
+    tail = _deploy_log_tail(client, dh, job_id)
+    raise dh.SmokeTestError(
+        f"deployment did not complete within {timeout}s" + (f"\n  {tail}" if tail else ""))
+
+
 def _preflight_device_availability(args):
     """Fast-reject a `--device-id`-pinned deploy when the requested chip slots are
     already occupied, *before* the full stack-up / browser open.
@@ -146,7 +243,7 @@ def _preflight_device_availability(args):
     dh = _load_deploy_driver()
     if dh is None:
         return
-    client = dh.Client("http://localhost:8000", proxy=False)
+    client = dh.Client(_backend_base_url(), proxy=False)
     try:
         st, data = client.get("chip_status", timeout=5)
     except Exception:
@@ -203,48 +300,57 @@ def _headless_deploy(args):
     if dh is None:
         return
 
-    client = dh.Client("http://localhost:8000", proxy=False)
+    client = dh.Client(_backend_base_url(), proxy=False)
     model_name = args.auto_deploy
     device_id = getattr(args, "device_id", None)
 
     # The backend may still be warming right after the stack comes up — retry the
-    # catalog resolve briefly on connection/catalog errors, but not on a true miss.
-    model_id, last_err = None, None
+    # catalog resolve briefly on connection/catalog errors; a definitive miss or
+    # ambiguous match is reported at once.
+    model_id, err = None, None
     deadline = time.time() + 60
     while time.time() < deadline:
         try:
-            model_id = dh.resolve_model_id(client, model_name, None)
+            model_id, err = _resolve_model_id(client, dh, model_name)
             break
         except dh.SmokeTestError as e:
-            last_err = e
-            if "cannot reach" in str(e) or "catalog fetch failed" in str(e):
-                time.sleep(3)
-                continue
-            break  # real miss / ambiguous match — don't retry
+            err = str(e)
+            time.sleep(3)
     if model_id is None:
-        console.print(notice_panel("Auto-deploy failed", [str(last_err)], border_style="error"))
+        console.print(notice_panel("Auto-deploy failed", [err or "could not resolve the model"], border_style="error"))
         return
 
     body = {"model_id": model_id}
     if device_id is not None:
         body["device_id"] = device_id
     where = f"chip {device_id}" if device_id is not None else "auto-allocated slot"
+    frontend_host, frontend_port, _ = get_frontend_config()
+    deployed_url = f"http://{frontend_host}:{frontend_port}/models-deployed"
 
     try:
         st, data = client.post("deploy", body, timeout=120)
+        if not isinstance(data, dict):
+            data = {"raw": data}
         if st not in (200, 201) or data.get("status") != "success":
-            raise dh.SmokeTestError(f"deploy failed (HTTP {st}): {data}")
+            detail = data.get("message") or data.get("error") or data
+            raise dh.SmokeTestError(f"deploy failed (HTTP {st}): {detail}")
         job_id = data.get("job_id")
         if not job_id:
             raise dh.SmokeTestError(f"deploy returned no job_id: {data}")
         console.print(f"\n[success]🚀 Deploying {model_name}[/success] [muted]({where})[/muted]")
-        # poll_progress prints its own change-only progress lines; don't wrap it in
-        # a Live spinner (they'd fight over the terminal).
-        dh.poll_progress(client, job_id, timeout=3600, interval=10)
-        frontend_host, frontend_port, _ = get_frontend_config()
-        console.print(f"[success]✅ {model_name} deployed — watch it at http://{frontend_host}:{frontend_port}/models-deployed[/success]\n")
+        console.print("[muted]Ctrl-C stops watching; the deploy keeps running in the backend.[/muted]")
+        # The poller prints its own change-only progress lines; don't wrap it in a
+        # Live spinner (they'd fight over the terminal).
+        _poll_deploy_progress(client, dh, job_id, timeout=3600, interval=10)
+        console.print(f"[success]✅ {model_name} deployed — watch it at {deployed_url}[/success]\n")
     except dh.SmokeTestError as e:
         console.print(notice_panel("Auto-deploy failed", [str(e)], border_style="error"))
+    except KeyboardInterrupt:
+        console.print()
+        console.print(notice_panel("Stopped watching", [
+            f"{model_name} keeps deploying in the backend.",
+            f"Follow it at {deployed_url} or with python run.py --status.",
+        ], border_style="warning"))
 
 
 def _run(args):

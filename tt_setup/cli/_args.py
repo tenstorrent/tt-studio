@@ -32,7 +32,7 @@ def _build_args(**overrides):
         device_id=None, headless=False, fix_docker=False, configure_env=False,
         status=False, logs=False, info=False, report_bug=False,
         install_shortcut=False, accept_terms=False, switch=None,
-        uninstall=False, purge_model=None,
+        uninstall=False, purge_model=[],
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -58,7 +58,7 @@ def _catalog_models():
             continue
         out.append({
             "name": name,
-            "group": m.get("display_model_type") or m.get("model_type") or "OTHER",
+            "group": m.get("display_model_type") or "OTHER",
             "boards": m.get("device_configurations", []) or [],
         })
     return out
@@ -92,9 +92,11 @@ def _detect_board():
 _MODEL_GROUP_LABELS = {
     "LLM": "LLMs", "VLM": "Vision-language", "IMAGE": "Image generation",
     "VIDEO": "Video", "AUDIO": "Speech-to-text", "TEXT_TO_SPEECH": "Text-to-speech",
-    "EMBEDDING": "Embeddings", "CNN": "Vision (CNN)",
+    "EMBEDDING": "Embeddings", "CNN": "Vision (CNN)", "TRAINING": "Training",
+    "OTHER": "Other",
 }
-_MODEL_GROUP_ORDER = ["LLM", "VLM", "IMAGE", "VIDEO", "AUDIO", "TEXT_TO_SPEECH", "EMBEDDING", "CNN"]
+_MODEL_GROUP_ORDER = ["LLM", "VLM", "IMAGE", "VIDEO", "AUDIO", "TEXT_TO_SPEECH",
+                      "EMBEDDING", "CNN", "TRAINING", "OTHER"]
 
 
 def _prompt_for_model():
