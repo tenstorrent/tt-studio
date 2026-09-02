@@ -7,6 +7,8 @@
 // classification / failure becomes an error card. No IPC here.
 
 import type {
+  ClearReport,
+  HolderClass,
   PortHolder,
   Profile,
   StackClassification,
@@ -63,10 +65,14 @@ export function portConflictCard(blocked: BlockedPort[]): ConnectErrorInfo {
     (b): b is BlockedPort & { holder: PortHolder } => b.holder != null,
   );
   // One `kill` only when a single process explains every blocked port —
-  // otherwise the command would fix half the problem and read as a fix.
+  // otherwise the command would fix half the problem and read as a fix. And
+  // never for Docker: the listener is a proxy, not the container, so killing
+  // it is both wrong and usually futile (see port_clear.rs).
   const pids = [...new Set(holders.map((b) => b.holder.pid))];
   const command =
-    holders.length === blocked.length && pids.length === 1
+    holders.length === blocked.length &&
+    pids.length === 1 &&
+    !holders.some((b) => looksLikeDocker(b.holder.name))
       ? `kill ${pids[0]}`
       : undefined;
 
@@ -98,6 +104,113 @@ export function portConflictCard(blocked: BlockedPort[]): ConnectErrorInfo {
     command,
     hint: "Free the port and connect again.",
   };
+}
+
+/**
+ * Docker's port listeners by name. The container publishing the port is the
+ * real owner, and `run.py --stop` is what releases it.
+ */
+function looksLikeDocker(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower === "docker-proxy" ||
+    lower === "docker" ||
+    lower.startsWith("com.docker") ||
+    lower.startsWith("vpnkit") ||
+    lower.startsWith("containerd")
+  );
+}
+
+/** "ssh (pid 1250)", plus the machine it is connected to when we know it. */
+function describeSkipped(name: string, pid: number, klass: HolderClass): string {
+  const base = `${name} (pid ${pid})`;
+  return klass.kind === "ssh_forward" && klass.alias
+    ? `${base}, an SSH session to ${klass.alias}`
+    : base;
+}
+
+/**
+ * The card for ports the pre-flight could not free. Unlike
+ * `portConflictCard` this knows *what* the holder is, so it can give the
+ * right remedy instead of a generic `kill`.
+ */
+export function portClearCard(report: ClearReport): ConnectErrorInfo {
+  const stuck = report.skipped;
+  const ports = stuck.map((s) => s.port);
+  const list = ports.join(", ");
+  const plural = ports.length > 1 ? "s" : "";
+  const docker = stuck.filter((s) => s.class.kind === "docker");
+
+  if (docker.length === stuck.length && docker.length > 0) {
+    return {
+      title: `Port${plural} ${list} ${plural ? "are" : "is"} published by Docker`,
+      body:
+        `A Docker container on this computer publishes port${plural} ${list}. ` +
+        "That's almost always a TT-Studio stack already running here — stopping " +
+        "the container is what frees the port; killing Docker's proxy process is not.",
+      command: "python run.py --stop",
+      hint: `Check with: docker ps --filter publish=${ports[0]}`,
+    };
+  }
+
+  const named = stuck
+    .filter((s) => s.holder)
+    .map((s) => describeSkipped(s.holder!.name, s.holder!.pid, s.class));
+  const heldBy = named.length ? ` Held by ${[...new Set(named)].join(", ")}.` : "";
+  const pids = [...new Set(stuck.map((s) => s.holder?.pid).filter((p): p is number => p != null))];
+  const killable =
+    pids.length === 1 &&
+    named.length === stuck.length &&
+    !stuck.some((s) => s.class.kind === "docker");
+
+  return {
+    title: `Port${plural} ${list} ${plural ? "are" : "is"} already in use`,
+    body:
+      `The TT-Studio stack needs port${plural} ${list} on this computer, and ` +
+      `something we don't recognize is holding ${plural ? "them" : "it"}.${heldBy} ` +
+      "Ports held by an editor's SSH session or a leftover TT-Studio window are " +
+      "freed automatically; anything else is left alone in case you're using it.",
+    command: killable ? `kill ${pids[0]}` : undefined,
+    hint: "Free the port and connect again.",
+  };
+}
+
+/**
+ * What the app killed on the user's behalf, in plain words. Null when it
+ * freed nothing. Always names the port, the process and what was lost — a
+ * silent kill dressed up as "cleaned up" is not acceptable.
+ */
+export function freedNotice(
+  report: ClearReport,
+  dialing?: string,
+): string | null {
+  if (report.freed.length === 0) return null;
+  const ports = report.freed.map((f) => f.port);
+  const list = ports.join(", ");
+  const plural = ports.length > 1 ? "s" : "";
+  const holders = [...new Set(report.freed.map((f) => f.holder.pid))];
+
+  const ssh = report.freed.find((f) => f.class.kind === "ssh_forward");
+  if (ssh && ssh.class.kind === "ssh_forward") {
+    const alias = ssh.class.alias;
+    const to = alias ? ` to ${alias}` : "";
+    const same =
+      alias && dialing && alias === dialing
+        ? " That session was to this same machine, so the tunnel now covers those ports."
+        : "";
+    return (
+      `Freed port${plural} ${list} — held by an SSH session${to} ` +
+      `(pid ${ssh.holder.pid}), which has been closed. If that was your editor's ` +
+      `Remote-SSH connection, it will reconnect on its own.${same}`
+    );
+  }
+  if (report.freed.some((f) => f.class.kind === "stale_self")) {
+    return (
+      `Freed port${plural} ${list} — a leftover TT-Studio window ` +
+      `(pid ${holders[0]}) was still holding ${plural ? "them" : "it"}.`
+    );
+  }
+  return `Freed port${plural} ${list} (pid ${holders.join(", ")}).`;
 }
 
 /**
@@ -135,11 +248,18 @@ export function classificationCard(
 }
 
 /** The connect flow's stages, in the order they happen. */
-export type ConnectStep = "tunnel" | "classify" | "bringup" | "attach";
+export type ConnectStep =
+  | "ports"
+  | "tunnel"
+  | "classify"
+  | "bringup"
+  | "attach";
 
 /** One-line progress description for the current stage. */
 export function describeStep(step: ConnectStep, machine: string): string {
   switch (step) {
+    case "ports":
+      return "Checking local ports on this computer…";
     case "tunnel":
       return `Opening SSH tunnel to ${machine}…`;
     case "classify":

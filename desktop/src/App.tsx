@@ -27,6 +27,8 @@ import {
   blockedPorts,
   classificationCard,
   describeStep,
+  freedNotice,
+  portClearCard,
   portConflictCard,
   type ConnectErrorInfo,
   type ConnectStep,
@@ -58,6 +60,7 @@ import {
   adoptDetectedHost,
   cancelQuit,
   detectSshHosts,
+  prepareLocalPorts,
   getSessionInfo,
   setCloseBehavior,
   onStackHealth,
@@ -78,6 +81,7 @@ import {
   stopHealthPoll,
   stopSshTunnels,
   trustHostKey,
+  type ClearReport,
   type CloseBehavior,
   type DetectedHost,
   type HardwareProbe,
@@ -188,6 +192,8 @@ function App() {
   const [hardware, setHardware] = useState<HardwareProbe | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [detected, setDetected] = useState<DetectedHost[]>([]);
+  /** What the last connect freed on this computer, for the notice. */
+  const [freed, setFreed] = useState<ClearReport | null>(null);
   const [health, setHealth] = useState<StackHealth | null>(null);
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
@@ -478,15 +484,27 @@ function App() {
     setTunnel(null);
     setError(null);
     setStackNotice(null);
-    // Local connects go straight to the health gate; SSH connects walk the
-    // tunnel → classify → attach-or-bringup stages first.
-    setStage({ step: target ? "tunnel" : "attach" });
+    setFreed(null);
+    // Local connects go straight to the health gate; SSH connects clear the
+    // local ports, then walk tunnel → classify → attach-or-bringup.
+    setStage({ step: target ? "ports" : "attach" });
     opening.current = false;
-    if (target) {
-      markProfileUsed(target.id).catch(() => {});
-      startSshTunnels(target).catch((e) => setError(String(e)));
-    }
     setScreen({ name: "connecting", target });
+    if (!target) return;
+    markProfileUsed(target.id).catch(() => {});
+    // Pre-flight before the tunnel exists: nothing to tear down if a port is
+    // unavailable, and exactly one clear attempt per connect by construction.
+    prepareLocalPorts()
+      .catch(() => null)
+      .then((report) => {
+        if (report && report.skipped.length > 0) {
+          setStage({ step: "error", card: portClearCard(report) });
+          return;
+        }
+        if (report) setFreed(report);
+        setStage({ step: "tunnel" });
+        startSshTunnels(target).catch((e) => setError(String(e)));
+      });
   }, []);
 
   const handleUpdateNow = useCallback(() => {
@@ -821,13 +839,31 @@ function App() {
     if (switching) {
       return <StackSwitchProgress to={switching.to} lines={switching.lines} />;
     }
-    const notice = stackNotice && (
-      <p
-        data-testid="stack-notice"
-        className="fixed inset-x-0 bottom-4 mx-auto max-w-md rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-zinc-400"
-      >
-        {stackNotice}
-      </p>
+    // One slot, stacked: the stack notice and the freed-ports notice used to
+    // occupy the same fixed position and cover each other.
+    const freedLine = freedNotice(
+      freed ?? { freed: [], skipped: [] },
+      screen.target?.name,
+    );
+    const notice = (stackNotice || freedLine) && (
+      <div className="fixed inset-x-0 bottom-4 mx-auto flex max-w-md flex-col items-center gap-2 px-4">
+        {freedLine && (
+          <p
+            data-testid="freed-notice"
+            className="w-full rounded-md border border-amber-900 bg-amber-950/40 px-4 py-2 text-center text-xs text-amber-200/90"
+          >
+            {freedLine}
+          </p>
+        )}
+        {stackNotice && (
+          <p
+            data-testid="stack-notice"
+            className="w-full rounded-md bg-zinc-900 px-4 py-2 text-center text-xs text-zinc-400"
+          >
+            {stackNotice}
+          </p>
+        )}
+      </div>
     );
     if (
       bringUp &&

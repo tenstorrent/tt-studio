@@ -55,6 +55,33 @@ pub fn append_line(file: &mut File, line: &str) {
     let _ = writeln!(file, "{line}");
 }
 
+/// The launcher's own event log: things the app did that a user may later ask
+/// about. Picked up by the logs viewer and bundled by `bug_report.rs`, since
+/// an action with no record is impossible to explain after the fact.
+pub const LAUNCHER_LOG: &str = "launcher.log";
+
+/// Append one timestamped line to the launcher log. Best-effort: a log write
+/// must never be the reason something fails.
+pub fn append_app_line(app: &tauri::AppHandle<Wry>, line: &str) {
+    let Ok(dir) = app.path().app_log_dir() else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(LAUNCHER_LOG))
+    {
+        let _ = writeln!(file, "[{stamp}] {line}");
+    }
+}
+
 // ---- scanning ----
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]

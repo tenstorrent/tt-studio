@@ -7,9 +7,16 @@ import {
   blockedPorts,
   classificationCard,
   describeStep,
+  freedNotice,
+  portClearCard,
   portConflictCard,
 } from "./connect";
-import type { PortHolder, Profile, TunnelStatus } from "./ipc";
+import type {
+  ClearReport,
+  PortHolder,
+  Profile,
+  TunnelStatus,
+} from "./ipc";
 
 const profile: Profile = {
   id: "p1",
@@ -175,5 +182,131 @@ describe("describeStep", () => {
     for (const step of ["tunnel", "classify", "bringup", "attach"] as const) {
       expect(describeStep(step, "QuietBox")).toContain("QuietBox");
     }
+  });
+});
+
+const holder = (pid: number, name: string): PortHolder => ({ pid, name });
+
+const report = (over: Partial<ClearReport> = {}): ClearReport => ({
+  freed: [],
+  skipped: [],
+  ...over,
+});
+
+describe("portConflictCard docker handling", () => {
+  it("never suggests killing docker's proxy process", () => {
+    // The container publishing the port is the real owner; killing the proxy
+    // is wrong advice and usually doesn't even free the port.
+    const card = portConflictCard([
+      { port: 3000, holder: holder(77, "docker-proxy") },
+    ]);
+    expect(card.command).toBeUndefined();
+  });
+});
+
+describe("portClearCard", () => {
+  it("sends a docker conflict to run.py --stop, not to kill", () => {
+    const card = portClearCard(
+      report({
+        skipped: [
+          { port: 3000, holder: holder(77, "docker-proxy"), class: { kind: "docker" } },
+        ],
+      }),
+    );
+    expect(card.command).toBe("python run.py --stop");
+    expect(card.body).toContain("Docker");
+    expect(card.hint).toContain("docker ps");
+  });
+
+  it("names an unrecognized holder and explains why it was spared", () => {
+    const card = portClearCard(
+      report({
+        skipped: [
+          { port: 3000, holder: holder(4417, "node"), class: { kind: "unknown" } },
+        ],
+      }),
+    );
+    expect(card.title).toContain("3000");
+    expect(card.body).toContain("node (pid 4417)");
+    expect(card.body).toContain("left alone");
+    expect(card.command).toBe("kill 4417");
+  });
+
+  it("offers no kill when several different processes are involved", () => {
+    const card = portClearCard(
+      report({
+        skipped: [
+          { port: 3000, holder: holder(1, "node"), class: { kind: "unknown" } },
+          { port: 8000, holder: holder(2, "python3"), class: { kind: "unknown" } },
+        ],
+      }),
+    );
+    expect(card.command).toBeUndefined();
+    expect(card.title).toContain("3000, 8000");
+  });
+});
+
+describe("freedNotice", () => {
+  const sshFreed = (pid: number, alias: string | null, port = 3000) => ({
+    port,
+    holder: holder(pid, "ssh"),
+    class: { kind: "ssh_forward" as const, alias },
+  });
+
+  it("says nothing when nothing was freed", () => {
+    expect(freedNotice(report())).toBeNull();
+  });
+
+  it("names the port, the pid and what was lost", () => {
+    const notice = freedNotice(report({ freed: [sshFreed(1250, "qbge-devex-02")] }));
+    expect(notice).toContain("port 3000");
+    expect(notice).toContain("qbge-devex-02");
+    expect(notice).toContain("pid 1250");
+    expect(notice).toContain("Remote-SSH");
+  });
+
+  it("mentions when the killed session was to the same machine", () => {
+    const notice = freedNotice(
+      report({ freed: [sshFreed(1250, "qb2")] }),
+      "qb2",
+    );
+    expect(notice).toContain("this same machine");
+    // A different machine gets no such claim.
+    expect(
+      freedNotice(report({ freed: [sshFreed(1250, "qb2")] }), "other"),
+    ).not.toContain("this same machine");
+  });
+
+  it("lists every port when one process held several", () => {
+    const notice = freedNotice(
+      report({
+        freed: [sshFreed(1250, "qb2", 3000), sshFreed(1250, "qb2", 8000)],
+      }),
+    );
+    expect(notice).toContain("ports 3000, 8000");
+  });
+
+  it("describes a leftover copy of the app in its own words", () => {
+    const notice = freedNotice(
+      report({
+        freed: [
+          {
+            port: 3000,
+            holder: holder(4412, "tt-studio-desktop"),
+            class: { kind: "stale_self" },
+          },
+        ],
+      }),
+    );
+    expect(notice).toContain("leftover TT-Studio window");
+    expect(notice).toContain("pid 4412");
+  });
+});
+
+describe("the ports pre-flight step", () => {
+  it("describes itself as local work, not remote", () => {
+    const line = describeStep("ports", "QuietBox");
+    expect(line).toContain("this computer");
+    expect(line).not.toContain("QuietBox");
   });
 });

@@ -545,6 +545,33 @@ pub async fn detect_ssh_hosts(app: tauri::AppHandle<Wry>) -> Result<SshHostDetec
     .map_err(|e| e.to_string())
 }
 
+/// Aliases whose own `LocalForward` lines cover any of `ports`.
+///
+/// This is what makes an `ssh` process holding one of the stack's ports
+/// identifiable: the forward usually comes from the config file, so argv
+/// carries the alias but no `-L` (see port_clear.rs). Best-effort — an empty
+/// result just means the port-clear step recognizes fewer holders.
+pub fn forwarding_aliases(ports: &[u16]) -> Vec<String> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    let root = home.join(".ssh").join("config");
+    if !root.is_file() {
+        return Vec::new();
+    }
+    let scan = collect_aliases(&root, &home);
+    let resolver = SshBinaryResolver { config_path: None };
+    scan.aliases
+        .into_iter()
+        .filter(|alias| {
+            resolver
+                .resolve(alias)
+                .map(|stdout| parse_ssh_g(&stdout))
+                .is_some_and(|config| config.local_forwards.iter().any(|p| ports.contains(p)))
+        })
+        .collect()
+}
+
 /// Save a detected host as a real profile so it can be connected to.
 #[tauri::command]
 pub fn adopt_detected_host(

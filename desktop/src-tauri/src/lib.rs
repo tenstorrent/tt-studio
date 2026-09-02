@@ -9,6 +9,7 @@ mod health;
 pub mod launcher;
 pub mod logs;
 pub mod menu;
+pub mod port_clear;
 pub mod port_holder;
 pub mod profiles;
 pub mod remote;
@@ -85,6 +86,7 @@ pub fn run() {
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,
             ssh::known_hosts::trust_host_key,
+            port_clear::prepare_local_ports,
             ssh::commands::start_ssh_tunnels,
             ssh::commands::stop_ssh_tunnels,
             ssh::commands::get_tunnel_status,

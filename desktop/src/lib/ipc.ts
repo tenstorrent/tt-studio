@@ -335,6 +335,40 @@ export interface SessionInfo {
 
 export const getSessionInfo = () => invoke<SessionInfo>("get_session_info");
 
+// ---- local port clearing (port_clear.rs) ----
+
+/** What holds a port, as far as the app could prove. */
+export type HolderClass =
+  | { kind: "ssh_forward"; alias?: string | null }
+  | { kind: "stale_self" }
+  | { kind: "docker" }
+  | { kind: "unknown" };
+
+export interface FreedPort {
+  port: number;
+  holder: PortHolder;
+  class: HolderClass;
+}
+
+export interface SkippedPort {
+  port: number;
+  holder?: PortHolder | null;
+  class: HolderClass;
+}
+
+export interface ClearReport {
+  freed: FreedPort[];
+  skipped: SkippedPort[];
+}
+
+/**
+ * Free the stack's local ports where it is safe to, before opening the
+ * tunnel. Only holders the app can positively identify (an ssh forward, a
+ * leftover TT-Studio) are cleared; everything else comes back in `skipped`.
+ */
+export const prepareLocalPorts = () =>
+  invoke<ClearReport>("prepare_local_ports");
+
 // ---- ssh config detection (ssh_config.rs) ----
 
 export type UnsupportedReason = { code: "proxy"; via: string };
