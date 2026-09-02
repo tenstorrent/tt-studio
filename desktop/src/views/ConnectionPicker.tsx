@@ -6,7 +6,7 @@
 // Tenstorrent accelerator is present) or connect to a remote machine over
 // SSH. Pure view — all IPC stays in App.
 
-import type { HardwareProbe, Profile } from "../lib/ipc";
+import type { DetectedHost, HardwareProbe, Profile } from "../lib/ipc";
 
 /**
  * What the picker should pre-select on load: `"local"` when the machine has
@@ -52,6 +52,33 @@ export function describeAuth(profile: Profile): string {
   return `key ${profile.auth.path}`;
 }
 
+/**
+ * Detected hosts worth offering: anything already saved as a profile is
+ * dropped (the saved row is the real one), and machines we can actually
+ * connect to sort ahead of the ones we have to explain.
+ */
+export function visibleDetected(
+  detected: DetectedHost[],
+  profiles: Profile[],
+): DetectedHost[] {
+  const savedIds = new Set(profiles.map((p) => p.id));
+  return detected
+    .filter(
+      (h) => !h.existing_profile_id || !savedIds.has(h.existing_profile_id),
+    )
+    .slice()
+    .sort((a, b) => {
+      const bySupport =
+        Number(Boolean(a.unsupported)) - Number(Boolean(b.unsupported));
+      return bySupport !== 0 ? bySupport : a.alias.localeCompare(b.alias);
+    });
+}
+
+/** "jashan@qb2.lan:2222" — how a machine reads in one line. */
+function describeTarget(user: string, host: string, port: number): string {
+  return `${user}@${host}${port === 22 ? "" : `:${port}`}`;
+}
+
 interface Props {
   hardware: HardwareProbe | null;
   profiles: Profile[];
@@ -61,6 +88,9 @@ interface Props {
   /** Explicit stop-then-bring-up; never triggered automatically. */
   onRestartStack: () => void;
   onConnectSsh: (profile: Profile) => void;
+  /** Machines found in ~/.ssh/config that are not saved profiles yet. */
+  detected: DetectedHost[];
+  onConnectDetected: (host: DetectedHost) => void;
   onAddMachine: () => void;
   onEditProfile: (profile: Profile) => void;
   onDeleteProfile: (profile: Profile) => void;
@@ -73,12 +103,15 @@ function ConnectionPicker({
   onConnectLocal,
   onRestartStack,
   onConnectSsh,
+  detected,
+  onConnectDetected,
   onAddMachine,
   onEditProfile,
   onDeleteProfile,
 }: Props) {
   const selected = defaultSelection(hardware, profiles);
   const sshProfiles = profiles.filter((p) => p.kind === "ssh");
+  const offers = visibleDetected(detected, profiles);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-zinc-950 px-6 text-zinc-100">
@@ -89,7 +122,7 @@ function ConnectionPicker({
         </p>
       </header>
 
-      <section className="flex w-full max-w-md flex-col gap-3">
+      <section className="flex w-full max-w-xl flex-col gap-3">
         {noLocalReason(hardware) && (
           <p
             data-testid="no-local-card"
@@ -186,7 +219,9 @@ function ConnectionPicker({
           </div>
         ))}
 
-        {!hardware?.accelerator_present && sshProfiles.length === 0 && (
+        {!hardware?.accelerator_present &&
+          sshProfiles.length === 0 &&
+          offers.length === 0 && (
           <p
             data-testid="picker-empty"
             className="rounded-lg border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-400"
@@ -194,6 +229,45 @@ function ConnectionPicker({
             No machines yet — add one that has a Tenstorrent accelerator to
             connect over SSH.
           </p>
+        )}
+
+        {offers.length > 0 && (
+          <section data-testid="detected-section" className="mt-2 flex flex-col gap-2">
+            <header>
+              <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Detected on this computer
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                From your ~/.ssh/config. Nothing has been contacted.
+              </p>
+            </header>
+            {offers.map((host) => (
+              <div
+                key={host.alias}
+                data-testid={`detected-${host.alias}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{host.alias}</p>
+                  <p className="truncate text-xs text-zinc-400">
+                    {host.unsupported
+                      ? `Reached through ${host.unsupported.via} — jump hosts aren't supported yet; use ssh ${host.alias} in a terminal.`
+                      : describeTarget(host.user, host.hostname, host.port)}
+                  </p>
+                </div>
+                {!host.unsupported && (
+                  <button
+                    type="button"
+                    onClick={() => onConnectDetected(host)}
+                    data-testid={`connect-detected-${host.alias}`}
+                    className="shrink-0 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-500"
+                  >
+                    Connect
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
         )}
 
         <button

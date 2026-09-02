@@ -15,6 +15,7 @@ pub mod remote;
 mod secrets;
 pub mod session;
 pub mod ssh;
+pub mod ssh_config;
 pub mod stack_checkout;
 pub mod state;
 pub mod teardown;
@@ -78,6 +79,8 @@ pub fn run() {
             profiles::save_profile,
             profiles::delete_profile,
             profiles::mark_profile_used,
+            ssh_config::detect_ssh_hosts,
+            ssh_config::adopt_detected_host,
             secrets::set_ssh_key_passphrase,
             secrets::clear_ssh_key_passphrase,
             secrets::has_ssh_key_passphrase,

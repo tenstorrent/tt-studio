@@ -335,6 +335,37 @@ export interface SessionInfo {
 
 export const getSessionInfo = () => invoke<SessionInfo>("get_session_info");
 
+// ---- ssh config detection (ssh_config.rs) ----
+
+export type UnsupportedReason = { code: "proxy"; via: string };
+
+/** A machine found in ~/.ssh/config. Ephemeral until adopted. */
+export interface DetectedHost {
+  alias: string;
+  hostname: string;
+  port: number;
+  user: string;
+  identity_file?: string | null;
+  local_forwards: number[];
+  unsupported?: UnsupportedReason | null;
+  existing_profile_id?: string | null;
+}
+
+export interface SshHostDetection {
+  hosts: DetectedHost[];
+  truncated: boolean;
+  /** No ~/.ssh/config or no ssh binary — the UI stays silent. */
+  unavailable?: string | null;
+}
+
+/** Read ~/.ssh/config. Reads files and runs `ssh -G`; never touches a network. */
+export const detectSshHosts = () =>
+  invoke<SshHostDetection>("detect_ssh_hosts");
+
+/** Save a detected host as a real profile so it can be connected to. */
+export const adoptDetectedHost = (host: DetectedHost) =>
+  invoke<Profile>("adopt_detected_host", { host });
+
 // ---- last session / resume (session.rs) ----
 
 export interface ResumePlan {

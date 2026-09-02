@@ -55,7 +55,9 @@ import {
   onBringUpExit,
   onBringUpLine,
   onRemoteStopLine,
+  adoptDetectedHost,
   cancelQuit,
+  detectSshHosts,
   getSessionInfo,
   setCloseBehavior,
   onStackHealth,
@@ -77,6 +79,7 @@ import {
   stopSshTunnels,
   trustHostKey,
   type CloseBehavior,
+  type DetectedHost,
   type HardwareProbe,
   type Profile,
   type StackHealth,
@@ -184,6 +187,7 @@ function App() {
   );
   const [hardware, setHardware] = useState<HardwareProbe | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [detected, setDetected] = useState<DetectedHost[]>([]);
   const [health, setHealth] = useState<StackHealth | null>(null);
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
@@ -295,6 +299,16 @@ function App() {
     checkStackHealth()
       .then((h) => setStackUp(h.ready))
       .catch(() => setStackUp(false));
+  }, [screen.name]);
+
+  // Machines from ~/.ssh/config. Deliberately its own effect rather than part
+  // of the startup Promise.all: it shells out once per alias, and a slow scan
+  // must never hold up the picker.
+  useEffect(() => {
+    if (screen.name !== "picker") return;
+    detectSshHosts()
+      .then((result) => setDetected(result.hosts))
+      .catch(() => setDetected([]));
   }, [screen.name]);
 
   // While connecting: poll stack health, and navigate once everything is up.
@@ -698,6 +712,24 @@ function App() {
     }
   }, []);
 
+  /**
+   * Adopt a detected host into a real profile, then connect to it. The scan
+   * result is ephemeral on purpose — profiles.json only gains a row when
+   * someone actually uses the machine.
+   */
+  const connectDetected = useCallback(
+    async (host: DetectedHost) => {
+      try {
+        const profile = await adoptDetectedHost(host);
+        setProfiles(await listProfiles());
+        connect(profile);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [connect],
+  );
+
   const handleDelete = useCallback(async (profile: Profile) => {
     try {
       setProfiles(await deleteProfile(profile.id));
@@ -851,6 +883,8 @@ function App() {
         onConnectLocal={connectLocal}
         onRestartStack={handleRestart}
         onConnectSsh={connect}
+        detected={detected}
+        onConnectDetected={connectDetected}
         onAddMachine={() => setScreen({ name: "editor" })}
         onEditProfile={(profile) => setScreen({ name: "editor", profile })}
         onDeleteProfile={handleDelete}

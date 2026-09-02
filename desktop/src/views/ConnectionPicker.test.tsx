@@ -7,8 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ConnectionPicker, {
   defaultSelection,
   noLocalReason,
+  visibleDetected,
 } from "./ConnectionPicker";
-import type { HardwareProbe, Profile } from "../lib/ipc";
+import type { DetectedHost, HardwareProbe, Profile } from "../lib/ipc";
 
 const withHardware: HardwareProbe = {
   platform: "linux",
@@ -47,13 +48,27 @@ const older: Profile = {
 
 const noop = {
   stackUp: false,
+  detected: [],
   onConnectLocal: () => {},
   onRestartStack: () => {},
   onConnectSsh: () => {},
+  onConnectDetected: () => {},
   onAddMachine: () => {},
   onEditProfile: () => {},
   onDeleteProfile: () => {},
 };
+
+const host = (
+  alias: string,
+  extra: Partial<DetectedHost> = {},
+): DetectedHost => ({
+  alias,
+  hostname: `${alias}.example`,
+  port: 22,
+  user: "jashan",
+  local_forwards: [],
+  ...extra,
+});
 
 afterEach(cleanup);
 
@@ -183,5 +198,85 @@ describe("ConnectionPicker", () => {
     );
     fireEvent.click(screen.getByTestId("add-machine"));
     expect(onAddMachine).toHaveBeenCalled();
+  });
+});
+
+describe("visibleDetected", () => {
+  it("hides hosts that are already saved profiles", () => {
+    const saved = host("qb2", { existing_profile_id: "qb2" });
+    expect(visibleDetected([saved, host("other")], [qb2]).map((h) => h.alias)).toEqual([
+      "other",
+    ]);
+    // A stale id that matches nothing saved is still offered.
+    expect(visibleDetected([saved], []).map((h) => h.alias)).toEqual(["qb2"]);
+  });
+
+  it("puts connectable machines before ones needing explanation", () => {
+    const jump = host("aaa-jump", {
+      unsupported: { code: "proxy", via: "bastion" },
+    });
+    expect(
+      visibleDetected([jump, host("zzz")], []).map((h) => h.alias),
+    ).toEqual(["zzz", "aaa-jump"]);
+  });
+});
+
+describe("detected hosts section", () => {
+  it("offers a one-click connect for each detected machine", () => {
+    const onConnectDetected = vi.fn();
+    const detected = [host("qbge-devex-01", { port: 2222 })];
+    render(
+      <ConnectionPicker
+        hardware={noHardware}
+        profiles={[]}
+        {...noop}
+        detected={detected}
+        onConnectDetected={onConnectDetected}
+      />,
+    );
+    expect(screen.getByTestId("detected-section").textContent).toContain(
+      "~/.ssh/config",
+    );
+    expect(screen.getByTestId("detected-qbge-devex-01").textContent).toContain(
+      "jashan@qbge-devex-01.example:2222",
+    );
+    fireEvent.click(screen.getByTestId("connect-detected-qbge-devex-01"));
+    expect(onConnectDetected).toHaveBeenCalledWith(detected[0]);
+  });
+
+  it("explains a jump host instead of offering a dead Connect button", () => {
+    render(
+      <ConnectionPicker
+        hardware={noHardware}
+        profiles={[]}
+        {...noop}
+        detected={[
+          host("behind", { unsupported: { code: "proxy", via: "bastion" } }),
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId("connect-detected-behind")).toBeNull();
+    expect(screen.getByTestId("detected-behind").textContent).toContain(
+      "bastion",
+    );
+  });
+
+  it("does not claim there are no machines while listing some", () => {
+    render(
+      <ConnectionPicker
+        hardware={noHardware}
+        profiles={[]}
+        {...noop}
+        detected={[host("qb2")]}
+      />,
+    );
+    expect(screen.queryByTestId("picker-empty")).toBeNull();
+  });
+
+  it("keeps the empty state when nothing was detected either", () => {
+    render(
+      <ConnectionPicker hardware={noHardware} profiles={[]} {...noop} />,
+    );
+    expect(screen.getByTestId("picker-empty")).toBeTruthy();
   });
 });
