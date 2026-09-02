@@ -96,6 +96,80 @@ Behavior at the edges:
   `TT_STUDIO_IMAGE_TAG` to the exact tag (`tt_setup/env_config/_version.py`)
   and pulls the matching GHCR images itself (`tt_setup/cli/_run.py`).
 
+## Session resume
+
+The launcher records the machine it last put on screen (`src-tauri/src/session.rs`,
+`settings.json` → `last_session`) and reconnects to it on the next launch:
+tunnel, port check, one health probe, then the stack UI. The record is stamped
+by `open_stack` — the app's one definition of "attached" — and swept again on
+exit.
+
+Two guarantees make that safe to do automatically:
+
+- **Always cancellable.** The reconnect renders `ResumeGate`, never a blank
+  wait, with Cancel and "Pick another machine" from the first frame. Turn it
+  off entirely with "Reconnect on launch" in the picker footer.
+- **Never mutates the remote machine.** A resume attaches or gives up. It does
+  not bring a stack up (that claims hardware on a shared box for minutes), and
+  it never shows the unknown-host-key prompt — a trust decision has to follow
+  something the user deliberately did.
+
+Resume is one-shot per process (`take_resume_target`). The launcher URL is
+re-loaded several times in a single run — the `?quit=1` prompt, the return to
+the launcher on hard tunnel loss, the tray's "Switch machine" — and a resume
+that fired on each of those would reconnect to the machine whose tunnel just
+died, forever.
+
+## Quitting, and the macOS Cmd+Q path
+
+`teardown.rs` decides what closing does (ask / minimize to tray / leave the
+stack running / stop it), and every exit route now reaches that decision:
+
+| Route | Arrives as |
+|---|---|
+| Window close button, Alt+F4 | `WindowEvent::CloseRequested` |
+| Tray → Quit | `teardown::request_quit` |
+| **macOS Cmd+Q, app menu → Quit, Dock → Quit** | our own menu item (`menu.rs`) → `request_quit` |
+| Programmatic (`app.exit`, updater relaunch) | `RunEvent::ExitRequested`, always proceeds |
+| Signal kill, logout, force quit | `RunEvent::Exit` — records the session, cannot prompt |
+
+macOS needed `menu.rs` because Tauri's default menu uses muda's *predefined*
+Quit, which maps to `terminate:`; tao registers only
+`applicationWillTerminate:`, so that path is unpreventable and never saw
+`teardown` at all. We build the menu ourselves (same shape as Tauri's default,
+Edit's predefined items kept verbatim so WKWebView keeps its editing
+shortcuts) with an id'd Quit item plus Window → Switch Machine (⌘⇧M). It has
+to be built from `Builder::menu`: every method on a live menu hops to the main
+thread and blocks for the reply, which cannot complete from inside `setup`.
+
+## Local ports
+
+The tunnel must bind the real port numbers (3000/8000/8001/8002/4000/8080) —
+the web app derives its service URLs from `window.location` plus those fixed
+ports. `port_clear.rs` therefore runs before the tunnel and frees a port when
+it can positively identify what holds it:
+
+- an `ssh` client forwarding that port — usually an editor's Remote-SSH
+  session inheriting a `LocalForward` from `~/.ssh/config`, which is why
+  `ssh_config.rs` collects `local_forwards`; and
+- a leftover instance of this app.
+
+Everything else — including Docker, whose listener is a proxy rather than the
+container — is reported with the right remedy and left alone. The allowlist is
+closed by default (`tests/port_clear.rs` asserts it), there is no automatic
+SIGKILL, and every freed port is named in the UI and written to the launcher
+log that `bug_report.rs` bundles.
+
+## Machines from ~/.ssh/config
+
+`ssh_config.rs` lists the machines the user already has configured: `Host`
+lines are parsed for names (following `Include`), then each alias goes through
+`ssh -G` for its effective settings, because `ssh` cannot enumerate aliases
+and re-implementing its matching rules would be a bug farm. Resolution runs
+with `CanonicalizeHostname=no` so nothing touches the network until the user
+clicks a machine. Detected hosts are ephemeral — `profiles.json` gains a row
+only on `adopt_detected_host`.
+
 ## OS matrix
 
 | OS | Webview | Stack mode |
@@ -124,10 +198,24 @@ Per-OS smoke checks for the launcher → stack navigation path.
 - [ ] Interactive click-through: launcher button navigates to a live
       `http://localhost:3000` stack (needs a display + running stack)
 
-**macOS (WKWebView)** — TODO:
+**macOS (WKWebView)** — partially validated 2026-09-01:
 
-- [ ] `tauri build` succeeds (CI covers the debug/no-bundle variant)
-- [ ] Launcher renders; button navigates to a live stack
+- [x] `tauri build --bundles dmg` produces a runnable signed-less bundle
+- [x] Launcher renders; the app menu is ours (no predefined-Quit fallback log)
+- [x] A graceful quit writes `last_session` (verified via
+      `osascript -e 'tell application "TT-Studio" to quit'`)
+- [x] A stale `last_session` (deleted profile) lands on the picker and starts
+      no connect
+- [x] `~/.ssh/config` machines are detected with the right user/host/port/key
+- [ ] Cmd+Q **with an SSH session active** shows the quit dialog rather than
+      exiting (needs a reachable remote; a detached session correctly just
+      quits, so it cannot be checked locally)
+- [ ] App menu → Quit and Dock → Quit do the same
+- [ ] Cmd+Shift+M returns to the picker from the stack page
+- [ ] Edit-menu Cmd+C/V still work in the webview after the menu swap
+- [ ] Resume reconnects to a live remote stack and lands in the web UI
+- [ ] A held port 3000 is freed and the notice names the ssh pid
+- [ ] An unrecognized holder (`python3 -m http.server 3000`) is left alone
 - [ ] Stack UI functional after navigation (WebSocket, login, deploy flows)
 
 **Windows (WebView2)** — TODO:

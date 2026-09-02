@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import BringUpProgress from "./views/BringUpProgress";
 import ConnectErrorCard from "./views/ConnectErrorCard";
 import CloseBehaviorSetting from "./views/CloseBehaviorSetting";
+import ResumeGate from "./views/ResumeGate";
+import ResumeSetting from "./views/ResumeSetting";
 import ConnectionPicker from "./views/ConnectionPicker";
 import LogsViewer from "./views/LogsViewer";
 import ProfileEditor from "./views/ProfileEditor";
@@ -22,7 +24,12 @@ import {
   TrustHostKeyDialog,
   TunnelBanner,
 } from "./views/TunnelBanner";
-import { describeSessionAge } from "./lib/session";
+import {
+  describeSessionAge,
+  portClearNotice,
+  resumeBlockedNotice,
+  resumeNotReadyNotice,
+} from "./lib/session";
 import {
   blockedPorts,
   classificationCard,
@@ -61,6 +68,9 @@ import {
   cancelQuit,
   detectSshHosts,
   prepareLocalPorts,
+  clearLastSession,
+  suppressResume,
+  takeResumeTarget,
   getSessionInfo,
   setCloseBehavior,
   onStackHealth,
@@ -84,6 +94,7 @@ import {
   type ClearReport,
   type CloseBehavior,
   type DetectedHost,
+  type ResumePlan,
   type HardwareProbe,
   type Profile,
   type StackHealth,
@@ -101,7 +112,14 @@ type Screen =
   | { name: "editor"; profile?: Profile }
   // bringUpOnly: a restart is in flight — services may briefly still look
   // healthy, so only the bring-up's own ready event may open the stack.
-  | { name: "connecting"; target: Profile | null; bringUpOnly?: boolean }
+  // resume: this connect started itself on launch, so it must stay
+  // cancellable, never prompt for trust, and never bring a stack up.
+  | {
+      name: "connecting";
+      target: Profile | null;
+      bringUpOnly?: boolean;
+      resume?: boolean;
+    }
   | { name: "logs" }
   | { name: "quit" };
 
@@ -194,6 +212,25 @@ function App() {
   const [detected, setDetected] = useState<DetectedHost[]>([]);
   /** What the last connect freed on this computer, for the notice. */
   const [freed, setFreed] = useState<ClearReport | null>(null);
+  /** The resume this launch started, for the gate's wording. */
+  const [resumePlan, setResumePlan] = useState<ResumePlan | null>(null);
+
+  /**
+   * Give up on an automatic resume and hand the user the picker.
+   *
+   * Clears the stored record so the next launch starts clean rather than
+   * re-attempting whatever just failed, and leaves a line saying why — a
+   * resume that silently evaporates looks like the app ignored the machine.
+   */
+  const abandonResume = useCallback((why: string | null) => {
+    clearLastSession().catch(() => {});
+    stopSshTunnels().catch(() => {});
+    setResumePlan(null);
+    setTunnel(null);
+    setHealth(null);
+    if (why) setStackNotice(why);
+    setScreen({ name: "picker" });
+  }, []);
   const [health, setHealth] = useState<StackHealth | null>(null);
   const [bringUp, setBringUp] = useState<BringUpState | null>(null);
   const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
@@ -286,16 +323,26 @@ function App() {
 
   useEffect(() => {
     if (screen.name === "quit") return;
-    Promise.all([detectHardware(), listProfiles()])
-      .then(([hw, saved]) => {
+    // takeResumeTarget consumes this process's one resume attempt, so the
+    // launcher re-mounting (quit prompt, tunnel-loss return, "Switch
+    // machine") can never start a second one.
+    Promise.all([detectHardware(), listProfiles(), takeResumeTarget()])
+      .then(([hw, saved, plan]) => {
         setHardware(hw);
         setProfiles(saved);
+        if (plan) {
+          setResumePlan(plan);
+          connect(plan.profile, true);
+          return;
+        }
         setScreen({ name: "picker" });
       })
       .catch((e) => {
         setError(String(e));
         setScreen({ name: "picker" });
       });
+    // connect is stable (useCallback with no deps) and this must run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // On the picker, take one health snapshot so it can say whether a local
@@ -347,17 +394,39 @@ function App() {
     )
       return;
     const target = screen.target;
+    const resuming = screen.resume === true;
     const blocked = blockedPorts(tunnel);
     if (blocked.length > 0) {
       stopSshTunnels().catch(() => {});
+      if (resuming) {
+        abandonResume(resumeBlockedNotice(target.name, blocked));
+        return;
+      }
       setStage({ step: "error", card: portConflictCard(blocked) });
       return;
     }
     setStage({ step: "classify" });
-    classifyRemoteStack(target)
+    // Resuming: the forwards are verified, so one local health check answers
+    // the only question a resume asks. `classify` short-circuits on the same
+    // signal anyway (remote.rs), but reaching it costs a second SSH session.
+    const decide = resuming
+      ? checkStackHealth().then((health) =>
+          health.ready
+            ? ({ kind: "healthy" } as const)
+            : classifyRemoteStack(target),
+        )
+      : classifyRemoteStack(target);
+    decide
       .then((classification) => {
         if (classification.kind === "healthy") {
           setStage({ step: "attach" });
+          return;
+        }
+        // A resume never mutates the remote machine: bringing a stack up on a
+        // shared box claims hardware for minutes, and that must be someone's
+        // decision, not a side effect of opening an app.
+        if (resuming) {
+          abandonResume(resumeNotReadyNotice(target.name, classification));
           return;
         }
         const card = classificationCard(classification, target);
@@ -369,6 +438,12 @@ function App() {
       })
       .catch((e) => {
         const ssh = asSshError(e);
+        if (resuming) {
+          abandonResume(
+            `Couldn't reconnect to ${target.name}: ${ssh ? describeSshError(ssh) : String(e)}`,
+          );
+          return;
+        }
         setStage({
           step: "error",
           card: {
@@ -377,7 +452,7 @@ function App() {
           },
         });
       });
-  }, [screen, stage.step, tunnel, maybeUpdateThenBringUp]);
+  }, [screen, stage.step, tunnel, maybeUpdateThenBringUp, abandonResume]);
 
   // For SSH targets: follow tunnel status. The listener is scoped to the
   // connecting screen, but the tunnel itself keeps running after we navigate
@@ -397,13 +472,25 @@ function App() {
   // stop the supervisor and drop back to the picker with the reason.
   useEffect(() => {
     if (screen.name !== "connecting" || tunnel?.phase.state !== "lost") return;
-    if (tunnel.phase.error.code === "unknown_host_key") return;
+    const resuming = screen.resume === true;
+    // An unknown host key is a trust decision, and a trust decision must
+    // always attach to something the user deliberately did. On a resume it is
+    // also the more suspicious case — we have reached this host before, so a
+    // new key means known_hosts was lost or the host changed. Drop to the
+    // picker; a manual connect gets the normal prompt.
+    if (tunnel.phase.error.code === "unknown_host_key" && !resuming) return;
     const message = describeSshError(tunnel.phase.error);
+    if (resuming) {
+      abandonResume(
+        `Couldn't reconnect to ${screen.target?.name ?? "the last machine"}: ${message}`,
+      );
+      return;
+    }
     stopSshTunnels().catch(() => {});
     setTunnel(null);
     setError(message);
     setScreen({ name: "picker" });
-  }, [screen.name, tunnel]);
+  }, [screen, tunnel, abandonResume]);
 
   // When a bring-up is running (`python run.py --json-events`, native or
   // over ssh exec), render its NDJSON stream natively instead of the bare
@@ -479,7 +566,7 @@ function App() {
       });
   }, [screen.name, health]);
 
-  const connect = useCallback((target: Profile | null) => {
+  const connect = useCallback((target: Profile | null, resume = false) => {
     setHealth(null);
     setTunnel(null);
     setError(null);
@@ -489,7 +576,7 @@ function App() {
     // local ports, then walk tunnel → classify → attach-or-bringup.
     setStage({ step: target ? "ports" : "attach" });
     opening.current = false;
-    setScreen({ name: "connecting", target });
+    setScreen({ name: "connecting", target, resume });
     if (!target) return;
     markProfileUsed(target.id).catch(() => {});
     // Pre-flight before the tunnel exists: nothing to tear down if a port is
@@ -498,6 +585,10 @@ function App() {
       .catch(() => null)
       .then((report) => {
         if (report && report.skipped.length > 0) {
+          if (resume) {
+            abandonResume(portClearNotice(report));
+            return;
+          }
           setStage({ step: "error", card: portClearCard(report) });
           return;
         }
@@ -505,7 +596,7 @@ function App() {
         setStage({ step: "tunnel" });
         startSshTunnels(target).catch((e) => setError(String(e)));
       });
-  }, []);
+  }, [abandonResume]);
 
   const handleUpdateNow = useCallback(() => {
     if (!pendingUpdate) return;
@@ -799,6 +890,29 @@ function App() {
 
   if (screen.name === "connecting") {
     const target = screen.target;
+    // An automatic resume gets its own screen: the same stages underneath,
+    // but framed as something the app started, with both exits in reach.
+    if (target && screen.resume && stage.step !== "attach") {
+      return (
+        <ResumeGate
+          machine={target.name}
+          age={describeSessionAge(resumePlan?.age_secs ?? null)}
+          activity={
+            stage.step === "error"
+              ? stage.card.title
+              : describeStep(stage.step, target.name)
+          }
+          onCancel={() => {
+            suppressResume().catch(() => {});
+            cancelConnect();
+          }}
+          onPickAnother={() => {
+            suppressResume().catch(() => {});
+            cancelConnect();
+          }}
+        />
+      );
+    }
     if (
       target &&
       tunnel?.phase.state === "lost" &&
@@ -929,6 +1043,7 @@ function App() {
         <UpdateBanner />
         <StackUpdateSetting />
         <CloseBehaviorSetting />
+        <ResumeSetting />
         <button
           type="button"
           data-testid="open-logs"
