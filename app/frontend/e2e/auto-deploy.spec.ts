@@ -81,7 +81,11 @@ test.describe("CLI auto-deploy (?auto-deploy=)", () => {
     await expect(page.getByText("run Qwen3-32B")).toBeVisible();
 
     await expect.poll(() => deploys.length).toBe(1);
-    expect(deploys[0]).toMatchObject({ model_id: "id_qwen3_32b", weights_id: "" });
+    expect(deploys[0]).toMatchObject({
+      model_id: "id_qwen3_32b",
+      weights_id: "",
+      force_full_board: true,
+    });
     expect(deploys[0]).not.toHaveProperty("device_id");
 
     await expect(page).toHaveURL(/\/models-deployed$/);
@@ -94,6 +98,7 @@ test.describe("CLI auto-deploy (?auto-deploy=)", () => {
 
     await expect.poll(() => deploys.length).toBe(1);
     expect(deploys[0]).toMatchObject({ model_id: "id_llama_8b", device_id: "0,1" });
+    expect(deploys[0]).not.toHaveProperty("force_full_board");
   });
 
   test("forwards a single pinned chip as a number", async ({ page }) => {

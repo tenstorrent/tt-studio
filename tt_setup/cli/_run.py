@@ -288,6 +288,59 @@ def _load_deploy_driver():
     return dh
 
 
+_SERVING_TIMEOUT_SECS = 1800
+
+
+def _wait_until_serving(client, dh, model_id, timeout=_SERVING_TIMEOUT_SECS, interval=10):
+    """After the deploy job reports `completed` (container launched), wait until
+    the model actually answers health checks.
+
+    `completed` only means the container started; vLLM still has to load the
+    model and warm up, and a bad placement dies within seconds of that. Mirrors
+    ci/deploy_healthcheck.py's poll_health: 200 = serving, 202 = starting, three
+    consecutive 503s or the container vanishing from /models/deployed/ = failure.
+    Returns the deploy_id; raises dh.SmokeTestError on failure/timeout.
+    """
+    from rich.markup import escape
+
+    deadline = time.time() + timeout
+    deploy_id, last, unavailable = None, None, 0
+    while time.time() < deadline:
+        st, data = client.get("deployed", timeout=15)
+        entries = data if (st == 200 and isinstance(data, dict)) else {}
+        deploy_id = next((did for did, e in entries.items()
+                          if (e.get("model_impl") or {}).get("model_id") == model_id), None)
+        if deploy_id is None:
+            if last is not None:  # was up, now gone from /deployed/ — it died
+                raise dh.SmokeTestError(
+                    "the model container exited during startup. Check the server log under "
+                    ".artifacts/tt-inference-server/workflow_logs/docker_server/ (or the "
+                    "deployment's logs in the UI) for the reason.")
+            time.sleep(interval)
+            continue
+
+        st, data = client.get("health", timeout=20, query={"deploy_id": deploy_id})
+        if not isinstance(data, dict):
+            data = {}
+        msg = data.get("message") or data.get("status") or f"HTTP {st}"
+        line = f"health {st} — {msg}"
+        if line != last:
+            console.print(f"  [muted]{time.strftime('%H:%M:%S')}[/muted] {escape(line)}")
+            last = line
+        if st == 200:
+            return deploy_id
+        if st == 503:
+            unavailable += 1
+            if unavailable >= 3:
+                raise dh.SmokeTestError(
+                    f"model reported Unavailable {unavailable}x in a row: "
+                    f"{data.get('details') or msg}")
+        else:
+            unavailable = 0
+        time.sleep(interval)
+    raise dh.SmokeTestError(f"model did not become healthy within {timeout}s")
+
+
 def _headless_deploy(args):
     """Deploy a model straight through the backend API — no browser, no frontend
     JS. Reuses the proven ci/deploy_healthcheck.py driver (catalog resolve →
@@ -323,6 +376,11 @@ def _headless_deploy(args):
     body = {"model_id": model_id}
     if device_id is not None:
         body["device_id"] = device_id
+    else:
+        # No pin: mirror the web UI's auto placement. The backend honours this
+        # only where it matters (Llama-3.1-8B on a P300x2 needs a whole card; a
+        # lone chip there dies in tt-metal) and logs+ignores it for other models.
+        body["force_full_board"] = True
     where = f"chip {device_id}" if device_id is not None else "auto-allocated slot"
     frontend_host, frontend_port, _ = get_frontend_config()
     deployed_url = f"http://{frontend_host}:{frontend_port}/models-deployed"
@@ -342,7 +400,10 @@ def _headless_deploy(args):
         # The poller prints its own change-only progress lines; don't wrap it in a
         # Live spinner (they'd fight over the terminal).
         _poll_deploy_progress(client, dh, job_id, timeout=3600, interval=10)
-        console.print(f"[success]✅ {model_name} deployed — watch it at {deployed_url}[/success]\n")
+        # `completed` = container launched. Keep watching until it serves.
+        console.print(f"[info]Container started — waiting for {model_name} to load and answer health checks…[/info]")
+        _wait_until_serving(client, dh, model_id)
+        console.print(f"[success]✅ {model_name} is serving — open {deployed_url}[/success]\n")
     except dh.SmokeTestError as e:
         console.print(notice_panel("Auto-deploy failed", [str(e)], border_style="error"))
     except KeyboardInterrupt:

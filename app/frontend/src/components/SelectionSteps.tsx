@@ -318,6 +318,11 @@ export default function StepperDemo() {
         deployPayload.device_id = requestedDeviceIds[0];
       } else if (requestedDeviceIds.length > 1) {
         deployPayload.device_id = requestedDeviceIds.join(",");
+      } else {
+        // No pin: ask for the whole-card placement the backend applies where it
+        // matters (Llama-3.1-8B on P300x2 dies on a lone chip) and ignores
+        // elsewhere — the same hint the headless CLI path sends.
+        deployPayload.force_full_board = true;
       }
 
       console.log("Auto-deploy payload:", deployPayload);

@@ -515,16 +515,25 @@ _CATALOG = {
 }
 
 
-def _fake_driver(bodies, catalog=None, progress=None, get_fn=None, bases=None):
+def _fake_driver(bodies, catalog=None, progress=None, get_fn=None, bases=None,
+                 health=None, deployed=None):
     """A stand-in for ci/deploy_healthcheck.py that records deploy payloads.
 
-    `progress` is a list of progress payloads served in order (the last one
-    repeats); `get_fn` overrides GET handling entirely; `bases` collects the
-    base URLs the Client was built with.
+    `progress` / `health` are lists of (status, payload) or payloads served in
+    order (the last one repeats); `get_fn` overrides GET handling entirely;
+    `bases` collects the base URLs the Client was built with; `deployed` is the
+    /models/deployed/ payload (defaults to the resolved model being present).
     """
     catalog = _CATALOG if catalog is None else catalog
     progress = progress or [{"status": "completed", "progress": 100, "message": "ready"}]
-    calls = {"progress": 0}
+    health = health or [(200, {"message": "Healthy"})]
+    calls = {"progress": 0, "health": 0}
+
+    def _deployed():
+        if deployed is not None:
+            return deployed
+        mid = bodies[-1]["model_id"] if bodies else "model_ABC"
+        return {"deploy-1": {"name": "x", "model_impl": {"model_id": mid}}}
 
     class FakeClient:
         def __init__(self, base, proxy):
@@ -540,6 +549,13 @@ def _fake_driver(bodies, catalog=None, progress=None, get_fn=None, bases=None):
                 i = min(calls["progress"], len(progress) - 1)
                 calls["progress"] += 1
                 return 200, progress[i]
+            if key == "deployed":
+                return 200, _deployed()
+            if key == "health":
+                i = min(calls["health"], len(health) - 1)
+                calls["health"] += 1
+                item = health[i]
+                return item if isinstance(item, tuple) else (200, item)
             raise AssertionError(f"unexpected GET {key}")
 
         def post(self, key, body, timeout=60):
@@ -587,7 +603,7 @@ class TestHeadlessDeploy(unittest.TestCase):
         args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id=None)
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC"}])
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "force_full_board": True}])
 
     def test_includes_device_id_when_set(self):
         bodies = []
@@ -653,7 +669,7 @@ class TestHeadlessDeploy(unittest.TestCase):
         args = _cli_args._build_args(auto_deploy="qwen3")
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC"}])
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "force_full_board": True}])
 
     def test_retries_on_backend_warmup_then_succeeds(self):
         bodies = []
@@ -665,6 +681,10 @@ class TestHeadlessDeploy(unittest.TestCase):
                 if calls["n"] == 1:
                     raise _FakeSmokeTestError("cannot reach http://localhost:8000/docker/catalog/")
                 return 200, _CATALOG
+            if key == "deployed":
+                return 200, {"d1": {"model_impl": {"model_id": "model_ABC"}}}
+            if key == "health":
+                return 200, {"message": "Healthy"}
             return 200, {"status": "completed", "progress": 100}
 
         dh = _fake_driver(bodies, get_fn=flaky)
@@ -728,6 +748,62 @@ class TestHeadlessDeploy(unittest.TestCase):
             _cli_run._headless_deploy(args)  # must not propagate
         text = cap.text
         self.assertIn("keeps deploying", text)
+
+    def test_completed_then_healthy_reports_serving(self):
+        bodies = []
+        dh = _fake_driver(bodies, health=[(202, {"message": "Starting"}), (200, {"message": "Healthy"})])
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "sleep"), _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        self.assertIn("is serving", cap.text)
+        self.assertNotIn("Auto-deploy failed", cap.text)
+
+    def test_container_vanishing_after_start_is_a_failure(self):
+        # `completed` only means the container launched. If it then drops out of
+        # /models/deployed/ (tt-metal fatal at startup), that must surface as a
+        # failure rather than a success banner.
+        bodies = []
+        seen = {"n": 0}
+
+        def flaky(key, **fmt):
+            if key == "catalog":
+                return 200, _CATALOG
+            if key == "progress":
+                return 200, {"status": "completed", "progress": 100}
+            if key == "deployed":
+                seen["n"] += 1
+                if seen["n"] == 1:
+                    return 200, {"d1": {"model_impl": {"model_id": "model_ABC"}}}
+                return 200, {}
+            if key == "health":
+                return 202, {"message": "Starting"}
+            raise AssertionError(key)
+
+        dh = _fake_driver(bodies, get_fn=flaky)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "sleep"), _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        self.assertIn("exited during startup", cap.text)
+        self.assertNotIn("is serving", cap.text)
+
+    def test_three_unavailable_in_a_row_fails(self):
+        bodies = []
+        dh = _fake_driver(bodies, health=[(503, {"message": "Unavailable", "details": "engine down"})])
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh), \
+             patch.object(_cli_run.time, "sleep"), _Capture() as cap:
+            _cli_run._headless_deploy(args)
+        self.assertIn("Unavailable 3x", cap.text)
+
+    def test_pinned_device_sends_no_placement_hint(self):
+        bodies = []
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id="2,3")
+        with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
+            _cli_run._headless_deploy(args)
+        self.assertNotIn("force_full_board", bodies[0])
 
     def test_base_url_honours_env_override(self):
         bodies, bases = [], []
