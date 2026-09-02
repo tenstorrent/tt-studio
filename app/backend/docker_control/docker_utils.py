@@ -424,6 +424,36 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
+        # Point this deploy at a per-model tt-inference-server build, when the
+        # catalog pins one, same functionality as CHAT path. (views.py's
+        # _resolve_artifact_ref feeding start_chat_deployment).
+        #
+        if impl.requires_dev_catalog:
+            # Imported here, not at module scope: views imports docker_utils, so a
+            # top-level import would be circular.
+            from docker_control.views import (
+                _resolve_artifact_ref,
+                _resolve_override_docker_image,
+            ) 
+            if not payload.get("override_docker_image"):
+                dev_image = _resolve_override_docker_image(impl)
+                if dev_image:
+                    payload["override_docker_image"] = dev_image
+            artifact_ref = _resolve_artifact_ref(impl, device, board_type)
+            if artifact_ref:
+                payload["dev_mode"] = True
+                payload["artifact_ref"] = artifact_ref
+                logger.info(
+                    f"{impl.model_name}: deploying against tt-inference-server "
+                    f"ref '{artifact_ref}' (dev_mode)"
+                )
+            else:
+                payload["dev_mode"] = True
+                logger.info(
+                    f"{impl.model_name}: dev_mode on, no artifact ref for "
+                    f"device='{device}' board='{board_type}'; using pinned artifact"
+                )
+
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
         # spec on P150); without an impl the server defaults to the wrong engine and

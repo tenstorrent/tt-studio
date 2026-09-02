@@ -96,24 +96,19 @@ UNSUPPORTED_STUDIO_MODEL_TYPES = {
 # model-wide mark hides the model from boards nobody ever tested. Only add here
 # when the failure is known not to be board-specific -- and say how you know.
 _FORGE_CACHE_ROOT_BUG = (
-    "Broken by the forge container image, not by any board. Studio mounts a "
-    "fresh named Docker volume at CACHE_ROOT; because the image has no "
-    "/home/container_app_user/cache_root directory, Docker creates the volume "
-    "root:root 0755. The media image runs as USER=root and writes to it fine "
-    "(speecht5_tts, whisper), but tt-media-inference-server-forge:0.18.0 runs as "
-    "USER=container_app_user (uid 1000), so the runner's warmup dies in ~0.3s "
-    "with 'PermissionError at .../cache_root/huggingface' while trying to "
-    "download weights that are ALREADY pre-mounted read-only. The device is "
-    "never touched, so this fails identically on every board -- verified on "
-    "P300x2. The worker then never signals warmup, so /health returns 405 "
-    "'Model is not ready' forever while /v1/models keeps answering 200. Remove "
-    "this once the forge image ships a uid-1000-owned cache_root (or Studio "
-    "pre-creates the volume with the right ownership)."
+    "Not deployable today, and not because of any board: the forge image runs as "
+    "USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is "
+    "created root-owned, so warmup dies in ~0.3s with a PermissionError on "
+    "cache_root/huggingface before the device is ever opened. Verified on P300x2; "
+    "the same volume ownership applies on every board. Drop this entry once the "
+    "forge image ships a uid-1000-owned cache_root."
 )
 
 STUDIO_UNAVAILABLE_MODELS: dict[str, tuple[str, str]] = {
-    "Falcon3-7B-Instruct": ("known_broken", _FORGE_CACHE_ROOT_BUG),
+    # yolox_nano will be available in tt-inference-server release after merging of raahem/yolox_nano_qb2 into main branch
+    # or once the object detection UI is fixed in TT-Studio and the model is added to the catalog with a custom branch.
     "yolox_nano": ("known_broken", _FORGE_CACHE_ROOT_BUG),
+    "Falcon3-7B-Instruct": ("known_broken", _FORGE_CACHE_ROOT_BUG),
 }
 
 
@@ -231,7 +226,7 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
         ),
     },
     "Llama-3.3-70B-Instruct": {
-        "P150x4": (
+        "P150X4": (
             "known_broken",
             (
                 "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
@@ -269,6 +264,17 @@ def apply_device_availability(models: list) -> list:
             if device in devices:
                 devices.remove(device)
                 removed.append((model["model_name"], device, reason))
+            else:
+                # The key matched no declared device, so nothing was blocked. Nearly
+                # always a typo -- "P150x4" vs the catalog's "P150X4" shipped once
+                # and left the model on offer on a board it was meant to be pulled
+                # from. Say so loudly; a silent no-op is the whole failure mode.
+                near = [d for d in devices if d.lower() == device.lower()]
+                hint = f" Did you mean {near[0]!r}?" if near else ""
+                print(
+                    f"WARNING: {model['model_name']}: '{device}' is not one of its "
+                    f"devices {devices}, so nothing was blocked.{hint}"
+                )
 
         model["device_configurations"] = devices
         model["unavailable_devices"] = marks

@@ -455,7 +455,8 @@ class TestStudioAvailability:
 
     def test_model_wide_entries_justify_being_board_independent(self):
         """A model-wide mark hides a model from boards nobody tested, so each
-        entry must say why the failure is not board-specific."""
+        entry must say why the failure is not board-specific. Prefer fixing the
+        cause (see inference-api's cache-volume ownership fix) over masking."""
         for name, (_reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
             low = details.lower()
             assert any(k in low for k in ("not by any board", "every board", "independent")), (
