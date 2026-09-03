@@ -509,7 +509,6 @@ export default function StepperDemo() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Solutions card */}
               <button
-                data-tour="deploy-mode-solutions"
                 onClick={() => setDeployMode("solution")}
                 className="text-left rounded-xl border-[2px] border-TT-purple/30 dark:border-TT-purple/40 bg-white/60 dark:bg-stone-900/60 p-6 flex flex-col gap-3 hover:border-TT-purple/70 dark:hover:border-TT-purple/60 hover:bg-TT-purple/5 dark:hover:bg-TT-purple/10 hover:shadow-[0_0_24px_rgba(124,104,250,0.25)] hover:scale-[1.015] active:scale-[0.99] transition-all duration-300 group"
               >
@@ -530,7 +529,6 @@ export default function StepperDemo() {
 
               {/* Single / Multi model card */}
               <button
-                data-tour="deploy-mode-single"
                 onClick={() => setDeployMode("single")}
                 className="text-left rounded-xl border-[2px] border-stone-200 dark:border-stone-700 bg-white/60 dark:bg-stone-900/60 p-6 flex flex-col gap-3 hover:border-stone-400 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/60 hover:shadow-[0_0_20px_rgba(120,113,108,0.15)] hover:scale-[1.015] active:scale-[0.99] transition-all duration-300 group"
               >

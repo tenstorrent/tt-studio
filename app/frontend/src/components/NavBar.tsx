@@ -240,9 +240,16 @@ const NavDropdown: React.FC<NavDropdownProps> = ({
         ? isRouteActive(item.route)
         : false
   );
-  const isModelsDropdown = label.toLowerCase().includes("model");
+  const tourId =
+    label === "Model Lifecycle"
+      ? "nav-models"
+      : label === "Tools"
+        ? "nav-tools"
+        : label === "Model Interaction"
+          ? "nav-interactions"
+          : undefined;
   return (
-    <NavigationMenuItem data-tour={isModelsDropdown ? "nav-models" : undefined}>
+    <NavigationMenuItem data-tour={tourId}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -1209,7 +1216,7 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-4">
+          <div data-tour="nav-actions" className="flex items-center space-x-4">
             {actionButtons.map((button) => (
               <ActionButton
                 key={button.tooltipText}

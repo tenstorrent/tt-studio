@@ -115,21 +115,21 @@ export function TourProvider({ children }: TourProviderProps) {
       const { status, type, index, action } = data;
       const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
 
-      if (finishedStatuses.includes(status) || action === ACTIONS.CLOSE) {
+      if (finishedStatuses.includes(status)) {
         setRun(false);
         setStepIndex(0);
         if (activeTourId) {
           safeSetItem(`tourCompleted:${activeTourId}`, true);
         }
+      } else if (action === ACTIONS.CLOSE) {
+        setRun(false);
+        setStepIndex(0);
       } else if (type === EVENTS.STEP_AFTER) {
         setStepIndex(index + (action === ACTIONS.PREV ? -1 : 1));
       } else if (type === EVENTS.TARGET_NOT_FOUND) {
         if (index >= steps.length - 1) {
           setRun(false);
           setStepIndex(0);
-          if (activeTourId) {
-            safeSetItem(`tourCompleted:${activeTourId}`, true);
-          }
         } else {
           setStepIndex(index + 1);
         }
@@ -197,12 +197,15 @@ export function TourProvider({ children }: TourProviderProps) {
       <Joyride
         steps={steps}
         run={run}
+        continuous={true}
+        showProgress={true}
+        showSkipButton={true}
         stepIndex={stepIndex}
         onEvent={handleJoyrideEvent}
         styles={joyrideStyles}
         options={{
-          skipBeacon: true,
           buttons: ["back", "primary", "skip"],
+          skipBeacon: true,
           arrowColor: isDark ? "#18181b" : "#ffffff",
           backgroundColor: isDark ? "#18181b" : "#ffffff",
           overlayColor: isDark ? "rgba(0, 0, 0, 0.75)" : "rgba(0, 0, 0, 0.45)",
