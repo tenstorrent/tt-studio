@@ -341,6 +341,19 @@ def launch_blocked_reason(app: MarketplaceApp) -> Optional[str]:
     # Short-circuits before default_model(), so only the apps that pin one model
     # pay for the deploy scan.
     if app.requires_model and default_model() is None:
+        # A chat model can be deployed and still not be one this app can drive.
+        # Saying "none is deployed" there contradicts the Models page and sends
+        # the user off to deploy a second model that would be just as unusable.
+        from model_control.views import _running_coding_agent_deploys
+
+        if _running_coding_agent_deploys(
+            require_tool_calling=False, require_vetted=False
+        ):
+            return (
+                f"{app.name} needs a model it can drive with tool calling. The "
+                f"deployed model was launched without it — redeploy it from the "
+                f"Home page, then launch {app.name}."
+            )
         return (
             f"{app.name} needs a chat model to connect to, and none is deployed "
             f"yet. Deploy one from the Home page, then launch {app.name}."
