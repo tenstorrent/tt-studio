@@ -5,6 +5,7 @@
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
+ENV PIP_ROOT_USER_ACTION=ignore
 EXPOSE 8080
 
 # debug tools
