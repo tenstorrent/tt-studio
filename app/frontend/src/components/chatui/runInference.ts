@@ -439,7 +439,7 @@ export const runInference = async (
           const rawReasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
           const reasoning =
             typeof rawReasoning === "string"
-              ? rawReasoning.replace(/<\/?think>/gi, "")
+              ? rawReasoning.replace(/<\/?(think|thought|reasoning)>/gi, "")
               : null;
 
           if (reasoning && !thinkingDone) {
@@ -454,7 +454,7 @@ export const runInference = async (
           // Regular content tokens
           const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
           const content = rawContent
-            .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
+            .replace(/[[<|]*python_tag[\]>|]*/gi, "")
             .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {

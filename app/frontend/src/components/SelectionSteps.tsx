@@ -3,8 +3,8 @@
 
 import axios from "axios";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { Layers, Cpu, ArrowLeft, ChevronDown } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Layers, Cpu, ArrowLeft, ChevronDown, Loader2, Rocket, AlertTriangle } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
 import { Step, Stepper, useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
@@ -22,6 +22,7 @@ import {
   getModelPlacement,
   isMultiChipModel,
 } from "../utils/deviceFit";
+import { parseDeviceIds } from "../utils/p300x2Placement";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -56,7 +57,6 @@ function StepWatcher({ onChange }: { onChange: (step: number) => void }) {
 
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
   // ?resume=<modelId> opens straight to the deploy step for an in-flight model
   // (e.g. clicking a deployment in the tray) so its progress bar resumes.
@@ -183,6 +183,9 @@ export default function StepperDemo() {
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
+  // Phase of the CLI-triggered auto-deploy, surfaced in the overlay below.
+  const [autoDeployStatus, setAutoDeployStatus] = useState("Preparing…");
+  const [autoDeployError, setAutoDeployError] = useState<string | null>(null);
 
   // A tray click can change ?resume while this page is already mounted; keep the
   // selection in sync so the deploy step resumes the right model.
@@ -262,33 +265,66 @@ export default function StepperDemo() {
   const performAutoDeploy = async (modelName: string) => {
     try {
       console.log("🚀 Starting auto-deployment for model:", modelName);
+      setAutoDeployStatus(`Resolving “${modelName}” in the catalog…`);
 
-      // Find the model ID by name
+      // Find the model by name — exact match first, then a unique substring
+      // match, mirroring the CLI's resolve_model_id so both paths behave alike.
       const response = await axios.get("/docker-api/get_containers/");
-      const models = response.data;
-      const model = models.find(
-        (m: { id: string; name: string }) =>
-          m.name.toLowerCase().includes(modelName.toLowerCase()) ||
-          m.name === modelName
-      );
+      const models: { id: string; name: string }[] = response.data;
+      const needle = modelName.toLowerCase();
+      let model = models.find((m) => m.name.toLowerCase() === needle);
+      if (!model) {
+        const loose = models.filter((m) =>
+          m.name.toLowerCase().includes(needle)
+        );
+        if (loose.length === 1) {
+          model = loose[0];
+        } else if (loose.length > 1) {
+          const msg = `"${modelName}" matched multiple models: ${loose
+            .map((m) => m.name)
+            .join(", ")}. Re-run with an exact name.`;
+          customToast.error(`Auto-deploy: ${msg}`);
+          setAutoDeployError(msg);
+          return;
+        }
+      }
 
       if (!model) {
-        customToast.error(`Auto-deploy model "${modelName}" not found`);
+        const msg = `Model "${modelName}" not found in the catalog.`;
+        customToast.error(`Auto-deploy: ${msg}`);
+        setAutoDeployError(msg);
         console.error("Model not found:", modelName);
         return;
       }
 
       console.log("Found model for auto-deploy:", model);
 
-      // Deploy with default weights
-      const deviceIdParam = parseInt(searchParams.get("device-id") ?? "0", 10);
-      const deployPayload = {
+      // Deploy with default weights. Include device_id only when the CLI passed
+      // ?device-id=; omitting it lets the backend allocate based on the model.
+      const deployPayload: Record<string, unknown> = {
         model_id: model.id,
         weights_id: "", // Empty string for default weights
-        device_id: isNaN(deviceIdParam) ? 0 : deviceIdParam,
       };
+      // device-id may be a single chip ("0") or a comma-separated list ("0,1")
+      // for multi-chip models. Send a number for one chip, a joined string for
+      // several — matching the manual deploy path in DeployModelStep.
+      const deviceIdParam = searchParams.get("device-id");
+      if (deviceIdParam !== null && deviceIdParam !== "") {
+        const ids = parseDeviceIds(deviceIdParam);
+        if (ids.length === 1) {
+          deployPayload.device_id = ids[0];
+        } else if (ids.length > 1) {
+          deployPayload.device_id = ids.join(",");
+        }
+      } else {
+        // Same whole-card hint the manual flow sends for an unpinned deploy. The
+        // backend honours it only where it matters (Llama-3.1-8B on P300x2 dies
+        // on a lone chip) and ignores it everywhere else.
+        deployPayload.force_full_board = true;
+      }
 
       console.log("Auto-deploy payload:", deployPayload);
+      setAutoDeployStatus(`Starting deployment of ${model.name}…`);
 
       const deployResponse = await axios.post(
         "/docker-api/deploy/",
@@ -301,23 +337,87 @@ export default function StepperDemo() {
       );
 
       console.log("Auto-deploy response:", deployResponse);
-      customToast.success(`Model "${modelName}" deployment started!`);
+      const data = deployResponse.data ?? {};
+      if (data.status === "error") {
+        const msg: string = data.message || "Deployment failed";
+        customToast.error(`Auto-deploy: ${msg}`);
+        setAutoDeployError(msg);
+        return;
+      }
+      const jobId: string | undefined = data.job_id;
+      if (!jobId) {
+        const msg = "Deployment started but the backend returned no job id to track.";
+        customToast.error(`Auto-deploy: ${msg}`);
+        setAutoDeployError(msg);
+        return;
+      }
 
-      // Navigate to deployed models page after short delay
-      setTimeout(() => {
-        navigate("/models-deployed");
-      }, 1500);
+      // Devices this deploy occupies: the ones the CLI pinned, else whatever the
+      // backend allocated (a slot number, or "0,1" / [0, 1] for multi-chip models).
+      let deviceIds: number[] = [];
+      if (deviceIdParam !== null && deviceIdParam !== "") {
+        deviceIds = parseDeviceIds(deviceIdParam);
+      } else {
+        const allocated = data.allocated_device_id;
+        if (typeof allocated === "number") deviceIds = [allocated];
+        else if (typeof allocated === "string") deviceIds = parseDeviceIds(allocated);
+        else if (Array.isArray(allocated))
+          deviceIds = allocated.map(Number).filter((n) => Number.isFinite(n));
+      }
+
+      // Hand the job to the session-wide tracker (progress tray + chip reservations),
+      // then drop into the regular deploy step so the user sees the same image-pull /
+      // weights-download / container-start progress bar a manual deploy shows.
+      customToast.success(`Model "${model.name}" deployment started!`);
+      addDeployment({
+        jobId,
+        modelId: model.id,
+        modelName: model.name,
+        deviceIds,
+        startedAt: Date.now(),
+      });
+      setSelectedModel(model.id);
+      setSelectedModelName(model.name);
+      const next = new URLSearchParams(searchParams);
+      next.delete("auto-deploy");
+      next.delete("device-id");
+      next.set("view", "single");
+      next.set("resume", model.id);
+      setSearchParams(next, { replace: true });
+      setIsAutoDeploying(false);
     } catch (error) {
       console.error("Auto-deployment failed:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      // Prefer the backend's explanation over axios's "Request failed with
+      // status code 400": a refused deploy carries a specific message (HF access
+      // denied, chip conflict, allocation failure) and sometimes a link to act on.
+      let errorMessage = error instanceof Error ? error.message : "Unknown error";
+      if (axios.isAxiosError(error) && error.response?.data) {
+        const data = error.response.data as {
+          message?: string;
+          error_code?: string;
+          hf_url?: string;
+          conflicts?: { model?: string; slot?: number }[];
+        };
+        if (data.message) errorMessage = data.message;
+        if (data.error_code === "hf_access_denied" && data.hf_url) {
+          errorMessage += ` Request access at ${data.hf_url}, then deploy again.`;
+        }
+        if (data.conflicts?.length) {
+          errorMessage += ` Stop these first: ${data.conflicts
+            .map((c) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
+            .join(", ")}.`;
+        }
+      }
       customToast.error(`Auto-deployment failed: ${errorMessage}`);
+      setAutoDeployError(errorMessage);
     }
   };
 
-  // Auto-deploy detection effect
+  // Auto-deploy detection effect — fire at most once per page load.
+  const autoDeployFiredRef = useRef(false);
   useEffect(() => {
-    if (autoDeployModel) {
+    if (autoDeployModel && !autoDeployFiredRef.current) {
+      autoDeployFiredRef.current = true;
       setIsAutoDeploying(true);
       customToast.info(`🤖 Auto-deploying model: ${autoDeployModel}`);
       console.log("Auto-deploy mode detected for model:", autoDeployModel);
@@ -466,6 +566,73 @@ export default function StepperDemo() {
       return { success: false, job_id: jobId };
     }
   };
+
+  // CLI-triggered auto-deploy (?auto-deploy=<model>): take over the whole view with
+  // a clear status overlay so it's obvious the deploy was kicked off from the
+  // terminal and is running — rather than silently posting and redirecting.
+  if (isAutoDeploying) {
+    const failed = autoDeployError !== null;
+    return (
+      <div className="flex flex-col gap-4 w-full max-w-3xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
+        <ElevatedCard accent="neutral" depth="lg" className="h-auto py-10 px-8 md:px-12">
+          <div className="flex flex-col items-center text-center gap-5">
+            <div
+              className={`p-4 rounded-full ${
+                failed
+                  ? "bg-red-500/10 text-red-500"
+                  : "bg-TT-purple/10 dark:bg-TT-purple/20 text-TT-purple"
+              }`}
+            >
+              {failed ? (
+                <AlertTriangle className="w-8 h-8" />
+              ) : (
+                <Rocket className="w-8 h-8" />
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <h2 className="text-xl font-semibold">
+                {failed ? "Auto-deploy failed" : "Auto-deploying from the CLI"}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {failed ? (
+                  "You can deploy manually below instead."
+                ) : (
+                  <>
+                    Launched with{" "}
+                    <code className="px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800 font-mono text-xs">
+                      run {autoDeployModel}
+                    </code>
+                    . Bringing this model up — no clicks needed.
+                  </>
+                )}
+              </p>
+            </div>
+
+            {failed ? (
+              <>
+                <p className="text-sm text-red-500 max-w-md">{autoDeployError}</p>
+                <button
+                  onClick={() => {
+                    setIsAutoDeploying(false);
+                    setAutoDeployError(null);
+                  }}
+                  className="mt-1 rounded-lg border-[2px] border-TT-purple/40 px-4 py-2 text-sm font-medium text-TT-purple hover:bg-TT-purple/10 transition-colors"
+                >
+                  Deploy manually
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{autoDeployStatus}</span>
+              </div>
+            )}
+          </div>
+        </ElevatedCard>
+      </div>
+    );
+  }
 
   // Wait until the model catalog is known before deciding what to offer — avoids
   // flashing the Solutions card (or the single flow) before per-board compatibility
@@ -668,8 +835,6 @@ export default function StepperDemo() {
                   }}
                   onModelNameChange={setSelectedModelName}
                   setFormError={setFormError}
-                  autoDeployModel={autoDeployModel}
-                  isAutoDeploying={isAutoDeploying}
                   chipStatus={effectiveChipStatus}
                   deployingModelIds={deployingModelIds}
                 />
