@@ -216,6 +216,9 @@ python3 run.py
 
 You'll only be prompted for:
 - **HF_TOKEN**: Your Hugging Face token (required for downloading models)
+  A token already exported in your shell (`export HF_TOKEN=hf_...`) is picked up
+  automatically and saved to `.env`, so you are not prompted and the Welcome
+  screen is skipped.
 
 All other values are set automatically using defaults.
 

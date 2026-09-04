@@ -2235,7 +2235,23 @@ def sync_tokens_from_tt_studio():
     if ui_hf:
         tt_studio_hf = ui_hf
 
+    # Last resort: the process environment. run.py hands its shell's HF_TOKEN /
+    # JWT_SECRET to this server, so a token exported in the terminal still
+    # reaches the model container even when neither .env nor Settings has one.
+    if not tt_studio_hf:
+        tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
+
     if not tt_studio_jwt and not tt_studio_hf:
+        # Nothing to sync, but the model launcher still passes this file to
+        # `docker run --env-file`, which fails outright when it is missing.
+        if not inference_server_env.exists():
+            try:
+                inference_server_env.parent.mkdir(parents=True, exist_ok=True)
+                inference_server_env.touch()
+            except OSError as e:
+                logger.warning(f"Could not create empty inference server .env at {inference_server_env}: {e}")
         return
     
     # Read inference server .env values

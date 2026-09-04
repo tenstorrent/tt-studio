@@ -177,6 +177,33 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     return False
 
 
+def adopt_hf_token_from_environment(quiet=False):
+    """Persist a shell-exported HF_TOKEN into the repo-root .env.
+
+    `python run.py` itself sees `os.environ["HF_TOKEN"]`, but the services it
+    starts do not all inherit it: the backend container and the inference-api
+    read the repo .env, and the inference server mirrors that file into its
+    artifact for the model container's `--env-file`. Writing the exported token
+    into .env once makes the shell export a first-class source. The shell value
+    wins over a differing .env value, matching get_env_var()'s precedence.
+
+    Returns True when .env was updated.
+    """
+    env_token = (os.environ.get("HF_TOKEN") or "").strip()
+    if not env_token or is_placeholder(env_token):
+        return False
+    existing = (get_existing_env_vars().get("HF_TOKEN") or "").strip()
+    if existing == env_token:
+        return False
+    write_env_var("HF_TOKEN", env_token)
+    if not quiet:
+        source = "updated from" if existing and not is_placeholder(existing) else "picked up from"
+        console.print(f"[success]✅ HF_TOKEN {source} your shell environment and saved to .env.[/success]")
+    else:
+        console.print("[muted]🤗 HF_TOKEN picked up from your shell environment.[/muted]")
+    return True
+
+
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False, accept_terms=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
@@ -377,6 +404,10 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # TAVILY_API_KEY and HF_TOKEN are UI-managed. The Welcome screen in the
     # web app captures them on first run; they're editable later in Settings.
     # HF access is verified in the UI (app/backend/api/hf_access.py), not the CLI.
+    # One exception: a token already exported in the shell is adopted into .env
+    # so every service (backend container, inference-api, model containers)
+    # sees the same token without a trip through the UI.
+    adopt_hf_token_from_environment(quiet=quick_setup)
 
     if not quick_setup:
         console.print("\n[bold accent]--- ⚙️  Application Configuration  ---[/bold accent]")
