@@ -380,8 +380,27 @@ export default function StepperDemo() {
       setIsAutoDeploying(false);
     } catch (error) {
       console.error("Auto-deployment failed:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      // Prefer the backend's explanation over axios's "Request failed with
+      // status code 400": a refused deploy carries a specific message (HF access
+      // denied, chip conflict, allocation failure) and sometimes a link to act on.
+      let errorMessage = error instanceof Error ? error.message : "Unknown error";
+      if (axios.isAxiosError(error) && error.response?.data) {
+        const data = error.response.data as {
+          message?: string;
+          error_code?: string;
+          hf_url?: string;
+          conflicts?: { model?: string; slot?: number }[];
+        };
+        if (data.message) errorMessage = data.message;
+        if (data.error_code === "hf_access_denied" && data.hf_url) {
+          errorMessage += ` Request access at ${data.hf_url}, then deploy again.`;
+        }
+        if (data.conflicts?.length) {
+          errorMessage += ` Stop these first: ${data.conflicts
+            .map((c) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
+            .join(", ")}.`;
+        }
+      }
       customToast.error(`Auto-deployment failed: ${errorMessage}`);
       setAutoDeployError(errorMessage);
     }
