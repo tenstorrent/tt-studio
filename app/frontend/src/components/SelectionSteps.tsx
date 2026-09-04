@@ -193,7 +193,7 @@ export default function StepperDemo() {
   // Chip requirement of the currently selected model (selectedModel holds the id).
   const selectedModelChips =
     models?.find((m) => m.id === selectedModel)?.chips_required ?? 1;
-  // Model type gates flexible placement (e.g. training builds stay single-chip).
+  // Model type gates placement (e.g. training builds claim the whole board).
   const selectedModelType =
     models?.find((m) => m.id === selectedModel)?.model_type ?? "";
 

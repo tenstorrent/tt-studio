@@ -110,11 +110,13 @@ export function getModelPlacement(
   boardType?: string,
   modelType?: string
 ): ModelPlacement {
-  // All available training runners are currently single-chip, so training is always
-  // pinned to one device regardless of model name or board.
+  // Training claims the whole board: the inference server opens all 4 chips and the
+  // training runner then works on a submesh. Handled before the name-based branches
+  // below because the training build shares the "Llama-3.1-8B" name with the chat
+  // model, which would otherwise match the P300x2 card-pair rule.
   const isTraining = (modelType ?? "").toLowerCase() === "training";
   if (isTraining) {
-    return { allowsSingle: true, allowsFullBoard: false, cardGroups: [] };
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
   }
 
   // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board.

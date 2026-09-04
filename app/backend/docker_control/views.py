@@ -505,9 +505,11 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # All available training runners are currently single-chip, so collapse any
-            # multi-slot device_id to the first slot — mirroring how force_full_board is
-            # ignored above — so a stale/mismatched client can't over-allocate.
+            # Training claims the whole board (chips_required drives the 4-slot
+            # reservation and --tt-device p300x2; the runner works on a submesh), so an
+            # explicit multi-slot device_id is meaningless here. Collapse it to the first
+            # slot — mirroring how force_full_board is ignored above — so a stale/
+            # mismatched client can't try to pin the mesh to a subset of chips.
             if impl.model_type == ModelTypes.TRAINING and len(requested_device_ids) > 1:
                 logger.info(
                     "Ignoring multi-slot device_id=%s for model=%s type=%s; using slot %s only",
