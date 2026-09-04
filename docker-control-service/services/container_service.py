@@ -213,9 +213,22 @@ class ContainerService:
 
             container_list = []
             for container in containers:
-                # Get image tags
-                image_tags = container.image.tags if container.image.tags else []
-                image = image_tags[0] if image_tags else container.image.short_id
+                # Resolving `container.image` is a separate image-inspect call
+                # that 404s when the image was pruned or rebuilt underneath a
+                # still-running container. One such container must not empty
+                # the whole listing (the backend reads an empty list as "nothing
+                # is running" and reconciles every deployment to stopped), so
+                # fall back to the image ref recorded in the container config.
+                try:
+                    image_tags = container.image.tags or []
+                    image = image_tags[0] if image_tags else container.image.short_id
+                except docker.errors.APIError as img_err:
+                    image_tags = []
+                    image = (container.attrs.get("Config", {}) or {}).get("Image") or ""
+                    logger.warning(
+                        f"Image lookup failed for container {container.name} "
+                        f"({container.short_id}); using config ref '{image}': {img_err}"
+                    )
 
                 # Build comprehensive container info for backend compatibility
                 container_list.append({
