@@ -316,6 +316,11 @@ export default function StepperDemo() {
         } else if (ids.length > 1) {
           deployPayload.device_id = ids.join(",");
         }
+      } else {
+        // Same whole-card hint the manual flow sends for an unpinned deploy. The
+        // backend honours it only where it matters (Llama-3.1-8B on P300x2 dies
+        // on a lone chip) and ignores it everywhere else.
+        deployPayload.force_full_board = true;
       }
 
       console.log("Auto-deploy payload:", deployPayload);

@@ -44,6 +44,12 @@ DOWNLOAD_STAGES = {"pulling_image", "model_preparation"}
 PROGRESS_DONE = "completed"
 PROGRESS_FAIL = {"error", "failed", "timeout", "cancelled"}
 
+# How long a fresh deploy job may report `not_found` before it counts as gone.
+# The progress record can lag the deploy POST by a few seconds; past this, the
+# backend has genuinely forgotten the job (e.g. it restarted) and polling for
+# the full timeout would only spin.
+NOT_FOUND_GRACE_S = 30
+
 
 # ── pure helpers (unit-tested without a backend) ──────────────────────────────
 
@@ -171,7 +177,8 @@ def watch_progress(dh, client, job_id, timeout=3600, interval=3, sleep=time.slee
 
     Returns the final progress payload; raises dh.SmokeTestError on failure."""
     tty = sys.stdout.isatty()
-    deadline = time.time() + timeout
+    started = time.time()
+    deadline = started + timeout
     current_stage = None
     current_label = STAGE_LABELS["starting"]
     current_started = time.time()
@@ -203,6 +210,16 @@ def watch_progress(dh, client, job_id, timeout=3600, interval=3, sleep=time.slee
                 sleep(interval)
                 continue
             status_ = (data.get("status") or "").lower()
+            if status_ == "not_found":
+                # Nothing to render yet; either the record is still registering
+                # (keep waiting) or the backend has lost the job (give up).
+                if time.time() - started > NOT_FOUND_GRACE_S:
+                    raise dh.SmokeTestError(
+                        "deployment lost: the backend no longer reports this deploy job "
+                        f"(id {job_id}). It may have restarted; check the Deployed Models page."
+                    )
+                sleep(interval)
+                continue
             stage = (data.get("stage") or "unknown").lower()
             label = stage_label(data)
             detail = download_detail(data)
@@ -308,7 +325,13 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
     body = {"model_id": model_id}
     if device_id is not None:
         body["device_id"] = device_id
+    else:
+        # Same whole-card hint the web UI sends for an unpinned deploy. The
+        # backend honours it only where it matters (Llama-3.1-8B on a P300x2
+        # dies on a lone chip) and ignores it everywhere else.
+        body["force_full_board"] = True
     where = f"chip {device_id}" if device_id is not None else "auto-allocated slot"
+    web_ui = f"http://{fe_host}:{fe_port}/models-deployed"
 
     try:
         st, data = client.post("deploy", body, timeout=120)
@@ -330,17 +353,26 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
             raise dh.SmokeTestError(f"deploy returned no job_id: {data}")
 
         console.print(f"\n[bold accent]🚀 Deploying {model_name}[/bold accent] [muted]({where})[/muted]")
+        console.print("  [muted]Ctrl-C stops watching; the deploy keeps running in the backend.[/muted]")
         watch_progress(dh, client, job_id)
+        deploy_id, entry = find_deployed_entry(client, model_id)
+        healthy = False
+        if deploy_id:
+            console.print("  [muted]Waiting for the model to answer health checks…[/muted]")
+            healthy = wait_for_health(client, deploy_id)
     except dh.SmokeTestError as e:
         console.print(notice_panel("Deploy failed", [str(e)], border_style="error"))
         return False
+    except KeyboardInterrupt:
+        console.print()
+        console.print(notice_panel("Stopped watching", [
+            f"{model_name} keeps deploying in the backend.",
+            f"Follow it at {web_ui}, or run python run.py --status.",
+            f"To cancel it: python run.py --stop-model {model_name}",
+        ], border_style="warning"))
+        return False
 
-    deploy_id, entry = find_deployed_entry(client, model_id)
     ep = endpoint_for(entry or {}, host=fe_host)
-    healthy = False
-    if deploy_id:
-        console.print("  [muted]Waiting for the model to answer health checks…[/muted]")
-        healthy = wait_for_health(client, deploy_id)
 
     impl = (entry or {}).get("model_impl") or {}
     chips = (entry or {}).get("device_ids") or ([device_id] if device_id is not None else [])
@@ -351,7 +383,7 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
         rows.append(("Endpoint", ep["url"], "up" if healthy else "starting"))
     if ep["health"]:
         rows.append(("Health", ep["health"]))
-    rows.append(("Web UI", f"http://{fe_host}:{fe_port}/models-deployed"))
+    rows.append(("Web UI", web_ui))
 
     footer = []
     if not healthy:

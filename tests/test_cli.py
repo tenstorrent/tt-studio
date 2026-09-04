@@ -531,7 +531,8 @@ class TestHeadlessDeploy(unittest.TestCase):
         args = _cli_args._build_args(auto_deploy="Qwen3-32B", device_id=None)
         with patch.object(_cli_run, "_load_deploy_driver", return_value=dh):
             _cli_run._headless_deploy(args)
-        self.assertEqual(bodies, [{"model_id": "model_ABC"}])
+        # Unpinned deploys carry the same whole-card hint the web UI sends.
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "force_full_board": True}])
 
     def test_includes_device_id_when_set(self):
         bodies = []
@@ -761,6 +762,31 @@ class TestWatchProgress(unittest.TestCase):
             self._run(seq)
         self.assertIn("HF_TOKEN validation failed", str(ctx.exception))
 
+    def test_not_found_within_grace_keeps_waiting(self):
+        # The progress record can lag the POST by a few seconds.
+        seq = [
+            {"status": "not_found", "stage": "unknown", "progress": 0},
+            {"status": "running", "stage": "starting", "progress": 0},
+            {"status": "completed", "stage": "complete", "progress": 100},
+        ]
+        self.assertEqual(self._run(seq)["status"], "completed")
+
+    def test_not_found_past_grace_is_a_lost_job(self):
+        # An orphaned job must not spin for the whole timeout.
+        bodies = []
+        dh = _fake_driver(bodies, progress_seq=[{"status": "not_found", "stage": "unknown"}])
+        client = dh.Client("http://x", proxy=False)
+        clock = {"t": 1000.0}
+
+        def fake_time():
+            clock["t"] += _cli_deploy.NOT_FOUND_GRACE_S / 2 + 1
+            return clock["t"]
+        with patch.object(_cli_deploy.time, "sleep"), \
+             patch.object(_cli_deploy.time, "time", side_effect=fake_time):
+            with self.assertRaises(_FakeSmokeTestError) as ctx:
+                _cli_deploy.watch_progress(dh, client, "job-1", timeout=3600, interval=0)
+        self.assertIn("no longer reports this deploy job", str(ctx.exception))
+
 
 def _printed_text(con):
     """Everything a patched console printed, with Rich renderables (panels)
@@ -789,7 +815,7 @@ class TestRunHeadlessDeployEndToEnd(unittest.TestCase):
              patch.object(_cli_deploy, "console") as con:
             ok = _cli_deploy.run_headless_deploy(dh, args, frontend=("localhost", 3000))
         self.assertTrue(ok)
-        self.assertEqual(bodies, [{"model_id": "model_ABC"}])
+        self.assertEqual(bodies, [{"model_id": "model_ABC", "force_full_board": True}])
         # The ready panel carried the host-reachable endpoint.
         printed = _printed_text(con)
         self.assertIn("http://localhost:7001/v1/chat/completions", printed)
@@ -811,6 +837,18 @@ class TestRunHeadlessDeployEndToEnd(unittest.TestCase):
         printed = _printed_text(con)
         self.assertIn("does not have access", printed)
         self.assertIn("https://huggingface.co/org/Model", printed)
+
+    def test_ctrl_c_while_watching_exits_cleanly(self):
+        bodies = []
+        dh = _fake_driver(bodies)
+        args = _cli_args._build_args(auto_deploy="Qwen3-32B")
+        with patch.object(_cli_deploy, "watch_progress", side_effect=KeyboardInterrupt), \
+             patch.object(_cli_deploy, "console") as con:
+            ok = _cli_deploy.run_headless_deploy(dh, args, frontend=("localhost", 3000))
+        self.assertFalse(ok)
+        printed = _printed_text(con)
+        self.assertIn("Stopped watching", printed)
+        self.assertIn("--stop-model Qwen3-32B", printed)
 
     def test_not_healthy_yet_still_reports_starting(self):
         bodies = []
