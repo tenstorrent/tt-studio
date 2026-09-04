@@ -1,0 +1,17 @@
+[Desktop Entry]
+# Desktop entry template for the .deb/.rpm bundles (handlebars vars are
+# filled by tauri-bundler). Polished so a double-click install on a
+# QuietBox looks first-class: proper categories, keywords, and a
+# StartupWMClass matching the Tauri window so docks group it correctly.
+Categories=Development;Utility;
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}} {{exec_arg}}
+Icon={{icon}}
+Name=TT-Studio
+Terminal=false
+Type=Application
+Keywords=Tenstorrent;TT-Studio;AI;LLM;inference;
+StartupWMClass=TT-Studio
+SingleMainWindow=true
