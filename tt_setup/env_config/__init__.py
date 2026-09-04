@@ -29,6 +29,9 @@ from tt_setup.env_config._preferences import (
 from tt_setup.env_config._hf_access import _hf_check_repo, check_hf_access, render_hf_access
 from tt_setup.env_config._version import save_setup_config, set_app_version_env
 from tt_setup.env_config._configure import (
+    adopt_hf_token_from_environment,
+    hf_login_token_path,
+    read_hf_login_token,
     FORCE_OVERWRITE,
     ask_overwrite_preference,
     configure_environment_sequentially,
@@ -44,7 +47,7 @@ __all__ = [
     "clear_preferences", "is_first_time_setup",
     "_hf_check_repo", "check_hf_access", "render_hf_access",
     "save_setup_config", "set_app_version_env",
-    "FORCE_OVERWRITE", "should_configure_var", "display_first_time_welcome",
+    "FORCE_OVERWRITE", "adopt_hf_token_from_environment", "hf_login_token_path", "read_hf_login_token", "should_configure_var", "display_first_time_welcome",
     "ask_overwrite_preference", "configure_environment_sequentially",
     "configure_inference_server_artifact",
 ]
