@@ -29,7 +29,7 @@ def _build_args(**overrides):
         skip_docker_control=False, no_sudo=False, no_browser=False,
         wait_for_services=False, browser_timeout=60,
         add_headers=False, check_headers=False, auto_deploy=None,
-        device_id=None, headless=False, fix_docker=False, configure_env=False,
+        device_id=None, headless=False, browser=False, fix_docker=False, configure_env=False,
         status=False, logs=False, info=False, report_bug=False,
         install_shortcut=False, accept_terms=False, switch=None,
         uninstall=False, purge_model=None,
@@ -197,9 +197,10 @@ def _entry(
     install_shortcut: bool = typer.Option(False, "--install-shortcut", help="Add a `tt-studio` shell shortcut so you can skip typing `python run.py`.", rich_help_panel="Setup & Configuration"),
     switch: str = typer.Option(None, "--switch", metavar="REF", help="Switch this checkout to a git branch or tag (e.g. dev, v2.9.0-rc1), then exit; re-run to start.", rich_help_panel="Setup & Configuration"),
     # ── Model Deployment ─────────────────────────────────────────────────────
-    auto_deploy: str = typer.Option(None, "--auto-deploy", "--model", metavar="MODEL_NAME", help="Auto-deploy the given model after startup (via the web UI by default; add --headless for a terminal-driven deploy). Or use the `run <model>` subcommand.", rich_help_panel="Model Deployment", autocompletion=_complete_model),
+    auto_deploy: str = typer.Option(None, "--auto-deploy", "--model", metavar="MODEL_NAME", help="Deploy the given model after startup, from the terminal (progress and endpoint shown here; add --browser to deploy through the web UI instead). Or use the `run <model>` subcommand.", rich_help_panel="Model Deployment", autocompletion=_complete_model),
     device_id: Optional[str] = typer.Option(None, "--device-id", metavar="CHIP_IDS", help="Chip slot(s) for the deploy, e.g. `0` or `0,1` for multi-chip models. Omit to let the backend allocate based on the model.", rich_help_panel="Model Deployment", callback=_validate_device_id),
-    headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI.", rich_help_panel="Model Deployment"),
+    browser: bool = typer.Option(False, "--browser", help="Deploy through the web UI: open the browser and let it drive the deploy.", rich_help_panel="Model Deployment"),
+    headless: bool = typer.Option(False, "--headless", hidden=True, help="Deprecated: the terminal deploy is now the default."),
     # ── Lifecycle ────────────────────────────────────────────────────────────
     stop: bool = typer.Option(False, "--stop", help="Stop TT Studio: tear down Docker containers and networks.", rich_help_panel="Lifecycle"),
     status: bool = typer.Option(False, "--status", help="Open the live monitor TUI for a running stack.", rich_help_panel="Lifecycle"),
@@ -264,7 +265,7 @@ def _entry(
         skip_docker_control=skip_docker_control, no_sudo=no_sudo, no_browser=no_browser,
         wait_for_services=wait_for_services, browser_timeout=browser_timeout,
         add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
-        device_id=device_id, headless=headless, fix_docker=fix_docker,
+        device_id=device_id, headless=headless, browser=browser, fix_docker=fix_docker,
         configure_env=configure_env, status=status, logs=logs, info=info,
         report_bug=report_bug, install_shortcut=install_shortcut,
         accept_terms=accept_terms, switch=switch, uninstall=uninstall,
@@ -277,18 +278,19 @@ def _entry(
 def run_model_command(
     model: Optional[str] = typer.Argument(None, metavar="MODEL_NAME", help="Model to deploy, e.g. Qwen3-32B. Omit to pick from the catalog interactively.", autocompletion=_complete_model),
     device_id: Optional[str] = typer.Option(None, "--device-id", metavar="CHIP_IDS", help="Chip slot(s), e.g. `0` or `0,1` for multi-chip models. Omit to let the backend allocate based on the model.", callback=_validate_device_id),
-    headless: bool = typer.Option(False, "--headless", help="Deploy via the terminal (backend API) instead of the web UI."),
+    browser: bool = typer.Option(False, "--browser", help="Deploy through the web UI: open the browser and let it drive the deploy."),
+    headless: bool = typer.Option(False, "--headless", hidden=True, help="Deprecated: the terminal deploy is now the default."),
     dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload)."),
-    no_browser: bool = typer.Option(False, "--no-browser", help="Skip opening the browser."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="With --browser, print the deploy URL instead of opening it."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary."),
 ):
     """Launch TT Studio and deploy a model in one command.
 
-    Brings the whole stack up and deploys the model. By default the deploy runs
-    through the web UI (the browser opens and drives it); pass --headless to
-    deploy against the backend API from the terminal instead, with the browser
-    opening at /models-deployed only so you can watch. Omit MODEL_NAME to choose
-    from the synced catalog interactively.
+    Brings the whole stack up and deploys the model from the terminal: each
+    stage (image pull, weights download, container start) is shown here and the
+    run ends with the model's endpoint. No browser opens. Pass --browser to
+    deploy through the web UI instead. Omit MODEL_NAME to choose from the
+    synced catalog interactively.
     """
     set_verbose(verbose)
     if model is None:
@@ -296,7 +298,7 @@ def run_model_command(
     _validate_model_name(model)
     args = _build_args(
         dev=dev, auto_deploy=model, device_id=device_id,
-        headless=headless, no_browser=no_browser,
+        headless=headless, browser=browser, no_browser=no_browser,
     )
     _run(args)
 

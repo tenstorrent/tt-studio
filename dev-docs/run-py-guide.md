@@ -31,11 +31,11 @@ The script will guide you through all configuration options and set up everythin
 ### `run <model>` — one-command deploy
 
 ```bash
-python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B
+python run.py run Qwen3-32B                 # bring the stack up + deploy Qwen3-32B from the terminal
 python run.py run                           # omit the model to pick from the catalog interactively
 python run.py run Qwen3-32B --device-id 2   # pin to a specific chip slot
 python run.py run Llama3.1-8B --device-id 0,1 # pin a multi-chip model to chips 0 and 1
-python run.py run Qwen3-32B --headless      # deploy from the terminal instead of the web UI
+python run.py run Qwen3-32B --browser       # deploy through the web UI instead (opens the browser)
 ```
 
 `run <model>` brings the whole stack up and deploys the named model in one step.
@@ -43,40 +43,22 @@ The model name is checked against the catalog up front (a typo fails fast with
 suggestions), and it supports shell completion. Omit `MODEL_NAME` entirely to get
 an interactive picker listing the catalog.
 
-By default the deploy runs **through the web UI** — the browser opens and drives
-it. Pass `--headless` to deploy against the backend API from the terminal instead
-(progress streams in the terminal, and the browser opens at `/models-deployed`
-only so you can watch). Suppress the browser in either mode with `--no-browser`.
+By default the deploy runs **in the terminal** and no browser opens. Each stage
+is shown as it happens — image pull and weights download with bytes and speed,
+then container start — and the run ends with a panel giving the model's
+endpoint (for example `http://localhost:7001/v1/chat/completions`), its health
+URL, the chips it occupies, and a copy-pasteable first request for chat models.
+Pass `--browser` to hand the deploy to the web UI instead: the browser opens and
+drives it, showing the same progress there. With `--browser --no-browser` the
+deploy URL is printed for you to open yourself.
 
 If `--device-id` is omitted, the backend allocates a slot based on the model's
 chip requirements; pass it only to pin a specific chip. Multi-chip models take a
 comma-separated list (e.g. `--device-id 0,1`).
 
----
-
-## Command-Line Options
-
-The options below mirror `python run.py --help` exactly, grouped by the same help
-panels. Run with no flags for the default minimal setup; every flag is optional.
-
-### Setup & Configuration
-
-| Option | Description |
-| --- | --- |
-| `--help`, `-h` | Display the help message with all options grouped by panel. |
-| `--dev` | Development mode: hot-reload frontend & backend, mount source, offer suggested defaults. Also skips the release-branch sync requirement (see below), so a checkout behind `origin/main`/`origin/dev` still starts. |
-| `--configure-env` | Interactively configure **all** environment variables (secrets, modes, cloud endpoints). |
-| `--reconfigure-inference-server` (alias `--reconfig-inf`) | Reconfigure the TT Inference Server artifact (version/branch selection). Prompts only for the artifact source; verifies the release tag / branch / commit exists upstream before accepting it. |
-| `--install-shortcut` | Add a `tt-studio` shell shortcut (a function in your `~/.zshrc` / `~/.bashrc`) so you can launch from any directory without typing `python run.py`. |
-| `--switch REF` | Switch this checkout to a git branch or tag (e.g. `dev`, `v2.9.0-rc1`): fetches origin, checks the ref out (fast-forwarding branches), then exits — re-run to start on that version. Refuses if you have uncommitted changes. |
-
-### Model Deployment
-
-| Option | Description |
-| --- | --- |
-| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up. Deploys via the web UI by default (see the [`run <model>`](#run-model--one-command-deploy) subcommand); add `--headless` to deploy from the terminal. Supports shell completion of catalog model names. |
+| `--auto-deploy MODEL_NAME` | Deploy the given model once the stack is up, from the terminal (see the [`run <model>`](#run-model--one-command-deploy) subcommand); add `--browser` to deploy through the web UI. Supports shell completion of catalog model names. |
 | `--device-id CHIP_IDS` | Chip slot(s) to target: a single slot (`0`) or a comma-separated list (`0,1`) for multi-chip models. Omit to let the backend allocate based on the model's chip requirements. |
-| `--headless` | With an auto-deploy, deploy against the backend API from the terminal instead of handing off to the web UI. |
+| `--browser` | With an auto-deploy, hand the deploy to the web UI (opens the browser) instead of running it in the terminal. `--headless` is the deprecated name for the now-default terminal deploy. |
 
 > **Tip**: `python run.py run <model>` is the ergonomic front door for this —
 > it brings the stack up and deploys the model in one command. See

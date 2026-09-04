@@ -193,58 +193,16 @@ def _load_deploy_driver():
 
 def _headless_deploy(args):
     """Deploy a model straight through the backend API — no browser, no frontend
-    JS. Reuses the proven ci/deploy_healthcheck.py driver (catalog resolve →
-    deploy → progress poll) and streams progress until the deploy completes.
+    JS — rendering stage progress in the terminal and finishing with the
+    model's endpoint. The rendering lives in tt_setup/cli/_deploy.py; this
+    wrapper only loads the shared ci/deploy_healthcheck.py driver."""
+    from tt_setup.cli._deploy import run_headless_deploy
 
-    device_id is included only when the user set it; otherwise it's omitted so
-    the backend allocates a slot based on the model's chip requirements.
-    """
     dh = _load_deploy_driver()
     if dh is None:
-        return
-
-    client = dh.Client("http://localhost:8000", proxy=False)
-    model_name = args.auto_deploy
-    device_id = getattr(args, "device_id", None)
-
-    # The backend may still be warming right after the stack comes up — retry the
-    # catalog resolve briefly on connection/catalog errors, but not on a true miss.
-    model_id, last_err = None, None
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        try:
-            model_id = dh.resolve_model_id(client, model_name, None)
-            break
-        except dh.SmokeTestError as e:
-            last_err = e
-            if "cannot reach" in str(e) or "catalog fetch failed" in str(e):
-                time.sleep(3)
-                continue
-            break  # real miss / ambiguous match — don't retry
-    if model_id is None:
-        console.print(notice_panel("Auto-deploy failed", [str(last_err)], border_style="error"))
-        return
-
-    body = {"model_id": model_id}
-    if device_id is not None:
-        body["device_id"] = device_id
-    where = f"chip {device_id}" if device_id is not None else "auto-allocated slot"
-
-    try:
-        st, data = client.post("deploy", body, timeout=120)
-        if st not in (200, 201) or data.get("status") != "success":
-            raise dh.SmokeTestError(f"deploy failed (HTTP {st}): {data}")
-        job_id = data.get("job_id")
-        if not job_id:
-            raise dh.SmokeTestError(f"deploy returned no job_id: {data}")
-        console.print(f"\n[success]🚀 Deploying {model_name}[/success] [muted]({where})[/muted]")
-        # poll_progress prints its own change-only progress lines; don't wrap it in
-        # a Live spinner (they'd fight over the terminal).
-        dh.poll_progress(client, job_id, timeout=3600, interval=10)
-        frontend_host, frontend_port, _ = get_frontend_config()
-        console.print(f"[success]✅ {model_name} deployed — watch it at http://{frontend_host}:{frontend_port}/models-deployed[/success]\n")
-    except dh.SmokeTestError as e:
-        console.print(notice_panel("Auto-deploy failed", [str(e)], border_style="error"))
+        return False
+    fe_host, fe_port, _ = get_frontend_config()
+    return run_headless_deploy(dh, args, frontend=(fe_host, fe_port))
 
 
 def _run(args):
@@ -1037,37 +995,31 @@ def _run(args):
                 sys.exit(1)
         
         
-        # Model auto-deploy has two modes. UI-driven (default): open the web UI
-        # with the ?auto-deploy= param and let it perform the deploy. --headless:
-        # drive the backend deploy API directly, opening the browser only at
-        # /models-deployed to watch.
-        headless = getattr(args, "headless", False)
+        # Model auto-deploy has two modes. Terminal (default): drive the backend
+        # deploy API from here, render progress in the terminal, and never open a
+        # browser — the terminal is the UI for that run. --browser: open the web
+        # UI with ?auto-deploy= and let it perform the deploy.
+        from tt_setup.cli._deploy import deploy_mode, should_open_browser
+
+        mode = deploy_mode(args)
         device_id_val = getattr(args, "device_id", None)
-        headless_deploy = bool(args.auto_deploy) and headless
-        browser_deploy = bool(args.auto_deploy) and not headless
+        browser_deploy = mode == "browser"
+        headless_deploy = mode == "terminal"
 
-        # Control browser open only if service is healthy
-        if not args.no_browser:
-            # Get configurable frontend settings
-            host, port, timeout = get_frontend_config()
-
+        host, port, timeout = get_frontend_config()
+        if should_open_browser(args):
             # UI-driven deploy passes the model so the web UI performs the deploy.
-            # Headless deploy opens /models-deployed only to watch (no ?auto-deploy=,
-            # which would trigger a second, UI-driven deploy).
             browser_model = args.auto_deploy if browser_deploy else None
-            open_path = "models-deployed" if headless_deploy else ""
-
-            # Use the new function that reuses existing infrastructure
-            if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val, path=open_path):
+            if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val):
                 print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{C_RESET}")
                 print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
-        else:
-            host, port, _ = get_frontend_config()
+        elif not headless_deploy:
             auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
 
-        # Headless auto-deploy runs after the stack is up, regardless of --no-browser.
         if headless_deploy:
+            if getattr(args, "headless", False) and show_detail():
+                console.print("[muted]--headless is now the default; pass --browser to deploy through the web UI instead.[/muted]")
             _headless_deploy(args)
         
         # If in dev mode, show logs similar to startup.sh
