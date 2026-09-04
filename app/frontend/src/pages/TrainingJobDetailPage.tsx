@@ -13,6 +13,7 @@ import {
   Clock,
   Ban,
   RefreshCw,
+  Rocket,
 } from "lucide-react";
 import {
   LineChart,
@@ -38,7 +39,9 @@ import {
   fetchTrainingJobMetrics,
   fetchTrainingJobLogs,
   fetchTrainingJobCheckpoints,
+  fetchMergedCheckpoints,
   cancelTrainingJob,
+  promoteCheckpoint,
   getCheckpointDownloadUrl,
   formatTrainingTimestamp,
   getJobDataset,
@@ -166,6 +169,18 @@ export default function TrainingJobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
+  const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
+  // Per-checkpoint merge outcome, surfaced inline next to the Promote button.
+  const [mergeStatus, setMergeStatus] = useState<
+    Record<string, { status: string; message?: string }>
+  >({});
+  // Checkpoint ids already promoted (merged) to inference, discovered from the
+  // on-disk merge_info.json sidecars. Persists across refreshes, unlike the
+  // ephemeral `mergeStatus` above.
+  const [promotedCkptIds, setPromotedCkptIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -192,6 +207,21 @@ export default function TrainingJobDetailPage() {
       setLogs(l);
       setCheckpoints(c);
       setConnectionError(null);
+      // Determine which checkpoints are already promoted to inference by scanning
+      // merged checkpoints on disk and matching this job. Best-effort: a failure
+      // here (e.g. inference server unreachable) must not break the page.
+      try {
+        const merged = await fetchMergedCheckpoints();
+        setPromotedCkptIds(
+          new Set(
+            merged
+              .filter((mc) => mc.source_job_id === jobId && mc.checkpoint_id)
+              .map((mc) => mc.checkpoint_id as string),
+          ),
+        );
+      } catch {
+        // Leave the previously known promotion state untouched on failure.
+      }
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.error;
@@ -253,6 +283,80 @@ export default function TrainingJobDetailPage() {
     } catch {
       setCancelRequested(false);
       customToast.error("Failed to cancel job");
+    }
+  };
+
+  // Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint
+  // that can be served for inference. The merge runs as a job on the training
+  // container; we poll that job so its real outcome (completed / failed + error)
+  // is surfaced inline instead of a fire-and-forget toast. The result is then
+  // discovered by the deploy-step picker.
+  const handlePromote = async (ckptId: string) => {
+    if (!jobId) return;
+    setPromotingCkptId(ckptId);
+    setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "in_progress" } }));
+    try {
+      const mergeJob = await promoteCheckpoint(jobId, ckptId);
+      const mergeJobId = typeof mergeJob?.id === "string" ? mergeJob.id : undefined;
+      if (!mergeJobId) {
+        customToast.info("Promotion started.");
+        return;
+      }
+      customToast.info(
+        "Promoting checkpoint — merging adapter into base model (this can take a few minutes)…",
+      );
+
+      // Merging loads the full base model on CPU, so poll for a while. The
+      // training container serializes merges, so only one runs at a time.
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let finalStatus: string | null = null;
+      let finalMessage: string | undefined;
+      while (Date.now() < deadline) {
+        await sleep(4000);
+        let mj: TrainingJob;
+        try {
+          mj = await fetchTrainingJob(mergeJobId);
+        } catch {
+          continue; // transient; keep polling
+        }
+        if (["completed", "failed", "cancelled"].includes(mj.status)) {
+          finalStatus = mj.status;
+          finalMessage = getJobErrorMessage(mj.error);
+          break;
+        }
+      }
+
+      if (finalStatus === "completed") {
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
+        setPromotedCkptIds((prev) => new Set(prev).add(ckptId));
+        customToast.success(
+          "Checkpoint promoted — it will appear in the deploy step for this model.",
+        );
+      } else if (finalStatus === "failed") {
+        setMergeStatus((prev) => ({
+          ...prev,
+          [ckptId]: { status: "failed", message: finalMessage },
+        }));
+        customToast.error(`Promotion failed: ${finalMessage || "unknown error"}`);
+      } else if (finalStatus === "cancelled") {
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "cancelled" } }));
+        customToast.error("Promotion was cancelled.");
+      } else {
+        // Timed out waiting — the merge may still finish in the background.
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "pending" } }));
+        customToast.info(
+          "Promotion is still running — check the deploy step again shortly.",
+        );
+      }
+    } catch {
+      setMergeStatus((prev) => ({
+        ...prev,
+        [ckptId]: { status: "failed", message: "Failed to start promotion" },
+      }));
+      customToast.error("Failed to start checkpoint promotion");
+    } finally {
+      setPromotingCkptId(null);
     }
   };
 
@@ -662,22 +766,93 @@ export default function TrainingJobDetailPage() {
                               {formatTrainingTimestamp(ckpt.created_at)}
                             </td>
                             <td className="py-3 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                asChild
-                              >
-                                <a
-                                  href={getCheckpointDownloadUrl(
-                                    jobId!,
+                              <div className="flex items-center justify-end gap-2">
+                                {(() => {
+                                  const ms = mergeStatus[ckpt.id];
+                                  const isPromoted = promotedCkptIds.has(
                                     ckpt.id,
-                                  )}
-                                  download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                                  );
+                                  // No live merge activity this session: fall back
+                                  // to the persistent on-disk promotion state.
+                                  if (!ms) {
+                                    return isPromoted ? (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    ) : null;
+                                  }
+                                  if (
+                                    ms.status === "in_progress" ||
+                                    ms.status === "pending"
+                                  ) {
+                                    return (
+                                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                                        {ms.status === "pending"
+                                          ? "Still merging…"
+                                          : "Merging…"}
+                                      </span>
+                                    );
+                                  }
+                                  if (ms.status === "completed") {
+                                    return (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    );
+                                  }
+                                  if (
+                                    ms.status === "failed" ||
+                                    ms.status === "cancelled"
+                                  ) {
+                                    return (
+                                      <span
+                                        className="flex items-center text-xs text-red-600 dark:text-red-400"
+                                        title={ms.message}
+                                      >
+                                        <AlertTriangle className="mr-1 h-3 w-3" />
+                                        {ms.status === "cancelled"
+                                          ? "Cancelled"
+                                          : "Merge failed"}
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handlePromote(ckpt.id)}
+                                  disabled={promotingCkptId !== null}
+                                  title="Merge this adapter into its base model so it can be deployed for inference"
                                 >
-                                  <Download className="mr-1 h-3 w-3" />
-                                  Download
-                                </a>
-                              </Button>
+                                  {promotingCkptId === ckpt.id ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Rocket className="mr-1 h-3 w-3" />
+                                  )}
+                                  {promotedCkptIds.has(ckpt.id)
+                                    ? "Re-promote"
+                                    : "Promote for inference"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                >
+                                  <a
+                                    href={getCheckpointDownloadUrl(
+                                      jobId!,
+                                      ckpt.id,
+                                    )}
+                                    download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                                  >
+                                    <Download className="mr-1 h-3 w-3" />
+                                    Download
+                                  </a>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}

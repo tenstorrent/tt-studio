@@ -194,6 +194,7 @@ class _Manager:
                 "container_id": kwargs.get("container_id", ""),
                 "container_name": kwargs.get("container_name", ""),
                 "model_name": kwargs.get("model_name", ""),
+                "model_id": kwargs.get("model_id", ""),
                 "device": kwargs.get("device", ""),
                 "deployed_at": _now().isoformat(),
                 "stopped_at": None,
@@ -242,6 +243,7 @@ class ModelDeployment:
         self.container_id: str = ""
         self.container_name: str = ""
         self.model_name: str = ""
+        self.model_id: str = ""
         self.device: str = ""
         self.deployed_at: Optional[datetime] = None
         self.stopped_at: Optional[datetime] = None
@@ -271,6 +273,7 @@ class ModelDeployment:
         obj.container_id = d.get("container_id", "")
         obj.container_name = d.get("container_name", "")
         obj.model_name = d.get("model_name", "")
+        obj.model_id = d.get("model_id", "")
         obj.device = d.get("device", "")
         obj.deployed_at = _parse_dt(d.get("deployed_at"))
         obj.stopped_at = _parse_dt(d.get("stopped_at"))
@@ -299,6 +302,7 @@ class ModelDeployment:
             "container_id": self.container_id,
             "container_name": self.container_name,
             "model_name": self.model_name,
+            "model_id": self.model_id,
             "device": self.device,
             "deployed_at": self.deployed_at.isoformat() if self.deployed_at else None,
             "stopped_at": self.stopped_at.isoformat() if self.stopped_at else None,

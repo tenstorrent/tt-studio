@@ -474,6 +474,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
             force_full_board_requested = serializer.validated_data.get("force_full_board", False)
+            host_weights_dir = serializer.validated_data.get("host_weights_dir") or None
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -515,6 +516,22 @@ class DeployView(APIView):
                     impl.model_name,
                     board_type,
                 )
+
+            # Training claims the whole board (chips_required drives the 4-slot
+            # reservation and --tt-device p300x2; the runner works on a submesh), so an
+            # explicit multi-slot device_id is meaningless here. Collapse it to the first
+            # slot — mirroring how force_full_board is ignored above — so a stale/
+            # mismatched client can't try to pin the mesh to a subset of chips.
+            if impl.model_type == ModelTypes.TRAINING and len(requested_device_ids) > 1:
+                logger.info(
+                    "Ignoring multi-slot device_id=%s for model=%s type=%s; using slot %s only",
+                    requested_device_ids,
+                    impl.model_name,
+                    impl.model_type.value,
+                    requested_device_ids[0],
+                )
+                requested_device_ids = [requested_device_ids[0]]
+                manual_device_id = requested_device_ids[0]
 
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
@@ -773,6 +790,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
+                    host_weights_dir=host_weights_dir,
                     dev_mode=impl.requires_dev_catalog,
                     artifact_ref=artifact_ref,
                     # First-load weight remaps on experimental blackhole builds can
@@ -808,6 +826,7 @@ class DeployView(APIView):
                             container_id=pull_id,
                             container_name=impl.model_name,
                             model_name=impl.model_name,
+                            model_id=impl.model_id,
                             device=device,
                             device_id=device_id,
                             device_ids=occupied_device_ids,
@@ -905,6 +924,7 @@ class DeployView(APIView):
                         container_id=result.job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=device_id,
                         device_ids=occupied_device_ids,
@@ -1002,7 +1022,7 @@ class DeployView(APIView):
                             logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
 
                     def deploy_fn(_pull_id=pull_id, _host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             # Free the slot: the deploy never started.
@@ -1035,7 +1055,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
