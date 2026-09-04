@@ -244,6 +244,61 @@ def detect_tt_hardware():
     return os.path.exists("/dev/tenstorrent") or os.path.isdir("/dev/tenstorrent")
 
 
+def detect_foreign_tt_studio_stacks():
+    """Compose working dirs of TT Studio stacks running from OTHER checkouts.
+
+    Every running TT Studio backend container carries compose labels naming
+    the app/ directory it was started from. Any of those that isn't this
+    checkout's app/ means another TT Studio is already booted — only one can
+    run per machine (the containers share names, host ports, and the Docker
+    network). Returns the raw label values (deduped, sorted); empty when none
+    are running or Docker can't be queried.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps",
+             "--filter", "label=com.docker.compose.service=tt_studio_backend",
+             "--format", '{{.Label "com.docker.compose.project.working_dir"}}'],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except Exception:
+        return []
+    if result.returncode != 0:
+        return []
+    our_app_dir = os.path.realpath(os.path.dirname(DOCKER_COMPOSE_FILE))
+    foreign = set()
+    for line in (result.stdout or "").splitlines():
+        working_dir = line.strip()
+        if working_dir and os.path.realpath(working_dir) != our_app_dir:
+            foreign.add(working_dir)
+    return sorted(foreign)
+
+
+def stop_tt_studio_stack(app_working_dir):
+    """Stop and remove the running containers of the TT Studio stack that was
+    started from `app_working_dir` (a value from
+    detect_foreign_tt_studio_stacks). Returns True when nothing from that
+    stack is left running."""
+    ps_cmd = ["docker", "ps", "-q", "--filter",
+              f"label=com.docker.compose.project.working_dir={app_working_dir}"]
+    try:
+        ids = [c for c in (subprocess.run(
+            ps_cmd, capture_output=True, text=True, check=False, timeout=10,
+        ).stdout or "").split() if c]
+        if not ids:
+            return True
+        subprocess.run(["docker", "stop", *ids],
+                       capture_output=True, text=True, check=False, timeout=180)
+        subprocess.run(["docker", "rm", "-f", *ids],
+                       capture_output=True, text=True, check=False, timeout=60)
+        remaining = subprocess.run(
+            ps_cmd, capture_output=True, text=True, check=False, timeout=10,
+        ).stdout or ""
+        return not remaining.strip()
+    except Exception:
+        return False
+
+
 def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=False):
     """
     Build the Docker Compose command with appropriate override files.

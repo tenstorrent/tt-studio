@@ -22,7 +22,9 @@ services:
     networks:
       - tt_studio_network
     ports:
-      - "8000:8000"
+      # Host port is dynamic: run.py auto-increments BACKEND_PORT when 8000 is
+      # taken. The container-internal port stays 8000.
+      - "${BACKEND_PORT:-8000}:8000"
     # Single worker is load-bearing, not a performance oversight. The backend holds
     # deploy state in per-process memory - the image-pull registry (docker_control/
     # image_pull.py), deployment_start_times, LocMemCache and InMemoryChannelLayer -
