@@ -143,6 +143,31 @@ function compactPercent(
   return Math.round(hasPull ? pullLo : dlLo);
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  starting: "Starting",
+  initialization: "Initializing",
+  setup: "Setting up",
+  image_ready: "Image ready",
+  container_setup: "Starting container",
+  container_started: "Container started",
+  network_setup: "Connecting",
+  finalizing: "Finalizing",
+};
+
+// Decimal units to match the sizes HuggingFace and Docker report.
+function formatBytes(bytes: number): string {
+  if (bytes < 0) return "—";
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let u = 0;
+  while (value >= 1000 && u < units.length - 1) {
+    value /= 1000;
+    u++;
+  }
+  return `${value >= 100 || u === 0 ? Math.round(value) : value.toFixed(1)} ${units[u]}`;
+}
+
 function DeploymentTrayItem({
   deployment,
   progress,
@@ -170,6 +195,32 @@ function DeploymentTrayItem({
       : null;
 
   const statusLabel = isFailed ? "Failed" : isCompleted ? "Deployed" : `${pct}%`;
+
+  // What the deploy is doing right now, with byte-level detail while the Docker
+  // image or the model weights are downloading — so the tray answers "is it
+  // actually moving?" without opening the full progress card.
+  const detailLine = (() => {
+    if (isFailed || isCompleted || !progress) return null;
+    const stage = progress.stage;
+    const isDownload = stage === "pulling_image" || stage === "model_preparation";
+    const bytes =
+      isDownload && progress.downloaded_bytes != null
+        ? progress.total_bytes
+          ? `${formatBytes(progress.downloaded_bytes)} / ${formatBytes(progress.total_bytes)}`
+          : formatBytes(progress.downloaded_bytes)
+        : null;
+    const speed = isDownload && progress.speed_bps ? `${formatBytes(progress.speed_bps)}/s` : null;
+    const label =
+      stage === "pulling_image"
+        ? "Pulling Docker image"
+        : stage === "model_preparation"
+          ? bytes
+            ? "Downloading weights"
+            : "Preparing model"
+          : STAGE_LABELS[stage] ?? null;
+    const parts = [label, bytes, speed].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  })();
 
   const fetchLogs = async () => {
     if (showLogs) {
@@ -251,6 +302,12 @@ function DeploymentTrayItem({
           </button>
         )}
       </div>
+
+      {detailLine && (
+        <p className="mt-1 truncate text-[11px] text-muted-foreground tabular-nums" title={detailLine}>
+          {detailLine}
+        </p>
+      )}
 
       <div className="mt-2 flex items-center gap-2">
         {deviceLabel && (
