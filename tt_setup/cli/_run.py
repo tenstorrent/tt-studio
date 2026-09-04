@@ -110,6 +110,101 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     console.print()
 
 
+def _auto_deploy_query(model, device_id):
+    """Build the `?auto-deploy=…` query string for the browser (UI-driven) path.
+    Includes device-id only when explicitly set; omitting it lets the backend
+    allocate a slot based on the model's requirements."""
+    from urllib.parse import urlencode
+
+    query = {"auto-deploy": model}
+    if device_id is not None:
+        query["device-id"] = device_id
+    return f"?{urlencode(query)}"
+
+
+def _preflight_device_availability(args):
+    """Fast-reject a `--device-id`-pinned deploy when the requested chip slots are
+    already occupied, *before* the full stack-up / browser open.
+
+    Only runs when a model and explicit chip slots are both set. Queries the
+    backend chip-status endpoint with a short timeout; if the backend isn't up
+    yet (fresh boot) or the check can't complete, it silently returns and lets
+    the deploy-time allocator stay the authoritative guard. This just moves the
+    common "chips busy" rejection to the front so a re-run against occupied
+    devices fails in a second instead of after a ~50s startup."""
+    model = getattr(args, "auto_deploy", None)
+    device_id = getattr(args, "device_id", None)
+    if not model or not device_id:
+        return
+    try:
+        requested = [int(x.strip()) for x in str(device_id).split(",") if x.strip() != ""]
+    except ValueError:
+        return  # malformed — Typer already validated; let the backend re-check
+    if not requested:
+        return
+
+    dh = _load_deploy_driver()
+    if dh is None:
+        return
+    client = dh.Client("http://localhost:8000", proxy=False)
+    try:
+        st, data = client.get("chip_status", timeout=5)
+    except Exception:
+        return  # backend not reachable yet — deploy-time guard will handle it
+    if st != 200 or not isinstance(data, dict):
+        return
+
+    slots = {s.get("slot_id"): s for s in data.get("slots", []) if isinstance(s, dict)}
+    busy = []
+    for slot in requested:
+        info = slots.get(slot)
+        if info and info.get("status") == "occupied":
+            occupant = info.get("model_name") or "another model"
+            busy.append(f"chip {slot} — in use by {occupant}")
+    if not busy:
+        return
+
+    lines = [f"Requested --device-id {device_id}, but:"] + busy
+    lines.append("")
+    lines.append("Free the chips (stop that model in the UI, or python run.py --stop) or")
+    lines.append("pick different slots, then re-run.")
+    console.print(notice_panel("Requested chips are busy", lines, border_style="error"))
+    sys.exit(1)
+
+
+def _load_deploy_driver():
+    """Import ci/deploy_healthcheck.py as a module (it's import-safe: all argparse/
+    tee/report machinery lives under a guarded main()). Returns the module, or
+    None if it's missing."""
+    import importlib.util
+
+    dh_path = os.path.join(TT_STUDIO_ROOT, "ci", "deploy_healthcheck.py")
+    if not os.path.exists(dh_path):
+        console.print(f"[warning]⚠  Headless deploy driver not found at {dh_path}; skipping auto-deploy.[/warning]")
+        return None
+    spec = importlib.util.spec_from_file_location("deploy_healthcheck", dh_path)
+    if spec is None or spec.loader is None:
+        console.print(f"[warning]⚠  Could not import headless deploy driver from {dh_path}; skipping auto-deploy.[/warning]")
+        return None
+    dh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dh)
+    return dh
+
+
+def _headless_deploy(args):
+    """Deploy a model straight through the backend API — no browser, no frontend
+    JS — rendering stage progress in the terminal and finishing with the
+    model's endpoint. The rendering lives in tt_setup/cli/_deploy.py; this
+    wrapper only loads the shared ci/deploy_healthcheck.py driver."""
+    from tt_setup.cli._deploy import run_headless_deploy
+
+    dh = _load_deploy_driver()
+    if dh is None:
+        return False
+    fe_host, fe_port, _ = get_frontend_config()
+    return run_headless_deploy(dh, args, frontend=(fe_host, fe_port))
+
+
 def _run(args):
     """Orchestrate setup for the parsed arguments."""
     try:
@@ -249,6 +344,12 @@ def _run(args):
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
 
+        # Stopping one model (and resetting its chips) must never fall through
+        # to the full-stack teardown either.
+        if getattr(args, "stop_model", None):
+            from tt_setup.cli._stop_model import stop_models
+            sys.exit(stop_models(args))
+
         # Must dispatch before the cleanup branches: purging one model must
         # never fall through to the full-stack teardown.
         if getattr(args, "purge_model", None):
@@ -279,7 +380,11 @@ def _run(args):
         if args.add_headers:
             add_spdx_headers()
             return
-        
+
+        # Fast reject a pinned deploy onto already-busy chips before any stack-up
+        # work (no-op on a fresh boot / unreachable backend).
+        _preflight_device_availability(args)
+
         run_start = time.monotonic()
 
         # Install the sticky-top stepper FIRST, on an empty screen — this is what
@@ -896,22 +1001,32 @@ def _run(args):
                 sys.exit(1)
         
         
-        # Control browser open only if service is healthy
-        if not args.no_browser:
-            # Get configurable frontend settings
-            host, port, timeout = get_frontend_config()
-            
-            # Use the new function that reuses existing infrastructure
-            device_id_val = getattr(args, "device_id", 0)
-            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy, device_id=device_id_val):
-                auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
-                print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{auto_deploy_param}{C_RESET}")
+        # Model auto-deploy has two modes. Terminal (default): drive the backend
+        # deploy API from here, render progress in the terminal, and never open a
+        # browser — the terminal is the UI for that run. --browser: open the web
+        # UI with ?auto-deploy= and let it perform the deploy.
+        from tt_setup.cli._deploy import deploy_mode, should_open_browser
+
+        mode = deploy_mode(args)
+        device_id_val = getattr(args, "device_id", None)
+        browser_deploy = mode == "browser"
+        headless_deploy = mode == "terminal"
+
+        host, port, timeout = get_frontend_config()
+        if should_open_browser(args):
+            # UI-driven deploy passes the model so the web UI performs the deploy.
+            browser_model = args.auto_deploy if browser_deploy else None
+            if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val):
+                print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{C_RESET}")
                 print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
-        else:
-            host, port, _ = get_frontend_config()
-            device_id_val = getattr(args, "device_id", 0)
-            auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
+        elif not headless_deploy:
+            auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
+
+        if headless_deploy:
+            if getattr(args, "headless", False) and show_detail():
+                console.print("[muted]--headless is now the default; pass --browser to deploy through the web UI instead.[/muted]")
+            _headless_deploy(args)
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:
