@@ -216,9 +216,11 @@ python3 run.py
 
 You'll only be prompted for:
 - **HF_TOKEN**: Your Hugging Face token (required for downloading models)
-  A token already exported in your shell (`export HF_TOKEN=hf_...`) is picked up
-  automatically and saved to `.env`, so you are not prompted and the Welcome
-  screen is skipped.
+  A token you already have is picked up automatically and saved to `.env`, so
+  you are not prompted and the Welcome screen is skipped. Sources, in order:
+  `export HF_TOKEN=hf_...` in your shell, then the Hugging Face login store
+  written by `huggingface-cli login` or `tt-model login` (`HF_TOKEN_PATH`,
+  `$HF_HOME/token`, or `~/.cache/huggingface/token`).
 
 All other values are set automatically using defaults.
 

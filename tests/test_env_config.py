@@ -285,14 +285,21 @@ class TestAdoptHfTokenFromEnvironment(unittest.TestCase):
             self.assertTrue(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
         self.assertEqual(self._env_file_token(), "hf_fromshell")
 
+    def _isolated_env(self, **extra):
+        """No shell token and no Hugging Face login store (the developer's real
+        ~/.cache/huggingface/token must not leak into these tests)."""
+        env = {k: v for k, v in os.environ.items() if k not in ("HF_TOKEN", "HF_TOKEN_PATH", "HF_HOME")}
+        env["HF_TOKEN_PATH"] = os.path.join(tempfile.gettempdir(), "tt-studio-tests-no-such-token")
+        env.update(extra)
+        return env
+
     def test_no_export_leaves_env_file_alone(self):
-        env = {k: v for k, v in os.environ.items() if k != "HF_TOKEN"}
-        with patch.dict(os.environ, env, clear=True):
+        with patch.dict(os.environ, self._isolated_env(), clear=True):
             self.assertFalse(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
         self.assertIsNone(self._env_file_token())
 
     def test_empty_export_is_ignored(self):
-        with patch.dict(os.environ, {"HF_TOKEN": "   "}):
+        with patch.dict(os.environ, self._isolated_env(HF_TOKEN="   "), clear=True):
             self.assertFalse(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
         self.assertIsNone(self._env_file_token())
 
@@ -306,3 +313,63 @@ class TestAdoptHfTokenFromEnvironment(unittest.TestCase):
         with patch.dict(os.environ, {"HF_TOKEN": "hf_new"}):
             self.assertTrue(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
         self.assertEqual(self._env_file_token(), "hf_new")
+
+    # --- Hugging Face login store (huggingface-cli login / tt-model login) ---
+
+    def _no_shell_token_env(self, **extra):
+        env = {k: v for k, v in os.environ.items() if k not in ("HF_TOKEN", "HF_TOKEN_PATH", "HF_HOME")}
+        env.update(extra)
+        return env
+
+    def _write_store(self, directory, token, name="token"):
+        path = os.path.join(directory, name)
+        with open(path, "w") as f:
+            f.write(token + "\n")
+        return path
+
+    def test_login_store_via_hf_token_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._write_store(d, "hf_fromlogin", name="mytoken")
+            with patch.dict(os.environ, self._no_shell_token_env(HF_TOKEN_PATH=store), clear=True):
+                self.assertTrue(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
+        self.assertEqual(self._env_file_token(), "hf_fromlogin")
+
+    def test_login_store_via_hf_home(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_store(d, "hf_fromhfhome")
+            with patch.dict(os.environ, self._no_shell_token_env(HF_HOME=d), clear=True):
+                self.assertEqual(_ecfg_configure.hf_login_token_path(), os.path.join(d, "token"))
+                self.assertTrue(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
+        self.assertEqual(self._env_file_token(), "hf_fromhfhome")
+
+    def test_default_login_store_is_under_home_cache(self):
+        with tempfile.TemporaryDirectory() as home:
+            store_dir = os.path.join(home, ".cache", "huggingface")
+            os.makedirs(store_dir)
+            self._write_store(store_dir, "hf_default")
+            with patch.dict(os.environ, self._no_shell_token_env(), clear=True), \
+                 patch.object(_ecfg_configure.os.path, "expanduser", return_value=home):
+                self.assertEqual(_ecfg_configure.hf_login_token_path(), os.path.join(store_dir, "token"))
+                self.assertEqual(_ecfg_configure.read_hf_login_token(), "hf_default")
+
+    def test_shell_export_wins_over_login_store(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._write_store(d, "hf_fromlogin")
+            with patch.dict(os.environ, self._no_shell_token_env(HF_TOKEN="hf_shell", HF_TOKEN_PATH=store), clear=True):
+                self.assertTrue(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
+        self.assertEqual(self._env_file_token(), "hf_shell")
+
+    def test_missing_login_store_is_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            missing = os.path.join(d, "nope")
+            with patch.dict(os.environ, self._no_shell_token_env(HF_TOKEN_PATH=missing), clear=True):
+                self.assertIsNone(_ecfg_configure.read_hf_login_token())
+                self.assertFalse(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
+        self.assertIsNone(self._env_file_token())
+
+    def test_empty_login_store_is_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._write_store(d, "")
+            with patch.dict(os.environ, self._no_shell_token_env(HF_TOKEN_PATH=store), clear=True):
+                self.assertFalse(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
+        self.assertIsNone(self._env_file_token())

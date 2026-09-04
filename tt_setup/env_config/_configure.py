@@ -177,30 +177,65 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
     return False
 
 
-def adopt_hf_token_from_environment(quiet=False):
-    """Persist a shell-exported HF_TOKEN into the repo-root .env.
+def hf_login_token_path():
+    """Where huggingface_hub keeps the token saved by `huggingface-cli login` /
+    `tt-model login`, following the library's own resolution order."""
+    explicit = os.environ.get("HF_TOKEN_PATH")
+    if explicit:
+        return explicit
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        return os.path.join(hf_home, "token")
+    return os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "token")
 
-    `python run.py` itself sees `os.environ["HF_TOKEN"]`, but the services it
-    starts do not all inherit it: the backend container and the inference-api
-    read the repo .env, and the inference server mirrors that file into its
-    artifact for the model container's `--env-file`. Writing the exported token
-    into .env once makes the shell export a first-class source. The shell value
-    wins over a differing .env value, matching get_env_var()'s precedence.
+
+def read_hf_login_token():
+    """The token from the Hugging Face login store, or None. A plain file read —
+    it is all huggingface_hub does — so the launcher venv needs no extra dependency."""
+    path = hf_login_token_path()
+    try:
+        if not os.path.isfile(path):
+            return None
+        with open(path, "r") as f:
+            token = f.read().strip()
+    except OSError:
+        return None
+    return token or None
+
+
+def adopt_hf_token_from_environment(quiet=False):
+    """Persist an already-available HF token into the repo-root .env.
+
+    Sources, first wins: the shell's exported `HF_TOKEN`, then the Hugging Face
+    login store (`HF_TOKEN_PATH`, `$HF_HOME/token`, `~/.cache/huggingface/token`)
+    written by `huggingface-cli login` or `tt-model login`.
+
+    `python run.py` itself could read either, but the services it starts cannot:
+    the backend container and the inference-api read the repo .env, and the
+    inference server mirrors that file into its artifact for the model
+    container's `--env-file`. Writing the token into .env once makes both
+    sources first-class. A found value wins over a differing .env value,
+    matching get_env_var()'s precedence for the shell export.
 
     Returns True when .env was updated.
     """
     env_token = (os.environ.get("HF_TOKEN") or "").strip()
-    if not env_token or is_placeholder(env_token):
-        return False
-    existing = (get_existing_env_vars().get("HF_TOKEN") or "").strip()
-    if existing == env_token:
-        return False
-    write_env_var("HF_TOKEN", env_token)
-    if not quiet:
-        source = "updated from" if existing and not is_placeholder(existing) else "picked up from"
-        console.print(f"[success]✅ HF_TOKEN {source} your shell environment and saved to .env.[/success]")
+    if env_token and not is_placeholder(env_token):
+        token, origin = env_token, "your shell environment"
     else:
-        console.print("[muted]🤗 HF_TOKEN picked up from your shell environment.[/muted]")
+        token = read_hf_login_token()
+        if not token or is_placeholder(token):
+            return False
+        origin = f"your Hugging Face login ({hf_login_token_path()})"
+    existing = (get_existing_env_vars().get("HF_TOKEN") or "").strip()
+    if existing == token:
+        return False
+    write_env_var("HF_TOKEN", token)
+    if not quiet:
+        verb = "updated from" if existing and not is_placeholder(existing) else "picked up from"
+        console.print(f"[success]✅ HF_TOKEN {verb} {escape_markup(origin)} and saved to .env.[/success]")
+    else:
+        console.print(f"[muted]🤗 HF_TOKEN picked up from {escape_markup(origin)}.[/muted]")
     return True
 
 
