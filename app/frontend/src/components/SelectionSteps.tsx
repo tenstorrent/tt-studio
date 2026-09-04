@@ -415,14 +415,22 @@ export default function StepperDemo() {
 
       if (
         axios.isAxiosError(error) &&
-        error.response?.status === 400 &&
-        error.response?.data?.error_code === "hf_access_denied"
+        error.response?.status === 400
       ) {
-        const { message, hf_url } = error.response.data;
-        customToast.error(
-          `${message} Open ${hf_url} to request access.`,
-        );
-        return { success: false };
+        if (error.response?.data?.error_code === "hf_access_denied") {
+          const { message, hf_url } = error.response.data;
+          customToast.error(
+            `${message} Open ${hf_url} to request access.`,
+          );
+          return { success: false };
+        }
+        if (error.response?.data?.error_code === "hf_model_not_found") {
+          const { message } = error.response.data;
+          customToast.error(
+            message || "The requested Hugging Face model repository could not be found.",
+          );
+          return { success: false };
+        }
       }
 
       // Check if this is a chip allocation conflict error

@@ -24,6 +24,8 @@ export function statusLabel(r: HfCheckResult): string {
       return "Access not granted yet";
     case "auth_failed":
       return "Token invalid or expired";
+    case "not_found":
+      return "Model not found on Hugging Face";
     case "no_token":
       return "No token saved";
     default:
