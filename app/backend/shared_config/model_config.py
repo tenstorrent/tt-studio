@@ -326,6 +326,17 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         # produces deploys that die at dispatch. Remove this once training ships.
         if entry.get("model_type") == "TRAINING":
             continue
+        # Models the catalog marks unavailable are not offered for deploy. The
+        # row stays in the JSON (with the reason) rather than being deleted, so a
+        # catalog resync can't quietly reintroduce a model we already know is
+        # broken or has no UI yet. See STUDIO_UNAVAILABLE_MODELS in
+        # sync_models_from_inference_server.py. Absent field == available.
+        if entry.get("available_in_studio") is False:
+            logger.info(
+                f"Skipping {entry.get('model_name')}: "
+                f"{entry.get('unavailable_reason')} - {entry.get('unavailable_details')}"
+            )
+            continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
             image_name, image_tag = docker_image.rsplit(":", 1)

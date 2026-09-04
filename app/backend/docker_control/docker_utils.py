@@ -3,28 +3,37 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal, time, re
 import copy
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import time
 from pathlib import Path
 
 import requests
+from board_control.services import SystemResourceService
 from django.core.cache import caches
-
-from shared_config.device_config import DeviceConfigurations
-from shared_config.logger_config import get_logger
-from shared_config.model_config import model_implmentations, _impl_selector
-from shared_config.external_model_config import build_external_model_impl
 from shared_config.backend_config import backend_config
+from shared_config.coding_agent_config import is_coding_agent_eligible
+from shared_config.device_config import DeviceConfigurations
+from shared_config.external_model_config import build_external_model_impl
+from shared_config.logger_config import get_logger
+from shared_config.model_config import _impl_selector, model_implmentations
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tavily_api_key
-from shared_config.coding_agent_config import is_coding_agent_eligible
-from board_control.services import SystemResourceService
-from docker_control.models import ModelDeployment
+
+from docker_control.artifact_resolution import (
+    resolve_artifact_ref,
+    resolve_override_docker_image,
+)
 from docker_control.docker_control_client import (
     get_docker_client,
     is_service_unreachable,
 )
-
+from docker_control.models import ModelDeployment
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
 logger = get_logger(__name__)
@@ -540,6 +549,30 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         pinned_image = media_image_override(impl.model_name, device)
         if pinned_image:
             payload["override_docker_image"] = pinned_image
+
+        # Point this deploy at a per-model tt-inference-server build, when the
+        # catalog pins one, same functionality as the CHAT path (which calls the
+        # same helpers in artifact_resolution.py before start_chat_deployment).
+        #
+        if impl.requires_dev_catalog:
+            if not payload.get("override_docker_image"):
+                dev_image = resolve_override_docker_image(impl)
+                if dev_image:
+                    payload["override_docker_image"] = dev_image
+            artifact_ref = resolve_artifact_ref(impl, device, board_type)
+            if artifact_ref:
+                payload["dev_mode"] = True
+                payload["artifact_ref"] = artifact_ref
+                logger.info(
+                    f"{impl.model_name}: deploying against tt-inference-server "
+                    f"ref '{artifact_ref}' (dev_mode)"
+                )
+            else:
+                payload["dev_mode"] = True
+                logger.info(
+                    f"{impl.model_name}: dev_mode on, no artifact ref for "
+                    f"device='{device}' board='{board_type}'; using pinned artifact"
+                )
 
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training

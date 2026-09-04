@@ -10,8 +10,14 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
+    STUDIO_UNAVAILABLE_DEVICES,
+    STUDIO_UNAVAILABLE_MODELS,
+    STUDIO_UNAVAILABLE_REASONS,
+    UNSUPPORTED_STUDIO_MODEL_TYPES,
     _impl_selector,
     _iter_v1_entries,
+    apply_device_availability,
+    apply_studio_availability,
     load_existing_catalog,
     map_service_route,
     merge_hand_owned,
@@ -385,6 +391,186 @@ class TestLoadExistingCatalog:
 
         assert set(loaded) == {"A", "B"}
         assert loaded["A"]["requires_dev_catalog"] is True
+
+
+class TestStudioAvailability:
+    """Models TT-Studio won't offer are marked, never deleted."""
+
+    def test_unlisted_model_carries_no_availability_fields(self):
+        models = [{"model_name": "Llama-3.3-70B-Instruct", "model_type": "CHAT"}]
+        assert apply_studio_availability(models) == []
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+
+    def test_listed_model_is_marked_not_removed(self):
+        models = [{"model_name": "m", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "bad chat template")
+        try:
+            hidden = apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+
+        assert len(models) == 1, "the row must survive; only a mark is added"
+        assert hidden == [("m", "known_broken")]
+        assert models[0]["available_in_studio"] is False
+        assert models[0]["unavailable_details"]
+
+    def test_embeddings_are_unsupported_not_broken(self):
+        """The distinction matters: these deploy fine, Studio just has no UI."""
+        models = [{"model_name": "some-embedder", "model_type": "EMBEDDING"}]
+        apply_studio_availability(models)
+        assert models[0]["unavailable_reason"] == "unsupported_in_studio"
+        assert models[0]["unavailable_reason"] != "known_broken"
+
+    def test_per_model_override_beats_the_type_rule(self):
+        """An EMBEDDING model that is also genuinely broken reads as broken."""
+        models = [{"model_name": "m", "model_type": "EMBEDDING"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "does not run")
+        try:
+            apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["unavailable_reason"] == "known_broken"
+
+    def test_stale_mark_is_cleared_when_model_leaves_the_table(self):
+        """Deleting a table entry must actually unhide the model on resync."""
+        models = [{
+            "model_name": "now-fixed",
+            "model_type": "CHAT",
+            "available_in_studio": False,
+            "unavailable_reason": "known_broken",
+            "unavailable_details": "stale",
+        }]
+        apply_studio_availability(models)
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+        assert "unavailable_details" not in models[0]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "bge-m3", "model_type": "EMBEDDING"}]
+        first = apply_studio_availability(models)
+        snapshot = dict(models[0])
+        assert apply_studio_availability(models) == first
+        assert models[0] == snapshot
+
+    def test_model_wide_entries_justify_being_board_independent(self):
+        """A model-wide mark hides a model from boards nobody tested, so each
+        entry must say why the failure is not board-specific. Prefer fixing the
+        cause (see inference-api's cache-volume ownership fix) over masking."""
+        for name, (_reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            low = details.lower()
+            assert any(k in low for k in ("not by any board", "every board", "independent")), (
+                f"{name}: model-wide entry must state why this is not "
+                f"board-specific, or move it to STUDIO_UNAVAILABLE_DEVICES"
+            )
+
+    def test_every_table_reason_is_a_known_reason(self):
+        for name, (reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            assert reason in STUDIO_UNAVAILABLE_REASONS, name
+            assert details.strip(), f"{name} must say why"
+        for model_type, details in UNSUPPORTED_STUDIO_MODEL_TYPES.items():
+            assert details.strip(), f"{model_type} must say why"
+
+    def test_unknown_reason_is_rejected(self):
+        models = [{"model_name": "x", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["x"] = ("typo_reason", "d")
+        try:
+            with pytest.raises(ValueError, match="unknown reason"):
+                apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["x"]
+
+    def test_marks_are_script_owned_not_hand_owned(self):
+        """The tables are the single source of truth; a JSON edit must not stick."""
+        for key in ("available_in_studio", "unavailable_reason", "unavailable_details"):
+            assert key not in HAND_OWNED_KEYS
+
+
+class TestDeviceAvailability:
+    """A model can be unavailable on one board and fine on another."""
+
+    def _one(self, devices, overrides):
+        models = [{
+            "model_name": "m", "model_type": "CHAT",
+            "device_configurations": list(devices),
+        }]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = overrides
+        try:
+            return models, apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_bad_device_is_dropped_good_ones_survive(self):
+        models, removed = self._one(
+            ["N150", "P150", "P300x2"],
+            {"P300x2": ("known_broken", "hangs on Blackhole")},
+        )
+        assert models[0]["device_configurations"] == ["N150", "P150"]
+        assert removed == [("m", "P300x2", "known_broken")]
+        assert "available_in_studio" not in models[0]
+
+    def test_reason_is_recorded_for_the_dropped_device(self):
+        models, _ = self._one(
+            ["N150", "P300x2"], {"P300x2": ("known_broken", "hangs on Blackhole")}
+        )
+        assert models[0]["unavailable_devices"] == {
+            "P300x2": {"reason": "known_broken", "details": "hangs on Blackhole"}
+        }
+
+    def test_losing_every_device_hides_the_model(self):
+        """An empty device list would read as 'incompatible' with no reason."""
+        models, _ = self._one(["P300x2"], {"P300x2": ("known_broken", "hangs")})
+        assert models[0]["device_configurations"] == []
+        assert models[0]["available_in_studio"] is False
+        assert "hangs" in models[0]["unavailable_details"]
+
+    def test_untouched_model_gains_no_fields(self):
+        models = [{"model_name": "other", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        assert apply_device_availability(models) == []
+        assert "unavailable_devices" not in models[0]
+        assert models[0]["device_configurations"] == ["N150"]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150", "P300x2"]}]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "x")}
+        try:
+            apply_device_availability(models)
+            snapshot = dict(models[0])
+            second = apply_device_availability(models)
+            assert models[0] == snapshot
+            assert second == [], "device already gone, nothing left to remove"
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_stale_table_entry_is_visible_not_silent(self):
+        """A device the artifact never claimed still shows up as a mark."""
+        models, removed = self._one(["N150"], {"P150X4": ("known_broken", "old")})
+        assert removed == []
+        assert "P150X4" in models[0]["unavailable_devices"]
+
+    def test_unknown_reason_is_rejected(self):
+        with pytest.raises(ValueError, match="unknown reason"):
+            self._one(["N150"], {"N150": ("nope", "d")})
+
+    def test_every_table_reason_is_valid(self):
+        for name, overrides in STUDIO_UNAVAILABLE_DEVICES.items():
+            for device, (reason, details) in overrides.items():
+                assert reason in STUDIO_UNAVAILABLE_REASONS, f"{name}/{device}"
+                assert details.strip(), f"{name}/{device} must say why"
+
+    def test_model_wide_mark_survives_the_device_pass(self):
+        """main() runs the device pass second; it must not clobber the mark."""
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "everywhere")
+        try:
+            apply_studio_availability(models)
+            apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["available_in_studio"] is False
 
 
 if __name__ == "__main__":
