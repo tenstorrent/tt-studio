@@ -70,6 +70,7 @@ comma-separated list (e.g. `--device-id 0,1`).
 | --- | --- |
 | `--stop` | Stop TT Studio: tear down Docker containers and networks, keep the persistent volume. (Deprecated alias: `--cleanup`.) |
 | `--status` | Open the live monitor TUI for a running stack (health, ports, hardware). |
+| `--stop-model MODEL` | Stop **one deployed model** and reset the chip(s) it occupied, leaving the rest of the stack running. Repeat the flag to stop several. Run it bare to pick from an interactive list of what is deployed. Matches the container name or catalog model name (exact first, then a unique substring). |
 | `--logs` | Stream all container logs (`docker compose logs -f`). Wires up `--env-file` so there are no "variable is not set" warnings; add `--dev` to match a dev bring-up. |
 | `--info` | Re-show the "TT Studio is ready" summary panel (URLs, mode, classified hardware) from live probes — handy after the banner has scrolled away. |
 

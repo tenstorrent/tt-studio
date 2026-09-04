@@ -32,7 +32,7 @@ def _build_args(**overrides):
         device_id=None, headless=False, browser=False, fix_docker=False, configure_env=False,
         status=False, logs=False, info=False, report_bug=False,
         install_shortcut=False, accept_terms=False, switch=None,
-        uninstall=False, purge_model=None,
+        uninstall=False, purge_model=None, stop_model=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -206,6 +206,7 @@ def _entry(
     status: bool = typer.Option(False, "--status", help="Open the live monitor TUI for a running stack.", rich_help_panel="Lifecycle"),
     logs: bool = typer.Option(False, "--logs", help="Stream all container logs (docker compose logs -f).", rich_help_panel="Lifecycle"),
     info: bool = typer.Option(False, "--info", help="Re-show the 'TT Studio is ready' summary (URLs, mode, hardware).", rich_help_panel="Lifecycle"),
+    stop_model: Optional[List[str]] = typer.Option(None, "--stop-model", metavar="MODEL", help="Stop one deployed model and reset the chip(s) it was using; the stack keeps running. Repeatable; bare --stop-model opens an interactive picker.", rich_help_panel="Lifecycle"),
     # ── Reset (--purge-all) ──────────────────────────────────────────────────
     purge_all: bool = typer.Option(False, "--purge-all", help="Stop and wipe everything incl. persistent data and .env.", rich_help_panel="Reset (--purge-all)"),
     purge_model: Optional[List[str]] = typer.Option(None, "--purge-model", metavar="MODEL", help="Uninstall one model: weights, volume, env, container (image if unshared). Repeatable; bare --purge-model opens an interactive picker.", rich_help_panel="Reset (--purge-all)"),
@@ -269,7 +270,7 @@ def _entry(
         configure_env=configure_env, status=status, logs=logs, info=info,
         report_bug=report_bug, install_shortcut=install_shortcut,
         accept_terms=accept_terms, switch=switch, uninstall=uninstall,
-        purge_model=list(purge_model or []),
+        purge_model=list(purge_model or []), stop_model=list(stop_model or []),
     )
     _run(args)
 
@@ -303,16 +304,20 @@ def run_model_command(
     _run(args)
 
 
+# Flags that take an optional model name: bare means "open the picker".
+_OPTIONAL_MODEL_FLAGS = ("--purge-model", "--stop-model")
+
+
 def _normalize_purge_model_argv(argv):
-    """Support bare `--purge-model` (no model name) meaning "open the picker".
-    The vendored click in this typer version can't express an option with an
-    optional value, so inject the picker sentinel whenever --purge-model is the
-    last token or is followed by another flag. `--purge-model NAME` and
-    `--purge-model=NAME` pass through untouched."""
+    """Support a bare `--purge-model` / `--stop-model` (no model name) meaning
+    "open the picker". The vendored click in this typer version can't express an
+    option with an optional value, so inject the picker sentinel whenever such a
+    flag is the last token or is followed by another flag. `--flag NAME` and
+    `--flag=NAME` pass through untouched."""
     out = []
     for i, token in enumerate(argv):
         out.append(token)
-        if token == "--purge-model" and (
+        if token in _OPTIONAL_MODEL_FLAGS and (
             i + 1 == len(argv) or argv[i + 1].startswith("-")
         ):
             out.append(_PURGE_MODEL_PICKER)

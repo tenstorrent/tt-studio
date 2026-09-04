@@ -344,6 +344,12 @@ def _run(args):
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
 
+        # Stopping one model (and resetting its chips) must never fall through
+        # to the full-stack teardown either.
+        if getattr(args, "stop_model", None):
+            from tt_setup.cli._stop_model import stop_models
+            sys.exit(stop_models(args))
+
         # Must dispatch before the cleanup branches: purging one model must
         # never fall through to the full-stack teardown.
         if getattr(args, "purge_model", None):

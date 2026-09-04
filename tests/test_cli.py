@@ -19,6 +19,7 @@ from tt_setup import cli as M
 try:
     from tt_setup.cli import _run as _cli_run
     from tt_setup.cli import _deploy as _cli_deploy
+    from tt_setup.cli import _stop_model as _cli_stop
 except ImportError:
     _cli_run = M
 # The `run` subcommand + `_validate_model_name` + the `_run` handoff live in _args;
@@ -336,6 +337,10 @@ class TestCli(unittest.TestCase):
             # With a value (either form) → untouched.
             (["--purge-model", "foo"], ["--purge-model", "foo"]),
             (["--purge-model=foo"], ["--purge-model=foo"]),
+            # --stop-model gets the same optional-value treatment.
+            (["--stop-model"], ["--stop-model", P]),
+            (["--stop-model", "-v"], ["--stop-model", P, "-v"]),
+            (["--stop-model", "Qwen3-32B"], ["--stop-model", "Qwen3-32B"]),
             # Not present → untouched.
             (["--stop"], ["--stop"]),
             ([], []),
@@ -818,3 +823,159 @@ class TestRunHeadlessDeployEndToEnd(unittest.TestCase):
         self.assertFalse(ok)
         printed = _printed_text(con)
         self.assertIn("is starting", printed)
+
+
+class TestStopModelDispatch(unittest.TestCase):
+    def test_stop_model_dispatches_with_names_and_skips_teardown(self):
+        with patch.object(_cli_stop, "stop_models", return_value=0) as stop, \
+             patch.object(_cli_run, "cleanup_resources") as cleanup, \
+             patch.object(_cli_run, "purge_models") as purge:
+            result = runner.invoke(M.app, ["--stop-model", "foo", "--stop-model", "bar"])
+        self.assertEqual(result.exit_code, 0)
+        stop.assert_called_once()
+        cleanup.assert_not_called()
+        purge.assert_not_called()
+        ns = stop.call_args[0][0]
+        self.assertEqual(ns.stop_model, ["foo", "bar"])
+
+    def test_stop_model_nonzero_exit_propagates(self):
+        with patch.object(_cli_stop, "stop_models", return_value=1):
+            result = runner.invoke(M.app, ["--stop-model", "nope"])
+        self.assertEqual(result.exit_code, 1)
+
+    def test_help_lists_stop_model(self):
+        result = runner.invoke(M.app, ["--help"])
+        self.assertIn("--stop-model", re.sub(r"\x1b\[[0-9;]*m", "", result.output))
+
+
+_DEPLOYED_PAYLOAD = {
+    "c1": {"name": "speecht5_tts", "device_ids": [0],
+           "model_impl": {"model_name": "speecht5_tts", "model_type": "tts"}},
+    "c2": {"name": "tt-model-qwen3-32b", "device_ids": [1, 2],
+           "model_impl": {"model_name": "Qwen3-32B", "model_type": "chat"}},
+    "c3": {"name": "tt-model-qwen3-8b", "device_id": 3,
+           "model_impl": {"model_name": "Qwen3-8B", "model_type": "chat"}},
+}
+
+
+class TestStopModelHelpers(unittest.TestCase):
+    def test_summarize_orders_by_chip_and_fills_device_ids(self):
+        rows = _cli_stop.summarize_deployed(_DEPLOYED_PAYLOAD)
+        self.assertEqual([r["id"] for r in rows], ["c1", "c2", "c3"])
+        self.assertEqual(rows[2]["device_ids"], [3])   # legacy single device_id
+        self.assertEqual(rows[1]["model_name"], "Qwen3-32B")
+
+    def test_match_exact_then_unique_substring(self):
+        rows = _cli_stop.summarize_deployed(_DEPLOYED_PAYLOAD)
+        self.assertEqual(_cli_stop.match_deployed(rows, "qwen3-32b")[0]["id"], "c2")   # catalog name, any case
+        self.assertEqual(_cli_stop.match_deployed(rows, "tt-model-qwen3-8b")[0]["id"], "c3")  # container name
+        self.assertEqual(_cli_stop.match_deployed(rows, "speech")[0]["id"], "c1")      # unique substring
+        row, why = _cli_stop.match_deployed(rows, "qwen")
+        self.assertIsNone(row)
+        self.assertIn("ambiguous", why)
+        row, why = _cli_stop.match_deployed(rows, "llama")
+        self.assertIsNone(row)
+        self.assertIn("not deployed", why)
+
+    def test_parse_sse_yields_json_frames_only(self):
+        lines = [b"retry: 1000\n", b"\n", b'data: {"type": "step", "message": "Stopping"}\n', b"\n",
+                 b"data: not-json\n", b'data: {"type": "complete", "status": "success"}\n']
+        events = list(_cli_stop.parse_sse(lines))
+        self.assertEqual(events[0]["type"], "step")
+        self.assertEqual(events[1], {"type": "log", "message": "not-json"})
+        self.assertEqual(events[2]["status"], "success")
+
+    def test_parse_selection(self):
+        self.assertEqual(_cli_stop.parse_selection("1 3", 3), [1, 3])
+        self.assertEqual(_cli_stop.parse_selection("3,1,1", 3), [1, 3])
+        self.assertEqual(_cli_stop.parse_selection("all", 2), [1, 2])
+        self.assertEqual(_cli_stop.parse_selection("4", 3), [])
+        self.assertEqual(_cli_stop.parse_selection("x", 3), [])
+
+
+class TestStopModels(unittest.TestCase):
+    def _stream_ok(self, base, container_id):
+        yield {"type": "step", "message": f"Stopping {container_id}…"}
+        yield {"type": "log", "message": "docker rm"}
+        yield {"type": "step", "message": "Resetting device(s) 1, 2…"}
+        yield {"type": "complete", "status": "success", "message": "Model deleted and device(s) reset"}
+
+    def test_named_model_is_stopped_and_reset(self):
+        stopped = []
+
+        def stream(base, cid):
+            stopped.append(cid)
+            return self._stream_ok(base, cid)
+        args = _cli_args._build_args(stop_model=["Qwen3-32B"])
+        with patch.object(_cli_stop, "console"):
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=stream)
+        self.assertEqual(rc, 0)
+        self.assertEqual(stopped, ["c2"])
+
+    def test_unknown_name_stops_nothing(self):
+        stopped = []
+        args = _cli_args._build_args(stop_model=["Llama-3.1-8B"])
+        with patch.object(_cli_stop, "console") as con:
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD,
+                                       stream=lambda b, c: stopped.append(c) or iter(()))
+        self.assertEqual(rc, 1)
+        self.assertEqual(stopped, [])
+        self.assertIn("not deployed", _printed_text(con))
+
+    def test_backend_failure_reports_error(self):
+        def stream(base, cid):
+            yield {"type": "step", "message": "Stopping"}
+            yield {"type": "complete", "status": "error", "message": "Stop failed: boom"}
+        args = _cli_args._build_args(stop_model=["speecht5_tts"])
+        with patch.object(_cli_stop, "console") as con:
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=stream)
+        self.assertEqual(rc, 1)
+        self.assertIn("boom", _printed_text(con))
+
+    def test_nothing_deployed_is_a_clean_noop(self):
+        args = _cli_args._build_args(stop_model=["anything"])
+        with patch.object(_cli_stop, "console"):
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: {}, stream=None)
+        self.assertEqual(rc, 0)
+
+    def test_unreachable_backend(self):
+        def fetch(base):
+            raise _cli_stop.StopModelError("cannot reach the TT Studio backend at http://x: refused")
+        args = _cli_args._build_args(stop_model=["x"])
+        with patch.object(_cli_stop, "console") as con:
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=fetch, stream=None)
+        self.assertEqual(rc, 1)
+        self.assertIn("python run.py", _printed_text(con))
+
+    def test_picker_without_tty_fails_with_hint(self):
+        from tt_setup.constants import _PURGE_MODEL_PICKER
+        args = _cli_args._build_args(stop_model=[_PURGE_MODEL_PICKER])
+        with patch.object(_cli_stop, "console") as con, \
+             patch.object(_cli_stop.sys.stdin, "isatty", return_value=False):
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=None)
+        self.assertEqual(rc, 1)
+        self.assertIn("--stop-model <name>", _printed_text(con))
+
+    def test_picker_selection_stops_chosen_rows(self):
+        from tt_setup.constants import _PURGE_MODEL_PICKER
+        stopped = []
+
+        def stream(base, cid):
+            stopped.append(cid)
+            return self._stream_ok(base, cid)
+        args = _cli_args._build_args(stop_model=[_PURGE_MODEL_PICKER])
+        with patch.object(_cli_stop, "console"), \
+             patch.object(_cli_stop.sys.stdin, "isatty", return_value=True), \
+             patch.object(_cli_stop, "ask", return_value="1 3"):
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=stream)
+        self.assertEqual(rc, 0)
+        self.assertEqual(stopped, ["c1", "c3"])
+
+    def test_picker_cancel_is_clean(self):
+        from tt_setup.constants import _PURGE_MODEL_PICKER
+        args = _cli_args._build_args(stop_model=[_PURGE_MODEL_PICKER])
+        with patch.object(_cli_stop, "console"), \
+             patch.object(_cli_stop.sys.stdin, "isatty", return_value=True), \
+             patch.object(_cli_stop, "ask", return_value=""):
+            rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=None)
+        self.assertEqual(rc, 0)
