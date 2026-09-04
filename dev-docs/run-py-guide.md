@@ -110,7 +110,7 @@ comma-separated list (e.g. `--device-id 0,1`).
 | Option | Description |
 | --- | --- |
 | `--help-env` | Show detailed help for environment variables. |
-| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
+| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and draft a support email to support@tenstorrent.com. |
 | `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
 | `--no-clear` | Don't clear the terminal at startup — keep whatever was already on screen and stream the full per-phase detail. Like `--verbose`, but it also preserves your scrollback. |
 
@@ -582,9 +582,11 @@ python run.py --report-bug
 ```
 Collects the available host-side logs (startup, model-run, docker-control) plus a
 non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip` and opens a
-pre-filled GitHub issue in your browser — attach the ZIP to that issue. The
-bundle never includes your `.env` (only whether it exists). If `python run.py`
-itself errors, it offers the same flow interactively from the "Next steps" panel.
+pre-filled support-email draft to support@tenstorrent.com in your mail client —
+attach the ZIP to that email and send it. The support inbox files the ticket and
+replies stream back to your inbox. The bundle never includes your `.env` (only
+whether it exists). If `python run.py` itself errors, it offers the same flow
+interactively from the "Next steps" panel.
 
 ### Running on Remote Machine
 To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser:

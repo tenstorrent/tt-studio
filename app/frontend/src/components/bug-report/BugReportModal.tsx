@@ -9,8 +9,7 @@ import {
   Loader2,
   Download,
   Copy,
-  GitBranch,
-  ExternalLink,
+  Mail,
   Clock,
   ChevronRight,
   ChevronDown,
@@ -60,27 +59,27 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     setForm,
     sources,
     diagnosticsRef,
-    isSubmitting,
-    issueResult,
+    isDrafting,
+    emailDraft,
     startCollection,
     downloadZip,
-    createGitHubIssue,
-    copyToClipboard,
+    draftSupportEmail,
+    copyEmailBody,
     reset,
   } = useBugReport();
 
   const [copied, setCopied] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [issueError, setIssueError] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [diagnosticsHelpOpen, setDiagnosticsHelpOpen] = useState(false);
-  /** Step 3: user confirms they attached (or plan to attach) the ZIP on GitHub */
-  const [confirmedZipOnGitHub, setConfirmedZipOnGitHub] = useState(false);
+  /** Step 3: user confirms they attached the ZIP to the email before sending */
+  const [confirmedZipAttached, setConfirmedZipAttached] = useState(false);
   const [copiedZipFileName, setCopiedZipFileName] = useState(false);
   const [copiedDiagRefId, setCopiedDiagRefId] = useState(false);
 
   const closeModal = () => {
     setDiagnosticsHelpOpen(false);
-    setConfirmedZipOnGitHub(false);
+    setConfirmedZipAttached(false);
     setCopiedZipFileName(false);
     setCopiedDiagRefId(false);
     onOpenChange(false);
@@ -89,7 +88,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
   };
 
   const handleCopy = async () => {
-    await copyToClipboard();
+    await copyEmailBody();
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -115,13 +114,13 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     }
   };
 
-  const handleCreateIssue = async () => {
-    setIssueError(null);
+  const handleDraftEmail = async () => {
+    setDraftError(null);
     try {
-      await createGitHubIssue();
+      await draftSupportEmail();
     } catch (err) {
-      setIssueError(
-        err instanceof Error ? err.message : "Failed to create issue"
+      setDraftError(
+        err instanceof Error ? err.message : "Failed to draft the support email"
       );
     }
   };
@@ -183,8 +182,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             <p className="text-sm text-muted-foreground leading-relaxed">
               Describe what went wrong, then use{" "}
               <strong className="text-foreground">Collect Logs</strong> on the next
-              steps to bundle diagnostics. You don’t need GitHub until{" "}
-              <strong className="text-foreground">step 3</strong>.
+              steps to bundle diagnostics. In{" "}
+              <strong className="text-foreground">step 3</strong> you’ll send it all
+              to Tenstorrent support by email.
             </p>
 
             <Collapsible
@@ -198,7 +198,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   "hover:bg-stone-100/80 dark:hover:bg-stone-800/50 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-stone-400"
                 )}
               >
-                <span>What we collect &amp; how GitHub fits in</span>
+                <span>What we collect &amp; where the report goes</span>
                 <ChevronDown
                   className={cn(
                     "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -222,19 +222,22 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     (board, telemetry, firmware fields when available).
                   </p>
                   <p>
-                    You do <strong>not</strong> need GitHub on this screen. In{" "}
-                    <strong>step 3</strong>, download the ZIP, then create or open
-                    the issue and attach the file there. Full logs are not pasted
-                    into the issue body; a short{" "}
-                    <strong>ZIP / diagnostics reference</strong> links the issue to
-                    your downloaded file name.
+                    In <strong>step 3</strong>, download the ZIP, then click{" "}
+                    <strong>Draft support email</strong> — a pre-filled email to{" "}
+                    <code className="rounded bg-stone-200 px-1 py-0.5 text-xs dark:bg-stone-800">
+                      support@tenstorrent.com
+                    </code>{" "}
+                    opens in your mail client. Attach the ZIP and hit Send; the
+                    support inbox files the ticket and replies come back to your
+                    inbox. A short <strong>ZIP / diagnostics reference</strong>{" "}
+                    links the email to your downloaded file name.
                   </p>
                 </div>
               </CollapsibleContent>
             </Collapsible>
             <div className="space-y-1">
               <label className="text-sm font-medium">
-                Issue title{" "}
+                Title{" "}
                 <span className="text-muted-foreground">(optional)</span>
               </label>
               <Input
@@ -245,9 +248,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                On GitHub this becomes:{" "}
+                The email subject becomes:{" "}
                 <span className="font-medium text-foreground/80">
-                  TT-Studio bug report — …your title… [reference]
+                  [TT-Studio] …your title… [reference]
                 </span>{" "}
                 (reference is added when you collect logs).
               </p>
@@ -335,7 +338,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               <code className="rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900/60">
                 ttbr-…
               </code>
-              ) to tie your download to the GitHub issue.
+              ) to tie your download to the support email.
             </div>
             <ScrollArea className="h-64 pr-2">
               <div className="space-y-2">
@@ -379,8 +382,8 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   </p>
                   <p className="text-muted-foreground text-xs leading-relaxed">
                     Your browser saves the bundle with this full file name (same as
-                    Download Logs as ZIP). Copy it to find the file or paste into a
-                    GitHub comment.
+                    Download Logs as ZIP). Copy it to find the file when attaching
+                    it to the email.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -414,7 +417,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium text-muted-foreground">
-                    Reference ID (GitHub issue title/body)
+                    Reference ID (email subject/body)
                   </p>
                   <div className="flex items-start gap-2">
                     <code className="min-w-0 flex-1 break-all rounded border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-950 px-2 py-1.5 text-xs font-mono leading-snug">
@@ -441,45 +444,50 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             )}
 
             <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-              <p className="font-medium mb-1">Attach diagnostics to GitHub (later)</p>
+              <p className="font-medium mb-1">How submission works</p>
               <ol className="list-decimal list-inside space-y-1 text-amber-900/90 dark:text-amber-100/90">
                 <li>
                   Click <strong>Download Logs as ZIP</strong> below. The file name
-                  includes the reference above so it lines up with the issue text.
+                  includes the reference above so it lines up with the email.
                 </li>
                 <li>
-                  Create or open the GitHub issue (button below or link in a new
-                  tab). The issue title/body include the same reference.
+                  Click <strong>Draft support email</strong> — a pre-filled email
+                  to <strong>support@tenstorrent.com</strong> opens in your mail
+                  client.
                 </li>
                 <li>
-                  On the GitHub issue page, scroll to the bottom of the composer
-                  and <strong>attach the ZIP file</strong>. GitHub cannot take full
-                  logs in the issue URL — the ZIP is required for complete
-                  diagnostics.
+                  <strong>Attach the downloaded ZIP</strong> to the email (email
+                  drafts can’t attach it automatically), then hit{" "}
+                  <strong>Send</strong>. Support replies land back in your inbox.
                 </li>
               </ol>
             </div>
 
-            {issueResult?.created_via_api && issueResult.issue_url && (
-              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm">
+            {emailDraft && (
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm space-y-1">
                 <p className="font-medium text-blue-800 dark:text-blue-300">
-                  Issue #{issueResult.issue_number} created!
+                  Email draft opened in your mail client.
                 </p>
-                <a
-                  href={issueResult.issue_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-blue-600 dark:text-blue-400 underline mt-1"
-                >
-                  {issueResult.issue_url}
-                  <ExternalLink className="h-3 w-3" />
-                </a>
+                <p className="text-blue-900/90 dark:text-blue-200/90">
+                  To: <span className="font-mono text-xs">{emailDraft.to}</span>
+                </p>
+                <p className="text-blue-900/90 dark:text-blue-200/90 break-all">
+                  Subject:{" "}
+                  <span className="font-mono text-xs">{emailDraft.subject}</span>
+                </p>
+                <p className="text-blue-900/90 dark:text-blue-200/90">
+                  This week’s triage assignee: {emailDraft.assignee.name}
+                </p>
+                <p className="text-xs text-blue-800/80 dark:text-blue-300/80">
+                  Nothing opened? Use <strong>Copy Email Body</strong> below and
+                  compose the email yourself.
+                </p>
               </div>
             )}
 
-            {issueError && (
+            {draftError && (
               <p className="text-sm text-red-600 dark:text-red-400">
-                {issueError}
+                {draftError}
               </p>
             )}
             {downloadError && (
@@ -504,18 +512,16 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </Button>
 
               <Button
-                onClick={handleCreateIssue}
-                disabled={isSubmitting || !!issueResult?.created_via_api}
+                onClick={handleDraftEmail}
+                disabled={isDrafting}
                 className="w-full justify-center gap-2"
               >
-                {isSubmitting ? (
+                {isDrafting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <GitBranch className="h-4 w-4" />
+                  <Mail className="h-4 w-4" />
                 )}
-                {issueResult?.created_via_api
-                  ? "Issue Created"
-                  : "Create GitHub Issue"}
+                {emailDraft ? "Draft Again" : "Draft Support Email"}
               </Button>
 
               <Button
@@ -524,30 +530,30 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 className="w-full justify-center gap-2"
               >
                 <Copy className="h-4 w-4" />
-                {copied ? "Copied!" : "Copy Report to Clipboard"}
+                {copied ? "Copied!" : "Copy Email Body"}
               </Button>
             </div>
 
             <div className="rounded-md border border-stone-200 dark:border-stone-700 bg-stone-50/90 dark:bg-stone-900/60 px-4 py-3">
               <label
-                htmlFor="bug-report-confirm-github-zip"
+                htmlFor="bug-report-confirm-email-zip"
                 className="flex cursor-pointer items-start gap-3"
               >
                 <input
-                  id="bug-report-confirm-github-zip"
+                  id="bug-report-confirm-email-zip"
                   type="checkbox"
                   className="mt-1 h-4 w-4 shrink-0 rounded border-stone-400 text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-500 dark:bg-stone-950"
-                  checked={confirmedZipOnGitHub}
-                  onChange={(e) => setConfirmedZipOnGitHub(e.target.checked)}
+                  checked={confirmedZipAttached}
+                  onChange={(e) => setConfirmedZipAttached(e.target.checked)}
                 />
                 <span className="text-sm leading-snug text-stone-800 dark:text-stone-200">
-                  I attached the diagnostics ZIP to the GitHub issue (or opened the
-                  issue and will attach / comment with the ZIP reference shortly).
+                  I attached the diagnostics ZIP to the support email before
+                  sending it.
                 </span>
               </label>
-              {!confirmedZipOnGitHub && (
+              {!confirmedZipAttached && (
                 <p className="mt-2 pl-7 text-xs text-muted-foreground">
-                  Tick this when you’re done so you don’t forget — maintainers need
+                  Tick this when you’re done so you don’t forget — support needs
                   the ZIP to debug.
                 </p>
               )}
@@ -558,7 +564,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  setConfirmedZipOnGitHub(false);
+                  setConfirmedZipAttached(false);
                   setCopiedZipFileName(false);
                   setCopiedDiagRefId(false);
                   reset();

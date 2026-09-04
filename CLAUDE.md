@@ -54,7 +54,7 @@ python run.py --purge-model   # uninstall specific model(s); bare flag opens a p
 python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
 python run.py --info          # re-show the "TT Studio is ready" summary (URLs, mode, hardware)
 python run.py --no-clear      # start without clearing the terminal; stream full startup detail
-python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + open a GitHub issue
+python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + draft a support email
 python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/.bashrc)
 python run.py --switch REF    # fetch + check out a tt-studio branch/tag (e.g. an RC), then re-run
 python run.py --uninstall     # --purge-all teardown + remove the `tt-studio` shell shortcut

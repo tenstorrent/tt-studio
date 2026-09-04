@@ -49,7 +49,7 @@ A few flags are worth knowing:
 
 - **`python3 run.py --dev`** — development mode: mounts your local source so the backend and frontend hot-reload as you edit.
 - **`python3 run.py --purge-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--stop` instead to stop the containers but keep your data.)
-- **`python3 run.py --report-bug`** — bundle your logs into a ZIP and open a pre-filled GitHub issue (also offered automatically if setup errors out).
+- **`python3 run.py --report-bug`** — bundle your logs into a ZIP and draft a pre-filled support email to support@tenstorrent.com — attach the ZIP and send (also offered automatically if setup errors out).
 - **`python3 run.py --install-shortcut`** — add a `tt-studio` shell shortcut so you can launch from any directory without typing `python run.py`.
 
 Hardware is auto-detected. On a **QB2 (QuietBox)** you can set `IS_QB2=true` in `.env` to have startup verify the board via tt-smi; it's off by default so dev laptops and cloud runs aren't held to that check. See the [run.py guide](dev-docs/run-py-guide.md) for the full behavior. Run `python run.py --help` for all flags and `python run.py --help-env` for every environment variable.
