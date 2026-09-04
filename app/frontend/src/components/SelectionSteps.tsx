@@ -3,7 +3,7 @@
 
 import axios from "axios";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { Layers, Cpu, ArrowLeft, ChevronDown, Loader2, Rocket, AlertTriangle } from "lucide-react";
 import ElevatedCard from "./ui/elevated-card";
 import { Step, Stepper, useStepper } from "./ui/stepper";
@@ -55,7 +55,6 @@ function StepWatcher({ onChange }: { onChange: (step: number) => void }) {
 
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
   // ?resume=<modelId> opens straight to the deploy step for an in-flight model
   // (e.g. clicking a deployment in the tray) so its progress bar resumes.
@@ -331,13 +330,54 @@ export default function StepperDemo() {
       );
 
       console.log("Auto-deploy response:", deployResponse);
-      customToast.success(`Model "${modelName}" deployment started!`);
-      setAutoDeployStatus("Deployment started — opening Models Deployed…");
+      const data = deployResponse.data ?? {};
+      if (data.status === "error") {
+        const msg: string = data.message || "Deployment failed";
+        customToast.error(`Auto-deploy: ${msg}`);
+        setAutoDeployError(msg);
+        return;
+      }
+      const jobId: string | undefined = data.job_id;
+      if (!jobId) {
+        const msg = "Deployment started but the backend returned no job id to track.";
+        customToast.error(`Auto-deploy: ${msg}`);
+        setAutoDeployError(msg);
+        return;
+      }
 
-      // Navigate to deployed models page after short delay
-      setTimeout(() => {
-        navigate("/models-deployed");
-      }, 1500);
+      // Devices this deploy occupies: the ones the CLI pinned, else whatever the
+      // backend allocated (a slot number, or "0,1" / [0, 1] for multi-chip models).
+      let deviceIds: number[] = [];
+      if (deviceIdParam !== null && deviceIdParam !== "") {
+        deviceIds = parseDeviceIds(deviceIdParam);
+      } else {
+        const allocated = data.allocated_device_id;
+        if (typeof allocated === "number") deviceIds = [allocated];
+        else if (typeof allocated === "string") deviceIds = parseDeviceIds(allocated);
+        else if (Array.isArray(allocated))
+          deviceIds = allocated.map(Number).filter((n) => Number.isFinite(n));
+      }
+
+      // Hand the job to the session-wide tracker (progress tray + chip reservations),
+      // then drop into the regular deploy step so the user sees the same image-pull /
+      // weights-download / container-start progress bar a manual deploy shows.
+      customToast.success(`Model "${model.name}" deployment started!`);
+      addDeployment({
+        jobId,
+        modelId: model.id,
+        modelName: model.name,
+        deviceIds,
+        startedAt: Date.now(),
+      });
+      setSelectedModel(model.id);
+      setSelectedModelName(model.name);
+      const next = new URLSearchParams(searchParams);
+      next.delete("auto-deploy");
+      next.delete("device-id");
+      next.set("view", "single");
+      next.set("resume", model.id);
+      setSearchParams(next, { replace: true });
+      setIsAutoDeploying(false);
     } catch (error) {
       console.error("Auto-deployment failed:", error);
       const errorMessage =
@@ -347,9 +387,11 @@ export default function StepperDemo() {
     }
   };
 
-  // Auto-deploy detection effect
+  // Auto-deploy detection effect — fire at most once per page load.
+  const autoDeployFiredRef = useRef(false);
   useEffect(() => {
-    if (autoDeployModel) {
+    if (autoDeployModel && !autoDeployFiredRef.current) {
+      autoDeployFiredRef.current = true;
       setIsAutoDeploying(true);
       customToast.info(`🤖 Auto-deploying model: ${autoDeployModel}`);
       console.log("Auto-deploy mode detected for model:", autoDeployModel);
