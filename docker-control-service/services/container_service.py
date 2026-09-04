@@ -222,12 +222,19 @@ class ContainerService:
                 try:
                     image_tags = container.image.tags or []
                     image = image_tags[0] if image_tags else container.image.short_id
-                except docker.errors.APIError as img_err:
-                    image_tags = []
-                    image = (container.attrs.get("Config", {}) or {}).get("Image") or ""
+                except (docker.errors.ImageNotFound, docker.errors.NotFound) as img_err:
+                    image = (
+                        (container.attrs.get("Config") or {}).get("Image")
+                        or container.attrs.get("Image")
+                        or ""
+                    )
+                    image_tags = [image] if image else []
                     logger.warning(
-                        f"Image lookup failed for container {container.name} "
-                        f"({container.short_id}); using config ref '{image}': {img_err}"
+                        "Image lookup failed for container %s (%s); using config ref %r: %s",
+                        container.name,
+                        container.short_id,
+                        image,
+                        img_err,
                     )
 
                 # Build comprehensive container info for backend compatibility
