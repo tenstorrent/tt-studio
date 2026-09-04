@@ -29,8 +29,13 @@ const secondaryVariant = {
 
 export const FileUpload = ({
   onChange,
+  accept,
 }: {
   onChange?: (files: File[]) => void;
+  // Filters the file picker. Left off the dropzone on purpose: its
+  // onDropRejected only logs, so a rejected drop would fail silently --
+  // callers validate what they receive instead.
+  accept?: string;
 }) => {
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +69,7 @@ export const FileUpload = ({
           ref={fileInputRef}
           id="file-upload-handle"
           type="file"
+          accept={accept}
           onChange={(e) => handleFileChange(Array.from(e.target.files || []))}
           className="hidden"
         />
