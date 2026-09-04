@@ -97,6 +97,8 @@ _CLEANUP_VOLUME_PREFIX = "volume_id_"
 # Sentinel injected by the CLI when --purge-model is passed with no model name,
 # meaning "open the interactive picker" (typer can't express optional values).
 _PURGE_MODEL_PICKER = "__picker__"
+# Same trick for a bare --make-rc-branch: "ask which version part to bump".
+_RC_BUMP_PICKER = "__bump-picker__"
 # Marketplace apps (Open WebUI, AnythingLLM, Vane, …) keep their state in named
 # volumes declared in shared_config/marketplace_config.py. Matched by shape
 # rather than an app list so volumes left by apps since removed from the

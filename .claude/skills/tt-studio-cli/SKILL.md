@@ -59,7 +59,8 @@ test_no_undefined_names.py` is the backstop; run it.
 1. **Declare it** in `tt_setup/cli/_args.py` as a `typer.Option`, with a
    `rich_help_panel=` so it lands in the right `--help` group: *Setup &
    Configuration · Model Deployment · Lifecycle · Reset (--purge-all) · Advanced ·
-   Developer Tools · Troubleshooting & Info*. Deprecated flags use `hidden=True`
+   Developer Tools · Release (maintainers) · Troubleshooting & Info*. Deprecated
+   flags use `hidden=True`
    and warn + normalize onto the current flag.
 2. **Thread it** into the `args = SimpleNamespace(...)` passed to `_run(args)`.
 3. **Dispatch it.** *Utility/lifecycle* flags (`--stop`, `--status`, `--logs`,

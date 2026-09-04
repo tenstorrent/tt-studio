@@ -21,6 +21,7 @@ from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY,
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
+from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
@@ -211,6 +212,9 @@ def _run(args):
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
   {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}python run.py --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+  {C_CYAN}python run.py --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
+  {C_CYAN}python run.py --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -248,6 +252,15 @@ def _run(args):
 
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
+
+        if getattr(args, "make_rc_branch", None):
+            sys.exit(make_rc_branch(args.make_rc_branch))
+
+        if getattr(args, "update_rc_branch", False):
+            sys.exit(update_rc_branch())
+
+        if getattr(args, "merge_rc_branch", False):
+            sys.exit(merge_rc_branch())
 
         # Must dispatch before the cleanup branches: purging one model must
         # never fall through to the full-stack teardown.
