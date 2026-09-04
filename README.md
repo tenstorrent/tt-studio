@@ -37,6 +37,22 @@ Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#
 
 ## Quickstart
 
+The easiest way is the pip package — it installs the latest release into
+`~/.tt-studio` for you and keeps itself updated with each new release
+(requires Python 3.12+ and git; running from a source clone works with older Python versions):
+
+```bash
+pipx install tt-studio   # or: pip install tt-studio
+tt-studio
+```
+
+Every `run.py` flag below works through `tt-studio` too. Add `--no-update` to
+skip the release check for one launch, or `--pin vX.Y.Z` to stay on a specific
+release (`--pin latest` to resume auto-updates). Set `TT_STUDIO_HOME` to move
+the install location.
+
+Or run straight from a clone (what you want when developing TT-Studio itself):
+
 ```bash
 git clone https://github.com/tenstorrent/tt-studio.git
 cd tt-studio
