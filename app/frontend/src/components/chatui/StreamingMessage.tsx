@@ -79,10 +79,12 @@ const PROSE_THINKING_HEADING = /^[\s#*_]*(?:thinking|thought)\s+process\s*:/i;
 // within the outline are separated by a single blank line.
 const PROSE_THINKING_END = /\n[ \t]*\n[ \t]*\n/;
 
-/** Normalize any variant thinking tags (<thought>, <reasoning>) to <think> */
+/** Normalize any variant thinking tags (<thought>, <reasoning>) and uppercase tags to lowercase <think> */
 const normalizeThinkingTags = (content: string): string => {
   if (!content) return content;
   return content
+    .replace(/<think>/gi, "<think>")
+    .replace(/<\/think>/gi, "</think>")
     .replace(/<thought>/gi, "<think>")
     .replace(/<\/thought>/gi, "</think>")
     .replace(/<reasoning>/gi, "<think>")
@@ -195,9 +197,11 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     const [renderedContent, setRenderedContent] = useState("");
     const [showThinking, setShowThinking] = useState(Boolean(externalShowThinking));
     const [showSearchDetails, setShowSearchDetails] = useState(false);
-    // Check if thinking is actively streaming (has <think> but no closing </think>)
+    // Check if thinking is actively streaming (has <think> after the last </think>)
+    const lastThinkOpen = !streamOver ? taggedContent.lastIndexOf("<think>") : -1;
+    const lastThinkClose = !streamOver ? taggedContent.lastIndexOf("</think>") : -1;
     const isThinkingActive =
-      !streamOver && /<think>(?!.*<\/think>)/is.test(taggedContent);
+      lastThinkOpen !== -1 && lastThinkOpen > lastThinkClose;
     const contentRef = useRef(processContent(taggedContent).cleanedContent);
     const thinkingBlocksRef = useRef<string[]>([]);
     const intervalRef = useRef<number | null>(null);
@@ -282,9 +286,10 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     // });
 
     // Extract live thinking text from incomplete <think> block during streaming
-    const lastThinkOpen = isThinkingActive ? taggedContent.lastIndexOf("<think>") : -1;
     const liveThinkingText =
-      lastThinkOpen !== -1 ? taggedContent.slice(lastThinkOpen + 7) : null;
+      isThinkingActive && lastThinkOpen !== -1
+        ? taggedContent.slice(lastThinkOpen + 7)
+        : null;
 
     // Detect whether the thinking block represents a web search
     const liveSearchInfo = liveThinkingText ? parseSearchInfo(liveThinkingText) : null;
