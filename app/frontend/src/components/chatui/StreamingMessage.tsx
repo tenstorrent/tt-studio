@@ -79,6 +79,18 @@ const PROSE_THINKING_HEADING = /^[\s#*_]*(?:thinking|thought)\s+process\s*:/i;
 // within the outline are separated by a single blank line.
 const PROSE_THINKING_END = /\n[ \t]*\n[ \t]*\n/;
 
+/** Normalize any variant thinking tags (<thought>, <reasoning>) and uppercase tags to lowercase <think> */
+const normalizeThinkingTags = (content: string): string => {
+  if (!content) return content;
+  return content
+    .replace(/<think>/gi, "<think>")
+    .replace(/<\/think>/gi, "</think>")
+    .replace(/<thought>/gi, "<think>")
+    .replace(/<\/thought>/gi, "</think>")
+    .replace(/<reasoning>/gi, "<think>")
+    .replace(/<\/reasoning>/gi, "</think>");
+};
+
 /** Tag an untagged prose scratchpad so it renders in the thinking panel. */
 const tagProseThinking = (
   content: string,
@@ -100,6 +112,22 @@ const tagProseThinking = (
   // is the same empty-reply-with-thinking state a parsed reasoning model shows
   // when it is cut off. Either way the text stays reachable through the panel.
   return isStreamFinished ? `<think>${content}</think>` : `<think>${content}`;
+};
+
+/** Close a thinking block the stream ended inside, so it stays readable.
+ *
+ * Belt to runInference's braces: any path that leaves an unterminated <think>
+ * (a stopped stream, a reply restored from history, a model whose reasoning
+ * never gave way to an answer) would otherwise fail the closed-tag regex below,
+ * be stripped from the reply text, and vanish along with the live panel. */
+const closeUnterminatedThinking = (
+  content: string,
+  isStreamFinished: boolean
+): string => {
+  if (!isStreamFinished) return content;
+  const openIdx = content.lastIndexOf("<think>");
+  if (openIdx === -1 || content.includes("</think>", openIdx)) return content;
+  return `${content}</think>`;
 };
 
 const processContent = (content: string): ProcessedContent => {
@@ -159,12 +187,21 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
   }) {
     // Everything below reasons about thinking in terms of <think> tags, so
     // normalize prose scratchpads into tags once, up front.
-    const taggedContent = tagProseThinking(content, isStreamFinished);
+    const streamOver = isStreamFinished || Boolean(isStopped);
+    const normalizedContent = normalizeThinkingTags(content);
+    const taggedContent = closeUnterminatedThinking(
+      tagProseThinking(normalizedContent, streamOver),
+      streamOver
+    );
 
     const [renderedContent, setRenderedContent] = useState("");
     const [showThinking, setShowThinking] = useState(Boolean(externalShowThinking));
     const [showSearchDetails, setShowSearchDetails] = useState(false);
-    const [isThinkingActive, setIsThinkingActive] = useState(false);
+    // Check if thinking is actively streaming (has <think> after the last </think>)
+    const lastThinkOpen = !streamOver ? taggedContent.lastIndexOf("<think>") : -1;
+    const lastThinkClose = !streamOver ? taggedContent.lastIndexOf("</think>") : -1;
+    const isThinkingActive =
+      lastThinkOpen !== -1 && lastThinkOpen > lastThinkClose;
     const contentRef = useRef(processContent(taggedContent).cleanedContent);
     const thinkingBlocksRef = useRef<string[]>([]);
     const intervalRef = useRef<number | null>(null);
@@ -202,11 +239,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
         );
       }
 
-      // Check if thinking is actively streaming (has <think> but no closing </think>)
-      const hasIncompleteThinking =
-        !isStreamFinished && /<think>(?!.*<\/think>)/is.test(taggedContent);
-      setIsThinkingActive(hasIncompleteThinking);
-
       if (isStreamFinished) {
         setRenderedContent(contentRef.current);
         if (intervalRef.current) {
@@ -237,6 +269,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     }, [
       taggedContent,
       isStreamFinished,
+      streamOver,
       renderNextChunk,
       renderedContent,
       onThinkingBlocksChange,
@@ -253,8 +286,10 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     // });
 
     // Extract live thinking text from incomplete <think> block during streaming
-    const liveThinkMatch = !isStreamFinished ? taggedContent.match(/^<think>([\s\S]*)$/i) : null;
-    const liveThinkingText = liveThinkMatch ? liveThinkMatch[1] : null;
+    const liveThinkingText =
+      isThinkingActive && lastThinkOpen !== -1
+        ? taggedContent.slice(lastThinkOpen + 7)
+        : null;
 
     // Detect whether the thinking block represents a web search
     const liveSearchInfo = liveThinkingText ? parseSearchInfo(liveThinkingText) : null;

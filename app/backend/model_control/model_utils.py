@@ -92,6 +92,12 @@ def get_model_context_length(internal_url: str, auth_token: str = None):
             data = response.json().get("data", [])
             if data:
                 return data[0].get("max_model_len")
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        # A model that is still starting refuses connections until vLLM binds its
+        # port — minutes on a large model. That is the expected state during a
+        # healthy deploy, not a fault; at WARNING it produced hundreds of
+        # connection-refused lines that read like the deploy was broken.
+        logger.debug(f"max_model_len not available yet from {internal_url}: {e}")
     except Exception as e:
         logger.warning(f"Failed to fetch max_model_len from {internal_url}: {e}")
     return None
@@ -124,6 +130,10 @@ def get_model_name_from_container(internal_url: str, fallback: str, auth_token: 
                 f"GET {models_url} returned {response.status_code}, using fallback: {fallback}"
             )
             return fallback
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        # Same warm-up window as _fetch_max_model_len: not yet listening != broken.
+        logger.debug(f"/v1/models not available yet ({e}), using fallback: {fallback}")
+        return fallback
     except Exception as e:
         logger.warning(f"Failed to query /v1/models ({e}), using fallback: {fallback}")
         return fallback
@@ -430,46 +440,52 @@ async def stream_response_from_external_api(url: str, json_data: dict, auth_toke
             if te != "chunked":
                 logger.warning(f"Unexpected transfer-encoding from vLLM: {te!r}")
 
-            async for chunk in response.aiter_text():
-                logger.debug(f"stream_response_from_external_api chunk:={chunk}")
-                if chunk.startswith("data: "):
-                    new_chunk = chunk[len("data: "):].strip()
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line:
+                    continue
+                logger.debug(f"stream_response_from_external_api line:={line}")
+                if line.startswith("data: "):
+                    new_chunk = line[len("data: "):].strip()
 
                     if new_chunk == "[DONE]":
-                        yield chunk
+                        yield "data: [DONE]\n\n"
                         stats = tracker.get_stats()
                         logger.info(f"ttft and tpot stats: {stats}")
                         yield "data: " + json.dumps(stats) + "\n\n"
                         break
 
                     elif new_chunk != "":
-                        chunk_dict = json.loads(new_chunk)
+                        try:
+                            chunk_dict = json.loads(new_chunk)
 
-                        # Track TTFT/TPOT from content delta chunks
-                        choices = chunk_dict.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            delta_reasoning = (
-                                delta.get("reasoning_content")
-                                or delta.get("reasoning")
-                                or delta.get("thinking")
-                            )
-                            if delta_reasoning:
-                                tracker.record_thinking_token()
-                            # chat completions: choices[0].delta.content
-                            # base/completions:  choices[0].text
-                            delta_content = delta.get("content") or choices[0].get("text") or ""
-                            if delta_content:
-                                tracker.record_content_token()
-                                logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                            # Track TTFT/TPOT from content delta chunks
+                            choices = chunk_dict.get("choices") or []
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                delta_reasoning = (
+                                    delta.get("reasoning_content")
+                                    or delta.get("reasoning")
+                                    or delta.get("thinking")
+                                )
+                                if delta_reasoning:
+                                    tracker.record_thinking_token()
+                                # chat completions: choices[0].delta.content
+                                # base/completions:  choices[0].text
+                                delta_content = delta.get("content") or choices[0].get("text") or ""
+                                if delta_content:
+                                    tracker.record_content_token()
+                                    logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
 
-                        # Capture prompt_tokens from usage chunk
-                        usage = chunk_dict.get("usage") or {}
-                        prompt_tokens = usage.get("prompt_tokens", 0)
-                        if prompt_tokens > 0:
-                            tracker.set_prompt_tokens(prompt_tokens)
+                            # Capture prompt_tokens from usage chunk
+                            usage = chunk_dict.get("usage") or {}
+                            prompt_tokens = usage.get("prompt_tokens", 0)
+                            if prompt_tokens > 0:
+                                tracker.set_prompt_tokens(prompt_tokens)
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse SSE data JSON: {e}, data: {new_chunk[:100]}")
 
-                    yield chunk
+                    yield f"data: {new_chunk}\n\n"
 
         logger.info("stream_response_from_external_api done")
 

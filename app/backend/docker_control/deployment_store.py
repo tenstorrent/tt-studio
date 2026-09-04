@@ -98,10 +98,16 @@ def _load_raw() -> dict:
 
 def _save_raw(data: dict) -> None:
     _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _STORE_PATH.with_suffix(".tmp")
+    # Unique per-process tmp name. A shared one lets a second writer rename the file
+    # out from under the first (ENOENT on replace), or interleave into it so the
+    # renamed result is a short write overlaid on a longer one - which corrupted the
+    # store into "Extra data: line 67 column 2" and silently dropped every record.
+    tmp = _STORE_PATH.with_name(f"deployments.{os.getpid()}.tmp")
     try:
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, _STORE_PATH)
     except Exception as e:
         logger.error(f"Failed to save deployment store: {e}")
@@ -199,6 +205,9 @@ class _Manager:
                 "workflow_log_path": kwargs.get("workflow_log_path", None),
                 "tool_calling_enabled": kwargs.get("tool_calling_enabled", False),
                 "jwt_secret": kwargs.get("jwt_secret", None),
+                "model_type": kwargs.get("model_type", None),
+                "hf_model_id": kwargs.get("hf_model_id", None),
+                "service_route": kwargs.get("service_route", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -246,6 +255,14 @@ class ModelDeployment:
         self.failure_message: Optional[str] = None
         self.tool_calling_enabled: bool = False
         self.jwt_secret: Optional[str] = None   # Set for externally-registered containers only
+        # Identity derived from the container at registration time. Only set for
+        # externally-registered models, whose type/id cannot be recovered from the
+        # catalog. "unknown" means we could not identify what the container serves.
+        self.model_type: Optional[str] = None
+        self.hf_model_id: Optional[str] = None
+        # The route the container was observed to serve, when it differs from the
+        # per-type convention (e.g. a tt-dit image server serving /generate).
+        self.service_route: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -270,7 +287,10 @@ class ModelDeployment:
         obj.failure_reason = d.get("failure_reason")
         obj.failure_message = d.get("failure_message")
         obj.tool_calling_enabled = d.get("tool_calling_enabled", False)
+        obj.service_route = d.get("service_route")
         obj.jwt_secret = d.get("jwt_secret")
+        obj.model_type = d.get("model_type")
+        obj.hf_model_id = d.get("hf_model_id")
         return obj
 
     def _to_dict(self) -> dict:
@@ -292,6 +312,9 @@ class ModelDeployment:
             "failure_message": self.failure_message,
             "tool_calling_enabled": self.tool_calling_enabled,
             "jwt_secret": self.jwt_secret,
+            "model_type": self.model_type,
+            "hf_model_id": self.hf_model_id,
+            "service_route": self.service_route,
         }
 
     def save(self) -> None:

@@ -63,6 +63,12 @@ class TestWaitForFrontendAndOpenBrowser(unittest.TestCase):
         self.assertFalse(ok)
         wb.open.assert_not_called()
 
+# Docker Control lifecycle helpers live in the _docker_control submodule.
+try:
+    from tt_setup.services import _docker_control as _dc_mod
+except ImportError:
+    _dc_mod = M
+
 
 class TestGetFrontendConfig(unittest.TestCase):
     def test_defaults(self):
@@ -220,3 +226,110 @@ class TestDiagnoseServiceLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDockerControlAdoptsHealthyService(unittest.TestCase):
+    """A healthy service on 8002 must be adopted, never replaced.
+
+    Regression guard: the adopt check used to run AFTER the port was freed, so it
+    could never succeed. Every `python run.py` therefore spawned another
+    supervisor, and because the port was freed by killing only the listener, the
+    previous supervisor respawned it and the two fought over 8002. They
+    accumulated across runs (five were seen, restart counters in the thousands).
+    Each change of ownership dropped in-flight image pulls, which surfaced in the
+    UI as an unexplained "Deployment failed".
+    """
+
+    def test_healthy_service_is_adopted_without_killing_or_spawning(self):
+        with patch.object(_dc_mod, "check_docker_access", return_value=True), \
+             patch.object(_dc_mod, "_service_is_healthy", return_value=True), \
+             patch.object(_dc_mod, "kill_process_on_port") as kill_port, \
+             patch.object(_dc_mod, "_stop_previous_supervisor") as stop_prev, \
+             patch.object(_dc_mod, "subprocess") as sub:
+            result = _dc_mod.start_docker_control_service()
+
+        self.assertTrue(result)
+        kill_port.assert_not_called()
+        stop_prev.assert_not_called()
+        sub.Popen.assert_not_called()
+
+    def test_unhealthy_port_holder_stops_previous_supervisor_first(self):
+        """Killing the listener alone leaves its restart loop to respawn it."""
+        call_order = []
+        with patch.object(_dc_mod, "check_docker_access", return_value=True), \
+             patch.object(_dc_mod, "_service_is_healthy", return_value=False), \
+             patch.object(_dc_mod, "_stop_previous_supervisor",
+                          side_effect=lambda **kw: call_order.append("stop_supervisor")), \
+             patch.object(_dc_mod, "check_port_available",
+                          side_effect=lambda *a, **kw: call_order.append("check_port") or False), \
+             patch.object(_dc_mod, "kill_process_on_port",
+                          side_effect=lambda *a, **kw: call_order.append("kill_port") or False):
+            result = _dc_mod.start_docker_control_service()
+
+        self.assertFalse(result)  # could not free the port
+        self.assertEqual(call_order[0], "stop_supervisor",
+                         "the previous supervisor must be stopped before the port is freed")
+        self.assertIn("kill_port", call_order)
+
+
+class TestDockerControlSupervisorPid(unittest.TestCase):
+    def test_reads_pid_written_by_wrapper(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".pid", delete=False) as f:
+            f.write("4242\n")
+            path = f.name
+        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", path):
+            self.assertEqual(_dc_mod._read_supervisor_pid(), 4242)
+        os.unlink(path)
+
+    def test_missing_file_returns_none(self):
+        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", "/nonexistent/xyz.pid"):
+            self.assertIsNone(_dc_mod._read_supervisor_pid())
+
+    def test_garbage_contents_return_none(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".pid", delete=False) as f:
+            f.write("not-a-pid")
+            path = f.name
+        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", path):
+            self.assertIsNone(_dc_mod._read_supervisor_pid())
+        os.unlink(path)
+
+    def test_dead_previous_supervisor_is_not_signalled(self):
+        with patch.object(_dc_mod, "_read_supervisor_pid", return_value=4242), \
+             patch.object(_dc_mod, "_process_is_alive", return_value=False), \
+             patch.object(_dc_mod, "_terminate_pid") as term:
+            _dc_mod._stop_previous_supervisor()
+        term.assert_not_called()
+
+    def test_live_previous_supervisor_is_terminated(self):
+        with patch.object(_dc_mod, "_read_supervisor_pid", return_value=4242), \
+             patch.object(_dc_mod, "_process_is_alive", return_value=True), \
+             patch.object(_dc_mod, "_terminate_pid") as term:
+            _dc_mod._stop_previous_supervisor()
+        term.assert_called_once()
+        self.assertEqual(term.call_args[0][0], 4242)
+
+
+class TestDockerControlRestartLoopIsBounded(unittest.TestCase):
+    """An unbounded loop turned a permanent fault (port taken) into thousands of
+    restarts and an ever-growing log, hiding the real cause."""
+
+    def _wrapper_source(self):
+        import inspect
+        return inspect.getsource(_dc_mod.start_docker_control_service)
+
+    def test_loop_gives_up_after_repeated_rapid_failures(self):
+        src = self._wrapper_source()
+        self.assertIn("MAX_CONSECUTIVE_FAILURES", src)
+        self.assertIn("CONSECUTIVE_FAILURES", src)
+        self.assertNotIn("while true; do\n    \"$3/bin/uvicorn\"", src,
+                         "the bare unbounded loop must be gone")
+
+    def test_a_long_healthy_run_resets_the_failure_budget(self):
+        src = self._wrapper_source()
+        self.assertIn("MIN_HEALTHY_SECONDS", src)
+        self.assertIn("CONSECUTIVE_FAILURES=0", src)
+
+    def test_giving_up_points_at_the_port(self):
+        src = self._wrapper_source()
+        self.assertIn("8002", src)
+        self.assertIn("Giving up", src)

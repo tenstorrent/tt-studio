@@ -51,7 +51,7 @@ function FirstRunGuard({ children }: { children: React.ReactNode }) {
 
 const AppRouter = () => {
   const routes = getRoutes();
-  const { deployments, progressByJob, removeDeployment } =
+  const { deployments, progressByJob, removeDeployment, trayHidden } =
     useActiveDeploymentsContext();
 
   return (
@@ -79,16 +79,19 @@ const AppRouter = () => {
                     ))}
                 </Routes>
               </FirstRunGuard>
-              {/* Rendered inside the Router (not the provider) so an item click can navigate. */}
-              <DeploymentTray
-                deployments={deployments}
-                progressByJob={progressByJob}
-                onDismiss={removeDeployment}
-                onCancel={(jobId) => {
-                  void cancelDeployment(jobId);
-                  removeDeployment(jobId);
-                }}
-              />
+              {/* Rendered inside the Router (not the provider) so an item click can
+                  navigate. Hidden on pages that render their own per-model progress. */}
+              {!trayHidden && (
+                <DeploymentTray
+                  deployments={deployments}
+                  progressByJob={progressByJob}
+                  onDismiss={removeDeployment}
+                  onCancel={(jobId) => {
+                    void cancelDeployment(jobId);
+                    removeDeployment(jobId);
+                  }}
+                />
+              )}
             </Router>
           </ModelsProvider>
         </RefreshProvider>

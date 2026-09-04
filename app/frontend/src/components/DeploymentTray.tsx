@@ -4,8 +4,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, CheckCircle2, AlertTriangle, X, ChevronDown, Rocket } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, X, ChevronDown, Rocket, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { Progress } from "./ui/progress";
+import { compactPercent, transferDetailParts } from "../lib/deployProgress";
 import type {
   ActiveDeployment,
   DeploymentProgressData,
@@ -113,36 +114,6 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss, onCancel
   );
 }
 
-// Mirrors DeploymentProgress's adaptive three-segment bar (image pull → weight download → container start).
-function compactPercent(
-  p: DeploymentProgressData | null,
-  completed: boolean,
-  hadImagePull: boolean
-): number {
-  if (completed) return 100;
-  if (!p) return 0;
-  const isPull = p.stage === "pulling_image";
-  const hasPull = isPull || hadImagePull;
-  const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
-  const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
-  const [startLo, startHi] = [95, 99];
-  const frac =
-    p.total_bytes && p.downloaded_bytes != null
-      ? Math.min(1, Math.max(0, p.downloaded_bytes / p.total_bytes))
-      : 0;
-  const lerp = (lo: number, hi: number, f: number) =>
-    lo + (hi - lo) * Math.min(1, Math.max(0, f));
-  const containerStartStages = new Set([
-    "image_ready", "container_setup", "container_started", "network_setup", "finalizing", "complete",
-  ]);
-  if (isPull) return Math.round(lerp(pullLo, pullHi, frac));
-  if (p.stage === "model_preparation")
-    return Math.round(lerp(dlLo, dlHi, p.weights_cached ? 1 : frac));
-  if (containerStartStages.has(p.stage))
-    return Math.round(lerp(startLo, startHi, (p.progress ?? 0) / 100));
-  return Math.round(hasPull ? pullLo : dlLo);
-}
-
 const STAGE_LABELS: Record<string, string> = {
   starting: "Starting",
   initialization: "Initializing",
@@ -153,20 +124,6 @@ const STAGE_LABELS: Record<string, string> = {
   network_setup: "Connecting",
   finalizing: "Finalizing",
 };
-
-// Decimal units to match the sizes HuggingFace and Docker report.
-function formatBytes(bytes: number): string {
-  if (bytes < 0) return "—";
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let u = 0;
-  while (value >= 1000 && u < units.length - 1) {
-    value /= 1000;
-    u++;
-  }
-  return `${value >= 100 || u === 0 ? Math.round(value) : value.toFixed(1)} ${units[u]}`;
-}
 
 function DeploymentTrayItem({
   deployment,
@@ -203,22 +160,16 @@ function DeploymentTrayItem({
     if (isFailed || isCompleted || !progress) return null;
     const stage = progress.stage;
     const isDownload = stage === "pulling_image" || stage === "model_preparation";
-    const bytes =
-      isDownload && progress.downloaded_bytes != null
-        ? progress.total_bytes
-          ? `${formatBytes(progress.downloaded_bytes)} / ${formatBytes(progress.total_bytes)}`
-          : formatBytes(progress.downloaded_bytes)
-        : null;
-    const speed = isDownload && progress.speed_bps ? `${formatBytes(progress.speed_bps)}/s` : null;
+    const transfer = isDownload ? transferDetailParts(progress) : [];
     const label =
       stage === "pulling_image"
         ? "Pulling Docker image"
         : stage === "model_preparation"
-          ? bytes
+          ? transfer.length > 0
             ? "Downloading weights"
             : "Preparing model"
           : STAGE_LABELS[stage] ?? null;
-    const parts = [label, bytes, speed].filter(Boolean);
+    const parts = [label, ...transfer].filter(Boolean);
     return parts.length > 0 ? parts.join(" · ") : null;
   })();
 
@@ -336,20 +287,109 @@ function DeploymentTrayItem({
       )}
 
       {showLogs && (
-        <div className="mt-1.5 max-h-40 overflow-y-auto rounded bg-gray-950 p-2 font-mono text-[10px] text-green-400">
-          {loadingLogs ? (
-            <span className="text-muted-foreground">Loading logs…</span>
-          ) : logs && logs.length > 0 ? (
-            logs.map((line, i) => (
-              <div key={i} className="whitespace-pre-wrap break-words">
-                {line}
-              </div>
-            ))
-          ) : (
-            <span className="text-muted-foreground">No logs available.</span>
-          )}
-        </div>
+        <LogPanel logs={logs} loading={loadingLogs} modelName={deployment.modelName} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Deployment logs for one tray item. The tray is a 320px-wide floating panel, which
+ * is far too narrow for run.py output — full command lines wrap into an unreadable
+ * block. So the panel starts compact and can be expanded to a centred overlay, and
+ * every line is copyable in one click for pasting into a bug report.
+ */
+function LogPanel({
+  logs,
+  loading,
+  modelName,
+}: {
+  logs: string[] | null;
+  loading: boolean;
+  modelName: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyAll = async () => {
+    if (!logs?.length) return;
+    try {
+      await navigator.clipboard.writeText(logs.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      console.error("Could not copy deployment logs:", error);
+    }
+  };
+
+  const body = (
+    <div
+      className={`overflow-auto rounded bg-gray-950 p-2 font-mono text-green-400 ${
+        expanded ? "max-h-[70vh] text-xs" : "max-h-40 text-[10px]"
+      }`}
+    >
+      {loading ? (
+        <span className="text-muted-foreground">Loading logs…</span>
+      ) : logs && logs.length > 0 ? (
+        logs.map((line, i) => (
+          // Expanded: keep original line breaks and scroll sideways, so long
+          // run.py commands stay on one readable line instead of wrapping.
+          <div key={i} className={expanded ? "whitespace-pre" : "whitespace-pre-wrap break-words"}>
+            {line}
+          </div>
+        ))
+      ) : (
+        <span className="text-muted-foreground">No logs available.</span>
+      )}
+    </div>
+  );
+
+  const controls = (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={copyAll}
+        disabled={!logs?.length}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        aria-label="Copy logs"
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={expanded ? "Collapse logs" : "Expand logs"}
+      >
+        {expanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+        {expanded ? "Collapse" : "Expand"}
+      </button>
+    </div>
+  );
+
+  if (!expanded) {
+    return (
+      <div className="mt-1.5">
+        <div className="mb-1 flex justify-end">{controls}</div>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+      onClick={() => setExpanded(false)}
+    >
+      <div
+        className="w-full max-w-4xl rounded-xl border bg-card p-3 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm font-semibold">{modelName} — deployment logs</span>
+          {controls}
+        </div>
+        {body}
+      </div>
     </div>
   );
 }
