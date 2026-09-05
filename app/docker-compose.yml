@@ -3,6 +3,45 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 services:
+  tt_studio_docker_control:
+    hostname: tt-studio-docker-control
+    container_name: tt_studio_docker_control
+    profiles:
+      - docker-control
+    image: ${TT_STUDIO_IMAGE_REGISTRY:-ghcr.io/tenstorrent/tt-studio}/docker-control:${TT_STUDIO_IMAGE_TAG:-latest}
+    build:
+      context: ../docker-control-service
+      dockerfile: Dockerfile
+    command: ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      - DOCKER_CONTROL_HOST=0.0.0.0
+      - DOCKER_CONTROL_PORT=8002
+      - DOCKER_CONTROL_JWT_SECRET
+      - DOCKER_CONTROL_LOG_FILE=/logs/docker-control-service.log
+      - STARTUP_LOG_FILE=/logs/startup.log
+      - MODEL_RUN_LOG_FILE=/logs/model_run.log
+    volumes:
+      # Only Docker Control receives the Docker socket. The backend remains
+      # unprivileged and communicates with this service over the bridge.
+      # Source is configurable for rootless/custom Docker installations; keep
+      # the conventional target so the Docker SDK in this container works.
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${TT_STUDIO_ROOT}/logs:/logs
+    networks:
+      tt_studio_network:
+        aliases:
+          - docker-control
+    restart: unless-stopped
+    healthcheck:
+      # The endpoint reports Docker daemon failures in its JSON body while
+      # keeping the HTTP response inspectable. Gate startup on that check,
+      # rather than treating any HTTP 200 as a usable Docker Control service.
+      test: ["CMD", "python", "-c", "import json, sys, urllib.request; payload = json.load(urllib.request.urlopen('http://127.0.0.1:8002/api/v1/health', timeout=3)); sys.exit(0 if payload.get('checks', {}).get('docker') == 'healthy' else 1)"]
+      timeout: 5s
+      interval: 5s
+      retries: 10
+      start_period: 10s
+
   tt_studio_backend:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
@@ -35,6 +74,8 @@ services:
       sh -c "python manage.py migrate --noinput && uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 1200"
     depends_on:
       tt_studio_chroma:
+        condition: service_healthy
+      tt_studio_docker_control:
         condition: service_healthy
     stdin_open: true
     tty: true
@@ -81,8 +122,10 @@ services:
       - WAKEWORD_MODEL
       - WAKEWORD_THRESHOLD
       - WAKEWORD_DEBUG_SCORES
-      # Docker Control Service (replaces direct socket mount)
-      - DOCKER_CONTROL_SERVICE_URL
+      # Docker Control is always addressed by its private Compose alias. Keep
+      # this explicit so a pre-migration .env cannot route the backend back to
+      # the retired host port.
+      - DOCKER_CONTROL_SERVICE_URL=http://docker-control:8002
       - DOCKER_CONTROL_JWT_SECRET
       - TT_INFERENCE_API_URL
       # LiteLLM coding-agent gateway
@@ -111,7 +154,8 @@ services:
       # Embedding the corpus is CPU-bound and slow; allow time so the healthcheck
       # doesn't mark the backend unhealthy mid-ingest.
       start_period: 300s
-    # Allow container to access host services (docker-control-service)
+    # Allow container to access the host inference API. Docker Control is an
+    # internal Compose service and is reached through the bridge alias above.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

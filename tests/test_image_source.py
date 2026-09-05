@@ -105,12 +105,18 @@ class TestRequiredImageRefs(unittest.TestCase):
             "ghcr.io/tenstorrent/tt-studio/backend:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/agent:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/frontend:v2.9.0",
+            "ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0",
         ])
 
     def test_dev_uses_frontend_dev(self):
         refs = M.required_image_refs(True, "localhost:5000/tt-studio", "sha-abc123def456")
         self.assertIn("localhost:5000/tt-studio/frontend-dev:sha-abc123def456", refs)
         self.assertNotIn("localhost:5000/tt-studio/frontend:sha-abc123def456", refs)
+        self.assertIn("localhost:5000/tt-studio/docker-control:sha-abc123def456", refs)
+
+    def test_skip_docker_control_omits_docker_control_ref(self):
+        refs = M.required_image_refs(False, "ghcr.io/tenstorrent/tt-studio", "v2.9.0", include_docker_control=False)
+        self.assertNotIn("ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0", refs)
 
 
 class TestIsWorktreeDirty(unittest.TestCase):

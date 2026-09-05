@@ -500,7 +500,7 @@ def _collect_bug_report_data() -> dict:
     else:
         data["backend_log"] = {"file": None, "content": f"python_logs directory not found: {python_logs_dir}"}
 
-    # 2. Model run main log — fetched from docker-control-service running on host
+    # 2. Model run main log — fetched from the internal docker-control-service
     try:
         from docker_control.docker_control_client import DockerControlClient as _DCSClient0
         _model_run_result = _DCSClient0().get_model_run_log(tail=500)
@@ -539,7 +539,7 @@ def _collect_bug_report_data() -> dict:
     else:
         data["model_run_deployment_logs"] = []
 
-    # 4 & 5. Docker control service log + startup log — fetched from docker-control-service on host
+    # 4 & 5. Docker control service log + startup log — fetched from the internal service
     try:
         from docker_control.docker_control_client import DockerControlClient as _DCSClient
         _dcs = _DCSClient()
@@ -551,7 +551,7 @@ def _collect_bug_report_data() -> dict:
         data["docker_control_log"] = {"file": None, "content": f"docker-control-service.log not accessible: {_e}"}
         data["startup_log"] = {"file": None, "content": f"startup.log not accessible: {_e}"}
 
-    # 6. Agent Docker logs — fetched via docker-control-service (runs on host, has docker socket)
+    # 6. Agent Docker logs — fetched via docker-control-service (the only socket-mounted service)
     try:
         from docker_control.docker_control_client import DockerControlClient
         import requests as _req
@@ -568,7 +568,7 @@ def _collect_bug_report_data() -> dict:
         if agent_container:
             container_id = agent_container["id"]
             jwt_secret = os.getenv("DOCKER_CONTROL_JWT_SECRET", "")
-            dcs_url = os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+            dcs_url = os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://docker-control:8002")
             token = _jwt.encode({"service": "backend"}, jwt_secret, algorithm="HS256")
             resp = _req.get(
                 f"{dcs_url}/api/v1/containers/{container_id}/logs",

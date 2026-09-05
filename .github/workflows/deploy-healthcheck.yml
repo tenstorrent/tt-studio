@@ -56,21 +56,21 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Guard — host services not held by another user
+      - name: Guard — inference host service not held by another user
         # Ensure no other user is running TT-Studio on this runner.
         run: |
           set -uo pipefail
-          for port in 8001 8002; do
+          for port in 8001; do
             if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
               if ss -ltnp "sport = :$port" 2>/dev/null | grep -q 'users:'; then
                 echo ":$port in use by a process this runner owns (prior run) — --stop will clear it."
               else
-                echo "::error::Port :$port is held by a process owned by ANOTHER user. TT-Studio's inference-api (:8001) and docker-control (:8002) are single-instance host services, and this runner cannot stop another user's stack. Ask them to run 'python run.py --stop' on the box, then re-run this workflow."
+                echo "::error::Port :$port is held by a process owned by ANOTHER user. TT-Studio's inference-api (:8001) is a single-instance host service, and this runner cannot stop another user's stack. Ask them to run 'python run.py --stop' on the box, then re-run this workflow."
                 exit 1
               fi
             fi
           done
-          echo "host services :8001/:8002 are clear (or owned by this runner)"
+          echo "host inference service :8001 is clear (or owned by this runner)"
 
       - name: Reclaim workspace (drop root-owned leftovers from a prior run)
         # Remove root-owned leftovers from a prior run.

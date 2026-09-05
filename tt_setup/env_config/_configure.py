@@ -398,14 +398,25 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
+    docker_control_default = DOCKER_CONTROL_INTERNAL_URL
+    # Migrate the old host-side defaults automatically.  Do not overwrite a
+    # deliberately configured remote Docker Control endpoint.
+    legacy_docker_urls = {
+        "http://host.docker.internal:8002",
+        "http://127.0.0.1:8002",
+        "http://localhost:8002",
+    }
     if quick_setup:
-        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
-            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url) or current_docker_url in legacy_docker_urls:
+            write_env_var("DOCKER_CONTROL_SERVICE_URL", docker_control_default)
+    elif current_docker_url in legacy_docker_urls:
+        console.print(f"[info]🔄 Migrating DOCKER_CONTROL_SERVICE_URL to the internal Compose service '{docker_control_default}'...[/info]")
+        write_env_var("DOCKER_CONTROL_SERVICE_URL", docker_control_default)
+        console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL migrated.[/success]")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
         if is_placeholder(current_docker_url):
             console.print(f"[info]🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...[/info]")
-        dev_default = "http://host.docker.internal:8002"
-        val = ask("🐳 Enter DOCKER_CONTROL_SERVICE_URL", default=dev_default)
+        val = ask("🐳 Enter DOCKER_CONTROL_SERVICE_URL", default=docker_control_default)
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL saved.[/success]")
     else:
@@ -578,4 +589,3 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     if not in_phase():  # folded into the "Set up" phase line when run inside a phase
         console.print("[success]✓[/success] Environment configured")
-

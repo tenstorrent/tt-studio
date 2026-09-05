@@ -70,9 +70,11 @@ def decide_image_source(build_images, worktree_dirty, dev_mode, frontend_stock):
     return "pull", ""
 
 
-def required_image_refs(dev_mode, registry, tag):
+def required_image_refs(dev_mode, registry, tag, include_docker_control=True):
     """The TT-Studio images the selected compose overlay will run."""
     names = ["backend", "agent", "frontend-dev" if dev_mode else "frontend"]
+    if include_docker_control:
+        names.append("docker-control")
     return [f"{registry}/{name}:{tag}" for name in names]
 
 

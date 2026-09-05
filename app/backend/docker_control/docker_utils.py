@@ -790,8 +790,11 @@ def get_port_mounts(impl, host_port=None):
 
 
 def get_host_port(impl):
-    # Reserve ports used by TT-Studio services on the host:
-    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
+    # Reserve ports used by TT-Studio services and the control plane:
+    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = reserved
+    # control-plane port. Docker Control itself is internal-only, but keeping
+    # 8002 out of model allocation prevents any model from recreating a host
+    # listener on the retired public control port.
     # Model containers start at 8003.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)

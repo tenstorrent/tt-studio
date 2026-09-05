@@ -7,7 +7,7 @@ each rendered as its own labelled step."""
 import os
 import subprocess
 from tt_setup.console import console, step
-from tt_setup.docker import build_docker_compose_command, run_docker_command
+from tt_setup.docker import build_docker_compose_command, prepare_docker_socket_path, run_docker_command
 from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_server
 from tt_setup.cleanup._resource_ops import (
     _docker_daemon_status,
@@ -22,6 +22,9 @@ def _cleanup_runtime(args, has_docker_access):
     serving across a TT Studio restart; ``--purge-all`` still removes them
     as part of the full reset."""
     full_cleanup = bool(getattr(args, "cleanup_all", False))
+    # --purge-all intentionally wins over --skip-docker-control: a full reset
+    # must remove every TT Studio service. A plain --stop honours the skip.
+    skip_docker_control = bool(getattr(args, "skip_docker_control", False)) and not full_cleanup
 
     # Tear down each piece as its own labelled step so the user can see exactly
     # what's being stopped (rather than one opaque "Stopping services…" line that
@@ -32,6 +35,7 @@ def _cleanup_runtime(args, has_docker_access):
     docker_up = _docker_daemon_status() in ("ok", "sudo")
 
     if docker_up:
+        prepare_docker_socket_path()
         # Plain --stop preserves deployments (summarised in the Preserved panel
         # afterwards); --purge-all removes them first so the later network removal
         # / weight deletion isn't blocked by running processes.
@@ -47,7 +51,11 @@ def _cleanup_runtime(args, has_docker_access):
             subprocess.run(["sudo", "-v"], check=False)
         with step("Stopping Docker containers", spinner=True) as s:
             docker_compose_cmd = build_docker_compose_command(
-                dev_mode=args.dev, show_hardware_info=False, quiet=True)
+                dev_mode=args.dev,
+                show_hardware_info=False,
+                quiet=True,
+                include_docker_control=not skip_docker_control,
+            )
             # `--ansi never` is a top-level compose flag (must precede the
             # subcommand): it disables Compose's in-place ANSI progress redraws,
             # which otherwise write cursor-up sequences straight to the terminal
@@ -76,15 +84,13 @@ def _cleanup_runtime(args, has_docker_access):
         console.print("[muted]Docker isn't running — stopping host services only "
                       "(no containers to stop).[/muted]")
 
-    # Stopping a root-owned host process (started via sudo in a prior run) needs
-    # sudo. Its password prompt would otherwise appear un-announced under a step's
-    # spinner and read as a hang. Announce + pre-authenticate up-front, but ONLY
-    # when a listener on :8001/:8002 is actually root-owned — so users whose
-    # processes are their own (the common case) are never prompted.
+    # Stopping the legacy root-owned inference process (started via sudo in a
+    # prior run) needs sudo. Docker Control is now Compose-managed and has no
+    # host listener, so port 8002 is intentionally absent from this check.
     if (not args.no_sudo and os.geteuid() != 0 and console.is_terminal
-            and (_port_owned_by_root(8001) or _port_owned_by_root(8002))):
+            and _port_owned_by_root(8001)):
         console.print("[warning]TT Studio needs your password to stop a root-owned "
-                      "host service (ports 8001/8002).[/warning]")
+                      "inference API host service (port 8001).[/warning]")
         subprocess.run(["sudo", "-v"], check=False)
 
     # Host-service cleanup can discover a sudo requirement late (for example
@@ -95,5 +101,8 @@ def _cleanup_runtime(args, has_docker_access):
     # listener case.
     with step("Stopping inference API", spinner=False):
         cleanup_fastapi_server(no_sudo=args.no_sudo)
-    with step("Stopping Docker control", spinner=False):
-        cleanup_docker_control_service(no_sudo=args.no_sudo)
+    with step("Stopping Docker control", spinner=False) as s:
+        if skip_docker_control:
+            s.skip("--skip-docker-control")
+        else:
+            cleanup_docker_control_service(no_sudo=args.no_sudo)

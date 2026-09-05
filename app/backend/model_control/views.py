@@ -1560,7 +1560,7 @@ class ContainerLogsView(View):
                         logger.error(f"docker-control-service unreachable: {str(e)}")
                         error_data = {
                             "type": "service_unavailable",
-                            "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
+                            "message": "Cannot reach the docker-control-service. Make sure the Docker Control container is healthy and retry.",
                             "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         }
                         loop.call_soon_threadsafe(
