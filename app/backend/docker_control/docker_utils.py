@@ -136,6 +136,44 @@ WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GAL
 # mesh deployments let the inference server claim the full board itself.
 _SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
 
+# vLLM spec-name fallback between four-chip Blackhole meshes. The vLLM plugin
+# maps both labels to a (1, 4) mesh, so a chat model that only publishes a
+# p300x2 spec can still be asked for on p150x4 hardware (and vice versa) by
+# sending the other name.
+_VLLM_MESH_SPEC_FALLBACK = {
+    "p150x4": ("p300x2",),
+    "p300x2": ("p150x4",),
+}
+
+# Trace region size (bytes) to force where a model_spec under-allocates it, which
+# stops the deploy during traced warmup with a TT_FATAL error.
+_TRACE_REGION_OVERRIDES = {
+    # p150x4 spec is stale at 0.10.x with 30000000; traced decode needs 56557568.
+    # Value matches the maintained p300x2 spec for the same four-chip mesh.
+    ("Llama-3.3-70B-Instruct", "p150x4"): 402653184,
+    # Both P150X4 FLUX configs omit this setting and inherit 34.5 MB. Traced
+    # warmup needs 50,724,864 bytes; 51 MB matches their maintained P300X2 specs.
+    ("FLUX.1-dev", "p150x4"): 51_000_000,
+    ("FLUX.1-schnell", "p150x4"): 51_000_000,
+}
+
+# Docker images to force where the per-device model_spec resolves to one whose API
+# this backend can no longer drive. Keyed by (model_name, device); a device of "*"
+# applies to every device for that model.
+_MEDIA_IMAGE_OVERRIDES = {
+    # Wan T2V on every board: 0.17.0 carries the MODEL_WEIGHTS_DIR fix (#4107), so
+    # it reads the mounted host HF cache instead of re-downloading ~118GB.
+    ("Wan2.2-T2V-A14B-Diffusers", "*"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+    ),
+    # FLUX on p150x4: that spec resolves to 0.10.0-555f240, so override to the newer image.
+    ("FLUX.1-dev", "p150x4"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+    ),
+    ("FLUX.1-schnell", "p150x4"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76"
+    ),
+}
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
@@ -304,6 +342,82 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
+def _supported_devices(impl):
+    """Inference-server device names this model declares a model_spec for."""
+    return {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+
+
+def _vllm_mesh_fallback_allowed(impl):
+    """True for vLLM chat models; media/forge pin to one board topology."""
+    engine = getattr(impl, "inference_engine", None)
+    if engine:
+        return str(engine).lower() == "vllm"
+    return impl.model_type == ModelTypes.CHAT
+
+
+def equivalent_mesh_device(impl, device):
+    """For vLLM, swap `device` for the other four-chip Blackhole spec if needed.
+
+    Returns `device` untouched when the model already declares it, when the
+    engine is not vLLM, or when no fallback spec exists. Media models such as
+    FLUX keep the board's own name even if they only list the other mesh.
+    """
+    if not _vllm_mesh_fallback_allowed(impl):
+        return device
+    supported = _supported_devices(impl)
+    if device in supported:
+        return device
+    for alt in _VLLM_MESH_SPEC_FALLBACK.get(device, ()):
+        if alt in supported:
+            logger.info(
+                f"{impl.model_name}: no '{device}' vLLM model_spec; using "
+                f"'{alt}' (four-chip Blackhole mesh fallback)"
+            )
+            return alt
+    return device
+
+
+def vllm_mesh_fallback_fits(impl, board_type):
+    """True when a vLLM model has no native spec for `board_type` but does for
+    the other four-chip Blackhole mesh, so the catalog can still offer it."""
+    if not _vllm_mesh_fallback_allowed(impl):
+        return False
+    board_device = map_board_type_to_device_name(board_type)
+    supported = _supported_devices(impl)
+    if board_device in supported:
+        return False
+    return any(alt in supported for alt in _VLLM_MESH_SPEC_FALLBACK.get(board_device, ()))
+
+
+def claims_whole_board(device, board_device):
+    """True when `device` takes every chip: the board's own name or a vLLM fallback."""
+    return device == board_device or device in _VLLM_MESH_SPEC_FALLBACK.get(
+        board_device, ()
+    )
+
+
+def trace_region_override(model_name, device):
+    """Forced trace region size (bytes) for this pair, or None."""
+    size = _TRACE_REGION_OVERRIDES.get((model_name, device))
+    if size:
+        logger.info(f"{model_name} on {device}: forcing trace_region_size {size} B")
+    return size
+
+
+def media_image_override(model_name, device):
+    """Docker image to force for this model/device pair, or None.
+
+    Shared by run_container and the media pre-pull resolver so the image whose
+    download the UI reports progress for is the image the deploy actually runs.
+    """
+    image = _MEDIA_IMAGE_OVERRIDES.get(
+        (model_name, device)
+    ) or _MEDIA_IMAGE_OVERRIDES.get((model_name, "*"))
+    if image:
+        logger.info(f"{model_name} on {device}: pinning docker image {image}")
+    return image
+
+
 def infer_inference_server_device(impl, board_type=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
@@ -312,18 +426,19 @@ def infer_inference_server_device(impl, board_type=None):
     if board_type is None:
         board_type = detect_board_type()
     chips_required = infer_chips_required(impl.device_configurations)
+    board_device = map_board_type_to_device_name(board_type)
     if chips_required == 1:
         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
         # A constituent single-chip device (e.g. p150 on a P300x2 board) is only valid
         # if the model actually declares support for it. Media models like FLUX have no
         # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
         # supported device for this model but the whole board is, deploy on the board mesh.
-        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
-        board_device = map_board_type_to_device_name(board_type)
+        supported = _supported_devices(impl)
         if device not in supported and board_device in supported:
             device = board_device
     else:
-        device = map_board_type_to_device_name(board_type)
+        device = board_device
+    device = equivalent_mesh_device(impl, device)
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
@@ -401,9 +516,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if device in _SINGLE_CHIP_DEVICE_NAMES:
             payload["device_id"] = str(device_id)
 
-        # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
-        if impl.model_name == "Qwen3-32B" and device == "p300x2":
-            payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+        # The inference server merges override_tt_config over the spec's, key by key.
+        trace_region_size = trace_region_override(impl.model_name, device)
+        if trace_region_size:
+            payload["override_tt_config"] = json.dumps(
+                {"trace_region_size": trace_region_size}
+            )
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -417,12 +535,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Wan T2V pinned to the 0.17.0 media image: carries the MODEL_WEIGHTS_DIR fix
-        # (#4107) so it uses the mounted host HF cache instead of re-downloading ~118GB.
-        # Pinned explicitly because per-device resolution would otherwise pick older
-        # images on some boards (e.g. 0.10.0-555f240 for Wan on p150x4) that lack the fix.
-        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+        # Some per-device model_specs resolve to an image too old to serve our
+        # requests, so force the known-good one.
+        pinned_image = media_image_override(impl.model_name, device)
+        if pinned_image:
+            payload["override_docker_image"] = pinned_image
 
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
@@ -906,6 +1023,7 @@ def _external_model_impl(con_id, con):
         hf_model_id=dep.hf_model_id,
         service_port=dep.port or 7000,
         tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
+        service_route=getattr(dep, "service_route", None),
     )
     logger.debug(
         f"Using external model_impl for '{con['name']}' "
