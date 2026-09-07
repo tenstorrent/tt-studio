@@ -657,8 +657,18 @@ def merge_rc_branch():
              "(e.g. up-to-date branch, merge queue).[/muted]", "", merge_error],
         )
 
-    with step("Fetching the merge commit from main"):
-        _git("fetch", "origin", "main")
+    fetch_main_error = ""
+    with step("Fetching the merge commit from main") as s:
+        fetched = _git("fetch", "origin", "main")
+        if fetched.returncode != 0:
+            fetch_main_error = _proc_output(fetched)
+            s.fail()
+    if fetch_main_error:
+        return _fail_panel(
+            "⛔ Couldn't fetch main after merging — not tagging",
+            ["[muted]Fix your network / origin remote, then re-run --merge-rc-branch.[/muted]", "", fetch_main_error],
+        )
+
     merge_sha = _git("rev-parse", "origin/main").stdout.strip()
     tip_subject = _git("log", "-1", "--format=%s", "origin/main").stdout.strip()
     if f"Rc {version}" not in tip_subject:
