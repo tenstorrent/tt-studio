@@ -51,7 +51,7 @@ const DECODE_OPTIONS: Record<string, string> = {
 
 // Seed each chunk with the tail of the previous transcript so the model keeps
 // context across chunk boundaries. Set false to transcribe each chunk blind.
-const PROMPT_CARRY_OVER = true;
+const PROMPT_CARRY_OVER = false;
 // Whisper's prompt window is small; keep well inside it.
 const PROMPT_MAX_CHARS = 200;
 // A failed chunk shouldn't discard the whole run.
