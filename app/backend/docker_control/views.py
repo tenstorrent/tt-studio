@@ -37,6 +37,11 @@ from .docker_utils import (
     map_board_type_to_device_name,
     infer_inference_server_device,
     deploys_whole_board,
+    claims_whole_board,
+    equivalent_mesh_device,
+    media_image_override,
+    trace_region_override,
+    vllm_mesh_fallback_fits,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
@@ -285,6 +290,9 @@ class ContainersView(APIView):
             'P300': [DeviceConfigurations.P300],
 
             # Blackhole multi-device
+            # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
+            # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
+            # models that only have the other mesh still show via vllm_mesh_fallback_fits.
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
             # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
@@ -312,12 +320,16 @@ class ContainersView(APIView):
             else:
                 # Check if any of the current board's device configurations are in the model's configurations
                 is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
+                if not is_compatible:
+                    is_compatible = vllm_mesh_fallback_fits(impl, current_board)
                 logger.info(f"Model {impl.model_name}: is_compatible={is_compatible}")
             
             # Get all boards this model can run on
             compatible_boards = []
             for board, devices in board_to_device_map.items():
-                if board != 'unknown' and bool(set(devices).intersection(impl.device_configurations)):
+                if board == 'unknown':
+                    continue
+                if bool(set(devices).intersection(impl.device_configurations)) or vllm_mesh_fallback_fits(impl, board):
                     compatible_boards.append(board)
 
             # Manual override: always show certain models as compatible (e.g. whisper when sync JSON is incomplete)
@@ -689,6 +701,12 @@ class DeployView(APIView):
                         # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
                         # use the single constituent chip device.
                         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    # Chat deploys resolve the device here instead of via
+                    # infer_inference_server_device, so apply the vLLM mesh fallback
+                    # too or a p300x2-only chat model sends --device p150x4 and 404s
+                    # on spec lookup. Mesh names only: never promotes a pinned chip,
+                    # and media models are not rewritten.
+                    device = equivalent_mesh_device(impl, device)
                     # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
                     # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
@@ -704,15 +722,24 @@ class DeployView(APIView):
                     whole_board_device = map_board_type_to_device_name(board_type)
                     single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     is_multi_chip_board = whole_board_device != single_chip_device
-                    if device == whole_board_device and is_multi_chip_board:
+                    # A vLLM fallback name still claims every chip, so it omits
+                    # device_id exactly as the board's own name would.
+                    if claims_whole_board(device, whole_board_device) and is_multi_chip_board:
                         inference_device_id = None
                     else:
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)
-                # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
+                # Sent two ways on purpose: override_tt_config is the documented
+                # field, but run.py only mounts the resolved runtime spec in dev mode
+                # / --custom-weights, so on an ordinary deploy the container re-reads
+                # the stale spec baked into its image and drops it. The same value on
+                # the container's own vllm command line wins over the spec default.
                 override_tt_config = None
-                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
-                if qwen32b_p300x2:
-                    override_tt_config = '{"trace_region_size": 53000000}'
+                overrides = {}
+                trace_region_size = trace_region_override(impl.model_name, device)
+                if trace_region_size:
+                    tt_config = {"trace_region_size": trace_region_size}
+                    override_tt_config = json.dumps(tt_config)
+                    overrides["override_tt_config"] = tt_config
                 # Enable vLLM tool calling for chat-completions models so coding
                 # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
                 # Only for /v1/chat/completions models with a known parser — base
@@ -720,7 +747,6 @@ class DeployView(APIView):
                 vllm_override_args = None
                 tool_calling_supported = False
                 if impl.service_route == "/v1/chat/completions":
-                    overrides = {}
                     tool_parser = tool_call_parser_for(
                         impl.model_name, getattr(impl, "hf_model_id", "")
                     )
@@ -733,8 +759,8 @@ class DeployView(APIView):
                     if reasoning_parser:
                         overrides["reasoning-parser"] = reasoning_parser
                     overrides.update(_local_weights_overrides(impl))
-                    if overrides:
-                        vllm_override_args = json.dumps(overrides)
+                if overrides:
+                    vllm_override_args = json.dumps(overrides)
                 override_docker_image = _resolve_override_docker_image(impl)
                 artifact_ref = _resolve_artifact_ref(impl, device, board_type)
                 chat_deploy_kwargs = dict(
@@ -915,7 +941,15 @@ class DeployView(APIView):
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
-                deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
+                # A pinned image wins over what the server would resolve: run_container
+                # sends it as override_docker_image, so pre-pulling the spec's image
+                # would show progress for layers the deploy never uses and then stall
+                # while run.py pulls the pinned one untracked.
+                deploy_image = (
+                    media_image_override(impl.model_name, media_device)
+                    or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
+                    or impl.image_version
+                )
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:
@@ -2704,6 +2738,28 @@ class RegisterExternalModelView(APIView):
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
+            # What the container serves is a physical fact about it, so read the
+            # routes before falling back to guessing from names. This is also the
+            # only way to learn a route that diverges from the per-type convention
+            # (a tt-dit image server serves /generate, not /v1/images/generations),
+            # which is why the route is kept even when the type came from elsewhere.
+            served_api = _detect_served_api(service_port)
+            service_route = served_api.get("service_route") or None
+            served_type = served_api.get("model_type")
+            if served_type and served_type != model_type:
+                if model_type:
+                    corrections.append(
+                        f"Model type corrected from '{model_type}' to '{served_type}' "
+                        f"based on the routes the container actually serves "
+                        f"({service_route})."
+                    )
+                else:
+                    corrections.append(
+                        f"Model type '{served_type}' detected from the container's "
+                        f"own API ({service_route})."
+                    )
+                model_type = served_type
+
             # Derive any remaining identity fields, then settle on a model type
             if not model_type and hf_model_id:
                 model_type = _infer_model_type(hf_model_id)
@@ -2815,6 +2871,7 @@ class RegisterExternalModelView(APIView):
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
                     rec.hf_model_id = hf_model_id
+                    rec.service_route = service_route
                     rec.save()
                     corrections.append("Reused this container's existing deployment record.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
@@ -2833,6 +2890,7 @@ class RegisterExternalModelView(APIView):
                         jwt_secret=jwt_secret,
                         model_type=model_type,
                         hf_model_id=hf_model_id,
+                        service_route=service_route,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
@@ -3533,6 +3591,60 @@ def _hf_from_container(container_info: dict):
     return None
 
 
+def _detect_served_api(host_port) -> dict:
+    """Read a container's OpenAPI document and report the API it actually serves.
+
+    Returns {"routes": [...], "service_route": str, "model_type": str} for a
+    container whose served routes identify a contract TT Studio can drive, else
+    whatever subset could be determined ({} when the container has no OpenAPI doc).
+
+    This is the strongest identity signal available and needs no name heuristics:
+    a server that answers on ``/generate`` + ``/jobs/<id>/image`` is an image
+    generator whatever its weights are called, and one that serves no route we
+    recognise is not something we should offer an interaction page for.
+    """
+    if not host_port:
+        return {}
+    try:
+        resp = requests.get(
+            f"http://host.docker.internal:{host_port}/openapi.json", timeout=3
+        )
+        resp.raise_for_status()
+        paths = resp.json().get("paths") or {}
+    except Exception:
+        return {}
+
+    result = {"routes": sorted(paths)}
+
+    # Image dialects are the case where the served route genuinely diverges from
+    # the per-type convention, so consult the dialect table rather than
+    # duplicating its route knowledge here.
+    try:
+        from model_control.image_dialects import dialect_from_openapi
+
+        dialect = dialect_from_openapi(paths)
+    except Exception:
+        dialect = None
+    if dialect is not None:
+        result["service_route"] = dialect.submit_route
+        result["model_type"] = "image_generation"
+        return result
+
+    # Otherwise fall back to the routes that identify the remaining types.
+    for route, model_type in (
+        ("/v1/chat/completions", "chat"),
+        ("/v1/audio/transcriptions", "speech_recognition"),
+        ("/v1/audio/speech", "tts"),
+        ("/v1/videos/generations", "video_generation"),
+        ("/objdetection_v2", "object_detection"),
+    ):
+        if route in paths:
+            result["service_route"] = route
+            result["model_type"] = model_type
+            break
+    return result
+
+
 def _detect_model_info(docker_client, container_id, container_info=None) -> dict:
     """Detect {hf_model_id, model_type, port, source} for a running container.
 
@@ -3582,6 +3694,16 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
             result.setdefault("source", "logs")
         if parsed.get("port") and not result.get("port"):
             result["port"] = parsed["port"]
+
+    # What the container serves beats what its weights are named: a DiT image
+    # server and a vLLM chat server can both be called "<org>/<model>", but they
+    # do not expose the same routes.
+    served = _detect_served_api(host_port)
+    if served.get("model_type"):
+        result["model_type"] = served["model_type"]
+        result["service_route"] = served["service_route"]
+        result.setdefault("source", "openapi")
+        return result
 
     if result.get("hf_model_id"):
         result["model_type"] = _infer_model_type(result["hf_model_id"])
