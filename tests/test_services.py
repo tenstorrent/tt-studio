@@ -69,6 +69,12 @@ try:
 except ImportError:
     _dc_mod = M
 
+# FastAPI lifecycle helpers live in the _fastapi submodule.
+try:
+    from tt_setup.services import _fastapi as _fa_mod
+except ImportError:
+    _fa_mod = M
+
 
 class TestGetFrontendConfig(unittest.TestCase):
     def test_defaults(self):
@@ -333,3 +339,27 @@ class TestDockerControlRestartLoopIsBounded(unittest.TestCase):
         src = self._wrapper_source()
         self.assertIn("8002", src)
         self.assertIn("Giving up", src)
+
+
+class TestSupervisorGhostSelfTermination(unittest.TestCase):
+    """Regression guards for Issue #1307:
+    Supervisor wrappers must exit immediately (code 0) when the PID file is
+    removed (by --stop / --purge-all) or overwritten by another launcher run,
+    preventing orphaned ghost loops from surviving and fighting for ports."""
+
+    def test_docker_control_wrapper_checks_pid_file_and_ownership(self):
+        import inspect
+        src = inspect.getsource(_dc_mod.start_docker_control_service)
+        self.assertIn('[ ! -f "$2" ]', src, "must verify PID file still exists")
+        self.assertIn('"$(cat "$2" 2>/dev/null)" != "$$"', src, "must verify PID still matches wrapper PID")
+        self.assertIn("Exiting ghost loop", src)
+        self.assertIn("exit 0", src)
+
+    def test_fastapi_dev_wrapper_checks_pid_file_and_ownership(self):
+        import inspect
+        src = inspect.getsource(_fa_mod.start_fastapi_server)
+        self.assertIn('[ ! -f "$2" ]', src, "must verify PID file still exists")
+        self.assertIn('"$(cat "$2" 2>/dev/null)" != "$$"', src, "must verify PID still matches wrapper PID")
+        self.assertIn("Exiting ghost loop", src)
+        self.assertIn("exit 0", src)
+

@@ -367,8 +367,21 @@ while true; do
         exit 1
     fi
 
+    # Check if this supervisor is still tracked by the PID file. If the PID file
+    # was removed (via --stop or --purge-all) or overwritten by another launcher
+    # run, this process has become an untracked ghost. Exit cleanly immediately.
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] Docker Control supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
+
     echo "[$(date)] Docker Control Service exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
     sleep 3
+
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] Docker Control supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
 done
 ''')
             temp_script_path = temp_script.name

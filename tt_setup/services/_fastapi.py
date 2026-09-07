@@ -213,8 +213,22 @@ while true; do
     "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1
     EXIT_CODE=$?
     RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    # Check if this supervisor is still tracked by the PID file. If the PID file
+    # was removed (via --stop or --purge-all) or overwritten by another launcher
+    # run, this process has become an untracked ghost. Exit cleanly immediately.
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
+
     echo "[$(date)] FastAPI exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
     sleep 3
+
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
 done
 '''
             else:
