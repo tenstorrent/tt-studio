@@ -128,8 +128,11 @@ def get_entry(pull_id: str) -> Optional[dict]:
         return None
     try:
         with open(path, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            try:
+                return json.load(f)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         with _local_lock:
             entry = _fallback.get(pull_id)
             return dict(entry) if entry is not None else None
