@@ -107,7 +107,7 @@ These automate the release process in CONTRIBUTING.md (RC branch cut from `main`
 | Option | Description |
 | --- | --- |
 | `--make-rc-branch [major\|minor\|patch\|vX.Y.Z]` | Cut a new `rc-vX.Y.Z` branch from `origin/main` (plus one empty marker commit so GitHub allows the PR before the first cherry-pick) and open the `Rc vX.Y.Z` PR against `main` with the release test plan. The bare flag asks which part of the version to bump; the last release is detected across tags, `rc-v*` branches, and RC merge commits. Refuses while an unshipped (untagged) `rc-v*` branch is on origin — one release at a time. |
-| `--update-rc-branch` | Cherry-pick new `dev` commits into the current `rc-vX.Y.Z` branch via an interactive picker (patch-aware, so already-picked commits don't reappear). A conflict rolls the failing pick back and prints manual-resolution steps. |
+| `--update-rc-branch` | Cherry-pick new `dev` commits into the current `rc-vX.Y.Z` branch via an interactive picker. Lists dev commits newer than the `main` commit the RC was cut from (releases squash into `main`, so that date is the only reliable cutoff), minus picks already on the RC. Older dev commits can still be cherry-picked by hand. A conflict rolls the failing pick back and prints manual-resolution steps. |
 | `--merge-rc-branch` | Ship the RC: verifies the PR is approved (≥2 approvals) with green checks, asks for one confirmation, then squash-merges into `main`, pushes the `vX.Y.Z` tag (which triggers the Publish images workflow → GHCR), and creates the GitHub release with auto-generated notes. |
 
 ### Troubleshooting & Info

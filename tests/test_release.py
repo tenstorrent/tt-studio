@@ -248,9 +248,36 @@ class TestUpdateRcBranch(unittest.TestCase):
     def _base(self, extra=None):
         responses = {
             ("branch", "-r"): _proc(stdout="  origin/dev\n  origin/rc-v2.10.0\n"),
+            ("merge-base",): _proc(stdout="ba5e0000\n"),  # main commit the RC was cut from
+            ("log", "-1", "--format=%cI"): _proc(stdout="2026-08-28T16:40:34-04:00\n"),
         }
         responses.update(extra or {})
         return responses
+
+    def test_candidates_are_cut_off_at_the_rcs_base_on_main(self):
+        # Releases land on main as one squash commit, so patch-id matching alone
+        # lists dev's whole history (328 commits on the first real run). The log
+        # must be bounded by the date of the main commit the RC was cut from.
+        git = _Recorder(self._base({("log", "--cherry-pick"): _proc(stdout="")}))
+        with patch.object(M, "_git", git), patch.object(M, "_gh", _Recorder()), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.update_rc_branch(), 0)
+        self.assertIn(("merge-base", "origin/rc-v2.10.0", "origin/main"), git.calls)
+        log = git.prefixes("log", "--cherry-pick")
+        self.assertEqual(len(log), 1)
+        self.assertIn("--since=2026-08-28T16:40:34-04:00", log[0])
+        self.assertEqual(log[0][-1], "origin/rc-v2.10.0...origin/dev")
+
+    def test_unknown_base_falls_back_to_no_cutoff(self):
+        git = _Recorder(self._base({
+            ("merge-base",): _proc(returncode=1, stderr="fatal: no merge base"),
+            ("log", "--cherry-pick"): _proc(stdout=""),
+        }))
+        with patch.object(M, "_git", git), patch.object(M, "_gh", _Recorder()), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.update_rc_branch(), 0)
+        log = git.prefixes("log", "--cherry-pick")[0]
+        self.assertFalse(any(a.startswith("--since") for a in log))
 
     def test_no_rc_branch_is_a_clean_failure(self):
         git = _Recorder({("branch", "-r"): _proc(stdout="  origin/dev\n")})

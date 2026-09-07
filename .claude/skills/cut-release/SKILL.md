@@ -59,8 +59,9 @@ As hotfixes land on `dev` during RC testing:
 python run.py --update-rc-branch
 ```
 
-Lists dev commits whose patches aren't on the RC yet (patch-id aware, so already
-cherry-picked ones don't reappear), lets the user pick, cherry-picks oldest-first,
+Lists dev commits newer than the main commit the RC was cut from (releases are
+squashed into main, so that date is the cutoff — older dev commits need a manual
+`git cherry-pick`), minus ones already picked onto the RC, lets the user pick, cherry-picks oldest-first,
 and pushes. A conflict rolls back the failing pick and prints manual-resolution
 steps. Re-run draft-release-notes if the changeset moved meaningfully.
 

@@ -387,10 +387,21 @@ def _current_rc_branch():
     return (version, f"rc-{version}") if version else (None, None)
 
 
+def _rc_base_date(branch):
+    """ISO committer date of the main commit the RC was cut from (the release
+    state it builds on), or "" when git can't tell — then no cutoff is applied."""
+    base = _git("merge-base", f"origin/{branch}", "origin/main")
+    if base.returncode != 0 or not base.stdout.strip():
+        return ""
+    date = _git("log", "-1", "--format=%cI", base.stdout.strip())
+    return date.stdout.strip() if date.returncode == 0 else ""
+
+
 def _pick_commits_interactively(candidates):
     """Numbered multi-select over the candidate dev commits (oldest first).
     Returns the chosen (sha, subject) list, or None when the user cancels."""
-    console.print("\n[bold]Commits on dev that aren't on the RC yet[/bold] [muted](oldest first)[/muted]")
+    console.print("\n[bold]Commits on dev since this RC's base on main that aren't on the RC yet[/bold] "
+                  "[muted](oldest first; older dev commits can still be cherry-picked by hand)[/muted]")
     for i, (sha, subject) in enumerate(candidates, start=1):
         console.print(f"  {i}. [info]{sha}[/info] {subject}")
     while True:
@@ -429,11 +440,16 @@ def update_rc_branch():
             ["Cut one first with [info]python run.py --make-rc-branch[/info]."],
         )
 
-    # --cherry-pick drops commits whose patch already landed on the RC (dev is
-    # squash-merged, and cherry-picks preserve the patch, so patch-id matching
-    # works). --reverse lists oldest first — the order they must apply in.
+    # Releases reach main as ONE squash commit, so by patch identity main never
+    # contains any dev commit — a plain `rc...dev` comparison lists dev's entire
+    # history (328 commits on the first real run). Cut the list off at the main
+    # commit this RC was built from: anything on dev newer than that is a
+    # candidate. --cherry-pick still drops picks already on this RC (cherry-picks
+    # preserve the patch), --reverse lists oldest first — the order they apply.
+    since = _rc_base_date(branch)
     log = _git("log", "--cherry-pick", "--right-only", "--no-merges", "--reverse",
-               "--oneline", f"origin/{branch}...origin/dev")
+               "--oneline", *([f"--since={since}"] if since else []),
+               f"origin/{branch}...origin/dev")
     if log.returncode != 0:
         return _fail_panel("⛔ Couldn't compare the RC against dev", ["", _proc_output(log)])
     candidates = parse_oneline(log.stdout.splitlines())
