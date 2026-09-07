@@ -110,12 +110,16 @@ export function getModelPlacement(
   boardType?: string,
   modelType?: string
 ): ModelPlacement {
-  // Training claims the whole board: the inference server opens all 4 chips and the
-  // training runner then works on a submesh. Handled before the name-based branches
-  // below because the training build shares the "Llama-3.1-8B" name with the chat
-  // model, which would otherwise match the P300x2 card-pair rule.
+  // Training on QB2 runs on a single P300 card (2 chips: 0,1 or 2,3), mirroring
+  // Llama-3.1-8B chat card-pair placement: the inference server opens the 2-chip
+  // card and the training runner works on that submesh instead of all 4 chips.
+  // Handled before the name-based branches below because the training build shares
+  // the "Llama-3.1-8B" name with the chat model.
   const isTraining = (modelType ?? "").toLowerCase() === "training";
   if (isTraining) {
+    if (isP300x2Board(boardType)) {
+      return { allowsSingle: false, allowsFullBoard: false, cardGroups: [[0, 1], [2, 3]] };
+    }
     return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
   }
 

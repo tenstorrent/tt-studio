@@ -505,22 +505,6 @@ class DeployView(APIView):
                     board_type,
                 )
 
-            # Training claims the whole board (chips_required drives the 4-slot
-            # reservation and --tt-device p300x2; the runner works on a submesh), so an
-            # explicit multi-slot device_id is meaningless here. Collapse it to the first
-            # slot — mirroring how force_full_board is ignored above — so a stale/
-            # mismatched client can't try to pin the mesh to a subset of chips.
-            if impl.model_type == ModelTypes.TRAINING and len(requested_device_ids) > 1:
-                logger.info(
-                    "Ignoring multi-slot device_id=%s for model=%s type=%s; using slot %s only",
-                    requested_device_ids,
-                    impl.model_name,
-                    impl.model_type.value,
-                    requested_device_ids[0],
-                )
-                requested_device_ids = [requested_device_ids[0]]
-                manual_device_id = requested_device_ids[0]
-
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
             if hf_repo:
@@ -591,6 +575,42 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
+                # QB2 paired-chip training: Llama-3.1-8B training runs on a single
+                # P300 card (2 chips: 0,1 or 2,3), mirroring the chat card-pair path.
+                # Resolve the target pair before allocating: the frontend sends it
+                # explicitly, but for callers that omit device_id (or pin a stray
+                # chip the p300 spec can't drive) we snap to the card pair containing
+                # the first requested slot, or auto-pick the first free pair.
+                if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
+                    occupied_slots = allocator._get_occupied_slots()
+                    if requested_device_ids:
+                        pair = [0, 1] if requested_device_ids[0] in (0, 1) else [2, 3]
+                        if sorted(set(requested_device_ids)) != pair:
+                            logger.info(
+                                "Normalizing training device_id=%s to P300 card pair "
+                                "%s for %s",
+                                requested_device_ids, pair, impl.model_name,
+                            )
+                    else:
+                        pair = next(
+                            (p for p in ([0, 1], [2, 3])
+                             if all(slot not in occupied_slots for slot in p)),
+                            None,
+                        )
+                        if pair is None:
+                            return Response(
+                                {
+                                    "status": "error",
+                                    "error_type": "allocation_failed",
+                                    "message": (
+                                        f"{impl.model_name} needs a free P300 card pair "
+                                        "(chips 0,1 or 2,3). Stop a running model first."
+                                    ),
+                                },
+                                status=status.HTTP_409_CONFLICT,
+                            )
+                    requested_device_ids = pair
+                    manual_device_id = pair[0]
                 if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
                     # Whole-board deploy (forced QB2 Llama, a single-chip model on a
                     # Wormhole mesh board, or a media model like FLUX with no single-chip

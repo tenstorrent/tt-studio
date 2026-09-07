@@ -353,6 +353,14 @@ def infer_inference_server_device(impl, board_type=None):
             device = board_device
     else:
         device = map_board_type_to_device_name(board_type)
+    # QB2 paired-chip training: Llama-3.1-8B training runs on a single P300 card
+    # (2 chips: device-id 0,1 or 2,3), not the constituent p150 chip or the whole
+    # p300x2 board. One card == --tt-device p300; the training runner then works on
+    # that 2-chip submesh instead of claiming all 4 chips. Mirrors the chat
+    # card-pair path in DeployView, and keeps the pre-pull image resolver (which
+    # calls this helper) in step with the device the deploy actually uses.
+    if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
+        device = "p300"
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
