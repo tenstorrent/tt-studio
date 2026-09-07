@@ -16,7 +16,6 @@ from shared_config.model_config import model_implmentations, _impl_selector
 from shared_config.external_model_config import build_external_model_impl
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
-from shared_config.user_config import get_tavily_api_key
 from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
@@ -667,35 +666,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         error_msg = f"Unexpected error in run_container: {str(e)}"
         logger.error(error_msg)
         return {"status": "error", "message": error_msg}
-
-def run_agent_container(container_name, port_bindings, impl):
-    # runs agent container after associated llm container runs
-    run_kwargs = copy.deepcopy(impl.docker_config)
-    host_agent_port = get_host_agent_port()
-    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
-
-    docker_client = get_docker_client()
-    docker_client.run_container(
-        image='agent_image:v1',
-        command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
-        name=f'ai_agent_container_p{llm_host_port}',
-        network='tt_studio_network',
-        ports={'8080/tcp': host_agent_port},
-        environment={
-            'TAVILY_API_KEY': get_tavily_api_key() or '',
-            'LLM_CONTAINER_NAME': container_name,
-            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
-            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
-        },
-        volumes={
-            backend_config.host_peristent_storage_volume: {
-                "bind": backend_config.persistent_storage_volume,
-                "mode": "ro",
-            },
-        },
-        detach=True
-    )
 
 def stop_container(container_id):
     """Stop and remove a specific docker container"""
