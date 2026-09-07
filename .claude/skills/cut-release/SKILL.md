@@ -37,7 +37,9 @@ python run.py --make-rc-branch minor    # or say it up front (also accepts vX.Y.
 Detects the latest release across tags, `rc-v*` branches, and `Rc vX.Y.Z (#N)`
 merge commits on main (they have drifted historically), cuts `rc-vX.Y.Z` from
 `origin/main`, pushes it, and opens the `Rc vX.Y.Z` PR against `main` with the
-release test-plan checklist. Relay the PR URL to the user.
+release test-plan checklist. Relay the PR URL to the user. One release at a
+time: while an untagged `rc-v*` branch exists on origin, the cut refuses and
+points at `--update-rc-branch` / `--merge-rc-branch` (or closing the stray RC).
 
 ## 2. Notes
 

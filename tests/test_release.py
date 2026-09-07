@@ -95,6 +95,8 @@ _LAST_RC_STATE = {
     ("branch", "-r"): _proc(stdout="  origin/dev\n  origin/rc-v2.9.0\n"),
     ("log", "origin/main"): _proc(stdout="Rc v2.9.1 (#1196)\nRc v2.9.0 (#1157)\n"),
     ("rev-parse", "--verify"): _proc(returncode=1),  # no local/remote rc for the new version
+    # rc-v2.9.0 shipped (its tag is on origin), so it is not an in-flight RC.
+    ("ls-remote", "--tags", "origin", "refs/tags/v2.9.0"): _proc(stdout="f00\trefs/tags/v2.9.0\n"),
     ("rev-parse", "origin/main"): _proc(stdout="feedc0de\n"),
     ("commit-tree",): _proc(stdout="cafe1234\n"),  # the empty marker commit
 }
@@ -144,6 +146,31 @@ class TestMakeRcBranch(unittest.TestCase):
              patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
             self.assertEqual(M.make_rc_branch("minor"), 1)
         self.assertNotIn("checkout", [c[0] for c in git.calls])
+
+    def test_in_flight_rc_refused_instead_of_bumping_past_it(self):
+        # First real run: a second `--make-rc-branch patch` cut rc-v2.10.3 on
+        # top of an unshipped rc-v2.10.2. An untagged rc-v* branch on origin is
+        # a release in progress — refuse, whatever bump was asked for.
+        responses = dict(_LAST_RC_STATE)
+        responses[("branch", "-r")] = _proc(stdout="  origin/dev\n  origin/rc-v2.10.2\n")
+        git = _Recorder(responses)  # no ls-remote hit for v2.10.2 → not tagged
+        gh = _Recorder()
+        with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.make_rc_branch("patch"), 1)
+            self.assertEqual(M.make_rc_branch("v3.0.0"), 1)
+        self.assertEqual(git.prefixes("commit-tree"), [])
+        self.assertEqual(git.prefixes("push"), [])
+        self.assertEqual(gh.prefixes("pr", "create"), [])
+
+    def test_shipped_rc_branch_does_not_block_the_next_cut(self):
+        # rc-v2.9.0 is still on origin but tagged → a normal minor bump proceeds.
+        git = _Recorder(_LAST_RC_STATE)
+        gh = _Recorder({("pr", "create"): _proc(stdout="https://github.com/x/pull/1\n")})
+        with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.make_rc_branch("minor"), 0)
+        self.assertIn(("push", "origin", "cafe1234:refs/heads/rc-v2.10.0"), git.calls)
 
     def test_existing_tag_refused(self):
         responses = dict(_LAST_RC_STATE)

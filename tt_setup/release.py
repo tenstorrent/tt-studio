@@ -290,6 +290,21 @@ def make_rc_branch(part_or_version):
     if code is not None:
         return code
 
+    # One release at a time: an rc-v* branch on origin that hasn't shipped (no
+    # tag) is a release in progress. Refuse rather than bump past it — that was
+    # the first-run surprise where a repeated cut produced rc-v2.10.3.
+    in_flight, in_flight_branch = _current_rc_branch()
+    if in_flight and not _tag_on_origin(in_flight):
+        return _fail_panel(
+            f"⛔ Release candidate {in_flight} is already in progress ('{in_flight_branch}' is on origin)",
+            [
+                "Finish it first: cherry-pick with [info]python run.py --update-rc-branch[/info], "
+                "ship with [info]python run.py --merge-rc-branch[/info].",
+                f"If it was cut by mistake, close its PR and delete the branch: "
+                f"[info]gh pr close {in_flight_branch} --delete-branch[/info]",
+            ],
+        )
+
     version, code = _resolve_new_version(part_or_version, _last_rc_version())
     if version is None:
         return code
