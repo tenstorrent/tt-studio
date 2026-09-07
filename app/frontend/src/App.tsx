@@ -3,6 +3,7 @@
 import "./App.css";
 
 import { ThemeProvider } from "./providers/ThemeProvider";
+import { TourProvider } from "./providers/TourProvider";
 import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
@@ -24,16 +25,18 @@ function App() {
   return (
     <>
       <ThemeProvider>
-        <QueryClientProvider client={client}>
-          <HeroSectionProvider>
-            <FooterVisibilityProvider>
-              <ActiveDeploymentsProvider>
-                <AppRouter />
-              </ActiveDeploymentsProvider>
-            </FooterVisibilityProvider>
-          </HeroSectionProvider>
-        </QueryClientProvider>
-        <CustomToaster />
+        <TourProvider>
+          <QueryClientProvider client={client}>
+            <HeroSectionProvider>
+              <FooterVisibilityProvider>
+                <ActiveDeploymentsProvider>
+                  <AppRouter />
+                </ActiveDeploymentsProvider>
+              </FooterVisibilityProvider>
+            </HeroSectionProvider>
+          </QueryClientProvider>
+          <CustomToaster />
+        </TourProvider>
       </ThemeProvider>
       {/* Development toolbar commented out - remove if not needed
       {import.meta.env.DEV && (
