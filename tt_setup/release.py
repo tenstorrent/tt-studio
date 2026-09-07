@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from tt_setup.cleanup import _parse_picker_selection
 from tt_setup.console import ask, confirm, console, notice_panel, step
@@ -34,11 +35,18 @@ _BUMP_PARTS = ("major", "minor", "patch")
 _VERSION_RE = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
 _ACTIONS_URL = "https://github.com/tenstorrent/tt-studio/actions/workflows/publish-images.yml"
 
+# None of the release flags ever switch the user's checkout: the RC branch is
+# created from plumbing commands and cherry-picked inside a throwaway worktree.
+# That matters because the RC is cut from main, which (until this tooling has
+# itself shipped) doesn't carry these flags — switching in place would make
+# the next `--update-rc-branch` an unknown option.
 
-def _git(*argv):
-    """Run git in the repo root with output captured (surfaced only on failure)."""
+
+def _git(*argv, cwd=None):
+    """Run git (in the repo root, or `cwd`) with output captured — surfaced
+    only on failure."""
     return subprocess.run(
-        ["git", "-C", TT_STUDIO_ROOT, *argv],
+        ["git", "-C", cwd or TT_STUDIO_ROOT, *argv],
         capture_output=True, text=True, check=False,
     )
 
@@ -153,29 +161,6 @@ def render_release_body(version, generated_notes):
 
 
 # --- shared guards ------------------------------------------------------------
-
-def _guard_clean_worktree(rerun_hint):
-    """None when the checkout is clean; an exit code (int) after an error panel
-    otherwise. Same rules as --switch: uncommitted work blocks branch surgery."""
-    dirty = _git("status", "--porcelain", "--untracked-files=no")
-    if dirty.returncode != 0:
-        return _fail_panel(
-            "⛔ Couldn't inspect this checkout",
-            ["[muted]git wasn't able to report the working-tree state:[/muted]",
-             _proc_output(dirty)],
-        )
-    if dirty.stdout.strip():
-        return _fail_panel(
-            "⛔ Your tt-studio checkout has local changes — can't touch release branches",
-            [
-                "Release branch operations switch branches and would clobber uncommitted work.",
-                "",
-                "[bold]Fix →[/bold]  commit or stash your changes ([info]git status[/info] shows them),",
-                f"then re-run  [info]python run.py {rerun_hint}[/info]",
-            ],
-        )
-    return None
-
 
 def _preflight_gh():
     """None when `gh` is present and logged in; an exit code after a panel
@@ -293,10 +278,11 @@ def _warn_if_qb2_enabled():
 
 def make_rc_branch(part_or_version):
     """Cut `rc-vX.Y.Z` from origin/main and open the "Rc vX.Y.Z" PR against
-    main with the release test plan. Returns a process exit code."""
-    code = _guard_clean_worktree("--make-rc-branch")
-    if code is not None:
-        return code
+    main with the release test plan. Returns a process exit code.
+
+    The branch starts with one empty marker commit on top of main: GitHub
+    refuses to open a PR between identical branches, and the first cherry-pick
+    only lands later via --update-rc-branch. The squash-merge folds it away."""
     code = _preflight_gh()
     if code is not None:
         return code
@@ -323,9 +309,17 @@ def make_rc_branch(part_or_version):
 
     branch_error = ""
     with step(f"Cutting {branch} from origin/main") as s:
-        result = _git("checkout", "-B", branch, "origin/main")
+        result = _git("rev-parse", "origin/main")
+        base = result.stdout.strip()
         if result.returncode == 0:
-            result = _git("push", "-u", "origin", branch)
+            # Plumbing only — the user's checkout stays on whatever branch it was.
+            result = _git("commit-tree", f"{base}^{{tree}}", "-p", base, "-m",
+                          f"Rc {version}: open release candidate\n\n"
+                          "Empty marker commit so the RC pull request can be opened "
+                          "before the first cherry-pick from dev lands.")
+        marker = result.stdout.strip()
+        if result.returncode == 0:
+            result = _git("push", "origin", f"{marker}:refs/heads/{branch}")
         if result.returncode != 0:
             branch_error = _proc_output(result)
             s.fail()
@@ -355,7 +349,8 @@ def make_rc_branch(part_or_version):
     console.print(notice_panel(
         f"[bold]✅ Release candidate {version} is cut[/bold]",
         [
-            f"Branch [info]{branch}[/info] (you are now on it) · PR: [info]{pr_url}[/info]",
+            f"Branch [info]{branch}[/info] is on origin · PR: [info]{pr_url}[/info]",
+            "[muted]Your checkout wasn't switched — keep running the release flags from here.[/muted]",
             "",
             "[bold]Next →[/bold]  cherry-pick validated fixes from dev with "
             "[info]python run.py --update-rc-branch[/info],",
@@ -399,10 +394,10 @@ def _pick_commits_interactively(candidates):
 
 def update_rc_branch():
     """Cherry-pick new dev commits into the current rc-vX.Y.Z branch.
-    Returns a process exit code."""
-    code = _guard_clean_worktree("--update-rc-branch")
-    if code is not None:
-        return code
+    Returns a process exit code.
+
+    The picks happen in a temporary `git worktree` of origin/<rc-branch>, so
+    the user's checkout (and any uncommitted work in it) is never touched."""
     code = _preflight_gh()
     if code is not None:
         return code
@@ -416,17 +411,6 @@ def update_rc_branch():
             "⛔ No rc-v* branch found on origin",
             ["Cut one first with [info]python run.py --make-rc-branch[/info]."],
         )
-
-    checkout_error = ""
-    with step(f"Switching to {branch}") as s:
-        result = _git("checkout", branch)
-        if result.returncode == 0:
-            result = _git("pull", "--ff-only", "origin", branch)
-        if result.returncode != 0:
-            checkout_error = _proc_output(result)
-            s.fail()
-    if checkout_error:
-        return _fail_panel(f"⛔ Couldn't switch to '{branch}'", ["", checkout_error])
 
     # --cherry-pick drops commits whose patch already landed on the RC (dev is
     # squash-merged, and cherry-picks preserve the patch, so patch-id matching
@@ -457,23 +441,44 @@ def update_rc_branch():
     if picked is None:
         return 0
 
+    worktree = tempfile.mkdtemp(prefix="tt-studio-rc-")
+    try:
+        return _cherry_pick_in_worktree(worktree, branch, picked)
+    finally:
+        _git("worktree", "remove", "--force", worktree)
+        shutil.rmtree(worktree, ignore_errors=True)
+
+
+def _cherry_pick_in_worktree(worktree, branch, picked):
+    """Apply `picked` (sha, subject) pairs onto origin/<branch> inside the
+    detached worktree at `worktree`, then push. Returns an exit code."""
+    wt_error = ""
+    with step(f"Preparing a scratch worktree of {branch}") as s:
+        result = _git("worktree", "add", "--detach", worktree, f"origin/{branch}")
+        if result.returncode != 0:
+            wt_error = _proc_output(result)
+            s.fail()
+    if wt_error:
+        return _fail_panel(f"⛔ Couldn't check out '{branch}' into a scratch worktree",
+                           ["", wt_error])
+
     for sha, subject in picked:
         pick_error = ""
         with step(f"Cherry-picking {sha} {subject}") as s:
-            result = _git("cherry-pick", sha)
+            result = _git("cherry-pick", sha, cwd=worktree)
             if result.returncode != 0:
                 pick_error = _proc_output(result)
-                _git("cherry-pick", "--abort")
+                _git("cherry-pick", "--abort", cwd=worktree)
                 s.fail()
         if pick_error:
             return _fail_panel(
-                f"⛔ Cherry-pick of {sha} hit a conflict — it was rolled back",
+                f"⛔ Cherry-pick of {sha} hit a conflict — the RC was left unchanged",
                 [
                     f"[muted]{subject}[/muted]",
                     "",
-                    "Commits picked before this one are applied locally but NOT pushed.",
-                    f"[bold]Fix →[/bold]  resolve it manually: [info]git cherry-pick {sha}[/info], "
-                    "fix the conflicts, then",
+                    "Nothing was pushed (earlier picks in this run were discarded with the scratch worktree).",
+                    f"[bold]Fix →[/bold]  resolve it by hand: [info]git checkout {branch}[/info], "
+                    f"[info]git cherry-pick {sha}[/info], fix the conflicts, then",
                     f"[info]git cherry-pick --continue[/info] and [info]git push origin {branch}[/info].",
                     "", pick_error,
                 ],
@@ -481,7 +486,7 @@ def update_rc_branch():
 
     push_error = ""
     with step(f"Pushing {branch}") as s:
-        result = _git("push", "origin", branch)
+        result = _git("push", "origin", f"HEAD:refs/heads/{branch}", cwd=worktree)
         if result.returncode != 0:
             push_error = _proc_output(result)
             s.fail()
@@ -518,9 +523,6 @@ def merge_rc_branch():
     images), and create the GitHub release. Returns a process exit code."""
     import json
 
-    code = _guard_clean_worktree("--merge-rc-branch")
-    if code is not None:
-        return code
     code = _preflight_gh()
     if code is not None:
         return code

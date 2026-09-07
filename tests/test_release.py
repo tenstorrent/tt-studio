@@ -95,6 +95,8 @@ _LAST_RC_STATE = {
     ("branch", "-r"): _proc(stdout="  origin/dev\n  origin/rc-v2.9.0\n"),
     ("log", "origin/main"): _proc(stdout="Rc v2.9.1 (#1196)\nRc v2.9.0 (#1157)\n"),
     ("rev-parse", "--verify"): _proc(returncode=1),  # no local/remote rc for the new version
+    ("rev-parse", "origin/main"): _proc(stdout="feedc0de\n"),
+    ("commit-tree",): _proc(stdout="cafe1234\n"),  # the empty marker commit
 }
 
 
@@ -106,13 +108,18 @@ def _with_gh(test):
 # --- make_rc_branch -----------------------------------------------------------
 
 class TestMakeRcBranch(unittest.TestCase):
-    def test_refuses_dirty_worktree_before_anything_else(self):
-        git = _Recorder({("status",): _proc(stdout=" M run.py\n")})
-        gh = _Recorder()
-        with patch.object(M, "_git", git), patch.object(M, "_gh", gh):
-            self.assertEqual(M.make_rc_branch("minor"), 1)
-        self.assertEqual([c[0] for c in git.calls], ["status"])
-        self.assertEqual(gh.calls, [])
+    def test_never_switches_the_users_checkout(self):
+        # The RC is cut from main, which doesn't carry these flags until the
+        # tooling itself ships — so a dirty tree is fine and no checkout happens.
+        responses = dict(_LAST_RC_STATE)
+        responses[("status",)] = _proc(stdout=" M run.py\n")
+        git = _Recorder(responses)
+        gh = _Recorder({("pr", "create"): _proc(stdout="https://github.com/x/pull/1\n")})
+        with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.make_rc_branch("minor"), 0)
+        self.assertNotIn("checkout", [c[0] for c in git.calls])
+        self.assertNotIn("switch", [c[0] for c in git.calls])
 
     def test_missing_gh_is_a_clean_failure(self):
         git = _Recorder()
@@ -164,12 +171,29 @@ class TestMakeRcBranch(unittest.TestCase):
         with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
              patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
             self.assertEqual(M.make_rc_branch("minor"), 0)
-        self.assertIn(("checkout", "-B", "rc-v2.10.0", "origin/main"), git.calls)
-        self.assertIn(("push", "-u", "origin", "rc-v2.10.0"), git.calls)
+        self.assertIn(("push", "origin", "cafe1234:refs/heads/rc-v2.10.0"), git.calls)
         pr_create = gh.prefixes("pr", "create")
         self.assertEqual(len(pr_create), 1)
         self.assertIn("Rc v2.10.0", pr_create[0])
         self.assertIn("main", pr_create[0])
+
+    def test_branch_starts_with_an_empty_marker_commit_so_the_pr_can_open(self):
+        # GitHub rejects a PR between identical branches ("No commits between
+        # main and rc-vX.Y.Z"), so the cut must push one commit ahead of main.
+        git = _Recorder(_LAST_RC_STATE)
+        gh = _Recorder({("pr", "create"): _proc(stdout="https://github.com/x/pull/1\n")})
+        with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.make_rc_branch("minor"), 0)
+        tree = git.prefixes("commit-tree")
+        self.assertEqual(len(tree), 1)
+        self.assertEqual(tree[0][:4], ("commit-tree", "feedc0de^{tree}", "-p", "feedc0de"))
+        self.assertIn("Rc v2.10.0", tree[0][5])
+        push = ("push", "origin", "cafe1234:refs/heads/rc-v2.10.0")
+        self.assertLess(git.calls.index(tree[0]), git.calls.index(push))
+        # The marker is pushed before the PR is requested.
+        self.assertIn(push, git.calls)
+        self.assertEqual(len(gh.prefixes("pr", "create")), 1)
 
     def test_bare_flag_prompts_for_part(self):
         git = _Recorder(_LAST_RC_STATE)
@@ -181,7 +205,7 @@ class TestMakeRcBranch(unittest.TestCase):
             from tt_setup.constants import _RC_BUMP_PICKER
             self.assertEqual(M.make_rc_branch(_RC_BUMP_PICKER), 0)
         asked.assert_called_once()
-        self.assertIn(("checkout", "-B", "rc-v2.9.2", "origin/main"), git.calls)
+        self.assertIn(("push", "origin", "cafe1234:refs/heads/rc-v2.9.2"), git.calls)
 
     def test_garbage_value_is_rejected(self):
         git = _Recorder(_LAST_RC_STATE)
@@ -225,12 +249,19 @@ class TestUpdateRcBranch(unittest.TestCase):
              patch("sys.stdin.isatty", return_value=True), \
              patch.object(M, "ask", return_value="all"):
             self.assertEqual(M.update_rc_branch(), 0)
-        self.assertIn(("checkout", "rc-v2.10.0"), git.calls)
-        self.assertIn(("pull", "--ff-only", "origin", "rc-v2.10.0"), git.calls)
+        # Work happens in a scratch worktree of origin/<rc>, never in the checkout.
+        self.assertNotIn("checkout", [c[0] for c in git.calls])
+        adds = git.prefixes("worktree", "add")
+        self.assertEqual(len(adds), 1)
+        self.assertEqual(adds[0][2], "--detach")
+        self.assertEqual(adds[0][4], "origin/rc-v2.10.0")
         # Applied oldest-first, in the order git listed them.
         picks = git.prefixes("cherry-pick")
         self.assertEqual(picks, [("cherry-pick", "abc123"), ("cherry-pick", "def456")])
-        self.assertIn(("push", "origin", "rc-v2.10.0"), git.calls)
+        self.assertIn(("push", "origin", "HEAD:refs/heads/rc-v2.10.0"), git.calls)
+        removes = git.prefixes("worktree", "remove")
+        self.assertEqual(len(removes), 1)
+        self.assertEqual(removes[0][3], adds[0][3])  # same scratch path
 
     def test_subset_selection_only_picks_chosen(self):
         git = _Recorder(self._base({
@@ -255,7 +286,21 @@ class TestUpdateRcBranch(unittest.TestCase):
              patch.object(M, "ask", return_value="all"):
             self.assertEqual(M.update_rc_branch(), 1)
         self.assertIn(("cherry-pick", "--abort"), git.calls)
-        self.assertNotIn(("push", "origin", "rc-v2.10.0"), git.calls)
+        self.assertNotIn("push", [c[0] for c in git.calls])
+        self.assertEqual(len(git.prefixes("worktree", "remove")), 1)  # scratch cleaned up
+
+    def test_worktree_cleanup_also_runs_when_the_worktree_cannot_be_created(self):
+        git = _Recorder(self._base({
+            ("log", "--cherry-pick"): _proc(stdout="abc123 fix: one\n"),
+            ("worktree", "add"): _proc(returncode=1, stderr="fatal: nope"),
+        }))
+        with patch.object(M, "_git", git), patch.object(M, "_gh", _Recorder()), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"), \
+             patch("sys.stdin.isatty", return_value=True), \
+             patch.object(M, "ask", return_value="all"):
+            self.assertEqual(M.update_rc_branch(), 1)
+        self.assertNotIn("cherry-pick", [c[0] for c in git.calls])
+        self.assertEqual(len(git.prefixes("worktree", "remove")), 1)
 
     def test_non_tty_with_candidates_fails_cleanly(self):
         git = _Recorder(self._base({

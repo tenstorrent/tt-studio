@@ -18,7 +18,10 @@ something is off — prefer them over hand-rolled git/gh sequences.
 ## 0. Preflight
 
 - These flags need the GitHub CLI: `gh auth status` must pass with push access.
-- The checkout must be clean (`git status`); the flags refuse dirty worktrees.
+- The flags never switch your checkout (the RC is created with plumbing and
+  cherry-picked in a scratch worktree), so run them from any branch — including
+  a dirty one. Stay on a branch that has the flags; `main` doesn't until this
+  tooling ships.
 - Figure out which stage the user is at and jump to it:
   - no RC branch yet → **Cut**
   - RC exists, fixes landed on dev → **Stabilize**
