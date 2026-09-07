@@ -1210,9 +1210,43 @@ class DeploymentProgressView(APIView):
                     },
                     status=status.HTTP_200_OK,
                 )
-            # Still parked at "starting" with nobody driving it: the pull died. Free
-            # the chip slot it reserved, otherwise the board reads as in use forever
-            # and the next deploy is blocked by a phantom.
+            # Still parked at "starting" with nobody driving it: the pull may have died.
+            # However, a missing pull record can also be transient (e.g. persistent-store
+            # hiccup or degraded per-process fallback). Only free the reserved slot once
+            # the placeholder is clearly stale.
+            try:
+                import time
+                from docker_control import image_pull_store as pull_store
+
+                deployed_at = getattr(placeholder, "deployed_at", None)
+                started_ts = deployed_at.timestamp() if deployed_at else None
+                if started_ts and (time.time() - started_ts) < pull_store.STALL_AFTER_SECONDS:
+                    return Response(
+                        {
+                            "status": "not_found",
+                            "stage": "pulling_image",
+                            "progress": 0,
+                            "message": (
+                                "Pull progress is temporarily unavailable; continuing to track it."
+                            ),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+            except Exception:
+                # If we cannot determine staleness, err on the side of not killing the placeholder.
+                return Response(
+                    {
+                        "status": "not_found",
+                        "stage": "pulling_image",
+                        "progress": 0,
+                        "message": (
+                            "Pull progress is temporarily unavailable; continuing to track it."
+                        ),
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            # Pull is old enough to be considered dead: release its reserved chip slot.
             try:
                 placeholder.status = "stopped"
                 placeholder.save()
