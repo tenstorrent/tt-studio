@@ -227,6 +227,9 @@ export const runInference = async (
         top_p: request.top_p,
         max_tokens: request.max_tokens,
         ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
+        ...(request.chat_template_kwargs
+          ? { chat_template_kwargs: request.chat_template_kwargs }
+          : {}),
         stream: true,
         stream_options: {
           include_usage: true,
