@@ -45,8 +45,10 @@ services via `host.docker.internal`. Health checks: backend `GET /up/` and
 
 ```bash
 python run.py                 # full setup + start (venv, .env, artifact, Docker)
+python run.py run <model>     # setup + start + deploy <model> in one step, from the terminal (stage progress + endpoint shown; --browser to deploy via the web UI instead; omit <model> to pick interactively; --device-id 0 or --device-id 0,1 to pin chips)
 python run.py --dev           # dev mode: hot-reload frontend & backend, mount source
 python run.py --stop          # stop containers, keep the persistent volume
+python run.py --stop-model    # stop one deployed model + reset its chip(s); bare flag opens a picker, or pass a name
 python run.py --purge-all     # wipe containers, volumes, HF-cached models and .env
 python run.py --purge-model   # uninstall specific model(s); bare flag opens a picker
 python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
