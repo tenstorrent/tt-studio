@@ -588,6 +588,11 @@ def merge_rc_branch():
             ["If the release itself is missing, create it from the tag: "
              f"[info]gh release create {version} --verify-tag[/info]"],
         )
+    if _ref_exists(f"refs/tags/{version}"):
+        return _fail_panel(
+            f"⛔ Tag '{version}' already exists locally — not overwriting it",
+            [f"Delete it and retry:  [info]git tag -d {version}[/info]"],
+        )
 
     view = _gh("pr", "view", branch, "--json",
                "number,url,state,reviewDecision,statusCheckRollup")
