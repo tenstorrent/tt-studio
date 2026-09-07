@@ -515,14 +515,22 @@ export default function StepperDemo() {
 
       if (
         axios.isAxiosError(error) &&
-        error.response?.status === 400 &&
-        error.response?.data?.error_code === "hf_access_denied"
+        error.response?.status === 400
       ) {
-        const { message, hf_url } = error.response.data;
-        customToast.error(
-          `${message} Open ${hf_url} to request access.`,
-        );
-        return { success: false };
+        if (error.response?.data?.error_code === "hf_access_denied") {
+          const { message, hf_url } = error.response.data;
+          customToast.error(
+            `${message} Open ${hf_url} to request access.`,
+          );
+          return { success: false };
+        }
+        if (error.response?.data?.error_code === "hf_model_not_found") {
+          const { message } = error.response.data;
+          customToast.error(
+            message || "The requested Hugging Face model repository could not be found.",
+          );
+          return { success: false };
+        }
       }
 
       // Check if this is a chip allocation conflict error
@@ -797,11 +805,10 @@ export default function StepperDemo() {
                   setShowHardwareConfig((v: boolean) => !v);
                   if (showHardwareConfig) setSelectedDeviceIds([]);
                 }}
-                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${
-                  showHardwareConfig
+                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${showHardwareConfig
                     ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
                 <span>Advanced device configuration</span>
