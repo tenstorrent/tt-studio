@@ -92,9 +92,16 @@ def resolve_backend_port(configured_port=None):
     """
     if configured_port is None:
         configured_port = get_backend_port()
-    if check_port_available(configured_port) or _port_published_by_backend(configured_port):
+
+    configured_ok = (
+        configured_port not in RESERVED_SERVICE_PORTS
+        and (check_port_available(configured_port) or _port_published_by_backend(configured_port))
+    )
+    if configured_ok:
         return configured_port, False
-    port = find_available_port(configured_port + 1)
+
+    start = configured_port if configured_port in RESERVED_SERVICE_PORTS else configured_port + 1
+    port = find_available_port(start)
     if port is None:
         return configured_port, False
     return port, True
