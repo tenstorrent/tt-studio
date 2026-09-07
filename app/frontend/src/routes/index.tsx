@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -28,12 +28,23 @@ function FirstRunGuard({ children }: { children: React.ReactNode }) {
     retry: 0,
   });
 
+  // `python run.py run <model>` opens the app with ?auto-deploy=<model>. The CLI
+  // has already dealt with credentials on its side, and bouncing to /welcome here
+  // would drop the query string and swallow the deploy. Skip the first-run guide
+  // for that page session — the auto-deploy handler rewrites the URL to
+  // ?resume=<id> once the job is fired, so the decision has to be sticky.
+  const cliLaunchRef = useRef(false);
+  if (new URLSearchParams(location.search).has("auto-deploy")) {
+    cliLaunchRef.current = true;
+  }
+
   useEffect(() => {
     if (!data) return;
+    if (cliLaunchRef.current) return;
     if (!data.setup_complete && location.pathname !== "/welcome") {
       navigate("/welcome", { replace: true });
     }
-  }, [data, location.pathname, navigate]);
+  }, [data, location.pathname, location.search, navigate]);
 
   return <>{children}</>;
 }

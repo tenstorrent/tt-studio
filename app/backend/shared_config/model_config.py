@@ -138,6 +138,19 @@ class ModelImpl:
             for _key, _value in training_job_env.items():
                 self.docker_config["environment"].setdefault(_key, _value)
 
+        # Whisper is trained on 30-second windows. Left unset, the media server
+        # sizes its internal audio chunks by worker count and drops to 3s on an
+        # 8+ worker box, which costs accuracy and invites hallucination. Pinning
+        # the window here rather than in the catalog keeps it through a
+        # sync_models_from_inference_server run, which rewrites env_vars.
+        if self.model_type == ModelTypes.SPEECH_RECOGNITION:
+            speech_recognition_env = {
+                "AUDIO_CHUNK_DURATION_SECONDS": "30",
+                "AUDIO_LANGUAGE": "English",
+            }
+            for _key, _value in speech_recognition_env.items():
+                self.docker_config["environment"].setdefault(_key, _value)
+
         # model env file must be interpreted here
         if not self.env_file:
             _env_file = self.get_model_env_file()

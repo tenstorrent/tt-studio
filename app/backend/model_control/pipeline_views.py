@@ -8,6 +8,7 @@ Accepts multipart/form-data and streams SSE events to the client.
 
 import base64
 import json
+import re
 import time
 
 import requests
@@ -110,6 +111,10 @@ class VoicePipelineView(APIView):
                 "messages": messages,
                 "stream": True,
                 "max_tokens": 512,
+                # Spoken replies must be fast and speakable: keep reasoning models
+                # (Qwen3 / Qwen3.5) from thinking out loud. Templates without the
+                # flag ignore it.
+                "chat_template_kwargs": {"enable_thinking": False},
             }
 
             llm_full_text = ""
@@ -151,6 +156,12 @@ class VoicePipelineView(APIView):
             metrics["llm_ttfb_ms"] = round((llm_first_chunk_time - llm_start) * 1000) if llm_first_chunk_time else 0
             metrics["llm_total_ms"] = round((llm_end - llm_start) * 1000)
             metrics["llm_tokens"] = llm_chunk_count
+            # Belt and braces: if the model still emitted a reasoning block, never
+            # send it to TTS. Qwen-style templates open <think> in the prompt, so
+            # the stream may carry only the closing tag.
+            llm_full_text = re.sub(r"<think>.*?</think>", "", llm_full_text, flags=re.S)
+            llm_full_text = re.sub(r"^.*?</think>", "", llm_full_text, flags=re.S)
+            llm_full_text = re.sub(r"<think>.*$", "", llm_full_text, flags=re.S)
 
             # ------------------------------------------------------------------
             # Step 3: TTS (optional)
