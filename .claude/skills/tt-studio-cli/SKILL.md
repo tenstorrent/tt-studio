@@ -22,6 +22,10 @@ deprecated.
 > Read this before touching the launcher. For the terminal-output design system
 > specifically, `dev-docs/launcher-terminal-design.md` is the canonical reference —
 > this skill covers the broader "how the launcher is built and how we like CLIs."
+>
+> This skill is TT-Studio-specific — it names real paths, modules and hardware in
+> this repo. The same design language with nothing repo-specific in it, plus runnable
+> reference files, is the **`cli-design`** skill; use that one for any other CLI.
 
 ## Architecture
 
@@ -39,7 +43,7 @@ The package is split into focused **subpackages**, each with an `__init__.py` th
 | Inference-server artifact | `inference_server/` (`_catalog`, `_config`, `_env`, `_git`, `_metadata`, `_privileges`, `_orchestrator`) |
 | Stop / purge teardown | `cleanup/` (`_runtime`, `_orchestrate`, `_resource_ops`) |
 | Docker build/failure diag | `docker_diag/` (`_build_progress`, `_diagnostics`) |
-| Standalone modules | `bootstrap.py`, `shell.py`, `startup_checks.py`, `docker.py`, `constants.py`, `logging.py`, `monitor.py`/`monitor_app.py` (`--status` TUI), `bug_report.py` (`--report-bug`), `shortcut.py` (`--install-shortcut`), `spdx.py`, `settings.py`, `venv_utils.py` |
+| Standalone modules | `bootstrap.py`, `shell.py`, `startup_checks.py`, `docker.py`, `constants.py`, `logging.py`, `monitor.py`/`monitor_app.py` (`--status` TUI), `bug_report.py` (`--report-bug`), `shortcut.py` (`--install-shortcut`), `switch.py` (`--switch`), `image_source.py` (prebuilt-vs-local image choice), `config_store.py`, `spdx.py`, `settings.py`, `venv_utils.py` |
 
 **The re-export rule.** A package's `__init__.py` imports and re-exports the names
 its submodules define, so `from tt_setup.console import step` and
