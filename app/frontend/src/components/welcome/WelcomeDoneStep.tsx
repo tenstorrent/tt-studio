@@ -31,8 +31,9 @@ export default function WelcomeDoneStep({ onFinish, isFinishing }: Props) {
       <div>
         <h2 className="text-2xl font-semibold">You're all set</h2>
         <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
-          Secrets are saved on the server. You won't see this welcome again on
-          this machine. Edit anything later from the gear icon in the navbar.
+          Your settings are saved on the server, and you won't see this welcome
+          again on this machine. Edit anything later from the gear icon in the
+          navbar.
         </p>
       </div>
 

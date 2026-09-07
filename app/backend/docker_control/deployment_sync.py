@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 
 _FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 _POLL_INTERVAL_SECONDS = 5
-_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+_NO_PROGRESS_TIMEOUT_SECONDS = 5 * 60 * 60  # mirrors DEPLOYMENT_TIMEOUT_SECONDS
 
 
 def _classify_failure(message: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -60,6 +60,24 @@ _active_syncs_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 # Internal sync logic
 # ---------------------------------------------------------------------------
+
+def _warn_if_resurrecting_reaped(dep, job_id: str) -> None:
+    """Log loudly when a completing job's record was already reconciled to 'stopped'.
+
+    A job that completes successfully should have been 'starting' the whole way
+    through. Finding it 'stopped' (and not stopped by the user) means the canonical
+    reconciler reaped it while it was still running, freeing its chip slots — the
+    failure mode _heartbeat_starting_record exists to prevent. Silently flipping it
+    back to 'running' is what let this hide in production, so make it audible.
+    """
+    if dep.status == "stopped" and not getattr(dep, "stopped_by_user", False):
+        logger.warning(
+            f"[deployment_sync] Resurrecting reaped deployment {job_id} "
+            f"({dep.model_name}): the record was reconciled to 'stopped' while its "
+            f"job was still running, so its chip slots were free during the deploy. "
+            f"This should not happen — the starting-record heartbeat has regressed."
+        )
+
 
 def _do_sync(job_id: str, progress_data: dict) -> None:
     """Apply a FastAPI progress update to the corresponding ModelDeployment record.
@@ -98,6 +116,7 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 )
                 return
             if real_container_id:
+                _warn_if_resurrecting_reaped(dep, job_id)
                 dep.container_id = real_container_id
                 if real_container_name:
                     dep.container_name = real_container_name
@@ -138,13 +157,40 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
         logger.warning(f"[deployment_sync] _do_sync failed for job {job_id}: {e}")
 
 
+def _heartbeat_starting_record(job_id: str) -> None:
+    """Refresh a live job's placeholder record so the canonical reconciler leaves it alone.
+
+    get_canonical_deployments() reaps a 'starting' record once it is older than
+    _CANONICAL_STARTING_GRACE_SECONDS with no matching Docker container. For a chat
+    deploy that condition holds for the whole host-side weights download — the record's
+    container_id is a FastAPI job id, and run.py only creates the container after
+    `hf download` finishes. Without this heartbeat the record is reaped ~60s in, the
+    chip slots are freed while the deploy is still running, and a second deploy can be
+    admitted onto a busy board.
+
+    Only 'starting' records are touched: once deployment_sync swaps in the real
+    container_id and flips to 'running', Docker itself is the liveness signal.
+    """
+    from django.utils import timezone as dj_timezone
+    from docker_control.models import ModelDeployment
+
+    try:
+        dep = ModelDeployment.objects.filter(container_id=job_id).first()
+        if dep is not None and dep.status == "starting":
+            dep.deployed_at = dj_timezone.now()
+            dep.save()
+    except Exception as e:
+        logger.debug(f"[deployment_sync] heartbeat failed for job {job_id}: {e}")
+
+
 def _poll_and_sync(job_id: str) -> None:
     """Background thread body: poll FastAPI until the job reaches a terminal state."""
-    deadline = time.time() + _SYNC_TIMEOUT_SECONDS
+    last_progress_at = time.time()
+    last_reported_update = 0.0
     logger.info(f"[deployment_sync] Started sync thread for job {job_id}")
 
     try:
-        while time.time() < deadline:
+        while time.time() - last_progress_at < _NO_PROGRESS_TIMEOUT_SECONDS:
             try:
                 resp = _requests.get(
                     f"{_FASTAPI_BASE_URL}/run/progress/{job_id}",
@@ -166,7 +212,18 @@ def _poll_and_sync(job_id: str) -> None:
                         )
                         return
 
-                    # Still running / starting / retrying — keep polling
+                    # Non-terminal: the job is alive, so keep its placeholder record
+                    # fresh. 'stalled' counts as alive — run.py emits nothing while a
+                    # single multi-GB weight shard downloads, which is precisely the
+                    # window the reconciler used to reap.
+                    _heartbeat_starting_record(job_id)
+
+                    # Only genuine forward progress resets the give-up clock.
+                    reported = progress.get("last_updated")
+                    if isinstance(reported, (int, float)) and reported > last_reported_update:
+                        last_reported_update = reported
+                        last_progress_at = time.time()
+
                     logger.debug(
                         f"[deployment_sync] Job {job_id} status={status}; will poll again in "
                         f"{_POLL_INTERVAL_SECONDS}s"
@@ -179,10 +236,10 @@ def _poll_and_sync(job_id: str) -> None:
 
             time.sleep(_POLL_INTERVAL_SECONDS)
 
-        # Timeout reached
+        # No forward progress for the whole timeout window — treat as wedged.
         logger.warning(
-            f"[deployment_sync] Job {job_id} sync timed out after "
-            f"{_SYNC_TIMEOUT_SECONDS // 60} minutes; marking stopped"
+            f"[deployment_sync] Job {job_id} made no progress for "
+            f"{_NO_PROGRESS_TIMEOUT_SECONDS // 60} minutes; marking stopped"
         )
         _do_sync(job_id, {"status": "timeout"})
 

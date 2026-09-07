@@ -42,6 +42,9 @@ export interface StartupPhase {
   phases?: string[];
   phase_labels?: Record<string, string>;
   phase_base_pct?: Record<string, number>;
+  // Server-computed seconds since the deploy started; anchors the warmup
+  // clock so it survives page refreshes.
+  elapsed_seconds?: number | null;
 }
 
 interface HealthBadgeProps {

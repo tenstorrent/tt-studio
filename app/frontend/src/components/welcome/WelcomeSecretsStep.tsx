@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, ExternalLink, Eye, EyeOff, Lock } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Eye, EyeOff } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -12,7 +12,6 @@ import type { SettingsResponse } from "../../api/settingsApi";
 
 export interface WelcomeSecrets {
   hf_token: string;
-  tavily_api_key: string;
 }
 
 interface Props {
@@ -90,22 +89,19 @@ export default function WelcomeSecretsStep({
   isSaving,
 }: Props) {
   const loading = !current;
-  const jwtMasked = current?.jwt_secret.masked;
-  const ttsMasked = current?.tts_api_key.masked;
-  const artifact = current?.artifact;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-5"
+      className="space-y-5 text-left"
     >
       <div>
-        <h2 className="text-2xl font-semibold">Set your secrets</h2>
+        <h2 className="text-2xl font-semibold">Add your Hugging Face token</h2>
         <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-          All values persist on the server. Leave a field blank to skip it for
-          now or keep the existing value.
+          The token is stored on the server. Leave it blank to set it up later
+          or to keep the existing value.
         </p>
       </div>
 
@@ -126,7 +122,7 @@ export default function WelcomeSecretsStep({
           )}
         />
         <p className="text-xs text-stone-500">
-          Required to download gated models.{" "}
+          Speeds up model weight downloads and unlocks gated models.{" "}
           <a
             href="https://huggingface.co/settings/tokens"
             target="_blank"
@@ -138,78 +134,22 @@ export default function WelcomeSecretsStep({
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="flex items-center gap-1">
-          <Lock className="w-3.5 h-3.5" /> TTS API key
-        </Label>
-        <Input readOnly disabled value={ttsMasked || "Auto-managed"} />
-        <p className="text-xs text-stone-500">
-          Auto-managed for media / voice (TTS &amp; STT) model auth.
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Label htmlFor="tavily_api_key">Tavily API key</Label>
-          {current?.tavily_api_key.set && <SavedBadge />}
+      {/* Without a token the inference server waits for credentials when a gated
+          model is deployed, and the deploy sits at 0% with no explanation. Warn
+          here, before the user hits that dead end. */}
+      {!loading && !current?.hf_token.set && values.hf_token.trim() === "" && (
+        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 p-3">
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" />
+          <p className="text-xs text-yellow-800 dark:text-yellow-200">
+            <span className="font-semibold">No token configured.</span> Deploys
+            of gated models (Llama, Gemma, …) will stall at 0% while the server
+            waits for Hugging Face credentials. Add a token above, or set{" "}
+            <code className="font-mono">HF_TOKEN</code> in the{" "}
+            <code className="font-mono">.env</code> file at the repo root and
+            restart TT-Studio.
+          </p>
         </div>
-        <RevealInput
-          id="tavily_api_key"
-          value={values.tavily_api_key}
-          onChange={(v) => onChange({ ...values, tavily_api_key: v })}
-          placeholder={fieldPlaceholder(
-            loading,
-            current?.tavily_api_key.set,
-            current?.tavily_api_key.masked,
-            "tvly-..."
-          )}
-        />
-        <p className="text-xs text-stone-500">
-          Optional. Used by the search agent.{" "}
-          <a
-            href="https://tavily.com"
-            target="_blank"
-            rel="noreferrer"
-            className="text-TT-purple inline-flex items-center gap-0.5 hover:underline"
-          >
-            tavily.com <ExternalLink className="w-3 h-3" />
-          </a>
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="flex items-center gap-1">
-          <Lock className="w-3.5 h-3.5" /> JWT secret
-        </Label>
-        <Input readOnly disabled value={jwtMasked || "Auto-managed"} />
-        <p className="text-xs text-stone-500">
-          Auto-generated and stored for you.
-        </p>
-      </div>
-
-      <div className="rounded-md border border-stone-200 dark:border-stone-800 p-3 space-y-2">
-        <div className="flex items-center gap-1 text-sm font-medium">
-          <Lock className="w-3.5 h-3.5" /> tt-inference artifact (read-only)
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <div className="text-stone-500">Branch</div>
-            <div className="font-mono truncate">
-              {artifact?.branch || "—"}
-            </div>
-          </div>
-          <div>
-            <div className="text-stone-500">Version</div>
-            <div className="font-mono truncate">
-              {artifact?.version || "—"}
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-stone-500">
-          {artifact?.description ||
-            "Pins which tt-inference-server release TT Studio is built against."}
-        </p>
-      </div>
+      )}
 
       <div className="flex justify-between pt-2">
         <Button variant="outline" onClick={onBack} disabled={isSaving}>

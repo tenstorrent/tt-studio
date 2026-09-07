@@ -15,7 +15,7 @@ from shared_config.user_config import (
     get_artifact_info,
     is_setup_complete,
 )
-from api.hf_access import check_hf_access, HF_GATED_MODELS
+from api.hf_access import check_hf_access, check_hf_repos, HF_GATED_MODELS
 
 
 class UpStatusView(APIView):
@@ -124,28 +124,51 @@ class HfCheckView(APIView):
 
     Accepts an optional `hf_token` in the body; if absent, uses the stored token.
     Does not persist the token (the Settings endpoint owns persistence).
+
+    An optional `repos` list checks those instead of the default gated set:
+    DeployView gates on whatever repo the chosen model uses, and that set is wider
+    than HF_GATED_MODELS (every meta-llama repo is gated, not just the three here).
     """
+
+    MAX_REPOS = 8
 
     def post(self, request, *args, **kwargs):
         data = request.data or {}
         token = (data.get("hf_token") or "").strip() or get_hf_token()
+        raw_repos = data.get("repos")
+        if isinstance(raw_repos, str):
+            raw_repos = [raw_repos]
+        repos = [
+            r.strip()
+            for r in (raw_repos or [])
+            if isinstance(r, str) and r.strip()
+        ][: self.MAX_REPOS]
+        # With explicit repos, check them even without a token: public repos
+        # answer 200 anonymously, so ungated models (Qwen, Wan, …) must not be
+        # reported as blocked just because no token is saved yet.
+        if not token and repos:
+            results = check_hf_repos("", repos)
+            ok = all(r["status"] == "granted" for r in results)
+            return Response({"ok": ok, "results": results})
         if not token:
+            no_token_repos = [repo for repo, _label, _f in HF_GATED_MODELS]
+            labels = {repo: label for repo, label, _f in HF_GATED_MODELS}
             return Response(
                 {
                     "ok": False,
                     "error": "No HF token provided or saved.",
                     "results": [
                         {
-                            "label": label,
+                            "label": labels.get(repo, repo.split("/")[-1]),
                             "repo": repo,
                             "status": "no_token",
                             "url": f"https://huggingface.co/{repo}",
                         }
-                        for repo, label, _filename in HF_GATED_MODELS
+                        for repo in no_token_repos
                     ],
                 },
                 status=200,
             )
-        results = check_hf_access(token)
+        results = check_hf_repos(token, repos) if repos else check_hf_access(token)
         ok = all(r["status"] == "granted" for r in results)
         return Response({"ok": ok, "results": results})

@@ -11,6 +11,7 @@ import {
   type HfCheckResult,
   type HfCheckStatus,
 } from "../api/settingsApi";
+import { statusLabel } from "../lib/hfStatus";
 
 interface Props {
   /** Optional token to test before saving; if omitted, server uses the stored token. */
@@ -34,10 +35,10 @@ const GATED_MODELS_PLACEHOLDER: HfCheckResult[] = [
     url: "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct",
   },
   {
-    label: "Qwen3-32B",
-    repo: "Qwen/Qwen3-32B",
+    label: "FLUX.1-dev",
+    repo: "black-forest-labs/FLUX.1-dev",
     status: "no_token" as HfCheckStatus,
-    url: "https://huggingface.co/Qwen/Qwen3-32B",
+    url: "https://huggingface.co/black-forest-labs/FLUX.1-dev",
   },
 ];
 
@@ -80,21 +81,6 @@ function StatusIcon({ status }: { status: HfCheckStatus }) {
       <AlertCircle className="w-4 h-4 text-amber-500" />
     </div>
   );
-}
-
-function statusLabel(r: HfCheckResult): string {
-  switch (r.status) {
-    case "granted":
-      return "Access confirmed";
-    case "denied":
-      return "Access not granted yet";
-    case "auth_failed":
-      return "Token invalid or expired";
-    case "no_token":
-      return "No token saved";
-    default:
-      return `Could not reach Hugging Face${r.http_status ? ` (HTTP ${r.http_status})` : ""}`;
-  }
 }
 
 export default function HfAccessCheck({ token, onChecked, className }: Props) {

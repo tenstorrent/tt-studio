@@ -9,6 +9,9 @@ import { useRefresh } from "../hooks/useRefresh";
 import { useIsResetting } from "../hooks/useIsResetting";
 import { DeploymentProgress } from "./ui/DeploymentProgress";
 import { cancelDeployment } from "../api/modelsDeployedApis";
+import { getSettings, runHfCheck, type HfCheckResult } from "../api/settingsApi";
+import { isHfBlocked } from "../lib/hfStatus";
+import { HfGatePanel } from "./HfGatePanel";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import type { ActiveDeployment, DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Cpu, AlertTriangle, ExternalLink, Info, CheckCircle } from "lucide-react";
@@ -66,20 +69,62 @@ export function DeployModelStep({
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
   const [modelName, setModelName] = useState<string | null>(null);
+  // A missing HF token is the most common reason a deploy of a gated model
+  // stalls at 0% — warn up front and sharpen the stall message in the progress
+  // card. On lookup failure stay silent rather than warn spuriously.
+  const [hfTokenMissing, setHfTokenMissing] = useState(false);
+  // The backend refuses a gated deploy outright, so resolve access for this model's
+  // repo before offering the button. Keyed to the repo it ran for.
+  const [hfRepo, setHfRepo] = useState<string | null>(null);
+  const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setHfTokenMissing(!s.hf_token.set);
+      })
+      .catch(() => { });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const slotInfo = useMemo(() => {
     if (!chipStatus) {
-      return { totalSlots: 0, availableSlots: 0, occupiedDetails: [] as { slot_id: number; model_name: string; port?: number }[] };
+      return {
+        totalSlots: 0,
+        availableSlots: 0,
+        occupiedSlots: 0,
+        occupants: [] as { key: string; label: string; modelName: string }[],
+      };
     }
     const occupied = chipStatus.slots.filter((s) => s.status === "occupied");
+    // One deployment can occupy several slots
+    const groups = new Map<string, { modelName: string; slots: number[]; port?: number }>();
+    occupied.forEach((s) => {
+      const modelName = s.model_name || "Unknown";
+      const key = s.deployment_id != null ? `dep-${s.deployment_id}` : `${modelName}@${s.port ?? "?"}`;
+      const group = groups.get(key);
+      if (group) group.slots.push(s.slot_id);
+      else groups.set(key, { modelName, slots: [s.slot_id], port: s.port });
+    });
     return {
       totalSlots: chipStatus.total_slots,
       availableSlots: chipStatus.total_slots - occupied.length,
-      occupiedDetails: occupied.map((s) => ({
-        slot_id: s.slot_id,
-        model_name: s.model_name || "Unknown",
-        port: s.port,
-      })),
+      occupiedSlots: occupied.length,
+      occupants: Array.from(groups.entries()).map(([key, g]) => {
+        const sorted = g.slots.slice().sort((a, b) => a - b);
+        const wholeBoard = sorted.length >= Math.min(4, chipStatus.total_slots);
+        const devices = wholeBoard
+          ? `all ${sorted.length} devices`
+          : `device${sorted.length > 1 ? "s" : ""} ${sorted.join(", ")}`;
+        return {
+          key,
+          modelName: g.modelName,
+          label: `${g.modelName} — ${devices}${g.port ? `, port ${g.port}` : ""}`,
+        };
+      }),
     };
   }, [chipStatus]);
 
@@ -90,10 +135,12 @@ export function DeployModelStep({
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
           const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel
+            (m: { id: string; name: string; hf_model_id?: string | null }) =>
+              m.id === selectedModel
           );
           if (model) {
             setModelName(model.name);
+            setHfRepo(model.hf_model_id ?? null);
           }
         } catch (error) {
           console.error("Error fetching model name:", error);
@@ -104,6 +151,33 @@ export function DeployModelStep({
     fetchModelName();
   }, [selectedModel]);
 
+  // Public repos answer 200 to any token, so ungated models are never blocked.
+  useEffect(() => {
+    if (!hfRepo) return;
+    let cancelled = false;
+    runHfCheck(undefined, [hfRepo])
+      .then((r) => {
+        if (!cancelled) setHfCheck({ repo: hfRepo, results: r.results ?? [] });
+      })
+      .catch(() => {
+        if (!cancelled) setHfCheck({ repo: hfRepo, results: [] });
+      });
+    return () => { cancelled = true; };
+  }, [hfRepo]);
+
+  const hfRow = hfCheck?.repo === hfRepo ? hfCheck.results[0] : undefined;
+  const hfGate = isHfBlocked(hfRow) ? hfRow : undefined;
+
+  const recheckHfAccess = async () => {
+    if (!hfRepo) return;
+    try {
+      const { results = [] } = await runHfCheck(undefined, [hfRepo]);
+      setHfCheck({ repo: hfRepo, results });
+    } catch {
+      /* leave the gate as it is; the panel keeps its actions */
+    }
+  };
+
   const isMultiModel = (chipsRequired ?? 1) > 1;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
   // placementBlocked: the parent already determined no valid configuration is free.
@@ -112,22 +186,31 @@ export function DeployModelStep({
     !!placementBlocked ||
     (slotInfo.totalSlots > 0 &&
       (isMultiModel
-        ? slotInfo.occupiedDetails.length > 0
+        ? slotInfo.occupiedSlots > 0
         : slotInfo.availableSlots === 0));
+  // Every device is held by the very model the user is trying to deploy. Without
+  // this the warning tells you to free up devices from yourself, naming the model
+  // you just picked as the thing blocking it.
+  const blockedByThisModel =
+    cannotFit &&
+    !!modelName &&
+    slotInfo.occupants.length > 0 &&
+    slotInfo.occupants.every((o) => o.modelName === modelName);
   // Only models that require a manual pick block deploy until a slot is chosen.
   const needsSelection =
     !!requireDeviceSelection && (selectedDeviceIds?.length ?? 0) === 0;
 
   const deployButtonText = useMemo(() => {
     if (isResetting) return "Board Resetting…";
+    if (hfGate) return "Hugging Face Access Needed";
     if (cannotFit) return isMultiModel ? "Devices In Use" : "All Devices Occupied";
     if (!selectedModel) return "Select a Model";
     if (needsSelection) return "Select a Device";
     return "Deploy Model";
-  }, [selectedModel, cannotFit, isMultiModel, needsSelection, isResetting]);
+  }, [selectedModel, cannotFit, isMultiModel, needsSelection, isResetting, hfGate]);
 
   const isDeployDisabled =
-    !selectedModel || cannotFit || needsSelection || isResetting;
+    !selectedModel || cannotFit || needsSelection || isResetting || !!hfGate;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
@@ -191,7 +274,7 @@ export function DeployModelStep({
     return () => clearTimeout(timer);
   }, [cannotFit, activeDeployment]);
   // Show informational status when some slots are in use but the model still fits
-  const showSlotInfo = !cannotFit && slotInfo.occupiedDetails.length > 0;
+  const showSlotInfo = !cannotFit && slotInfo.occupiedSlots > 0;
 
   // The selected model just finished — confirm success and redirect
   if (activeDeployment && isDeploymentComplete) {
@@ -235,6 +318,7 @@ export function DeployModelStep({
               }
               startTime={activeDeployment.startedAt}
               imagePulled={activeDeployment.hadImagePull}
+              hfTokenMissing={hfTokenMissing}
               onCancel={() => {
                 void cancelDeployment(activeDeployment.jobId);
                 removeDeployment(activeDeployment.jobId);
@@ -283,6 +367,43 @@ export function DeployModelStep({
           </div>
         )}
 
+        {/* This model's own repo is gated and unreachable — blocking, and precise
+            enough to replace the generic token warning below. */}
+        {hfGate && (
+          <div className="w-full max-w-2xl mb-6">
+            <HfGatePanel
+              gate={hfGate}
+              heading={`${modelName || "This model"} is gated on Hugging Face`}
+              onRecheck={recheckHfAccess}
+            />
+          </div>
+        )}
+
+        {/* Missing HF token: gated model deploys will hang at 0% waiting for
+            credentials, so warn before the user starts one. Non-blocking —
+            ungated models still deploy fine without a token. */}
+        {hfTokenMissing && !hfGate && (
+          <div className="w-full max-w-2xl mb-6">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+                    No Hugging Face token configured
+                  </h4>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    Deploys of gated models (Llama, Gemma, …) will stall at 0%
+                    without one. Set it in Settings (gear icon in the navbar),
+                    or add <code className="font-mono">HF_TOKEN</code> to the{" "}
+                    <code className="font-mono">.env</code> file at the repo
+                    root and restart TT-Studio.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Show blocking warning when ALL chip slots are occupied */}
         {showSlotsFullWarning && (
           <div className="w-full max-w-2xl mb-6">
@@ -291,24 +412,30 @@ export function DeployModelStep({
                 <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                    {isMultiModel
-                      ? "Not Enough Free Devices"
-                      : slotInfo.availableSlots > 0
-                        ? "No Free Device Configuration"
-                        : "All Devices Occupied"}
+                    {blockedByThisModel
+                      ? "This Model Is Already Deployed"
+                      : isMultiModel
+                        ? "Not Enough Free Devices"
+                        : slotInfo.availableSlots > 0
+                          ? "No Free Device Configuration"
+                          : "All Devices Occupied"}
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    {isMultiModel
-                      ? `${modelName || "This model"} needs all ${fullBoardMax} devices. In use: `
-                      : slotInfo.availableSlots > 0
-                        ? `${modelName || "This model"} has no free device configuration right now. In use: `
-                        : `All ${slotInfo.totalSlots} devices are in use: `}
-                    {slotInfo.occupiedDetails
-                      .map((s) => `${s.model_name} (device ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
-                      .join(", ")}
+                    {blockedByThisModel
+                      ? `${modelName || "This model"} already holds the devices it needs. `
+                      : isMultiModel
+                        ? `${modelName || "This model"} needs all ${fullBoardMax} devices. In use: `
+                        : slotInfo.availableSlots > 0
+                          ? `${modelName || "This model"} has no free device configuration right now. In use: `
+                          : `All ${slotInfo.totalSlots} devices are in use: `}
+                    {!blockedByThisModel && (
+                      <span>{slotInfo.occupants.map((o) => o.label).join("; ")}</span>
+                    )}
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Free up {isMultiModel || slotInfo.availableSlots > 0 ? "devices" : "a device"} before deploying this model.
+                    {blockedByThisModel
+                      ? "Deploying it again would need the same devices. Stop the existing deployment first if you want to restart it."
+                      : `Free up ${isMultiModel || slotInfo.availableSlots > 0 ? "devices" : "a device"} before deploying this model.`}
                   </p>
                   <Button
                     onClick={handleGoToDeployedModels}
@@ -332,7 +459,7 @@ export function DeployModelStep({
               <div className="flex items-center gap-2">
                 <Info className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
                 <span className="text-sm text-blue-700 dark:text-blue-300">
-                  {slotInfo.occupiedDetails.length}/{slotInfo.totalSlots} device{slotInfo.occupiedDetails.length > 1 ? "s" : ""} in use
+                  {slotInfo.occupiedSlots}/{slotInfo.totalSlots} device{slotInfo.occupiedSlots > 1 ? "s" : ""} in use
                   {" — "}
                   {slotInfo.availableSlots} available
                 </span>
