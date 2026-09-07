@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from "react";
+import { Fragment, useState, useEffect, useCallback, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -24,12 +24,19 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Button } from "./ui/button";
+import { HfGatePanel } from "./HfGatePanel";
+import { isHfBlocked } from "../lib/hfStatus";
 import { customToast } from "./CustomToaster";
+import { useHideDeploymentTray } from "../hooks/useHideDeploymentTray";
+import { compactPercent, transferDetailParts } from "../lib/deployProgress";
+import type { DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import {
   isLlama31_8BModel,
   isP300x2Board,
+  isQwen3_8BModel,
 } from "../utils/p300x2Placement";
+import { runHfCheck, type HfCheckResult } from "../api/settingsApi";
 import type { ChipStatus } from "../types/chipStatus";
 
 // ---- types ----------------------------------------------------------------
@@ -39,6 +46,8 @@ interface DeployState {
   error?: string;
   // Live sub-status shown while deploying (e.g. "Pulling Docker Image… 45%").
   detail?: string;
+  /** Secondary line: bytes / speed / ETA parts while a transfer is running. */
+  transfer?: string[];
 }
 
 interface OccupiedDevice {
@@ -76,6 +85,20 @@ const STATUS_CONFIG = {
 
 const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPERIMENTAL: 1 };
 
+// Blackhole voice pipeline runs Qwen3.5-9B as its LLM. It is single-chip, so the
+// LLM, Whisper and SpeechT5 each take one device. Where Qwen3.5-9B is compatible
+// (Blackhole boards) it is pinned and the LLM card is fixed rather than a dropdown.
+const PINNED_VOICE_LLM = "Qwen3.5-9B";
+
+// Where Qwen3.5-9B is not compatible, prefer Qwen3-8B before falling through to
+// the Instruct-preferring chat default, so the pipeline still deploys.
+const FALLBACK_VOICE_LLM = "Qwen3-8B";
+
+// Qwen3-8B and Llama-3.1-8B run across a whole P300 card. On a P300x2 that card
+// is slots 0,1, which pushes Whisper to 2 and SpeechT5 to 3 and needs 4 slots.
+const usesCardPairLlm = (modelNameOrId: string) =>
+  isQwen3_8BModel(modelNameOrId) || isLlama31_8BModel(modelNameOrId);
+
 // ---- helpers --------------------------------------------------------------
 
 
@@ -92,13 +115,14 @@ type DeployPollResult = {
 
 async function pollDeployProgress(
   jobId: string,
-  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
+  onUpdate?: (data: DeploymentProgressData) => void
 ): Promise<DeployPollResult> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
   const SAFETY_TIMEOUT_MS = 30 * 60 * 1000;
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
+  // Genuinely terminal: the backend has decided this deploy is over.
   const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout"];
   // `not_found` is NOT terminal on sight. A job can legitimately read as unknown for
   // a short window — the record is still being registered, or a backend worker that
@@ -138,60 +162,80 @@ async function pollDeployProgress(
   return { outcome: "error", timedOut: true };
 }
 
-type PullProgressData = {
-  stage?: string;
-  progress?: number;
-  message?: string;
-  downloaded_bytes?: number;
-  total_bytes?: number | null;
-  speed_bps?: number | null;
-  eta_seconds?: number | null;
-};
-
-const formatGB = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
-
-const formatSpeed = (bps: number) =>
-  bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1e3))} KB/s`;
-
-const formatEta = (seconds: number) => {
-  const mins = Math.round(seconds / 60);
-  if (mins < 1) return "under a minute left";
-  if (mins < 60) return `~${mins} min left`;
-  return `~${Math.floor(mins / 60)}h ${mins % 60}m left`;
-};
-
-/** Concise per-card sub-status from a progress poll.
+/** Per-card sub-status from a progress poll.
  *
- *  The backend already sends bytes, speed, ETA and a layer count for image pulls
- *  (DeploymentProgressView); this previously discarded all of it and re-derived a
- *  bare percentage, so a multi-GB pull looked identical to a stalled one. Show the
- *  same detail the model-weights download gets. */
-function deployDetailFromProgress(data: PullProgressData): string | undefined {
-  if (data.stage !== "pulling_image") return undefined;
+ *  The percentage comes from the same compactPercent() the deployment tray uses, so a
+ *  model's card and its tray entry cannot disagree. They previously each derived their
+ *  own number from the same payload — the card showed the raw pull percent, the tray
+ *  showed that pull remapped into its first bar segment — so one could read 47% while
+ *  the other read 12% for the same moment.
+ *
+ *  `transfer` carries the byte/speed/ETA line. It matters most for the LLM: its weights
+ *  download happens on the host BEFORE any container exists, so without these figures
+ *  the card sits on a single percentage for the longest phase of the deploy. */
+function deployDetailFromProgress(
+  data: DeploymentProgressData,
+  hadImagePull: boolean
+): { detail?: string; transfer?: string[] } {
+  const pct = compactPercent(data, false, hadImagePull);
+  const parts = transferDetailParts(data);
+  const transfer = parts.length > 0 ? parts : undefined;
 
-  const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
-  const downloaded = data.downloaded_bytes ?? 0;
-  const total = data.total_bytes ?? 0;
-  const parts: string[] = [`Pulling image… ${pct}%`];
+  if (data.stage === "pulling_image") {
+    // Early in a pull the rate is measured over very few samples and the ETA can be
+    // off by 5-10x (a run that finished in 16 min was projecting 106 min at 5%).
+    // Withhold it until enough of the image has landed for the estimate to mean
+    // something, rather than showing a number that pushes people to cancel.
+    const total = data.total_bytes ?? 0;
+    const downloaded = data.downloaded_bytes ?? 0;
+    const etaStable = total > 0 && downloaded / total > 0.1;
+    const pullParts = etaStable ? parts : transferDetailParts({ ...data, eta_seconds: null });
+    return { detail: `Pulling Docker Image… ${pct}%`, transfer: pullParts.length > 0 ? pullParts : undefined };
+  }
+  if (data.stage === "model_preparation") {
+    // weights_cached short-circuits the download, so don't imply one is running.
+    if (data.weights_cached) return { detail: `Weights cached — preparing… ${pct}%` };
+    return { detail: `Downloading weights… ${pct}%`, transfer };
+  }
+  // No sub-status for any other stage: the card falls back to "Deploying…", which
+  // is what it has always shown while a model has nothing specific to report.
+  return {};
+}
 
-  if (total > 0 && downloaded > 0) {
-    parts.push(`${formatGB(downloaded)} / ${formatGB(total)}`);
+/** Why a deploy request failed, across the shapes the backend sends; undefined for
+ *  a success payload. Only `{status: "error"}` used to be handled, so an HF-gate
+ *  rejection surfaced as the card's "No job ID returned" fallback instead. */
+function deployErrorMessage(httpStatus: number, data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return httpStatus >= 400 ? `Deployment failed (HTTP ${httpStatus})` : undefined;
   }
-  if (data.speed_bps && data.speed_bps > 0) {
-    parts.push(formatSpeed(data.speed_bps));
-  }
-  // Early in a pull the rate is measured over very few samples and the ETA can be
-  // off by 5-10x (a run that finished in 16 min was projecting 106 min at 5%).
-  // Withhold it until enough of the image has landed for the estimate to mean
-  // something, rather than showing a number that pushes people to cancel.
-  if (data.eta_seconds && data.eta_seconds > 0 && total > 0 && downloaded / total > 0.1) {
-    parts.push(formatEta(data.eta_seconds));
-  }
+  const body = data as Record<string, unknown>;
 
-  const detail = parts.join(" • ");
-  // The backend's message carries the layer count, e.g. "(36/46 layers)".
-  const layers = data.message?.match(/\((\d+\/\d+) layers\)/)?.[1];
-  return layers ? `${detail} • ${layers} layers` : detail;
+  // Gated Hugging Face repo — same wording as the single-model flow in SelectionSteps.
+  if (body.error_code === "hf_access_denied") {
+    const message = typeof body.message === "string" ? body.message : "Hugging Face access denied.";
+    return typeof body.hf_url === "string"
+      ? `${message} Open ${body.hf_url} to request access.`
+      : message;
+  }
+  // Chip-allocation and in-flight conflicts (409).
+  if (body.status === "error") {
+    return typeof body.message === "string" ? body.message : "Deployment failed";
+  }
+  // Board reset in progress (409).
+  if (typeof body.error === "string") return body.error;
+
+  if (httpStatus >= 400) {
+    // DRF serializer errors: {field: ["msg", ...]}.
+    const fields = Object.entries(body)
+      .map(([field, value]) => {
+        const text = Array.isArray(value) ? value.join(" ") : typeof value === "string" ? value : null;
+        return text ? `${field}: ${text}` : null;
+      })
+      .filter((part): part is string => part !== null);
+    return fields.length > 0 ? fields.join("; ") : `Deployment failed (HTTP ${httpStatus})`;
+  }
+  return undefined;
 }
 
 async function deployOneModel(
@@ -203,9 +247,16 @@ async function deployOneModel(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model_id: modelId, weights_id: "", device_id: deviceId }),
   });
-  const data = await resp.json();
-  if (data.status === "error") return { error: data.message || "Deployment failed" };
-  return { jobId: data.job_id };
+  // A 500 can return an HTML error page — don't throw a SyntaxError into the card.
+  let data: unknown = null;
+  try {
+    data = await resp.json();
+  } catch {
+    return { error: `Deployment failed (HTTP ${resp.status})` };
+  }
+  const error = deployErrorMessage(resp.status, data);
+  if (error) return { error };
+  return { jobId: (data as { job_id?: string }).job_id };
 }
 
 type CompatGroup = { compatible: Model[]; incompatible: Model[]; unknown: Model[] };
@@ -268,6 +319,9 @@ function ModelSelectItems({ models }: { models: Model[] }) {
 const AUTO_REDIRECT_MS = 3000;
 
 export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) {
+  // This page shows a card per model; the tray would be a second, independently
+  // polled copy of the same three deploys and the two percentages drift apart.
+  useHideDeploymentTray();
   const navigate = useNavigate();
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
@@ -285,6 +339,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [isDeploying, setIsDeploying] = useState(false);
   const [allDone, setAllDone] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REDIRECT_MS / 1000);
+
+  // Keyed to the repo it ran for, so switching the LLM isn't judged against the
+  // previous model's result.
+  const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
 
   /** Re-read which devices are in use. Deliberately callable on demand: this used to
    *  run once on mount only, so after a deploy finished (or its containers went away)
@@ -354,7 +412,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
             models.find((m) => m.model_type === type && filter(m))?.id ?? ""
           );
         };
-        setSelectedLlmId(firstCompat("chat"));
+        // Prefer the pinned Qwen3.5-9B where the board supports it, then Qwen3-8B,
+        // then the compatible-chat default (Instruct-preferring).
+        const compatibleByName = (name: string) =>
+          models.find((m) => m.name === name && m.is_compatible === true);
+        setSelectedLlmId(
+          compatibleByName(PINNED_VOICE_LLM)?.id ??
+            compatibleByName(FALLBACK_VOICE_LLM)?.id ??
+            firstCompat("chat")
+        );
         setSelectedWhisperId(firstCompat("speech_recognition"));
         setSpeechT5Id(firstCompat("tts"));
       })
@@ -405,17 +471,57 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const ttsModels = allModels.filter((m) => m.model_type === "tts" && isSingleChip(m));
   const selectedLlmModel = allModels.find((m) => m.id === selectedLlmId);
   const speechT5Model = allModels.find((m) => m.id === speechT5Id);
+  // Pinned when the selected LLM is Qwen3.5-9B (Blackhole); the card is then fixed
+  // rather than a dropdown.
+  const isPinned = selectedLlmModel?.name === PINNED_VOICE_LLM;
   const currentBoard = allModels[0]?.current_board;
-  const useLlamaCardPair =
+  // Qwen3.5-9B is single-chip, so the pinned pipeline is one device per stage. The
+  // fallback LLMs take a whole P300 card, so on a P300x2 they occupy slots 0,1.
+  const useCardPair =
+    !isPinned &&
     isP300x2Board(currentBoard) &&
-    isLlama31_8BModel(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
-  const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
-  const whisperDeviceId = useLlamaCardPair ? 2 : 1;
-  const ttsDeviceId = useLlamaCardPair ? 3 : 2;
+    usesCardPairLlm(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
+  const llmDeviceId: number | string = useCardPair ? "0,1" : 0;
+  const whisperDeviceId = useCardPair ? 2 : 1;
+  const ttsDeviceId = useCardPair ? 3 : 2;
 
   // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
-  const requiredSlots = useLlamaCardPair ? 4 : 3;
+  const requiredSlots = useCardPair ? 4 : 3;
   const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
+
+  // The backend refuses a gated deploy outright, so resolve access before offering
+  // the Deploy button rather than after two of three models are already up.
+  const llmHfRepo = selectedLlmModel?.hf_model_id ?? null;
+  const hfRow = hfCheck?.repo === llmHfRepo ? hfCheck.results[0] : undefined;
+  const hfCheckPending = !!llmHfRepo && hfCheck?.repo !== llmHfRepo;
+  const hfGate = isHfBlocked(hfRow) ? hfRow : undefined;
+
+  // Public repos answer 200 to any token, so ungated models are never blocked.
+  useEffect(() => {
+    if (!llmHfRepo) return;
+    let cancelled = false;
+    runHfCheck(undefined, [llmHfRepo])
+      .then((r) => {
+        if (!cancelled) setHfCheck({ repo: llmHfRepo, results: r.results ?? [] });
+      })
+      .catch(() => {
+        if (!cancelled) setHfCheck({ repo: llmHfRepo, results: [] });
+      });
+    return () => { cancelled = true; };
+  }, [llmHfRepo]);
+
+  const recheckHfAccess = async () => {
+    if (!llmHfRepo) return;
+    try {
+      const { results = [] } = await runHfCheck(undefined, [llmHfRepo]);
+      setHfCheck({ repo: llmHfRepo, results });
+      if (isHfBlocked(results[0])) {
+        customToast.error("Hugging Face access still unavailable for this model.");
+      }
+    } catch {
+      customToast.error("Could not reach the Hugging Face access check.");
+    }
+  };
 
   const hasErrors =
     llmState.status === "error" ||
@@ -432,19 +538,20 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     });
     return Array.from(unique.values());
   };
+  // A card-pair LLM occupies both slots of the card, so report it as "0,1".
   const withDisplayDeviceIds = (item: OccupiedDevice): OccupiedDevice =>
-    useLlamaCardPair && item.device_ids.includes(0)
+    useCardPair && item.device_ids.includes(0)
       ? { ...item, device_ids: [0, 1] }
       : item;
-  const llmOccupantsRaw = useLlamaCardPair
+  const llmOccupantsRaw = useCardPair
     ? dedupeOccupiedDevices([occupiedByDevice(0), occupiedByDevice(1)])
     : dedupeOccupiedDevices([occupiedByDevice(0)]);
-  const llmOccupants = useLlamaCardPair
+  const llmOccupants = useCardPair
     ? dedupeOccupiedDevices(llmOccupantsRaw.map(withDisplayDeviceIds))
     : llmOccupantsRaw;
   const whisperOccupants = dedupeOccupiedDevices([occupiedByDevice(whisperDeviceId)]);
   const ttsOccupants = dedupeOccupiedDevices([occupiedByDevice(ttsDeviceId)]);
-  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
+  const targetSlots = useCardPair ? [0, 1, 2, 3] : [0, 1, 2];
   const occupiedSlots = dedupeOccupiedDevices(
     targetSlots
       .map((id) => occupiedByDevice(id))
@@ -458,6 +565,8 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     !allDone &&
     !hasConflicts &&
     !insufficientDevices &&
+    !hfCheckPending &&
+    !hfGate &&
     !!selectedLlmId &&
     !!selectedWhisperId &&
     !!speechT5Id;
@@ -487,9 +596,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           return false;
         }
         if (pollProgress) {
-          const progress = await pollDeployProgress(result.jobId, (data) =>
-            setState({ status: "deploying", detail: deployDetailFromProgress(data) })
-          );
+          // Mirrors the tray's rule so both size the progress bands identically.
+          let hadImagePull = false;
+          const progress = await pollDeployProgress(result.jobId, (data) => {
+            if (data.stage === "pulling_image") hadImagePull = true;
+            setState({
+              status: "deploying",
+              ...deployDetailFromProgress(data, hadImagePull),
+            });
+          });
           if (progress.outcome === "error") {
             // Show the backend's own failure text; fall back to a generic string only
             // when we genuinely gave up waiting or the payload carried no message.
@@ -511,12 +626,23 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       }
     };
 
+    // Whisper and SpeechT5 first, LLM last. All three are submitted together, but
+    // the inference server executes one deploy at a time (run_main mutates process
+    // globals), so whoever takes the lock first blocks the rest. The two media
+    // models share one image and finish in seconds — ordering them ahead lets them
+    // pull and start together, showing matching progress, while the LLM runs its
+    // long weights download afterwards instead of holding both of them behind it.
+    // Total time is unchanged; what changes is that no card sits blank for minutes.
     const steps: [string, number | string, (s: DeployState) => void, DeployState, string, boolean][] = [
-      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
       [selectedWhisperId, whisperDeviceId, setWhisperState, whisperState, "Whisper", true],
       [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
+      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
     ];
 
+    // Submit all three at once. The inference server executes deploys one at a
+    // time (run_main mutates process globals) but queues the waiters and reports
+    // the wait, so every card shows live state instead of the pipeline crawling
+    // through one model before the next is even submitted.
     const results = await Promise.all(
       steps.map(async ([modelId, deviceId, setState, currentState, label, poll]) => ({
         label,
@@ -572,9 +698,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         <div>
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
-            {useLlamaCardPair
-              ? "Deploys the full voice pipeline: Llama 8B Instruct on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
-              : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
+            {isPinned
+              ? "Deploys the full voice pipeline: Qwen3.5-9B on device 0, Whisper on device 1, SpeechT5 on device 2."
+              : useCardPair
+                ? `Deploys the full voice pipeline: ${selectedLlmModel?.name ?? "LLM"} on devices 0,1, Whisper on device 2, SpeechT5 on device 3.`
+                : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
 
@@ -582,27 +710,44 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
             <Loader2 className="w-4 h-4 animate-spin" />Loading model catalog…
           </div>
+        ) : hfGate && !isDeploying && !allDone ? (
+          <HfGatePanel
+            gate={hfGate}
+            heading={`Voice Agent needs ${selectedLlmModel?.name ?? "Llama-3.1-8B-Instruct"}`}
+            onRecheck={recheckHfAccess}
+          />
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ModelCard
                 icon={<Bot className="w-5 h-5" />}
                 label="LLM"
-                deviceLabel={useLlamaCardPair ? "Device 0,1" : "Device 0"}
+                deviceLabel={useCardPair ? "Device 0,1" : "Device 0"}
                 deployState={llmState}
                 accent="blue"
                 occupants={llmOccupants}
                 helperContent={
                   <>
                     <Info className="w-2.5 h-2.5 shrink-0 opacity-60" />
-                    <span>Instruct variants recommended for chat</span>
+                    <span>
+                      {isPinned
+                        ? "Qwen3.5-9B is experimental on Blackhole"
+                        : "Instruct variants recommended for chat"}
+                    </span>
                   </>
                 }
               >
-                <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
-                  <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
-                  <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
-                </Select>
+                {isPinned ? (
+                  <div className="flex items-center h-8 px-3 rounded-md border border-input bg-muted/50 text-xs text-muted-foreground">
+                    {selectedLlmModel?.name ?? PINNED_VOICE_LLM}
+                    <span className="ml-auto text-[10px] opacity-60">fixed</span>
+                  </div>
+                ) : (
+                  <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
+                    <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
+                    <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
+                  </Select>
+                )}
               </ModelCard>
 
               <ModelCard
@@ -762,6 +907,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                     Use Manage slots above to free conflicts before deploying.
                   </p>
                 )}
+                {hfCheckPending && !isDeploying && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Checking Hugging Face access…
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -859,9 +1010,26 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
     );
   }
   if (state.status === "deploying") return (
-    <div className="flex items-center gap-1.5 text-xs text-blue-500">
-      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-      {state.detail ?? "Deploying…"}
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        {state.detail ?? "Deploying…"}
+      </div>
+      {/* Bytes / speed / ETA. pl-5 aligns it under the label rather than the spinner
+          (icon 3.5 + gap 1.5 = 5), and it wraps instead of overflowing the narrow card.
+          Styling mirrors the same figures in DeploymentProgress: 11px, muted, tabular
+          figures so the digits don't jitter as they tick, and an aria-hidden separator
+          so screen readers don't announce "middle dot". */}
+      {state.transfer && state.transfer.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-5 text-[11px] tabular-nums text-muted-foreground">
+          {state.transfer.map((part, i) => (
+            <Fragment key={part}>
+              {i > 0 && <span aria-hidden="true">·</span>}
+              <span>{part}</span>
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
   if (state.status === "done") return (
@@ -869,9 +1037,11 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
       <CheckCircle2 className="w-3.5 h-3.5" />Deployed
     </div>
   );
+  // The backend's real failure text is a sentence, sometimes with a URL.
   return (
-    <div className="flex items-center gap-1.5 text-xs text-red-500">
-      <AlertTriangle className="w-3.5 h-3.5" />{state.error ?? "Error"}
+    <div className="flex items-start gap-1.5 text-xs text-red-500">
+      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <span className="min-w-0 break-words leading-snug">{state.error ?? "Error"}</span>
     </div>
   );
 }

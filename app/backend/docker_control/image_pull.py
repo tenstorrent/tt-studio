@@ -57,10 +57,14 @@ _HEARTBEAT_INTERVAL_SECONDS = 30
 DeployFn = Callable[[], Tuple[Optional[str], Optional[str]]]
 
 
-def _new_entry(image_ref: str) -> dict:
+def _new_entry(image_ref: str, expects_weights: bool = True) -> dict:
     now = time.time()
     return {
         "status": "pulling",          # pulling | success | error
+        # False for models whose weights ship inside the image (the media server's
+        # Whisper/SpeechT5). They have no weights-download phase after the pull, so
+        # the client must not reserve bar space for one.
+        "expects_weights": expects_weights,
         "downloaded_bytes": 0,
         "total_bytes": 0,
         "speed_bps": None,
@@ -137,14 +141,18 @@ def start_prepull_and_deploy(
     image_ref: str,
     deploy_fn: DeployFn,
     heartbeat_fn: Optional[Callable[[], None]] = None,
+    expects_weights: bool = True,
 ) -> None:
     """Register a pull job and spawn the background pull→deploy worker.
 
     heartbeat_fn (optional) is invoked periodically while the pull runs — used to
     keep the placeholder deployment record fresh so it isn't reconciled away.
+
+    expects_weights=False marks a model that carries its weights in the image, so
+    the pull is effectively the whole deploy.
     """
     store.evict_stale()
-    store.create_entry(pull_id, _new_entry(image_ref))
+    store.create_entry(pull_id, _new_entry(image_ref, expects_weights))
 
     thread = threading.Thread(
         target=_worker,

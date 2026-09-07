@@ -876,6 +876,44 @@
       "param_count": null
     },
     {
+      "model_name": "diffusiongemma-26B-A4B-it",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "google/diffusiongemma-26B-A4B-it",
+      "inference_engine": "vLLM",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.21.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.21.0-bc4c4df-be7d805",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "1800000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+        "DISABLE_METAL_OP_TIMEOUT": "1",
+        "DG_VLLM_GUMBEL_MODE": "device",
+        "DG_UPFRONT_CAPTURE": "1",
+        "DG_MODEL_OWNED_HYBRID_KV": "1",
+        "DG_UPFRONT_COARSE_PREFILL_BUCKETS": "1",
+        "DG_UPFRONT_LAZY_PREFILL_RECAPTURE": "1",
+        "DG_PREFILL_FIXED_CHUNKS": "1",
+        "DG_PREFILL_CHUNK_SIZE": "4096",
+        "DG_PREFILL_RAGGED_CHUNK": "1024",
+        "DG_DENOISE_REVEAL_PMAX": "262144",
+        "DG_DENOISE_SLIDING_WINDOW": "1",
+        "DG_UPFRONT_PREFILL_WARMUP_LENS": "32,64,96",
+        "DG_TRACE_REGION_SIZE": "3758096384"
+      },
+      "param_count": 4
+    },
+    {
       "model_name": "efficientnet",
       "model_type": "CNN",
       "display_model_type": "CNN",
@@ -1435,21 +1473,32 @@
       }
     },
     {
-      "model_name": "Z-Image-Turbo",
-      "model_type": "IMAGE_GENERATION",
-      "display_model_type": "IMAGE",
+      "model_name": "Qwen3-8B",
+      "hand_owned": true,
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
       "device_configurations": [
-        "P300x2"
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "P300",
+        "T3K"
       ],
-      "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
-      "inference_engine": "media",
+      "hf_model_id": "Qwen/Qwen3-8B",
+      "inference_engine": "vLLM",
       "status": "FUNCTIONAL",
-      "version": "0.17.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
-      "service_route": "/v1/images/generations",
+      "version": "0.10.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e0e0500-409b1cd",
+      "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "env_vars": {},
-      "param_count": null
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8
     }
   ]
 }

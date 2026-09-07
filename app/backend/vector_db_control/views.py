@@ -414,6 +414,12 @@ class VectorCollectionsAPIView(ViewSet):
             }
             
             chunked_document = chunk_document(file_path=temp_file_path, metadata=base_metadata)
+            if not chunked_document:
+                raise ValueError(
+                    f"No extractable text found in '{filename}'. "
+                    "Scanned documents or image-only files are not supported."
+                )
+
             documents = [d.page_content for d in chunked_document]
             
             # Update each chunk's metadata to include the folder structure

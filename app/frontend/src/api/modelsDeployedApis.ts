@@ -66,7 +66,21 @@ export const ModelType = {
   Embedding: "Embedding",
   CNN: "CNN",
   Training: "Training",
+  /** Registered container whose model could not be identified: status only, no interaction page. */
+  Unknown: "Unknown",
 };
+
+/**
+ * Model types TT Studio has no interaction page for. Embedding models have no UI
+ * at all (they are consumed by RAG, not driven directly), and an unidentified
+ * container has no known request shape — offering either a Chat page or the
+ * chat-shaped API page for them would only lead somewhere that cannot work.
+ * Such models still show their status and keep Logs/Delete.
+ */
+const MODEL_TYPES_WITHOUT_UI: string[] = [ModelType.Embedding, ModelType.Unknown];
+
+export const hasInteractionPage = (frontendModelType: string): boolean =>
+  !MODEL_TYPES_WITHOUT_UI.includes(frontendModelType);
 
 /**
  * Map backend model_type strings (from catalog/API) to frontend ModelType constants.
@@ -98,6 +112,8 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.CNN;
     case "training":
       return ModelType.Training;
+    case "unknown":
+      return ModelType.Unknown;
     default:
       return ModelType.ChatModel;
   }
