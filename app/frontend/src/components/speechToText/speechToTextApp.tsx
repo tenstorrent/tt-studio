@@ -12,12 +12,16 @@ import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import type { TranscriptSegment } from "./lib/apiClient";
 
 interface Transcription {
   id: string;
   text: string;
   date: Date;
   audioBlob?: Blob;
+  segments?: TranscriptSegment[];
+  sourceName?: string;
+  durationSec?: number;
 }
 
 interface Conversation {
@@ -76,13 +80,24 @@ export default function SpeechToTextApp() {
   };
 
   // Function to add a new transcription to a conversation
-  const handleNewTranscription = (text: string, audioBlob: Blob) => {
+  const handleNewTranscription = (
+    text: string,
+    audioBlob?: Blob,
+    meta?: {
+      segments?: TranscriptSegment[];
+      sourceName?: string;
+      durationSec?: number;
+    }
+  ) => {
     const transcriptionId = Date.now().toString();
-    const newTranscription = {
+    const newTranscription: Transcription = {
       id: transcriptionId,
       text,
       date: new Date(),
       audioBlob,
+      segments: meta?.segments,
+      sourceName: meta?.sourceName,
+      durationSec: meta?.durationSec,
     };
 
     // If no conversation is selected, create a new one

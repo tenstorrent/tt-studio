@@ -158,8 +158,6 @@ CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
 CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
-CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
-CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 
 @method_decorator(csrf_exempt, name="dispatch")
 class InferenceCloudView(View):
@@ -963,87 +961,6 @@ class VideoGenerationDownloadView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class SpeechRecognitionInferenceView(APIView):
-    def post(self, request, *args, **kwargs):
-        """special automatic speec recognition inference view"""
-        data = request.data
-        logger.info(f"{self.__class__.__name__} data:={data}")
-        serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.get("deploy_id")
-            audio_file = data.get("file")  # we should only receive 1 file
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            model_impl = deploy.get("model_impl")
-            inference_engine = getattr(model_impl, "inference_engine", None)
-            if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
-            else:
-                headers = auth_headers(deploy)
-            file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-            try:
-                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-                inference_data.raise_for_status()
-            except requests.exceptions.HTTPError as http_err:
-                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                    return Response(status=status.HTTP_401_UNAUTHORIZED)
-                else:
-                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            return Response(inference_data.json(), status=status.HTTP_200_OK)
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class SpeechRecognitionInferenceCloudView(APIView):
-    def post(self, request, *args, **kwargs):
-        """special inference view that performs special handling for cloud speech recognition"""
-        data = request.data
-        logger.info(f"{self.__class__.__name__} data:={data}")
-        
-        # Get audio file directly instead of using serializer
-        audio_file = data.get("file")
-        if not audio_file:
-            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Get deploy_id and handle the case where it's the string "null"
-        deploy_id = data.get("deploy_id")
-        if deploy_id == "null" or not deploy_id:
-            # Use cloud URL when deploy_id is "null" or empty
-            internal_url = CLOUD_SPEECH_RECOGNITION_URL
-            if not internal_url:
-                return Response(
-                    {"error": "Cloud speech recognition URL not configured"}, 
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
-            logger.info(f"Using cloud URL: {internal_url}")
-            headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
-            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
-        else:
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            model_impl = deploy.get("model_impl")
-            inference_engine = getattr(model_impl, "inference_engine", None)
-            if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
-            else:
-                headers = auth_headers(deploy)
-            
-        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-        
-        try:
-            # log request
-            logger.info(f"internal_url:={internal_url}")
-            logger.info(f"headers:={headers}")
-            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-            inference_data.raise_for_status()
-        except requests.exceptions.HTTPError as http_err:
-            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                return Response(status=status.HTTP_401_UNAUTHORIZED)
-            else:
-                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response(inference_data.json(), status=status.HTTP_200_OK)
-
 class FaceRecognitionRecognizeView(APIView):
     """Proxy view for face recognition - recognize faces in an image"""
     def post(self, request, *args, **kwargs):
@@ -1282,6 +1199,72 @@ class ImageGenerationInferenceCloudView(APIView):
 
 
 
+# Transcription options the frontend may pass through to the model server.
+# Whitelisted so arbitrary form fields aren't proxied along with the audio.
+SPEECH_RECOGNITION_PASSTHROUGH_FIELDS = (
+    "prompt",
+    "temperatures",
+    "compression_ratio_threshold",
+    "logprob_threshold",
+    "no_speech_threshold",
+    "return_timestamps",
+    "stream",
+    "language",
+    "is_preprocessing_enabled",
+    "perform_diarization",
+)
+
+
+def speech_recognition_options(data):
+    """Collect the transcription options to forward alongside the audio file."""
+    return {
+        key: data[key]
+        for key in SPEECH_RECOGNITION_PASSTHROUGH_FIELDS
+        if data.get(key) not in (None, "")
+    }
+
+
+def post_audio_for_transcription(internal_url, file, headers, options, view_name):
+    """Proxy audio to a model server, turning transport failures into real errors.
+
+    Long audio takes far longer than a request/response round trip, and a bare
+    500 with no body tells the caller nothing, so each failure mode gets its own
+    status and message.
+    """
+    try:
+        # Read timeout stays inside nginx's proxy_read_timeout (1200s) so the
+        # JSON error below is what reaches the client rather than nginx's page.
+        inference_data = requests.post(
+            internal_url, files=file, data=options, headers=headers, timeout=(10, 900)
+        )
+        inference_data.raise_for_status()
+    except requests.exceptions.Timeout:
+        logger.error(f"{view_name} timed out talking to {internal_url}")
+        return Response(
+            {"error": "Transcription timed out. Try a shorter audio clip."},
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+    except requests.exceptions.HTTPError:
+        if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        detail = (inference_data.text or "")[:500]
+        logger.error(
+            f"{view_name} upstream error {inference_data.status_code}: {detail}"
+        )
+        return Response(
+            {"error": detail or f"Model server returned {inference_data.status_code}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    except requests.exceptions.RequestException as exc:
+        logger.error(f"{view_name} could not reach {internal_url}: {exc}")
+        return Response(
+            {"error": f"Could not reach the speech model: {exc}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+
 class SpeechRecognitionInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special automatic speec recognition inference view"""
@@ -1300,16 +1283,13 @@ class SpeechRecognitionInferenceView(APIView):
             else:
                 headers = auth_headers(deploy)
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-            try:
-                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-                inference_data.raise_for_status()
-            except requests.exceptions.HTTPError as http_err:
-                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                    return Response(status=status.HTTP_401_UNAUTHORIZED)
-                else:
-                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            return Response(inference_data.json(), status=status.HTTP_200_OK)
+            return post_audio_for_transcription(
+                internal_url,
+                file,
+                headers,
+                speech_recognition_options(data),
+                self.__class__.__name__,
+            )
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1336,7 +1316,6 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 )
             logger.info(f"Using cloud URL: {internal_url}")
             headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
-            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
@@ -1348,20 +1327,16 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 headers = auth_headers(deploy)
             
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
-        
-        try:
-            # log request
-            logger.info(f"internal_url:={internal_url}")
-            logger.info(f"headers:={headers}")
-            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
-            inference_data.raise_for_status()
-        except requests.exceptions.HTTPError as http_err:
-            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                return Response(status=status.HTTP_401_UNAUTHORIZED)
-            else:
-                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response(inference_data.json(), status=status.HTTP_200_OK)
+        # log request
+        logger.info(f"internal_url:={internal_url}")
+        return post_audio_for_transcription(
+            internal_url,
+            file,
+            headers,
+            speech_recognition_options(data),
+            self.__class__.__name__,
+        )
 
 class TtsInferenceView(APIView):
     """Text-to-speech inference: supports both OpenAI-style and enqueue-style endpoints."""
