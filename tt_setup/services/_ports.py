@@ -330,7 +330,8 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     if supervisor_pid and supervisor_pid != pid:
         if not quiet:
             print(f"🛑 Found parent supervisor wrapper with PID {supervisor_pid}. Stopping it first...")
-        _terminate_pid_graceful_then_force(supervisor_pid, use_sudo=use_sudo_for_kill, quiet=quiet)
+        if not _terminate_pid_graceful_then_force(supervisor_pid, use_sudo=use_sudo_for_kill, quiet=quiet):
+            return False
 
     if not quiet:
         print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")

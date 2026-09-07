@@ -419,6 +419,18 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
         self.assertEqual(terminated, [100, 300],
                          "supervisor (100) must be terminated before listener child (300)")
 
+    def test_kill_port_holder_fails_if_supervisor_termination_fails(self):
+        with patch.object(_ports_mod, "shutil") as mock_shutil, \
+             patch.object(_ports_mod, "run_command") as mock_run_cmd, \
+             patch.object(_ports_mod, "_process_is_docker", return_value=False), \
+             patch.object(_ports_mod, "_find_supervisor_wrapper_pid", return_value=100), \
+             patch.object(_ports_mod, "_terminate_pid_graceful_then_force", return_value=False):
+            mock_shutil.which.return_value = "/usr/bin/lsof"
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="300\n", stderr="")
+            result = _ports_mod._kill_port_holder(8002, no_sudo=True, quiet=True)
+
+        self.assertFalse(result, "kill_port_holder must return False if supervisor wrapper termination fails")
+
 
 class TestStrictSupervisorReaping(unittest.TestCase):
     """Regression guards for Issue #1307:
