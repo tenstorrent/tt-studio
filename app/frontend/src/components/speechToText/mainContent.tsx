@@ -101,7 +101,6 @@ export function MainContent({
 }: MainContentProps) {
   const [progress, setProgress] = useState<LongAudioProgress | null>(null);
   const [isEditing, setIsEditing] = useState<string | null>(null);
-  const [_audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [justSentRecording, setJustSentRecording] = useState(false);
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
