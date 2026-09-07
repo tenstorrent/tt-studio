@@ -65,6 +65,7 @@ import {
   ModelType,
   getModelTypeFromName,
   getModelTypeFromBackendType,
+  hasInteractionPage,
   fetchModelHealth,
 } from "../api/modelsDeployedApis";
 import type { HealthStatus } from "../types/models";
@@ -384,8 +385,18 @@ export default function NavBar() {
   }, [modelIdsKey]);
 
   // Only models that are actually healthy/usable should surface in the navbar.
+  // Model types with no interaction page (embeddings, and containers whose model
+  // could not be identified) are managed from the Models page only — a nav entry
+  // for them would route to a page that cannot drive them.
   const healthyModels = useMemo(
-    () => models.filter((m) => healthById[m.id] === "healthy"),
+    () =>
+      models.filter((m) => {
+        if (healthById[m.id] !== "healthy") return false;
+        const t = m.model_type
+          ? getModelTypeFromBackendType(m.model_type)
+          : getModelTypeFromName(m.name, m.image);
+        return hasInteractionPage(t);
+      }),
     [models, healthById]
   );
 

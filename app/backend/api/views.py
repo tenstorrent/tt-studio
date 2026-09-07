@@ -143,8 +143,15 @@ class HfCheckView(APIView):
             for r in (raw_repos or [])
             if isinstance(r, str) and r.strip()
         ][: self.MAX_REPOS]
+        # With explicit repos, check them even without a token: public repos
+        # answer 200 anonymously, so ungated models (Qwen, Wan, …) must not be
+        # reported as blocked just because no token is saved yet.
+        if not token and repos:
+            results = check_hf_repos("", repos)
+            ok = all(r["status"] == "granted" for r in results)
+            return Response({"ok": ok, "results": results})
         if not token:
-            no_token_repos = repos or [repo for repo, _label, _f in HF_GATED_MODELS]
+            no_token_repos = [repo for repo, _label, _f in HF_GATED_MODELS]
             labels = {repo: label for repo, label, _f in HF_GATED_MODELS}
             return Response(
                 {

@@ -265,6 +265,38 @@ except ImportError as e:
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
 
+# Media and forge runners read configuration from container environment
+# variables rather than vLLM's additional_config. Preserve the artifact's
+# override merge, then mirror trace_region_size into the env_vars that
+# run_docker_server passes as Docker -e arguments.
+import workflows.model_spec as _model_spec_module  # noqa: E402
+
+_orig_apply_model_spec_overrides = _model_spec_module.ModelSpec.apply_overrides
+
+
+def _patched_apply_model_spec_overrides(self, runtime_config):
+    result = _orig_apply_model_spec_overrides(self, runtime_config)
+    if runtime_config.override_tt_config and self.inference_engine in (
+        "media",
+        "forge",
+    ):
+        trace_region_size = self.device_model_spec.override_tt_config.get(
+            "trace_region_size"
+        )
+        if trace_region_size is not None:
+            object.__setattr__(
+                self,
+                "env_vars",
+                {
+                    **self.env_vars,
+                    "TRACE_REGION_SIZE": str(trace_region_size),
+                },
+            )
+    return result
+
+
+_model_spec_module.ModelSpec.apply_overrides = _patched_apply_model_spec_overrides
+
 # Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
 #
 # Two on-disk layouts must be handled:
@@ -1884,6 +1916,11 @@ def _process_run_output_line(
             stage = "container_started"
             progress = 60
             message = "Container is running..."
+        # Defence in depth for the v0.21.0 readiness gate (see TT_SERVER_BOOT_ATTEMPTS in run_inference).
+        elif "waiting for inference server readiness" in message.lower():
+            stage = "container_started"
+            progress = 61
+            message = "Container is running..."
         elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
             stage = "container_started"
             progress = 64
@@ -2352,7 +2389,23 @@ def sync_tokens_from_tt_studio():
     if ui_hf:
         tt_studio_hf = ui_hf
 
+    # Last resort: the process environment. run.py hands its shell's HF_TOKEN /
+    # JWT_SECRET to this server, so a token exported in the terminal still
+    # reaches the model container even when neither .env nor Settings has one.
+    if not tt_studio_hf:
+        tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
+
     if not tt_studio_jwt and not tt_studio_hf:
+        # Nothing to sync, but the model launcher still passes this file to
+        # `docker run --env-file`, which fails outright when it is missing.
+        if not inference_server_env.exists():
+            try:
+                inference_server_env.parent.mkdir(parents=True, exist_ok=True)
+                inference_server_env.touch()
+            except OSError as e:
+                logger.warning(f"Could not create empty inference server .env at {inference_server_env}: {e}")
         return
     
     # Read inference server .env values
@@ -2506,6 +2559,19 @@ async def run_inference(request: RunRequest):
         # (e.g., /home/username/.cache/huggingface instead of /root/.cache/huggingface)
         env_vars_to_set = {
             "AUTOMATIC_HOST_SETUP": "True",
+            # tt-inference-server v0.21.0 added a readiness gate to ServerCommand
+            # (workflow_module/commands.py): with TT_SERVER_BOOT_ATTEMPTS > 1 -- its
+            # default of 2 -- bring-up blocks polling /health until the model is fully
+            # warm (up to TT_SERVER_READY_TIMEOUT_SECONDS, default 1h). We call
+            # run_main() in-process and only emit container_started / connect
+            # tt_studio_network / rename *after* it returns, so that gate freezes the
+            # deploy bar at container_setup for the entire warmup and defers the
+            # frontend's redirect to the end of the deploy. Forcing a single attempt
+            # restores v0.20.0's fire-and-forget return (the container is up, the model
+            # is still loading), which is the point we want to hand off from the deploy
+            # bar to the container-log classifier. Warmup progress and hang detection
+            # are already covered on our side by log_classifier + health_monitor.
+            "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
             "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
