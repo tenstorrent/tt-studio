@@ -49,6 +49,22 @@ def _classify_failure(message: Optional[str]) -> Tuple[Optional[str], Optional[s
         and any(p in m for p in ("huggingface", "hugging face", "hf_token", "token"))
     ):
         return "hf_auth", message
+    if (
+        any(
+            p in m
+            for p in (
+                "repositorynotfounderror",
+                "entrynotfounderror",
+                "repository not found",
+                "model not found",
+                "repo not found",
+                "404 client error",
+                "could not be loaded from hugging face",
+                "no files found in repository",
+            )
+        )
+    ):
+        return "hf_model_not_found", message
     return "unknown", message
 
 # Registry of active sync threads keyed by job_id.

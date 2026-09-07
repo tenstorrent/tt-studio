@@ -53,6 +53,7 @@ import {
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import { BugReportButton } from "./bug-report/BugReportButton";
+import { TourHelpButton } from "./tour/TourHelpButton";
 import SettingsDialog from "./SettingsDialog";
 import { Button } from "./ui/button";
 
@@ -85,6 +86,7 @@ interface NavItemProps {
   iconColor: string;
   getNavLinkClass: (isActive: boolean) => string;
   isMobile?: boolean;
+  dataTour?: string;
 }
 
 interface ButtonNavItemProps {
@@ -98,6 +100,7 @@ interface ButtonNavItemProps {
   isDisabled?: boolean;
   tooltipText: string;
   isMobile?: boolean;
+  dataTour?: string;
 }
 
 // Type for components used in action buttons
@@ -133,8 +136,9 @@ const NavItem: React.FC<NavItemProps> = ({
   iconColor,
   getNavLinkClass,
   isMobile = false,
+  dataTour,
 }) => (
-  <NavigationMenuItem className={isChatUI ? "w-full flex justify-center" : ""}>
+  <NavigationMenuItem className={isChatUI ? "w-full flex justify-center" : ""} data-tour={dataTour}>
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ type: "spring", stiffness: 300, damping: 10 }}
@@ -142,6 +146,7 @@ const NavItem: React.FC<NavItemProps> = ({
     >
       <NavLink
         to={to}
+        data-tour={dataTour}
         className={({ isActive }) =>
           `${getNavLinkClass(isActive)} flex ${isChatUI ? "justify-center" : "justify-start"} items-center`
         }
@@ -235,8 +240,16 @@ const NavDropdown: React.FC<NavDropdownProps> = ({
         ? isRouteActive(item.route)
         : false
   );
+  const tourId =
+    label === "Model Lifecycle"
+      ? "nav-models"
+      : label === "Tools"
+        ? "nav-tools"
+        : label === "Model Interaction"
+          ? "nav-interactions"
+          : undefined;
   return (
-    <NavigationMenuItem>
+    <NavigationMenuItem data-tour={tourId}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -949,6 +962,7 @@ export default function NavBar() {
                 />
               ))}
               <SettingsNavButton vertical />
+              <TourHelpButton variant="icon" />
             </div>
           </div>
         </div>
@@ -1109,6 +1123,7 @@ export default function NavBar() {
                   />
                 ))}
                 <SettingsNavButton />
+                <TourHelpButton variant="icon" />
                 <BugReportButton variant="icon" />
               </div>
             </motion.div>
@@ -1168,6 +1183,7 @@ export default function NavBar() {
                     iconColor={iconColor}
                     getNavLinkClass={getNavLinkClass}
                     isMobile={isMobile}
+                    dataTour="nav-home"
                   />
                   {navGroups.length > 0 && (
                     <Separator
@@ -1200,7 +1216,7 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-4">
+          <div data-tour="nav-actions" className="flex items-center space-x-4">
             {actionButtons.map((button) => (
               <ActionButton
                 key={button.tooltipText}
@@ -1210,6 +1226,7 @@ export default function NavBar() {
               />
             ))}
             <SettingsNavButton />
+            <TourHelpButton variant="icon" />
             <BugReportButton variant="icon" />
           </div>
         </div>
