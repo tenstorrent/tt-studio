@@ -114,15 +114,18 @@ class TestCheckPortAvailable(unittest.TestCase):
 
 class TestGetBackendPort(unittest.TestCase):
     def test_default_is_8000(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
             self.assertEqual(M.get_backend_port(), 8000)
 
     def test_env_override(self):
-        with patch.dict(os.environ, {"BACKEND_PORT": "8010"}):
+        with patch.dict(os.environ, {"BACKEND_PORT": "8010"}), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
             self.assertEqual(M.get_backend_port(), 8010)
 
     def test_garbage_value_falls_back_to_default(self):
-        with patch.dict(os.environ, {"BACKEND_PORT": "not-a-port"}):
+        with patch.dict(os.environ, {"BACKEND_PORT": "not-a-port"}), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
             self.assertEqual(M.get_backend_port(), 8000)
 
 
