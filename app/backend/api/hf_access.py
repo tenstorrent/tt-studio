@@ -41,6 +41,8 @@ def _status_from_code(code: Optional[int]) -> str:
         return "auth_failed"
     if code == 403:
         return "denied"
+    if code == 404:
+        return "not_found"
     return "error"
 
 

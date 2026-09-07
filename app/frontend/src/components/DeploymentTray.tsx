@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, CheckCircle2, AlertTriangle, X, ChevronDown, Rocket, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { Progress } from "./ui/progress";
-import { compactPercent } from "../lib/deployProgress";
+import { compactPercent, transferDetailParts } from "../lib/deployProgress";
 import type {
   ActiveDeployment,
   DeploymentProgressData,
@@ -114,6 +114,17 @@ export function DeploymentTray({ deployments, progressByJob, onDismiss, onCancel
   );
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  starting: "Starting",
+  initialization: "Initializing",
+  setup: "Setting up",
+  image_ready: "Image ready",
+  container_setup: "Starting container",
+  container_started: "Container started",
+  network_setup: "Connecting",
+  finalizing: "Finalizing",
+};
+
 function DeploymentTrayItem({
   deployment,
   progress,
@@ -141,6 +152,26 @@ function DeploymentTrayItem({
       : null;
 
   const statusLabel = isFailed ? "Failed" : isCompleted ? "Deployed" : `${pct}%`;
+
+  // What the deploy is doing right now, with byte-level detail while the Docker
+  // image or the model weights are downloading — so the tray answers "is it
+  // actually moving?" without opening the full progress card.
+  const detailLine = (() => {
+    if (isFailed || isCompleted || !progress) return null;
+    const stage = progress.stage;
+    const isDownload = stage === "pulling_image" || stage === "model_preparation";
+    const transfer = isDownload ? transferDetailParts(progress) : [];
+    const label =
+      stage === "pulling_image"
+        ? "Pulling Docker image"
+        : stage === "model_preparation"
+          ? transfer.length > 0
+            ? "Downloading weights"
+            : "Preparing model"
+          : STAGE_LABELS[stage] ?? null;
+    const parts = [label, ...transfer].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  })();
 
   const fetchLogs = async () => {
     if (showLogs) {
@@ -222,6 +253,12 @@ function DeploymentTrayItem({
           </button>
         )}
       </div>
+
+      {detailLine && (
+        <p className="mt-1 truncate text-[11px] text-muted-foreground tabular-nums" title={detailLine}>
+          {detailLine}
+        </p>
+      )}
 
       <div className="mt-2 flex items-center gap-2">
         {deviceLabel && (
