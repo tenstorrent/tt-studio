@@ -797,11 +797,10 @@ export default function StepperDemo() {
                   setShowHardwareConfig((v: boolean) => !v);
                   if (showHardwareConfig) setSelectedDeviceIds([]);
                 }}
-                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${
-                  showHardwareConfig
+                className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${showHardwareConfig
                     ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
                 <span>Advanced device configuration</span>
