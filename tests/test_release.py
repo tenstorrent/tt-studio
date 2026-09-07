@@ -249,6 +249,7 @@ class TestUpdateRcBranch(unittest.TestCase):
         responses = {
             ("branch", "-r"): _proc(stdout="  origin/dev\n  origin/rc-v2.10.0\n"),
             ("merge-base",): _proc(stdout="ba5e0000\n"),  # main commit the RC was cut from
+            ("rev-parse", "origin/rc-v2.10.0"): _proc(stdout="0ddba11\n"),  # RC tip at start
             ("log", "-1", "--format=%cI"): _proc(stdout="2026-08-28T16:40:34-04:00\n"),
         }
         responses.update(extra or {})
@@ -278,6 +279,14 @@ class TestUpdateRcBranch(unittest.TestCase):
             self.assertEqual(M.update_rc_branch(), 0)
         log = git.prefixes("log", "--cherry-pick")[0]
         self.assertFalse(any(a.startswith("--since") for a in log))
+
+    def test_fetch_prunes_deleted_remote_branches(self):
+        # Without --prune a deleted rc-v* lingers as origin/rc-v* and gets "found".
+        git = _Recorder({("branch", "-r"): _proc(stdout="  origin/dev\n")})
+        with patch.object(M, "_git", git), patch.object(M, "_gh", _Recorder()), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            M.update_rc_branch()
+        self.assertIn(("fetch", "origin", "--tags", "--prune"), git.calls)
 
     def test_no_rc_branch_is_a_clean_failure(self):
         git = _Recorder({("branch", "-r"): _proc(stdout="  origin/dev\n")})
@@ -312,7 +321,10 @@ class TestUpdateRcBranch(unittest.TestCase):
         # Applied oldest-first, in the order git listed them.
         picks = git.prefixes("cherry-pick")
         self.assertEqual(picks, [("cherry-pick", "abc123"), ("cherry-pick", "def456")])
-        self.assertIn(("push", "origin", "HEAD:refs/heads/rc-v2.10.0"), git.calls)
+        # Leased on the RC tip seen at the start: a branch that moved or was
+        # deleted meanwhile (first real run resurrected a deleted RC) is rejected.
+        self.assertIn(("push", "--force-with-lease=refs/heads/rc-v2.10.0:0ddba11",
+                       "origin", "HEAD:refs/heads/rc-v2.10.0"), git.calls)
         removes = git.prefixes("worktree", "remove")
         self.assertEqual(len(removes), 1)
         self.assertEqual(removes[0][3], adds[0][3])  # same scratch path

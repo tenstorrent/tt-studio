@@ -192,7 +192,9 @@ def _fetch_origin():
     """None on success; an exit code after a panel when origin is unreachable."""
     fetch_error = ""
     with step("Fetching origin (branches and tags)") as s:
-        fetched = _git("fetch", "origin", "--tags")
+        # --prune: a deleted rc-v* branch must not linger as a stale origin/ ref,
+        # or the next command would "find" it and a push would resurrect it.
+        fetched = _git("fetch", "origin", "--tags", "--prune")
         if fetched.returncode != 0:
             fetch_error = _proc_output(fetched)
             s.fail()
@@ -485,6 +487,11 @@ def update_rc_branch():
 def _cherry_pick_in_worktree(worktree, branch, picked):
     """Apply `picked` (sha, subject) pairs onto origin/<branch> inside the
     detached worktree at `worktree`, then push. Returns an exit code."""
+    # Remember where origin/<branch> was: the push below is leased on it, so a
+    # branch that moved (someone else pushed) or vanished (deleted) is rejected
+    # instead of being clobbered or resurrected.
+    expected = _git("rev-parse", f"origin/{branch}").stdout.strip()
+
     wt_error = ""
     with step(f"Preparing a scratch worktree of {branch}") as s:
         result = _git("worktree", "add", "--detach", worktree, f"origin/{branch}")
@@ -519,12 +526,18 @@ def _cherry_pick_in_worktree(worktree, branch, picked):
 
     push_error = ""
     with step(f"Pushing {branch}") as s:
-        result = _git("push", "origin", f"HEAD:refs/heads/{branch}", cwd=worktree)
+        lease = [f"--force-with-lease=refs/heads/{branch}:{expected}"] if expected else []
+        result = _git("push", *lease, "origin", f"HEAD:refs/heads/{branch}", cwd=worktree)
         if result.returncode != 0:
             push_error = _proc_output(result)
             s.fail()
     if push_error:
-        return _fail_panel(f"⛔ Couldn't push '{branch}'", ["", push_error])
+        return _fail_panel(
+            f"⛔ Couldn't push '{branch}'",
+            ["[muted]If origin rejected the lease, the RC branch moved or was deleted "
+             "since this run started — re-run to pick against its current state.[/muted]",
+             "", push_error],
+        )
 
     pr = _gh("pr", "view", branch, "--json", "url", "--jq", ".url")
     pr_url = pr.stdout.strip() if pr.returncode == 0 else ""
