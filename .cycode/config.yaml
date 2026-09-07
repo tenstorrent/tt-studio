@@ -22,6 +22,13 @@
 #   on glib directly and never touches GVariant; Tauri/wry/tao use glib for
 #   the GTK main loop and webview plumbing, not for GVariant string iteration.
 #
+# Scope of this file: it is read by the Cycode CLI (local scans and the
+# CLI-based CI component). The "Cycode: Vulnerable Dependencies" GitHub PR
+# check is Cycode's SCM app, which does not read repo config; that finding has
+# to be dismissed once in the Cycode console (Violations -> ignore, repo scope,
+# reason "no fix available") by a Cycode admin. This file keeps the CLI in
+# agreement with that decision and records the rationale in-repo.
+#
 # Housekeeping: when Tauri drops gtk 0.18 (or the lockfile's glib moves to
 # >= 0.20), delete this exclusion so Cycode resumes flagging glib.
 
