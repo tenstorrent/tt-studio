@@ -392,11 +392,20 @@ class TestMergeRcBranch(unittest.TestCase):
     def _git_base(self, extra=None):
         responses = {
             ("branch", "-r"): _proc(stdout="  origin/rc-v2.10.0\n"),
+            ("rev-parse", "--verify"): _proc(returncode=1),  # no stale local v2.10.0 tag
             ("rev-parse", "origin/main"): _proc(stdout="feedc0de\n"),
             ("log", "-1"): _proc(stdout="Rc v2.10.0 (#123)\n"),
         }
         responses.update(extra or {})
         return responses
+
+    def test_stale_local_tag_refused_before_merging(self):
+        git = _Recorder(self._git_base({("rev-parse", "--verify"): _proc(returncode=0)}))
+        gh = _Recorder({("pr", "view"): _proc(stdout=_APPROVED_PR)})
+        with patch.object(M, "_git", git), patch.object(M, "_gh", gh), \
+             patch.object(M.shutil, "which", return_value="/usr/bin/gh"):
+            self.assertEqual(M.merge_rc_branch(), 1)
+        self.assertEqual(gh.prefixes("pr", "merge"), [])
 
     def test_already_tagged_version_refused(self):
         git = _Recorder(self._git_base({
