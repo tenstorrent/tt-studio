@@ -330,6 +330,14 @@ def cleanup_fastapi_server(no_sudo=False):
                 return result.returncode == 0
             return True
 
+    def wait_for_death(pid, timeout=2.5, interval=0.1):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not is_process_alive(pid):
+                return True
+            time.sleep(interval)
+        return not is_process_alive(pid)
+
     # Kill process if PID file exists
     if os.path.exists(FASTAPI_PID_FILE):
         try:
@@ -337,20 +345,18 @@ def cleanup_fastapi_server(no_sudo=False):
                 pid = f.read().strip()
             if pid and pid.isdigit():
                 pid_int = int(pid)
-                if is_process_alive(pid_int):
+                if pid_int > 1 and is_process_alive(pid_int):
                     try:
                         os.kill(pid_int, signal.SIGTERM)
-                        time.sleep(2)
-                        if is_process_alive(pid_int):
+                        if not wait_for_death(pid_int, timeout=2.0):
                             os.kill(pid_int, signal.SIGKILL)
-                            time.sleep(1)
+                            wait_for_death(pid_int, timeout=1.0)
                     except PermissionError:
                         if not no_sudo:
                             subprocess.run(["sudo", "kill", "-15", pid], check=False)
-                            time.sleep(2)
-                            if is_process_alive(pid_int):
+                            if not wait_for_death(pid_int, timeout=2.0):
                                 subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                                time.sleep(1)
+                                wait_for_death(pid_int, timeout=1.0)
                         else:
                             print(f"{C_YELLOW}⚠️  Could not kill FastAPI process {pid} (no sudo){C_RESET}")
                     except (ProcessLookupError, Exception):

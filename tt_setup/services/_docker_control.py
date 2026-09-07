@@ -107,31 +107,59 @@ def _process_is_alive(pid, no_sudo=False):
         return False
 
 
-def _terminate_pid(pid, no_sudo=False):
+def _wait_for_process_death(pid, timeout=2.5, interval=0.1, no_sudo=False):
+    """Poll until process is no longer alive, up to `timeout` seconds.
+
+    Returns True if process died, False if still alive.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _process_is_alive(pid, no_sudo=no_sudo):
+            return True
+        time.sleep(interval)
+    return not _process_is_alive(pid, no_sudo=no_sudo)
+
+
+def _terminate_pid(pid, no_sudo=False, grace_period=2.0, kill_timeout=2.0):
     """SIGTERM a pid, escalating to SIGKILL if it outlives the grace period.
 
+    Polls until the process is confirmed dead. Returns True if dead, False otherwise.
     SIGTERM is what the supervisor wrapper traps to take uvicorn (and, under
     --reload, uvicorn's spawned child) down with it, so terminating the wrapper
     is what actually stops the service.
     """
-    pid_int = int(pid)
+    try:
+        pid_int = int(pid)
+    except (ValueError, TypeError):
+        return True
+
+    if pid_int <= 1:
+        return True
+
+    if not _process_is_alive(pid_int, no_sudo=no_sudo):
+        return True
+
     try:
         os.kill(pid_int, signal.SIGTERM)
-        time.sleep(2)
+        if _wait_for_process_death(pid_int, timeout=grace_period, no_sudo=no_sudo):
+            return True
         if _process_is_alive(pid_int, no_sudo=no_sudo):
             os.kill(pid_int, signal.SIGKILL)
-            time.sleep(1)
+            return _wait_for_process_death(pid_int, timeout=kill_timeout, no_sudo=no_sudo)
+        return True
     except PermissionError:
         if no_sudo:
             console.print(f"[warning]⚠️  Could not stop Docker Control process {pid} (no sudo)[/warning]")
-            return
+            return False
         subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
-        time.sleep(2)
+        if _wait_for_process_death(pid_int, timeout=grace_period, no_sudo=no_sudo):
+            return True
         if _process_is_alive(pid_int, no_sudo=no_sudo):
             subprocess.run(["sudo", "kill", "-9", str(pid)], check=False)
-            time.sleep(1)
+            return _wait_for_process_death(pid_int, timeout=kill_timeout, no_sudo=no_sudo)
+        return True
     except (ProcessLookupError, Exception):
-        pass
+        return not _process_is_alive(pid_int, no_sudo=no_sudo)
 
 
 def _read_supervisor_pid():
@@ -141,7 +169,7 @@ def _read_supervisor_pid():
             return None
         with open(DOCKER_CONTROL_PID_FILE, 'r') as f:
             pid = f.read().strip()
-        return int(pid) if pid.isdigit() else None
+        return int(pid) if pid.isdigit() and int(pid) > 1 else None
     except Exception:
         return None
 
@@ -156,10 +184,14 @@ def _stop_previous_supervisor(no_sudo=False):
     """
     pid = _read_supervisor_pid()
     if pid is None or not _process_is_alive(pid, no_sudo=no_sudo):
-        return
+        return True
     if show_detail():
         console.print(f"[muted]   Stopping previous Docker Control supervisor (pid {pid})…[/muted]")
-    _terminate_pid(pid, no_sudo=no_sudo)
+    reaped = _terminate_pid(pid, no_sudo=no_sudo)
+    if not reaped and _process_is_alive(pid, no_sudo=no_sudo):
+        console.print(f"[warning]⚠️  Previous Docker Control supervisor (pid {pid}) could not be terminated.[/warning]")
+        return False
+    return True
 
 
 def start_docker_control_service(no_sudo=False, dev_mode=False):
@@ -214,6 +246,14 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     # Check if service directory exists
     if not os.path.exists(DOCKER_CONTROL_SERVICE_DIR):
         console.print(f"[error]⛔ Error: Docker Control Service directory not found at {DOCKER_CONTROL_SERVICE_DIR}[/error]")
+        return False
+
+    # Verify that the previous supervisor is strictly dead before truncating the PID file.
+    # If it is still alive (e.g. unkillable or permission-denied), abort to prevent
+    # creating multiple conflicting supervisor processes.
+    prev_pid = _read_supervisor_pid()
+    if prev_pid is not None and _process_is_alive(prev_pid, no_sudo=no_sudo):
+        console.print(f"[error]❌ Previous Docker Control supervisor (pid {prev_pid}) is still alive. Aborting startup to prevent collision.[/error]")
         return False
 
     # Preserve the previous instance's log before truncating it below. A plain

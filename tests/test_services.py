@@ -3,6 +3,7 @@
 
 """Characterization tests for service helpers (ports, git, frontend config)."""
 import os
+import signal
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
@@ -363,3 +364,108 @@ class TestSupervisorGhostSelfTermination(unittest.TestCase):
         self.assertIn("Exiting ghost loop", src)
         self.assertIn("exit 0", src)
 
+
+class TestSupervisorTreeTraversal(unittest.TestCase):
+    """Regression guards for Issue #1307:
+    Freeing a port held by a supervisor's child must climb the process tree
+    and terminate the supervisor wrapper first, preventing restart loops."""
+
+    def test_is_supervisor_wrapper_detection(self):
+        # Matches Linux temp wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /tmp/tmpera45p4b.sh /path/to/docker-control-service /path/to/pid .venv log"
+        ))
+        # Matches macOS temp wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /var/folders/zb/tmpcjb01kdb.sh /path/to/docker-control-service"
+        ))
+        # Matches inference-api wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /tmp/tmp12345.sh /path/to/inference-api"
+        ))
+        # Does not match regular processes
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/usr/bin/python3 app.py"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("com.docker.backend"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("node server.js"))
+
+    def test_find_supervisor_wrapper_pid_climbs_tree(self):
+        # Simulate worker (300) -> reloader (200) -> supervisor (100) -> init (1)
+        tree = {300: 200, 200: 100, 100: 1}
+        cmds = {
+            300: "python uvicorn api:app",
+            200: "python -m uvicorn --reload",
+            100: "/bin/bash /tmp/tmp_supervisor.sh /path/to/docker-control-service",
+            1: "init",
+        }
+        with patch.object(_ports_mod, "_get_parent_pid", side_effect=lambda p, **kw: tree.get(p)), \
+             patch.object(_ports_mod, "_get_process_command", side_effect=lambda p, **kw: cmds.get(p, "")):
+            supervisor_pid = _ports_mod._find_supervisor_wrapper_pid(300)
+        self.assertEqual(supervisor_pid, 100)
+
+    def test_kill_port_holder_terminates_supervisor_first(self):
+        terminated = []
+        with patch.object(_ports_mod, "shutil") as mock_shutil, \
+             patch.object(_ports_mod, "run_command") as mock_run_cmd, \
+             patch.object(_ports_mod, "_process_is_docker", return_value=False), \
+             patch.object(_ports_mod, "_find_supervisor_wrapper_pid", return_value=100), \
+             patch.object(_ports_mod, "_terminate_pid_graceful_then_force",
+                          side_effect=lambda p, **kw: terminated.append(p) or True):
+            mock_shutil.which.return_value = "/usr/bin/lsof"
+            # Return PID 300 for lsof
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="300\n", stderr="")
+            result = _ports_mod._kill_port_holder(8002, no_sudo=True, quiet=True)
+
+        self.assertTrue(result)
+        self.assertEqual(terminated, [100, 300],
+                         "supervisor (100) must be terminated before listener child (300)")
+
+
+class TestStrictSupervisorReaping(unittest.TestCase):
+    """Regression guards for Issue #1307:
+    Reaping the supervisor must strictly wait until the process is dead before
+    proceeding to start a new supervisor or truncating the PID file."""
+
+    def test_terminate_pid_polls_until_dead(self):
+        # Process is alive on first check, then dies
+        alive_states = [True, False]
+
+        def fake_alive(pid, no_sudo=False):
+            if alive_states:
+                return alive_states.pop(0)
+            return False
+
+        with patch.object(_dc_mod, "_process_is_alive", side_effect=fake_alive), \
+             patch.object(_dc_mod.os, "kill") as mock_kill, \
+             patch.object(_dc_mod.time, "sleep"):
+            result = _dc_mod._terminate_pid(1234, grace_period=1.0)
+
+        self.assertTrue(result)
+        mock_kill.assert_called_once_with(1234, signal.SIGTERM)
+
+    def test_terminate_pid_escalates_to_sigkill_when_stubborn(self):
+        # Process stays alive on SIGTERM, dies only after SIGKILL is sent
+        kill_calls = []
+
+        def fake_alive(pid, no_sudo=False):
+            return signal.SIGKILL not in kill_calls
+
+        def record_kill(pid, sig):
+            kill_calls.append(sig)
+
+        with patch.object(_dc_mod, "_process_is_alive", side_effect=fake_alive), \
+             patch.object(_dc_mod.os, "kill", side_effect=record_kill):
+            result = _dc_mod._terminate_pid(1234, grace_period=0.05, kill_timeout=0.05)
+
+        self.assertTrue(result)
+        self.assertEqual(kill_calls, [signal.SIGTERM, signal.SIGKILL])
+
+    def test_start_service_aborts_if_supervisor_still_alive(self):
+        with patch.object(_dc_mod, "check_docker_access", return_value=True), \
+             patch.object(_dc_mod, "_service_is_healthy", return_value=False), \
+             patch.object(_dc_mod, "_stop_previous_supervisor", return_value=False), \
+             patch.object(_dc_mod, "check_port_available", return_value=True), \
+             patch.object(_dc_mod, "_read_supervisor_pid", return_value=4242), \
+             patch.object(_dc_mod, "_process_is_alive", return_value=True):
+            result = _dc_mod.start_docker_control_service()
+
+        self.assertFalse(result, "start_docker_control_service must abort if previous supervisor is alive")
