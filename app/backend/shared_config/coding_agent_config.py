@@ -17,7 +17,8 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.3-70B-Instruct",
     "Qwen3.6-27B",
     "Qwen3.8-27B",
-    "gemma-4-31B-it"
+    "gemma-4-31B-it",
+    "diffusiongemma-26B-A4B-it",
 }
 
 # Model types coding agents can talk to.
@@ -31,6 +32,7 @@ REASONING_MODELS = {
     "Qwen3.6-27B": "qwen3",
     "Qwen3.8-27B": "qwen3",
     "gemma-4-31B-it": "gemma4",
+    "diffusiongemma-26B-A4B-it": "gemma4",
 }
 
 # Suffix that selects thinking mode for a reasoning model over the gateway,
@@ -42,13 +44,23 @@ def is_coding_agent_eligible(model_impl) -> bool:
     """True if a deployed model is usable via the coding-agent gateway.
 
     Operates on a ModelImpl object (reads .model_type / .model_name).
+
+    Catalog models are allowlisted by name: we know which of them we have
+    verified against coding agents. An externally-registered model has no
+    catalog entry to allowlist, so it qualifies on structure instead — a chat or
+    VLM container the user explicitly registered. Whether it can actually be
+    driven is a separate question answered by `tool_calling_enabled`, which every
+    caller here already filters on (see _running_coding_agent_deploys); that
+    keeps a tool-calling-less container out of the usable list while still
+    letting the UI explain how to relaunch it.
     """
     if model_impl is None:
         return False
-    return (
-        getattr(model_impl, "model_type", None) in CODING_AGENT_MODEL_TYPES
-        and getattr(model_impl, "model_name", None) in CODING_AGENT_ELIGIBLE_MODELS
-    )
+    if getattr(model_impl, "model_type", None) not in CODING_AGENT_MODEL_TYPES:
+        return False
+    if getattr(model_impl, "is_external", False):
+        return True
+    return getattr(model_impl, "model_name", None) in CODING_AGENT_ELIGIBLE_MODELS
 
 
 def get_reasoning_parser(model_name) -> str | None:

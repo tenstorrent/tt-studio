@@ -72,6 +72,96 @@ def _stop_supervisor(process):
             pass
 
 
+def _service_is_healthy(timeout=2):
+    """True if something is already answering the service's health endpoint.
+
+    Used both to adopt an existing instance at start and to poll a newly spawned
+    one, so there is a single definition of "healthy" rather than three copies of
+    the same try/except.
+    """
+    url = "http://127.0.0.1:8002/api/v1/health"
+    try:
+        if HAS_REQUESTS:
+            return requests.get(url, timeout=timeout).status_code == 200
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return response.getcode() == 200
+    except Exception:
+        return False
+
+
+def _process_is_alive(pid, no_sudo=False):
+    """True if `pid` exists. Falls back to sudo when the process isn't ours."""
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        if not no_sudo:
+            result = subprocess.run(["sudo", "kill", "-0", str(pid)],
+                                    capture_output=True, check=False)
+            return result.returncode == 0
+        return True
+    except Exception:
+        return False
+
+
+def _terminate_pid(pid, no_sudo=False):
+    """SIGTERM a pid, escalating to SIGKILL if it outlives the grace period.
+
+    SIGTERM is what the supervisor wrapper traps to take uvicorn (and, under
+    --reload, uvicorn's spawned child) down with it, so terminating the wrapper
+    is what actually stops the service.
+    """
+    pid_int = int(pid)
+    try:
+        os.kill(pid_int, signal.SIGTERM)
+        time.sleep(2)
+        if _process_is_alive(pid_int, no_sudo=no_sudo):
+            os.kill(pid_int, signal.SIGKILL)
+            time.sleep(1)
+    except PermissionError:
+        if no_sudo:
+            console.print(f"[warning]⚠️  Could not stop Docker Control process {pid} (no sudo)[/warning]")
+            return
+        subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
+        time.sleep(2)
+        if _process_is_alive(pid_int, no_sudo=no_sudo):
+            subprocess.run(["sudo", "kill", "-9", str(pid)], check=False)
+            time.sleep(1)
+    except (ProcessLookupError, Exception):
+        pass
+
+
+def _read_supervisor_pid():
+    """The supervisor pid recorded by the wrapper (`echo $$`), or None."""
+    try:
+        if not os.path.exists(DOCKER_CONTROL_PID_FILE):
+            return None
+        with open(DOCKER_CONTROL_PID_FILE, 'r') as f:
+            pid = f.read().strip()
+        return int(pid) if pid.isdigit() else None
+    except Exception:
+        return None
+
+
+def _stop_previous_supervisor(no_sudo=False):
+    """Terminate the supervisor from a previous launcher run, if still alive.
+
+    Must run before the PID file is truncated further down: that truncation used
+    to erase the only record of the previous supervisor, leaving it unkillable
+    and free to keep respawning uvicorn on 8002. Each subsequent `python run.py`
+    then added another orphan, so `--stop` could only ever reach the newest one.
+    """
+    pid = _read_supervisor_pid()
+    if pid is None or not _process_is_alive(pid, no_sudo=no_sudo):
+        return
+    if show_detail():
+        console.print(f"[muted]   Stopping previous Docker Control supervisor (pid {pid})…[/muted]")
+    _terminate_pid(pid, no_sudo=no_sudo)
+
+
 def start_docker_control_service(no_sudo=False, dev_mode=False):
     """Start the Docker Control Service on port 8002."""
     mode_label = " (dev/reload)" if dev_mode else ""
@@ -93,22 +183,33 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         console.print("[muted]   Skipping Docker Control Service - Backend will use direct Docker SDK instead[/muted]")
         return False
 
-    # Check if port 8002 is available
+    # Adopt a healthy service instead of replacing it.
+    #
+    # This check MUST come before freeing the port below. It used to run after,
+    # which made it dead code: the port was already cleared, so the health probe
+    # could never succeed and every start spawned another supervisor. Worse, the
+    # port was freed by killing the *listener* only — the previous supervisor
+    # survived and immediately respawned it. Two supervisors then fought over
+    # 8002, and since each `python run.py` added another, they accumulated
+    # (five were seen in the wild, with restart counters in the thousands).
+    #
+    # That churn is not cosmetic: image-pull progress lives in this service's
+    # memory, so every change of ownership silently dropped in-flight pulls and
+    # surfaced as an unexplained "Deployment failed" in the UI.
+    if _service_is_healthy(timeout=2):
+        if show_detail():  # confirmation folds into the Services phase line
+            console.print("[success]✅ Docker Control Service already running[/success]")
+        return True
+
+    # Nothing healthy is answering, so anything still holding 8002 is stale.
+    # Stop the previous supervisor first: killing only the listener leaves its
+    # restart loop alive to respawn a competitor three seconds later.
+    _stop_previous_supervisor(no_sudo=no_sudo)
+
     if not check_port_available(8002):
         if not kill_process_on_port(8002, no_sudo=no_sudo):
             console.print("[error]❌ Failed to free port 8002. Please manually stop any process using this port.[/error]")
             return False
-
-    # Check if service is already running
-    if HAS_REQUESTS:
-        try:
-            response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=2)
-            if response.status_code == 200:
-                if show_detail():  # confirmation folds into the Services phase line
-                    console.print("[success]✅ Docker Control Service already running[/success]")
-                return True
-        except requests.exceptions.RequestException:
-            pass
 
     # Check if service directory exists
     if not os.path.exists(DOCKER_CONTROL_SERVICE_DIR):
@@ -233,14 +334,39 @@ trap shutdown TERM INT
 # take the service (and with it the whole Models Deployed view) down.
 trap "" HUP
 
+# Restart on crash, but give up if the service can never stay up. An unbounded
+# loop turns a permanent fault (most often port 8002 already taken by another
+# supervisor) into thousands of restarts and a log that grows without limit,
+# while hiding the real problem. A run that survives MIN_HEALTHY_SECONDS is
+# treated as recovered and resets the budget, so genuine occasional crashes
+# still self-heal.
 RESTART_COUNT=0
+CONSECUTIVE_FAILURES=0
+MAX_CONSECUTIVE_FAILURES=5
+MIN_HEALTHY_SECONDS=30
 while true; do
+    STARTED_AT=$SECONDS
     "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 {reload_flag} >> "$4" 2>&1 &
     CHILD_PID=$!
     wait "$CHILD_PID"
     EXIT_CODE=$?
     CHILD_PID=""
+    RAN_FOR=$((SECONDS - STARTED_AT))
     RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    if [ "$RAN_FOR" -ge "$MIN_HEALTHY_SECONDS" ]; then
+        CONSECUTIVE_FAILURES=0
+    else
+        CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+    fi
+
+    if [ "$CONSECUTIVE_FAILURES" -ge "$MAX_CONSECUTIVE_FAILURES" ]; then
+        echo "[$(date)] Docker Control Service failed $CONSECUTIVE_FAILURES times in a row (last exit code $EXIT_CODE, ran ${{RAN_FOR}}s)." >> "$4"
+        echo "[$(date)] Giving up. Most likely port 8002 is held by another process — check with: ss -ltnp | grep 8002" >> "$4"
+        echo "[$(date)] Fix that, then restart with: python run.py" >> "$4"
+        exit 1
+    fi
+
     echo "[$(date)] Docker Control Service exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
     sleep 3
 done
@@ -276,25 +402,10 @@ done
                     return False
 
                 # Check if service is responding
-                if HAS_REQUESTS:
-                    try:
-                        response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=5)
-                        if response.status_code == 200:
-                            if show_detail():
-                                console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
-                            return True
-                    except:
-                        pass
-                else:
-                    try:
-                        import urllib.request
-                        response = urllib.request.urlopen("http://localhost:8002/api/v1/health", timeout=5)
-                        if response.getcode() == 200:
-                            if show_detail():
-                                console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
-                            return True
-                    except:
-                        pass
+                if _service_is_healthy(timeout=5):
+                    if show_detail():
+                        console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+                    return True
 
                 if i == health_check_retries:
                     console.print("[error]Docker Control Service never became healthy[/error]")
@@ -323,46 +434,12 @@ done
 
 def cleanup_docker_control_service(no_sudo=False):
     """Clean up Docker Control Service processes and files (quiet — only warns on errors)."""
-    def is_process_alive(pid):
-        try:
-            os.kill(int(pid), 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            if not no_sudo:
-                result = subprocess.run(["sudo", "kill", "-0", str(pid)],
-                                      capture_output=True, check=False)
-                return result.returncode == 0
-            return True
-
-    # Kill process if PID file exists
-    if os.path.exists(DOCKER_CONTROL_PID_FILE):
-        try:
-            with open(DOCKER_CONTROL_PID_FILE, 'r') as f:
-                pid = f.read().strip()
-            if pid and pid.isdigit():
-                pid_int = int(pid)
-                if is_process_alive(pid_int):
-                    try:
-                        os.kill(pid_int, signal.SIGTERM)
-                        time.sleep(2)
-                        if is_process_alive(pid_int):
-                            os.kill(pid_int, signal.SIGKILL)
-                            time.sleep(1)
-                    except PermissionError:
-                        if not no_sudo:
-                            subprocess.run(["sudo", "kill", "-15", pid], check=False)
-                            time.sleep(2)
-                            if is_process_alive(pid_int):
-                                subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                                time.sleep(1)
-                        else:
-                            print(f"{C_YELLOW}⚠️  Could not kill Docker Control process {pid} (no sudo){C_RESET}")
-                    except (ProcessLookupError, Exception):
-                        pass
-        except Exception:
-            pass
+    # Stop the supervisor first. It traps SIGTERM and takes uvicorn down with it;
+    # going straight for the port would kill the listener and leave the restart
+    # loop alive to respawn it.
+    pid = _read_supervisor_pid()
+    if pid is not None and _process_is_alive(pid, no_sudo=no_sudo):
+        _terminate_pid(pid, no_sudo=no_sudo)
 
     # Kill any process on port 8002
     kill_process_on_port(8002, no_sudo=no_sudo, quiet=True)

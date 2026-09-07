@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 
 FROM python:3.12.8-slim-bookworm
@@ -10,6 +10,7 @@ ENV VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
 ENV PYTHONUNBUFFERED=1
 # /backend is bind-mounted from the host repo; don't litter it with bytecode
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_ROOT_USER_ACTION=ignore
 
 EXPOSE 8000
 
@@ -61,7 +62,7 @@ RUN pip3 install --no-cache-dir --no-deps openwakeword==0.6.0
 
 # Bake in the all-MiniLM-L6-v2 embedding model. ChromaDB otherwise fetches it
 # (79 MB) into ~/.cache/chroma on first use, which no volume persists — so every
-# container recreation would re-download it, and the four uvicorn workers would
+# container recreation would re-download it, and concurrent request threads would
 # race to extract the same archive (ChromaDB's downloader takes no lock).
 # Embedding rather than calling the private download helper also proves the
 # onnxruntime and tokenizer path works at build time. The archive is removed

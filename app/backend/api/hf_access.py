@@ -44,6 +44,36 @@ def _status_from_code(code: Optional[int]) -> str:
     return "error"
 
 
+def check_hf_repos(token: str, repos: List[str]) -> List[Dict]:
+    """Access status for arbitrary repos, in check_hf_access's shape.
+
+    Mirrors DeployView's gate, including its model_index.json retry: diffusers
+    repos have no root config.json, so a gated one would read as "error".
+
+    Works without a token too: public repos answer 200 anonymously, so an
+    ungated model reads "granted" even with nothing saved. An anonymous
+    401/403 means the repo is gated and no token exists — that's "no_token",
+    not a bad credential.
+    """
+    labels = {repo: label for repo, label, _ in HF_GATED_MODELS}
+    results: List[Dict] = []
+    for repo in repos:
+        code = _check_repo(token, repo)
+        if code == 404:
+            code = _check_repo(token, repo, "model_index.json")
+        status = _status_from_code(code)
+        if not token and status in ("auth_failed", "denied"):
+            status = "no_token"
+        results.append({
+            "label": labels.get(repo, repo.split("/")[-1]),
+            "repo": repo,
+            "status": status,
+            "http_status": code,
+            "url": f"https://huggingface.co/{repo}",
+        })
+    return results
+
+
 def check_hf_access(token: str) -> List[Dict]:
     """Return one row per gated model with normalized status."""
     results: List[Dict] = []
