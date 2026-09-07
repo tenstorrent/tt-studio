@@ -1,0 +1,31 @@
+# Cycode configuration — Software Composition Analysis (SCA) exclusions.
+#
+# Cycode exclusions are scoped by package@version (or CVE/rule id), never by
+# line, and this file is the narrowest in-repo lever available. Only the SCA
+# scan type is touched; secrets, SAST, IaC and license scanning are unaffected.
+#
+# Excluded finding (Cycode "Vulnerability found in dependency", MEDIUM):
+#   - desktop/src-tauri/Cargo.lock: glib 0.18.5, GHSA-wrw7-89jp-8q8g /
+#     RUSTSEC-2024-0429 — unsoundness in `glib::VariantStrIter`, fixed in
+#     glib 0.20.0.
+#
+# Why it cannot be fixed by upgrading:
+#   glib is a transitive dependency of Tauri's Linux backend
+#   (tauri -> gtk 0.18 -> glib 0.18). gtk 0.18.2 is the final release of the
+#   GTK3 crate and pins glib to 0.18.x; the latest Tauri 2.x still depends on
+#   it. glib 0.20 is therefore unreachable until Tauri moves off gtk-rs 0.18.
+#   `cargo update` cannot change this; only a Tauri upstream change can.
+#
+# Why the residual risk is accepted:
+#   The unsound code path is the Iterator impl for `VariantStrIter`, used when
+#   iterating over string-array GVariants. tt-studio-desktop does not depend
+#   on glib directly and never touches GVariant; Tauri/wry/tao use glib for
+#   the GTK main loop and webview plumbing, not for GVariant string iteration.
+#
+# Housekeeping: when Tauri drops gtk 0.18 (or the lockfile's glib moves to
+# >= 0.20), delete this exclusion so Cycode resumes flagging glib.
+
+exclusions:
+  sca:
+    packages:
+      - glib@0.18.5
