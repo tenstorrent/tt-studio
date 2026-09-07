@@ -4,6 +4,11 @@
 # Enforce Conventional Commits on PR titles.
 # Since we squash-merge to dev, the PR title becomes the commit message,
 # so validating the title is sufficient.
+#
+# Release branches are exempt: `rc-*` and `tt_qb2_launch_branch` PRs into `main`
+# are conventionally titled `Rc vX.Y.Z` (what `gh pr create --fill` produces from
+# the branch name). `release: vX.Y.Z` is also accepted if you prefer a
+# conventional title — see commitlint.config.js and CONTRIBUTING (Release Process).
 
 name: Lint PR Title
 
@@ -30,6 +35,17 @@ jobs:
         run: npm install --save-dev @commitlint/cli@^19.7.1 @commitlint/config-conventional@^19.7.1
 
       - name: Lint PR title
+        if: >-
+          !startsWith(github.head_ref, 'rc-') &&
+          github.head_ref != 'tt_qb2_launch_branch'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: echo "$PR_TITLE" | npx commitlint
+
+      - name: Release PR — conventional title not required
+        if: >-
+          startsWith(github.head_ref, 'rc-') ||
+          github.head_ref == 'tt_qb2_launch_branch'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: echo "Release branch $HEAD_REF - skipping conventional title check."

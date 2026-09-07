@@ -24,7 +24,7 @@ import {
   type SettingsResponse,
 } from "../api/settingsApi";
 
-const STEPS = ["Welcome", "Secrets", "Access check", "Done"] as const;
+const STEPS = ["Welcome", "HF token", "Access check", "Done"] as const;
 
 export default function WelcomePage() {
   const navigate = useNavigate();
@@ -32,7 +32,6 @@ export default function WelcomePage() {
   const [stepIndex, setStepIndex] = useState(0);
   const [secrets, setSecrets] = useState<WelcomeSecrets>({
     hf_token: "",
-    tavily_api_key: "",
   });
 
   const { data: current } = useQuery<SettingsResponse>({
@@ -49,7 +48,6 @@ export default function WelcomePage() {
     prefilled.current = true;
     setSecrets({
       hf_token: current.hf_token.value ?? "",
-      tavily_api_key: current.tavily_api_key.value ?? "",
     });
   }, [current]);
 
@@ -59,10 +57,7 @@ export default function WelcomePage() {
       // value is not an update (re-sending the HF token would spuriously
       // flag a redeploy). Blank still means "keep the existing value".
       const body: Record<string, string> = {};
-      for (const key of [
-        "hf_token",
-        "tavily_api_key",
-      ] as const) {
+      for (const key of ["hf_token"] as const) {
         const val = secrets[key].trim();
         if (val !== "" && val !== (current?.[key].value ?? "")) body[key] = val;
       }

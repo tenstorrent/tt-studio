@@ -142,20 +142,38 @@ untracked dirs.
 ### 7. Commit with a human message
 
 Imperative, specific, professional. Describe what changed and why, as a
-teammate would. No AI attribution, no `Co-Authored-By` AI trailers.
+teammate would. No AI attribution, no `Co-Authored-By` AI trailers. Use the same
+Conventional Commits form as the PR title (step 8) so a squash-merge reads cleanly
+either way.
 
 ```
-git commit -m "Hide board reset button while a model is deployed"
+git commit -m "fix: hide board reset button while a model is deployed"
 ```
 
 ### 8. Push and open the PR against dev
 
+The PR title **must** follow [Conventional Commits](https://www.conventionalcommits.org/)
+— `<type>(<optional scope>): <subject>`. CI (`Validate PR Title`) rejects anything
+else, and since the repo squash-merges, this title becomes the commit message on
+`dev`. Allowed types are listed in [CONTRIBUTING.md](../../../CONTRIBUTING.md#allowed-types):
+`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
+`revert`, `release`. The subject after the type still has to read like a teammate
+wrote it — lowercase, imperative, specific:
+
+```
+fix: hide board reset button while a model is deployed
+feat(ui): add Wan2.2 video model to the deploy list
+```
+
 ```bash
 git push -u origin <username>/<short-kebab-feature>
 gh pr create --base dev \
-  --title "<human, professional title>" \
+  --title "<type>(<scope>): <human, specific subject>" \
   --body "<what changed, why, and how it was verified>"
 ```
+
+(`release: vX.Y.Z` and the bare `Rc vX.Y.Z` title are for `rc-*` release PRs into
+`main` only — not for feature work.)
 
 PR description guidance: keep it short and human — a few plain sentences on
 what changed and why, then a simple to-do list of the changes (and how they
@@ -189,3 +207,5 @@ git checkout "$ORIG"
   create.
 - **Don't** mention Claude / Claude Code / AI tooling, or add AI co-author
   trailers, in commits, PR text, or review comments.
+- **Don't** open a PR with a prose title (`Hide board reset button...`) — commitlint
+  fails it. Prefix a Conventional Commits type: `fix: hide board reset button...`.

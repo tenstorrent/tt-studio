@@ -119,7 +119,37 @@ json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 jwt_secret = os.getenv("JWT_SECRET")
 cloud_auth_token = os.getenv("CLOUD_CHAT_UI_AUTH_TOKEN")
 
-# Use cloud auth token if available, otherwise fall back to JWT
+
+def _fetch_backend_auth_token() -> str:
+    """Ask the backend to mint a token for calling a deployed model.
+
+    JWT_SECRET is optional in .env, and when unset the backend keeps the secret in
+    the UI-managed config, which this container cannot read. Returns "" on failure
+    so a missing token surfaces as a 401 rather than a validation error.
+    """
+    try:
+        resp = requests.get(f"{AgentConfig.BACKEND_URL}/models/agent/auth-token/", timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("token") or ""
+        print(f"Backend returned {resp.status_code} for agent auth token")
+    except Exception as e:
+        print(f"Could not fetch agent auth token from backend: {e}")
+    return ""
+
+
+def _auth_token() -> str:
+    """Token for local model calls, minted by the backend on first use and cached.
+
+    Resolved lazily so poll_for_llm()'s retries can recover if the backend was not
+    reachable yet; fetching at import would leave the agent permanently tokenless.
+    """
+    global encoded_jwt
+    if not encoded_jwt:
+        encoded_jwt = _fetch_backend_auth_token()
+    return encoded_jwt
+
+
+# Cloud token wins, then an explicit JWT_SECRET, else the backend mints one on demand.
 if cloud_auth_token:
     encoded_jwt = cloud_auth_token
     print(f"Using cloud auth token for authentication")
@@ -127,8 +157,8 @@ elif jwt_secret:
     encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
     print(f"Using JWT authentication")
 else:
-    encoded_jwt = None
-    print("Warning: No authentication token available (neither CLOUD_CHAT_UI_AUTH_TOKEN nor JWT_SECRET)")
+    encoded_jwt = ""
+    print("JWT_SECRET not set; will request a model token from the backend")
 
 class RequestPayload(BaseModel):
     message: str
@@ -179,7 +209,7 @@ def setup_local_container_llm(container_name: str) -> CustomLLM:
     """Setup LLM using environment-specified container"""
     llm = CustomLLM(
         server_url=f"http://{container_name}:7000", 
-        encoded_jwt=encoded_jwt, 
+        encoded_jwt=_auth_token(), 
         streaming=True,
         is_cloud=False
     )
@@ -219,7 +249,7 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
     
     llm = CustomLLM(
         server_url=server_url,
-        encoded_jwt=encoded_jwt,
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False,
         is_discovered=True,
@@ -256,7 +286,7 @@ def setup_local_host_llm() -> CustomLLM:
     
     llm = CustomLLM(
         server_url=f"http://{local_host}:{local_port}/v1/chat/completions",
-        encoded_jwt=encoded_jwt,
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False
     )

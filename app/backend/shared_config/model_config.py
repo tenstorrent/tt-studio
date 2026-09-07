@@ -225,7 +225,11 @@ class ModelImpl:
             else:
                 logger.warning(f"for model {self.model_name} env file: {model_env_fpath} does not exist, have you run tt-inference-server setup.sh for the model?")
         else:
-            logger.warning(f"{model_env_dir} does not exist, have you run tt-inference-server setup.sh?")
+            # Models deployed through the TT Inference Server /run endpoint never
+            # populate model_envs — the inference server owns their environment. The
+            # directory is legitimately absent on a normal install, so this is not a
+            # warning, and "run setup.sh" is not advice a TT-Studio user should follow.
+            logger.debug(f"{model_env_dir} does not exist; no per-model env file to load")
         return ret_env_file
 
     def get_volume_mounts(self):
@@ -317,6 +321,11 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
+        # Training models are hidden for this release: the pinned inference-server
+        # artifact can't run the training-lora impl yet, so offering them only
+        # produces deploys that die at dispatch. Remove this once training ships.
+        if entry.get("model_type") == "TRAINING":
+            continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
             image_name, image_tag = docker_image.rsplit(":", 1)

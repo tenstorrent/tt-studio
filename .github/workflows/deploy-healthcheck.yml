@@ -30,8 +30,12 @@ on:
         default: "2h"
       runner_label:
         description: "Self-hosted runner label to target."
-        type: string
+        type: choice
         default: "pool"
+        options:
+          - pool
+          - qbge-devex-01
+          - qbge-devex-02
 
 # Serialize per runner label so two runs never fight over the same board.
 concurrency:

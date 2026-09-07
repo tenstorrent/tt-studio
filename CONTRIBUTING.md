@@ -44,6 +44,7 @@ We use **[Conventional Commits](https://www.conventionalcommits.org/)** for all 
 | `ci`       | Changes to CI configuration files and scripts     |
 | `chore`    | Other changes that don't modify src or test files |
 | `revert`   | Reverts a previous commit                         |
+| `release`  | Release PR from a `rc-vX.Y.Z` branch into `main`  |
 
 ### **Examples**
 
@@ -53,6 +54,7 @@ fix: stop board reset button crashing on reset-all
 docs: update CONTRIBUTING with commit convention
 ci: add commitlint workflow for PR titles
 refactor(api): simplify model-loading endpoint
+release: v2.10.0
 feat(ui)!: redesign dashboard layout
 ```
 
@@ -116,6 +118,14 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 
   - When `dev` is stable and ready for release, a **release cut branch** is created from `main`.
   - **Naming convention:** `rc-vx.x.x` (e.g., `rc-v1.2.0`).
+
+- **Release PR title:**
+
+  - Release PRs may be titled `Rc vX.Y.Z` — the **Lint PR title** check is skipped for
+    `rc-*` and `tt_qb2_launch_branch` head branches, since that title comes straight from
+    `gh pr create --fill`.
+  - `release: vX.Y.Z` is also valid if you'd rather keep `main`'s squashed history fully
+    conventional.
 
 - **Feature Inclusion:**
 

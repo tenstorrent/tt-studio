@@ -24,6 +24,4 @@ export type VideoGenPhase =
 export interface VideoGenProgress {
   phase: VideoGenPhase;
   elapsedSeconds: number;
-  estimatedSeconds: number;
-  percent: number;
 }
