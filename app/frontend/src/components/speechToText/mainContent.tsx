@@ -163,7 +163,6 @@ export function MainContent({
       "size:",
       recordedBlob.size
     );
-    setAudioBlob(recordedBlob);
     setHasRecordedBefore(true);
 
     // Process the audio with the API
