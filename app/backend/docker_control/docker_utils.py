@@ -27,6 +27,7 @@ from shared_config.model_type_config import ModelTypes
 from docker_control.artifact_resolution import (
     resolve_artifact_ref,
     resolve_override_docker_image,
+    training_image_override,
 )
 from docker_control.docker_control_client import (
     get_docker_client,
@@ -598,9 +599,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Some per-device model_specs resolve to an image too old to serve our
-        # requests, so force the known-good one.
-        pinned_image = media_image_override(impl.model_name, device)
+        # Training rows deploy whatever image the catalog pins (the server's own
+        # training spec names a locally built tag). Otherwise, some per-device
+        # model_specs resolve to an image too old to serve our requests, so force
+        # the known-good one.
+        pinned_image = training_image_override(impl) or media_image_override(
+            impl.model_name, device
+        )
         if pinned_image:
             payload["override_docker_image"] = pinned_image
 

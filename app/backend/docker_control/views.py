@@ -50,6 +50,7 @@ from .artifact_resolution import resolve_artifact_ref as _resolve_artifact_ref
 from .artifact_resolution import (
     resolve_override_docker_image as _resolve_override_docker_image,
 )
+from .artifact_resolution import training_image_override as _training_image_override
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import (
@@ -910,7 +911,8 @@ class DeployView(APIView):
                 # would show progress for layers the deploy never uses and then stall
                 # while run.py pulls the pinned one untracked.
                 deploy_image = (
-                    media_image_override(impl.model_name, media_device)
+                    _training_image_override(impl)
+                    or media_image_override(impl.model_name, media_device)
                     or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
                     or impl.image_version
                 )

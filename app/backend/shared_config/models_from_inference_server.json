@@ -1429,7 +1429,7 @@
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260828",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260908",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",
