@@ -481,8 +481,8 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
 
         # Disambiguate the target model_spec. Some models share a name+device across
-        # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
-        # spec on P150); without an impl the server defaults to the wrong engine and
+        # engines (e.g. Llama-3.1-8B-Instruct has both a vLLM chat spec and a forge
+        # training spec); without an impl the server defaults to the wrong engine and
         # pulls the wrong image. `impl.inference_impl` comes from the catalog.
         # The server declares `impl: Optional[str]` and matches it against
         # spec.impl.impl_name, so send the hyphenated impl_name. _impl_selector()
@@ -1019,7 +1019,7 @@ def _enrich_container_with_model_impl(con, con_id):
 
                 if deployment:
                     # model_name alone is ambiguous when two model specs share a name
-                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B")
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B-Instruct")
                     stored_model_id = getattr(deployment, "model_id", "") or ""
                     if stored_model_id and stored_model_id in model_implmentations:
                         model_impl = model_implmentations[stored_model_id]
@@ -1065,8 +1065,8 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
                         break
 
-                # Fallback: longest-substring match — prevents "Llama-3.1-8B"
-                # winning over "Llama-3.1-8B-Instruct" on the same name.
+                # Fallback: longest-substring match. Can't tell two same-named
+                # specs apart (CHAT vs TRAINING); model_id above is authoritative.
                 if not model_impl:
                     best_match_len = 0
                     for _k, v in model_implmentations.items():

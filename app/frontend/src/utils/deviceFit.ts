@@ -114,8 +114,8 @@ export function getModelPlacement(
   modelType?: string
 ): ModelPlacement {
   // Training on P300x2 runs on a single 2-chip card (auto default) or the full
-  // board; elsewhere the full board. Checked before name-based branches since it
-  // shares the "Llama-3.1-8B" name.
+  // board; elsewhere the full board. Routed by model_type, not name, since it
+  // shares the "Llama-3.1-8B-Instruct" name with the chat model.
   if ((modelType ?? "").toLowerCase() === "training") {
     return isP300x2Board(boardType)
       ? { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] }
