@@ -10,7 +10,6 @@ export const onboardingSteps: Step[] = [
     content:
       "TT-Studio lets you deploy, run, and interact with AI models optimized for Tenstorrent hardware.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom-start",
   },
   {
@@ -19,7 +18,6 @@ export const onboardingSteps: Step[] = [
     content:
       "Monitor active containers, inspect streaming logs, check device health, and review deployment history.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom",
   },
   {
@@ -28,7 +26,6 @@ export const onboardingSteps: Step[] = [
     content:
       "Access advanced utilities including RAG knowledge bases, visual workflows, interactive canvas, and agent integrations.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom",
   },
   {
@@ -37,7 +34,6 @@ export const onboardingSteps: Step[] = [
     content:
       "Directly test and interact with your deployed models across Chat, Computer Vision, Speech-to-Text, and Media Generation.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom",
   },
   {
@@ -46,7 +42,6 @@ export const onboardingSteps: Step[] = [
     content:
       "Quickly reset board state, adjust application settings, or report issues directly from the navbar.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom-end",
   },
   {
@@ -55,7 +50,6 @@ export const onboardingSteps: Step[] = [
     content:
       "Need a refresher? Click the Help button anytime to restart this tour or choose another guided walkthrough from the menu.",
     skipBeacon: true,
-    disableBeacon: true,
     placement: "bottom-end",
   },
 ];
