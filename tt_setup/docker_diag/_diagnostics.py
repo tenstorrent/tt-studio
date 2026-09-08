@@ -11,7 +11,7 @@ from rich.table import Table
 from tt_setup.constants import *
 from tt_setup.constants import _COMPOSE_SERVICE_LABEL
 from tt_setup.shell import copy_to_clipboard
-from tt_setup.console import console, notice_panel, show_detail
+from tt_setup.console import console, events, notice_panel, show_detail
 
 
 def _resolve_container_name(prefix):
@@ -351,6 +351,8 @@ def print_container_diagnostics(containers):
             lines,
             border_style="error",
         ))
+        events.emit_error(f"{friendly} container failed: {diagnosis['cause']}",
+                          remediation=diagnosis['action'], container=name)
 
 
 def handle_docker_compose_result(returncode, full_output, use_sudo=False):
@@ -402,6 +404,10 @@ def handle_docker_compose_result(returncode, full_output, use_sudo=False):
     else:
         header_lines.append("[muted]The docker compose build did not complete.[/muted]")
     console.print(notice_panel(header_title, header_lines, border_style="error"))
+    events.emit_error(
+        f"docker compose build failed ({friendly_name or container_name or 'unknown container'})",
+        remediation="cd app && docker compose build --no-cache, then re-run python run.py",
+        exit_code=returncode)
 
     # Check which containers exist/failed
     containers = verify_docker_containers(use_sudo=use_sudo)

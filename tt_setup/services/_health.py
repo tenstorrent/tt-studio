@@ -15,7 +15,7 @@ except ImportError:
     HAS_REQUESTS = False
 from tt_setup.constants import *
 from tt_setup.docker_diag import _resolve_container_name
-from tt_setup.console import console, notice_panel, progress_status
+from tt_setup.console import console, events, notice_panel, progress_status
 
 
 def probe_service(health_url, timeout=2):
@@ -131,6 +131,9 @@ def report_service_failure(name, log_file, port=None, consequence=None):
         lines.append(f"[muted]  tail -50 {shown_log}[/muted]")
     console.print(notice_panel(f"[error]{name} didn't start — {diagnosis['cause']}[/error]",
                                lines, border_style="error"))
+    events.emit_error(f"{name} didn't start — {diagnosis['cause']}",
+                      remediation="; ".join(diagnosis["actions"]),
+                      service=name, log=shown_log)
     return diagnosis
 
 

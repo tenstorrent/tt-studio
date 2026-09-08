@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TT-Studio",
+  "version": "0.1.0",
+  "identifier": "com.tenstorrent.tt-studio",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "TT-Studio",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/tenstorrent/tt-studio/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzNjMwNTM2RTA4M0E1N0QKUldSOXBZUGdOZ1ZqbzJKb1F1c29GT3VySmpYUXlSUGoyWFg4V0g4UmFmUmhicGtVcHRMUi9ORmoK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Run AI models on Tenstorrent hardware",
+    "longDescription": "Desktop launcher for TT-Studio: connect to this machine or a remote Tenstorrent box over SSH, bring the stack up, and open the web UI.",
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "desktopTemplate": "./tt-studio.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "./tt-studio.desktop"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ]
+  }
+}

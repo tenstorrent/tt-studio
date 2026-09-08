@@ -1,0 +1,14 @@
+# Test-fixture sshd: pubkey-only, forwarding enabled. The authorized_keys
+# file is bind-mounted from the test's temp dir (generated per run), hence
+# StrictModes off — the mount is owned by the host user, not `tunnel`.
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /keys/authorized_keys
+StrictModes no
+AllowTcpForwarding yes
+X11Forwarding no
+Subsystem sftp internal-sftp

@@ -56,6 +56,52 @@ def run_status(dev_mode=False):
     return 0
 
 
+def _git_head():
+    """The checkout's current short HEAD, or 'unknown'."""
+    import subprocess
+    try:
+        return subprocess.run(
+            ["git", "-C", TT_STUDIO_ROOT, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _hardware_label():
+    """The detected hardware label, probed the same way as the ready panel."""
+    import shutil
+    from tt_setup.docker import detect_tt_hardware
+    from tt_setup.shell import check_tt_smi, resolve_hardware_label
+    tt_status, tt_detail, tt_board = None, "", ""
+    if shutil.which("tt-smi"):
+        tt_status, tt_detail, tt_board = check_tt_smi()
+    label, _ = resolve_hardware_label(tt_status, tt_detail, tt_board, False,
+                                      hw_present=detect_tt_hardware())
+    return label
+
+
+def run_status_json():
+    """Entry point for `--status --json`: a one-shot machine-readable state dump
+    (one NDJSON `status` event on stdout — see dev-docs/json-events.md). Never
+    launches the TUI. Returns an exit code."""
+    from tt_setup.console import events
+    events.enable()   # idempotent; normally already enabled by the CLI callback
+    health = snapshot_health([s["health"] for s in SERVICES])
+    services = [
+        {"name": s["name"], "port": s["port"],
+         "url": f"http://localhost:{s['port']}",
+         "healthy": bool(health.get(s["health"], False))}
+        for s in SERVICES
+    ]
+    events.emit("status", detail={
+        "services": services,
+        "head": _git_head(),
+        "hardware": _hardware_label(),
+    })
+    return 0
+
+
 def _print_text_snapshot():
     """Non-TTY fallback: a single static health table (no live TUI)."""
     from rich.table import Table
