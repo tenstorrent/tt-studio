@@ -329,9 +329,8 @@ export default function TrainingJobDetailPage() {
       }
 
       if (finalStatus === "completed") {
-        // The merge writes weights 0600 under the training container's uid; ask
-        // the backend (root) to make them readable by the host inference server,
-        // once, now that the merge is done. Best-effort: don't fail the promote.
+        // Merge writes weights 0600; ask the backend to make them host-readable.
+        // Best-effort: don't fail the promote if it errors.
         try {
           await normalizeMergedCheckpoint(mergeJobId);
         } catch (err) {

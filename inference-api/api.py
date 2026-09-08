@@ -965,14 +965,8 @@ def _scan_merged_checkpoints(
         try:
             info = json.loads(info_path.read_text())
         except PermissionError:
-            # The sidecar exists but this process can't read it — typically the
-            # training container wrote it (and the *.safetensors shards) mode 0600
-            # under its own uid, and this scanner runs as a different, non-root
-            # host user. Silently skipping it made a promoted checkpoint look
-            # absent (empty deploy list, no "Re-promote"); surface it as an
-            # unreadable, invalid entry with a reason so the failure is
-            # diagnosable. The backend self-heals these perms before scanning, so
-            # this should be rare.
+            # Sidecar exists but is unreadable (merge wrote it 0600 under another
+            # uid). Surface it as invalid-with-reason instead of skipping silently.
             logging.getLogger(__name__).warning(
                 "Merged checkpoint sidecar unreadable (permission denied): %s",
                 info_path,

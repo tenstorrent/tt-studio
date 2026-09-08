@@ -373,8 +373,7 @@ export interface MergedCheckpoint {
   created_at?: number | null;
   path: string;
   valid: boolean;
-  // Set when a checkpoint was found on disk but could not be read (e.g. the
-  // sidecar/weights are 0600 under another uid). `valid` is false in that case.
+  // Set when the checkpoint exists but is unreadable; `valid` is false then.
   reason?: string | null;
 }
 
@@ -390,10 +389,8 @@ export async function promoteCheckpoint(
   return data;
 }
 
-// Make a freshly promoted checkpoint readable by the host-side inference server.
-// The merge writes weights/sidecar mode 0600 under the training container's uid;
-// this asks the backend (root) to fix the perms once, after the merge completes.
-// Best-effort — callers should not block promotion success on it.
+// Ask the backend (root) to fix the merged checkpoint's 0600 perms so the host
+// inference server can read it. Best-effort; call once after a merge completes.
 export async function normalizeMergedCheckpoint(mergeId: string): Promise<void> {
   await axios.post(`${TRAINING_API}/merged-checkpoints/${mergeId}/normalize/`);
 }
