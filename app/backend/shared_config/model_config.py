@@ -465,6 +465,16 @@ _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 model_implmentations = {}
 for impl in _json_impls + _hardcoded_impls:
     validate_model_implemenation_config(impl)
+    # model_id omits the engine, so same-name cross-engine rows collide unless
+    # their versions differ. Fail loudly instead of silently overwriting.
+    if impl.model_id in model_implmentations:
+        existing = model_implmentations[impl.model_id]
+        raise ValueError(
+            f"Duplicate model_id '{impl.model_id}': "
+            f"'{existing.model_name}' ({existing.inference_engine}) and "
+            f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+            "Give them different versions or model_ids."
+        )
     model_implmentations[impl.model_id] = impl
 
 
