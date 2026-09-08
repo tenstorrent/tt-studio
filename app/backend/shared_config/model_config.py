@@ -138,6 +138,19 @@ class ModelImpl:
             for _key, _value in training_job_env.items():
                 self.docker_config["environment"].setdefault(_key, _value)
 
+        # Whisper is trained on 30-second windows. Left unset, the media server
+        # sizes its internal audio chunks by worker count and drops to 3s on an
+        # 8+ worker box, which costs accuracy and invites hallucination. Pinning
+        # the window here rather than in the catalog keeps it through a
+        # sync_models_from_inference_server run, which rewrites env_vars.
+        if self.model_type == ModelTypes.SPEECH_RECOGNITION:
+            speech_recognition_env = {
+                "AUDIO_CHUNK_DURATION_SECONDS": "30",
+                "AUDIO_LANGUAGE": "English",
+            }
+            for _key, _value in speech_recognition_env.items():
+                self.docker_config["environment"].setdefault(_key, _value)
+
         # model env file must be interpreted here
         if not self.env_file:
             _env_file = self.get_model_env_file()
@@ -321,6 +334,17 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
+        # Models the catalog marks unavailable are not offered for deploy. The
+        # row stays in the JSON (with the reason) rather than being deleted, so a
+        # catalog resync can't quietly reintroduce a model we already know is
+        # broken or has no UI yet. See STUDIO_UNAVAILABLE_MODELS in
+        # sync_models_from_inference_server.py. Absent field == available.
+        if entry.get("available_in_studio") is False:
+            logger.info(
+                f"Skipping {entry.get('model_name')}: "
+                f"{entry.get('unavailable_reason')} - {entry.get('unavailable_details')}"
+            )
+            continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
             image_name, image_tag = docker_image.rsplit(":", 1)

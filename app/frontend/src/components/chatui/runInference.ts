@@ -227,6 +227,9 @@ export const runInference = async (
         top_p: request.top_p,
         max_tokens: request.max_tokens,
         ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
+        ...(request.chat_template_kwargs
+          ? { chat_template_kwargs: request.chat_template_kwargs }
+          : {}),
         stream: true,
         stream_options: {
           include_usage: true,
@@ -439,7 +442,7 @@ export const runInference = async (
           const rawReasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
           const reasoning =
             typeof rawReasoning === "string"
-              ? rawReasoning.replace(/<\/?think>/gi, "")
+              ? rawReasoning.replace(/<\/?(think|thought|reasoning)>/gi, "")
               : null;
 
           if (reasoning && !thinkingDone) {
@@ -454,7 +457,7 @@ export const runInference = async (
           // Regular content tokens
           const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
           const content = rawContent
-            .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
+            .replace(/[[<|]*python_tag[\]>|]*/gi, "")
             .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {
