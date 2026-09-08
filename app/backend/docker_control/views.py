@@ -498,7 +498,16 @@ class DeployView(APIView):
                 and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
-            if force_full_board_requested and not should_force_full_board_llama:
+            # Training on P300x2 can also claim the whole board (all 4 chips) instead
+            # of a single P300 card, mirroring the flexible Llama card-pair choice.
+            should_force_full_board_training = (
+                impl.model_type == ModelTypes.TRAINING
+                and force_full_board_requested
+                and board_type == "P300x2"
+            )
+            if force_full_board_requested and not (
+                should_force_full_board_llama or should_force_full_board_training
+            ):
                 logger.info(
                     "Ignoring force_full_board for model=%s board=%s",
                     impl.model_name,
@@ -538,6 +547,13 @@ class DeployView(APIView):
                 and not requested_device_ids
                 and board_type in WHOLE_BOARD_DEFAULT_BOARDS
             )
+            # Any deploy that claims the entire board (reserve all slots, no device_id).
+            whole_board_deploy = (
+                should_force_full_board_llama
+                or should_force_full_board_training
+                or use_whole_board_deploy
+                or mesh_whole_board
+            )
 
             # Multiple concurrent instances of the same model are allowed when chip
             # capacity is available: this guard blocks a second concurrent *start*, not
@@ -575,46 +591,13 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                # QB2 paired-chip training: Llama-3.1-8B training runs on a single
-                # P300 card (2 chips: 0,1 or 2,3), mirroring the chat card-pair path.
-                # Resolve the target pair before allocating: the frontend sends it
-                # explicitly, but for callers that omit device_id (or pin a stray
-                # chip the p300 spec can't drive) we snap to the card pair containing
-                # the first requested slot, or auto-pick the first free pair.
-                if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
-                    occupied_slots = allocator._get_occupied_slots()
-                    if requested_device_ids:
-                        pair = [0, 1] if requested_device_ids[0] in (0, 1) else [2, 3]
-                        if sorted(set(requested_device_ids)) != pair:
-                            logger.info(
-                                "Normalizing training device_id=%s to P300 card pair "
-                                "%s for %s",
-                                requested_device_ids, pair, impl.model_name,
-                            )
-                    else:
-                        pair = next(
-                            (p for p in ([0, 1], [2, 3])
-                             if all(slot not in occupied_slots for slot in p)),
-                            None,
-                        )
-                        if pair is None:
-                            return Response(
-                                {
-                                    "status": "error",
-                                    "error_type": "allocation_failed",
-                                    "message": (
-                                        f"{impl.model_name} needs a free P300 card pair "
-                                        "(chips 0,1 or 2,3). Stop a running model first."
-                                    ),
-                                },
-                                status=status.HTTP_409_CONFLICT,
-                            )
-                    requested_device_ids = pair
-                    manual_device_id = pair[0]
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
-                    # Wormhole mesh board, or a media model like FLUX with no single-chip
-                    # spec) takes over the entire board — reserve all slots.
+                # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
+                # training (force_full_board) are both driven by the frontend, exactly
+                # like the flexible Llama path — no server-side slot normalization needed.
+                if whole_board_deploy:
+                    # Whole-board deploy (forced QB2 Llama or training, a single-chip
+                    # model on a Wormhole mesh board, or a media model like FLUX with no
+                    # single-chip spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -671,7 +654,7 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if whole_board_deploy:
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -705,7 +688,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+            if whole_board_deploy:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -951,7 +934,7 @@ class DeployView(APIView):
                 host_port = serializer.validated_data.get("host_port")
 
                 # Pre-pull the media image first so the UI shows real progress.
-                media_device = infer_inference_server_device(impl)
+                media_device = infer_inference_server_device(impl, device_ids=device_ids_str)
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))

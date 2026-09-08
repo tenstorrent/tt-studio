@@ -100,6 +100,9 @@ export interface ModelPlacement {
   // True when a single-device model deploys board-wide by default (Wormhole mesh
   // boards); auto mode previews and uses the whole board, advanced can pin a slot.
   defaultsFullBoard?: boolean;
+  // For card-pair models: prefer the whole board over a free card pair in auto mode.
+  // Without it, auto mode picks a single card (advanced can still choose full board).
+  autoFullBoard?: boolean;
 }
 
 // SINGLE SOURCE OF TRUTH for per-model device configurations.
@@ -110,22 +113,19 @@ export function getModelPlacement(
   boardType?: string,
   modelType?: string
 ): ModelPlacement {
-  // Training on QB2 runs on a single P300 card (2 chips: 0,1 or 2,3), mirroring
-  // Llama-3.1-8B chat card-pair placement: the inference server opens the 2-chip
-  // card and the training runner works on that submesh instead of all 4 chips.
-  // Handled before the name-based branches below because the training build shares
-  // the "Llama-3.1-8B" name with the chat model.
-  const isTraining = (modelType ?? "").toLowerCase() === "training";
-  if (isTraining) {
-    if (isP300x2Board(boardType)) {
-      return { allowsSingle: false, allowsFullBoard: false, cardGroups: [[0, 1], [2, 3]] };
-    }
-    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  // Training on P300x2 runs on a single 2-chip card (auto default) or the full
+  // board; elsewhere the full board. Checked before name-based branches since it
+  // shares the "Llama-3.1-8B" name.
+  if ((modelType ?? "").toLowerCase() === "training") {
+    return isP300x2Board(boardType)
+      ? { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] }
+      : { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
   }
 
-  // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board.
+  // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board
+  // (auto default).
   if (isP300x2Board(boardType) && isLlama31_8BModel(modelName)) {
-    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] };
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]], autoFullBoard: true };
   }
   // Multi-chip models always take the full board.
   if (isMultiChipModel(chipsRequired)) {
@@ -178,7 +178,7 @@ export function autoPlacement(
     slots.find((s) => s.slot_id === id)?.status === "available";
 
   if (placement.cardGroups.length > 0) {
-    if (placement.allowsFullBoard && board.every(isFree)) {
+    if (placement.allowsFullBoard && placement.autoFullBoard && board.every(isFree)) {
       return { deviceIds: board, fullBoard: true };
     }
     for (const group of placement.cardGroups) {

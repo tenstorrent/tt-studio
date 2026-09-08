@@ -333,10 +333,13 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def infer_inference_server_device(impl, board_type=None):
+def infer_inference_server_device(impl, board_type=None, device_ids=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
-    disagree on which model_spec (and therefore which image) the deploy uses."""
+    disagree on which model_spec (and therefore which image) the deploy uses.
+
+    `device_ids` (list or comma string) picks the P300x2 training variant: a card
+    pair (p300) vs. the whole board (p300x2, all four chips)."""
     from shared_config.model_config import infer_chips_required
     if board_type is None:
         board_type = detect_board_type()
@@ -353,14 +356,11 @@ def infer_inference_server_device(impl, board_type=None):
             device = board_device
     else:
         device = map_board_type_to_device_name(board_type)
-    # QB2 paired-chip training: Llama-3.1-8B training runs on a single P300 card
-    # (2 chips: device-id 0,1 or 2,3), not the constituent p150 chip or the whole
-    # p300x2 board. One card == --tt-device p300; the training runner then works on
-    # that 2-chip submesh instead of claiming all 4 chips. Mirrors the chat
-    # card-pair path in DeployView, and keeps the pre-pull image resolver (which
-    # calls this helper) in step with the device the deploy actually uses.
+    # Training on P300x2 runs on one 2-chip card (p300), or the whole board
+    # (p300x2) when all four chips are requested. Mirrors the chat card-pair path.
     if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
-        device = "p300"
+        slots = {int(x) for x in re.findall(r"\d+", str(device_ids or ""))}
+        device = "p300x2" if len(slots) > 2 else "p300"
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
@@ -420,7 +420,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
         chips_required = infer_chips_required(impl.device_configurations)
-        device = infer_inference_server_device(impl, board_type)
+        device = infer_inference_server_device(impl, board_type, device_ids=device_id)
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
             f"(board={board_type}, chips_required={chips_required})"
