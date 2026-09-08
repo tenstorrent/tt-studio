@@ -929,13 +929,39 @@ def _scan_merged_checkpoints(
         return results
 
     for info_path in base.glob(f"volume_id_*/merged_models/*/{_MERGE_INFO_FILE_NAME}"):
+        merged_dir = info_path.parent
         try:
             info = json.loads(info_path.read_text())
+        except PermissionError:
+            # The sidecar exists but this process can't read it — typically the
+            # training container wrote it (and the *.safetensors shards) mode 0600
+            # under its own uid, and this scanner runs as a different, non-root
+            # host user. Silently skipping it made a promoted checkpoint look
+            # absent (empty deploy list, no "Re-promote"); surface it as an
+            # unreadable, invalid entry with a reason so the failure is
+            # diagnosable. The backend self-heals these perms before scanning, so
+            # this should be rare.
+            logging.getLogger(__name__).warning(
+                "Merged checkpoint sidecar unreadable (permission denied): %s",
+                info_path,
+            )
+            results.append(
+                {
+                    "merge_id": merged_dir.name,
+                    "model": None,
+                    "source_job_id": None,
+                    "checkpoint_id": None,
+                    "created_at": None,
+                    "path": str(merged_dir),
+                    "valid": False,
+                    "reason": "unreadable: permission denied",
+                }
+            )
+            continue
         except (OSError, ValueError):
             continue
         if hf_model_id and info.get("model") != hf_model_id:
             continue
-        merged_dir = info_path.parent
         results.append(
             {
                 "merge_id": info.get("merge_id", merged_dir.name),
@@ -946,6 +972,7 @@ def _scan_merged_checkpoints(
                 # Host path, ready to pass straight to --host-weights-dir.
                 "path": str(merged_dir),
                 "valid": _is_hf_weights_dir(merged_dir),
+                "reason": None,
             }
         )
 

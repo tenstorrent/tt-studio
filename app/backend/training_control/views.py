@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
+import glob
 import json
 import os
+import re
 
 import requests
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -21,7 +23,8 @@ logger = get_logger(__name__)
 
 PROXY_TIMEOUT = 120
 
-CUSTOM_DATASETS_SUBDIR = os.path.join("training_volume", "custom_datasets")
+TRAINING_VOLUME_SUBDIR = "training_volume"
+CUSTOM_DATASETS_SUBDIR = os.path.join(TRAINING_VOLUME_SUBDIR, "custom_datasets")
 MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 
@@ -525,6 +528,82 @@ class TrainingCheckpointMergeView(View):
             return err
         url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints/{ckpt_id}/merge"
         return _proxy_post(url, body=body)
+
+
+# A merge dir is named "<model>-<merge_id>", and merge_id is the merge job id
+# (a UUID). Restrict to that safe charset so it can't inject glob/path tokens.
+_MERGE_ID_RE = re.compile(r"[A-Za-z0-9_.-]+")
+
+
+def _chmod_merged_dir_readable(merged_dir):
+    """chmod one merged-checkpoint dir tree so group/other can read files and
+    traverse directories (equivalent to ``chmod -R a+rX``): add read for
+    group/other on files and read+traverse on directories, never +x on files.
+    Best-effort — each failure is logged and skipped.
+    """
+    for dirpath, _dirnames, filenames in os.walk(merged_dir):
+        paths = [(dirpath, True)] + [
+            (os.path.join(dirpath, fn), False) for fn in filenames
+        ]
+        for path, is_dir in paths:
+            try:
+                mode = os.stat(path).st_mode
+                # Dirs need +rx for group/other to be traversable; plain files
+                # only need +r (mirrors a+rX, which never adds +x to files).
+                extra = 0o055 if is_dir else 0o044
+                if mode & extra != extra:
+                    os.chmod(path, mode | extra)
+            except OSError as e:
+                logger.warning(
+                    "Could not normalize perms on merged checkpoint %s: %s",
+                    path,
+                    e,
+                )
+
+
+def _normalize_merged_checkpoint_perms(merge_id=None):
+    """Make merged LoRA checkpoints readable by the host-side inference server.
+
+    The merge job runs inside the training container as uid 1000 and writes the
+    weights + sidecar atomically (tempfile then rename), which leaves
+    ``merge_info.json`` and the ``*.safetensors`` shards mode 0600. The inference
+    server that scans and serves them runs on the host as a different, non-root
+    user, so it cannot read those files: the merged-checkpoints scan then silently
+    skips the checkpoint (unreadable sidecar) and later deploys fail to load the
+    weights.
+
+    The backend container is the only component that runs as root with this volume
+    mounted read-write, so it self-heals here. This is invoked once, right after a
+    promote (adapter merge) finishes, rather than on every scan. When *merge_id*
+    is given, only that merge's directory (named ``<model>-<merge_id>``) is fixed;
+    otherwise every merged checkpoint under the volume is normalized.
+    """
+    internal_root = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
+    )
+    dir_glob = f"*{merge_id}" if merge_id else "*"
+    pattern = os.path.join(internal_root, "volume_id_*", "merged_models", dir_glob)
+    for merged_dir in glob.glob(pattern):
+        if os.path.isdir(merged_dir):
+            _chmod_merged_dir_readable(merged_dir)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class NormalizeMergedCheckpointView(View):
+    """POST /training/merged-checkpoints/<merge_id>/normalize/
+
+    Called once by the frontend after a promote (adapter merge) completes, to make
+    the freshly written checkpoint readable by the host-side inference server. The
+    merge writes weights/sidecar mode 0600 under the training container's uid; the
+    backend runs as root with the volume mounted, so it fixes the perms here — once
+    per promote, instead of on every merged-checkpoints scan.
+    """
+
+    def post(self, request, merge_id, *args, **kwargs):
+        if not _MERGE_ID_RE.fullmatch(merge_id):
+            return JsonResponse({"error": "Invalid merge_id."}, status=400)
+        _normalize_merged_checkpoint_perms(merge_id)
+        return JsonResponse({"status": "ok", "merge_id": merge_id}, status=200)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

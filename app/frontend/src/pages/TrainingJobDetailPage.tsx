@@ -42,6 +42,7 @@ import {
   fetchMergedCheckpoints,
   cancelTrainingJob,
   promoteCheckpoint,
+  normalizeMergedCheckpoint,
   getCheckpointDownloadUrl,
   formatTrainingTimestamp,
   getJobDataset,
@@ -328,6 +329,14 @@ export default function TrainingJobDetailPage() {
       }
 
       if (finalStatus === "completed") {
+        // The merge writes weights 0600 under the training container's uid; ask
+        // the backend (root) to make them readable by the host inference server,
+        // once, now that the merge is done. Best-effort: don't fail the promote.
+        try {
+          await normalizeMergedCheckpoint(mergeJobId);
+        } catch (err) {
+          console.error("Failed to normalize merged checkpoint perms:", err);
+        }
         setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
         setPromotedCkptIds((prev) => new Set(prev).add(ckptId));
         customToast.success(

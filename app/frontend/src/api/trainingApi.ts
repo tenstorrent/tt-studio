@@ -373,6 +373,9 @@ export interface MergedCheckpoint {
   created_at?: number | null;
   path: string;
   valid: boolean;
+  // Set when a checkpoint was found on disk but could not be read (e.g. the
+  // sidecar/weights are 0600 under another uid). `valid` is false in that case.
+  reason?: string | null;
 }
 
 // Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint the
@@ -385,6 +388,14 @@ export async function promoteCheckpoint(
     `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
   );
   return data;
+}
+
+// Make a freshly promoted checkpoint readable by the host-side inference server.
+// The merge writes weights/sidecar mode 0600 under the training container's uid;
+// this asks the backend (root) to fix the perms once, after the merge completes.
+// Best-effort — callers should not block promotion success on it.
+export async function normalizeMergedCheckpoint(mergeId: string): Promise<void> {
+  await axios.post(`${TRAINING_API}/merged-checkpoints/${mergeId}/normalize/`);
 }
 
 // Discover merged checkpoints available for deploying a given model. When
