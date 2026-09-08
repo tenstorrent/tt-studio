@@ -198,14 +198,13 @@ export function TourProvider({ children }: TourProviderProps) {
         steps={steps}
         run={run}
         continuous={true}
-        showProgress={true}
-        showSkipButton={true}
         stepIndex={stepIndex}
         onEvent={handleJoyrideEvent}
         styles={joyrideStyles}
         options={{
           buttons: ["back", "primary", "skip"],
           skipBeacon: true,
+          showProgress: true,
           arrowColor: isDark ? "#18181b" : "#ffffff",
           backgroundColor: isDark ? "#18181b" : "#ffffff",
           overlayColor: isDark ? "rgba(0, 0, 0, 0.75)" : "rgba(0, 0, 0, 0.45)",
