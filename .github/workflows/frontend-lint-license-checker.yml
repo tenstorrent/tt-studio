@@ -38,15 +38,23 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
-      # Fetch git history for PR comparisons (must happen before header check)
+      # Fetch git history for PR comparisons (must happen before header check).
+      # Only the base branch is fetched: the checkout above already has the
+      # PR merge commit (github.sha), and the head branch lives in the
+      # contributor's fork for cross-repo PRs, so fetching it from origin
+      # would fail. Refs go through env vars so branch names never reach the
+      # shell unquoted.
       - name: Fetch Git History for PR
         if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          echo "Fetching base branch: ${{ github.event.pull_request.base.ref }}"
-          git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }} --depth=100
-          git fetch origin ${{ github.event.pull_request.head.ref }}:refs/remotes/origin/${{ github.event.pull_request.head.ref }} --depth=100
-          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
-          echo "Head SHA: ${{ github.sha }}"
+          echo "Fetching base branch: $BASE_REF"
+          git fetch origin "$BASE_REF:refs/remotes/origin/$BASE_REF" --depth=100
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
 
       # Check SPDX headers on changed files (enforces current year)
       - name: Check SPDX Headers on Changed Files (Current Year)
