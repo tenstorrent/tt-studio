@@ -23,7 +23,7 @@ import {
 import { customToast } from "../CustomToaster";
 import {
   isAudioRecordingSupported,
-  INSECURE_CONTEXT_MIC_MESSAGE,
+  INSECURE_CONTEXT_STT_MESSAGE,
   INSECURE_CONTEXT_TOOLTIP_MESSAGE,
   getMicrophoneErrorMessage,
 } from "../../lib/mediaUtils";
@@ -137,7 +137,7 @@ export const AudioRecorderWithVisualizer = ({
 
   function startRecording() {
     if (!isAudioRecordingSupported()) {
-      customToast.warning(INSECURE_CONTEXT_MIC_MESSAGE);
+      customToast.warning(INSECURE_CONTEXT_STT_MESSAGE);
       return;
     }
 
@@ -694,6 +694,12 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <div
                     onClick={startRecording}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        startRecording();
+                      }
+                    }}
                     role="button"
                     tabIndex={0}
                     aria-disabled={!isMicSupported}

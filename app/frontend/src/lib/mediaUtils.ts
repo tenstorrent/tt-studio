@@ -11,13 +11,16 @@ export function isAudioRecordingSupported(): boolean {
     Boolean(window.isSecureContext) &&
     Boolean(
       navigator.mediaDevices &&
-        typeof navigator.mediaDevices.getUserMedia === "function"
+      typeof navigator.mediaDevices.getUserMedia === "function"
     )
   );
 }
 
 export const INSECURE_CONTEXT_MIC_MESSAGE =
-  "Microphone access requires a secure origin (HTTPS or localhost via SSH tunnel). You can still upload audio files.";
+  "Microphone access requires a secure origin. Please access via HTTPS or use an SSH tunnel to localhost (e.g. http://localhost:3000)";
+
+export const INSECURE_CONTEXT_STT_MESSAGE =
+  "Microphone access requires a secure origin (HTTPS or localhost via SSH tunnel). You can still upload audio files below.";
 
 export const INSECURE_CONTEXT_TOOLTIP_MESSAGE =
   "Microphone requires a secure origin (HTTPS or localhost via SSH tunnel).";
