@@ -17,7 +17,6 @@ import subprocess
 import signal
 import os
 from pathlib import Path
-from typing import Optional
 
 import re
 import os
@@ -37,10 +36,19 @@ from .docker_utils import (
     map_board_type_to_device_name,
     infer_inference_server_device,
     deploys_whole_board,
+    claims_whole_board,
+    equivalent_mesh_device,
+    media_image_override,
+    trace_region_override,
+    vllm_mesh_fallback_fits,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     WHOLE_BOARD_DEFAULT_BOARDS,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
+)
+from .artifact_resolution import resolve_artifact_ref as _resolve_artifact_ref
+from .artifact_resolution import (
+    resolve_override_docker_image as _resolve_override_docker_image,
 )
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
@@ -100,89 +108,6 @@ try:
 except Exception:
     _compatibility_override_names = set()
 
-# Pin these Llama variants to the v0.14.0 release image for P300x2 compatibility (PR #815).
-# Sent as override_docker_image so the inference server uses the published -release- tag
-# even when dev_mode is on (e.g. tool calling), avoiding the -dev- variant which is not
-# published for this build.
-_LLAMA_V014_IMAGE = (
-    "ghcr.io/tenstorrent/tt-inference-server/"
-    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
-)
-_LLAMA_V014_MODELS = {
-    "Llama-3.1-8B",
-    "Llama-3.1-8B-Instruct",
-    "Llama-3.1-70B",
-    "Llama-3.1-70B-Instruct",
-    "Llama-3.3-70B-Instruct",
-}
-
-
-def _resolve_override_docker_image(impl) -> Optional[str]:
-    """Pin an explicit docker image where the inference server can't infer one.
-
-    Two independent reasons a model needs this:
-    - _LLAMA_V014_MODELS: the inference server's own model_spec default is an
-      older image that's rejected on P300x2 (PR #815) -- unrelated to catalog tier.
-    - requires_dev_catalog: "dev" tier catalog entries don't pin a docker_image
-      (unlike "prod"), so run.py refuses to guess one and requires
-      --override-docker-image whenever --dev-mode is combined with
-      --docker-server. The catalog's own image_version is exactly what's needed.
-    """
-    if impl.model_name in _LLAMA_V014_MODELS:
-        return _LLAMA_V014_IMAGE
-    if impl.requires_dev_catalog:
-        return impl.image_version
-    return None
-
-
-def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
-    """Pick this entry's tt-inference-server build for the board being deployed to.
-
-    The catalog field is keyed by device because one entry usually covers several
-    boards (47 of 56 entries do) and only some may need a non-default build.
-
-    Returns None -- meaning "use the globally pinned artifact" -- for every case
-    except an explicit, matched, eligible pin. Callers need no other fallback.
-    """
-    ref_map = getattr(impl, "inference_artifact_ref", None)
-    if not ref_map:
-        return None
-
-    # Only dev-catalog deploys run run.py as a subprocess, which is the only path
-    # that can be pointed at a different artifact directory. The in-process path
-    # is bound to the artifact imported at inference-api boot, so honouring a ref
-    # there would silently deploy against the wrong build.
-    if not impl.requires_dev_catalog:
-        logger.warning(
-            f"{impl.model_name}: ignoring inference_artifact_ref -- it only applies to "
-            f"models with requires_dev_catalog=true. Using the globally pinned artifact."
-        )
-        return None
-
-    # Match the resolved runtime device first ("p150"), then the detected board
-    # type ("P300x2"). These differ on multi-chip boards: _BOARD_TO_SINGLE_CHIP_DEVICE
-    # maps P300x2 -> p150, so a P300x2 box actually deploys with --tt-device p150.
-    # Accept either spelling so a catalog author can key on what they see.
-    lookup = {str(k).strip().lower(): v for k, v in ref_map.items()}
-    for candidate in (device, board_type):
-        if not candidate:
-            continue
-        ref = lookup.get(str(candidate).strip().lower())
-        if ref:
-            logger.info(
-                f"{impl.model_name}: using tt-inference-server ref '{ref}' "
-                f"(matched '{candidate}')"
-            )
-            return ref
-
-    # A pin exists but nothing matched -- almost always a typo'd key. Say so
-    # rather than silently falling back to a build that lacks this model.
-    logger.warning(
-        f"{impl.model_name}: inference_artifact_ref has no entry for device "
-        f"'{device}' or board '{board_type}' (keys: {sorted(ref_map)}). "
-        f"Using the globally pinned artifact."
-    )
-    return None
 
 
 # Models whose tt-metal implementation ignores the HF_MODEL env var and instead
@@ -285,6 +210,9 @@ class ContainersView(APIView):
             'P300': [DeviceConfigurations.P300],
 
             # Blackhole multi-device
+            # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
+            # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
+            # models that only have the other mesh still show via vllm_mesh_fallback_fits.
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
             # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
@@ -312,12 +240,16 @@ class ContainersView(APIView):
             else:
                 # Check if any of the current board's device configurations are in the model's configurations
                 is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
+                if not is_compatible:
+                    is_compatible = vllm_mesh_fallback_fits(impl, current_board)
                 logger.info(f"Model {impl.model_name}: is_compatible={is_compatible}")
             
             # Get all boards this model can run on
             compatible_boards = []
             for board, devices in board_to_device_map.items():
-                if board != 'unknown' and bool(set(devices).intersection(impl.device_configurations)):
+                if board == 'unknown':
+                    continue
+                if bool(set(devices).intersection(impl.device_configurations)) or vllm_mesh_fallback_fits(impl, board):
                     compatible_boards.append(board)
 
             # Manual override: always show certain models as compatible (e.g. whisper when sync JSON is incomplete)
@@ -506,26 +438,40 @@ class DeployView(APIView):
 
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
-            if hf_repo:
+            if hf_repo and "/" in hf_repo:
                 from shared_config.user_config import get_hf_token
                 token = get_hf_token()
-                if token:
-                    from api.hf_access import _check_repo, _status_from_code
-                    code = _check_repo(token, hf_repo)
-                    # diffusers repos (FLUX/Wan) have no root config.json and 404;
-                    # retry with model_index.json so a gated diffusers repo still
-                    # surfaces denied/auth_failed instead of a false "error".
-                    if code == 404:
-                        code = _check_repo(token, hf_repo, "model_index.json")
-                    if _status_from_code(code) in ("denied", "auth_failed"):
-                        return Response(
-                            {
-                                "error_code": "hf_access_denied",
-                                "message": f"Your Hugging Face token does not have access to {hf_repo}.",
-                                "hf_url": f"https://huggingface.co/{hf_repo}",
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
+                from api.hf_access import _check_repo, _status_from_code
+                code = _check_repo(token or "", hf_repo)
+                # diffusers repos (FLUX/Wan) have no root config.json and 404;
+                # retry with model_index.json so a gated diffusers repo still
+                # surfaces denied/auth_failed instead of a false "error".
+                if code == 404:
+                    code = _check_repo(token or "", hf_repo, "model_index.json")
+                status_str = _status_from_code(code)
+                if status_str in ("denied", "auth_failed"):
+                    message = (
+                        f"Your Hugging Face token does not have access to {hf_repo}."
+                        if token
+                        else f"A Hugging Face token is required to access {hf_repo}. Please add a token in Settings."
+                    )
+                    return Response(
+                        {
+                            "error_code": "hf_access_denied",
+                            "message": message,
+                            "hf_url": f"https://huggingface.co/{hf_repo}",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                elif status_str == "not_found" or code == 404:
+                    return Response(
+                        {
+                            "error_code": "hf_model_not_found",
+                            "message": f"The Hugging Face model repository '{hf_repo}' could not be found or is unavailable.",
+                            "hf_url": f"https://huggingface.co/{hf_repo}",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
             # On Wormhole mesh boards a single-chip-capable model deploys across the whole
             # board by default; only an explicit slot selection ("1 Device") pins it to a
@@ -689,6 +635,12 @@ class DeployView(APIView):
                         # User pinned a slot, or a per-chip-default board (e.g. P300x2) —
                         # use the single constituent chip device.
                         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    # Chat deploys resolve the device here instead of via
+                    # infer_inference_server_device, so apply the vLLM mesh fallback
+                    # too or a p300x2-only chat model sends --device p150x4 and 404s
+                    # on spec lookup. Mesh names only: never promotes a pinned chip,
+                    # and media models are not rewritten.
+                    device = equivalent_mesh_device(impl, device)
                     # QB2 paired-chip path: Llama-3.1-8B on either P300 card pair
                     # (device-id 0,1 or 2,3) should run with --tt-device p300 (not p150).
                     if (
@@ -704,15 +656,24 @@ class DeployView(APIView):
                     whole_board_device = map_board_type_to_device_name(board_type)
                     single_chip_device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     is_multi_chip_board = whole_board_device != single_chip_device
-                    if device == whole_board_device and is_multi_chip_board:
+                    # A vLLM fallback name still claims every chip, so it omits
+                    # device_id exactly as the board's own name would.
+                    if claims_whole_board(device, whole_board_device) and is_multi_chip_board:
                         inference_device_id = None
                     else:
                         inference_device_id = ",".join(str(d) for d in occupied_device_ids)
-                # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
+                # Sent two ways on purpose: override_tt_config is the documented
+                # field, but run.py only mounts the resolved runtime spec in dev mode
+                # / --custom-weights, so on an ordinary deploy the container re-reads
+                # the stale spec baked into its image and drops it. The same value on
+                # the container's own vllm command line wins over the spec default.
                 override_tt_config = None
-                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
-                if qwen32b_p300x2:
-                    override_tt_config = '{"trace_region_size": 53000000}'
+                overrides = {}
+                trace_region_size = trace_region_override(impl.model_name, device)
+                if trace_region_size:
+                    tt_config = {"trace_region_size": trace_region_size}
+                    override_tt_config = json.dumps(tt_config)
+                    overrides["override_tt_config"] = tt_config
                 # Enable vLLM tool calling for chat-completions models so coding
                 # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
                 # Only for /v1/chat/completions models with a known parser — base
@@ -720,7 +681,6 @@ class DeployView(APIView):
                 vllm_override_args = None
                 tool_calling_supported = False
                 if impl.service_route == "/v1/chat/completions":
-                    overrides = {}
                     tool_parser = tool_call_parser_for(
                         impl.model_name, getattr(impl, "hf_model_id", "")
                     )
@@ -733,8 +693,8 @@ class DeployView(APIView):
                     if reasoning_parser:
                         overrides["reasoning-parser"] = reasoning_parser
                     overrides.update(_local_weights_overrides(impl))
-                    if overrides:
-                        vllm_override_args = json.dumps(overrides)
+                if overrides:
+                    vllm_override_args = json.dumps(overrides)
                 override_docker_image = _resolve_override_docker_image(impl)
                 artifact_ref = _resolve_artifact_ref(impl, device, board_type)
                 chat_deploy_kwargs = dict(
@@ -770,7 +730,14 @@ class DeployView(APIView):
                     try:
                         need_pull = not get_docker_client().image_exists(image_name, image_tag)
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        # Deliberately fall through to an inline deploy: image_pull's
+                        # design rule is that this feature never blocks a deploy. The
+                        # inference server pulls the image itself as it always has —
+                        # the only loss is the byte-level progress bar.
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}; "
+                            "deploying without a pre-pull (no image-pull progress bar)"
+                        )
                         need_pull = False
 
                 if need_pull:
@@ -915,14 +882,29 @@ class DeployView(APIView):
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
-                deploy_image = resolve_deploy_image(impl.model_name, media_device, impl=inference_impl) or impl.image_version
+                # A pinned image wins over what the server would resolve: run_container
+                # sends it as override_docker_image, so pre-pulling the spec's image
+                # would show progress for layers the deploy never uses and then stall
+                # while run.py pulls the pinned one untracked.
+                deploy_image = (
+                    media_image_override(impl.model_name, media_device)
+                    or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
+                    or impl.image_version
+                )
                 image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:
                     try:
                         need_pull = not get_docker_client().image_exists(image_name, image_tag)
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        # Deliberately fall through to an inline deploy: image_pull's
+                        # design rule is that this feature never blocks a deploy. The
+                        # inference server pulls the image itself as it always has —
+                        # the only loss is the byte-level progress bar.
+                        logger.warning(
+                            f"image_exists check failed for {deploy_image}: {e}; "
+                            "deploying without a pre-pull (no image-pull progress bar)"
+                        )
                         need_pull = False
 
                 if need_pull:
@@ -1245,6 +1227,96 @@ class CancelDeploymentView(APIView):
 
 
 class DeploymentProgressView(APIView):
+    @staticmethod
+    def _reconcile_orphaned_pull(pull_id):
+        """Decide the true outcome of a pull whose progress record is gone.
+
+        Returns a terminal progress Response either way, but never a bare status:
+        the client can only explain itself to the user if we send a message.
+        """
+        from docker_control.models import ModelDeployment
+
+        # The chat deploy path parks a placeholder record under the pull_id. If the
+        # deploy went on to succeed, that record was updated with the real container
+        # and the pull genuinely completed.
+        try:
+            placeholder = ModelDeployment.objects.filter(container_id=pull_id).first()
+        except Exception as e:
+            logger.warning(f"orphaned pull {pull_id}: could not read deployment record: {e}")
+            placeholder = None
+
+        if placeholder is not None:
+            record_status = getattr(placeholder, "status", None)
+            if record_status in ("running", "healthy", "ready"):
+                logger.info(f"orphaned pull {pull_id} reconciled to a running deployment")
+                return Response(
+                    {
+                        "status": "completed",
+                        "stage": "complete",
+                        "progress": 100,
+                        "message": "Deployment completed successfully",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            # Still parked at "starting" with nobody driving it: the pull may have died.
+            # However, a missing pull record can also be transient (e.g. persistent-store
+            # hiccup or degraded per-process fallback). Only free the reserved slot once
+            # the placeholder is clearly stale.
+            try:
+                import time
+                from docker_control import image_pull_store as pull_store
+
+                deployed_at = getattr(placeholder, "deployed_at", None)
+                started_ts = deployed_at.timestamp() if deployed_at else None
+                if started_ts and (time.time() - started_ts) < pull_store.STALL_AFTER_SECONDS:
+                    return Response(
+                        {
+                            "status": "not_found",
+                            "stage": "pulling_image",
+                            "progress": 0,
+                            "message": (
+                                "Pull progress is temporarily unavailable; continuing to track it."
+                            ),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+            except Exception:
+                # If we cannot determine staleness, err on the side of not killing the placeholder.
+                return Response(
+                    {
+                        "status": "not_found",
+                        "stage": "pulling_image",
+                        "progress": 0,
+                        "message": (
+                            "Pull progress is temporarily unavailable; continuing to track it."
+                        ),
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            # Pull is old enough to be considered dead: release its reserved chip slot.
+            try:
+                placeholder.status = "stopped"
+                placeholder.save()
+                logger.info(f"orphaned pull {pull_id}: released placeholder chip slot")
+            except Exception as e:
+                logger.warning(f"orphaned pull {pull_id}: could not release placeholder: {e}")
+
+        return Response(
+            {
+                "status": "error",
+                "stage": "error",
+                "progress": 0,
+                "message": (
+                    "Image pull was interrupted and its progress was lost "
+                    "(the server most likely restarted while it ran). Retry the "
+                    "deployment — already-downloaded layers are reused, so it will "
+                    "pick up where it left off."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
         import time
@@ -1308,12 +1380,16 @@ class DeploymentProgressView(APIView):
                     )
 
             # An imgpull_ id that isn't a tracked pull job (job_id is reassigned to
-            # the real inference id on handoff above) is an orphan — its in-memory
-            # pull job was lost, e.g. the backend restarted mid-pull. It maps to no
-            # real container, so the container fallback below would fabricate endless
-            # fake progress. Report it terminal so the client stops polling.
+            # the real inference id on handoff above) is an orphan — its pull record
+            # is gone, e.g. it aged out or the persistent store was unavailable. It
+            # maps to no real container, so the container fallback below would
+            # fabricate endless fake progress.
+            #
+            # Before calling it a failure, reconcile against reality: a pull that
+            # completed and handed off just before its record vanished did in fact
+            # succeed, and reporting that as "Deployment failed" is simply wrong.
             if job_id.startswith("imgpull_"):
-                return Response({"status": "not_found"}, status=status.HTTP_200_OK)
+                return self._reconcile_orphaned_pull(job_id)
 
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
@@ -1628,7 +1704,60 @@ class DeploymentLogsView(APIView):
         """Get deployment logs from FastAPI inference server"""
         try:
             logger.info(f"Fetching deployment logs for job_id: {job_id}")
-            
+
+            # An imgpull_ id is ours, not the inference server's — asking FastAPI for
+            # it always 404s, which surfaced in the UI as a dead "View logs" button.
+            # Resolve it to the real job once the handoff has happened; until then,
+            # report the pull's own state so the button shows something useful.
+            if job_id.startswith("imgpull_"):
+                pull_job = get_pull_job(job_id)
+                if pull_job is None:
+                    return Response(
+                        {
+                            "job_id": job_id,
+                            "logs": [
+                                {
+                                    "level": "ERROR",
+                                    "message": (
+                                        "Image pull was interrupted and its record is "
+                                        "gone. Retry the deployment — already-downloaded "
+                                        "layers are reused."
+                                    ),
+                                }
+                            ],
+                            "total_messages": 1,
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                real_job_id = pull_job.get("real_job_id")
+                if real_job_id:
+                    job_id = real_job_id
+                else:
+                    downloaded = pull_job.get("downloaded_bytes") or 0
+                    total = pull_job.get("total_bytes") or 0
+                    lines = [
+                        {
+                            "level": "ERROR" if pull_job.get("status") == "error" else "INFO",
+                            "message": pull_job.get("message") or "Pulling image…",
+                        },
+                        {
+                            "level": "INFO",
+                            "message": (
+                                f"Image: {pull_job.get('image_ref')} — "
+                                f"{downloaded / 1e9:.2f} GB of "
+                                f"{(total / 1e9) if total else 0:.2f} GB, "
+                                f"{pull_job.get('layers_done') or 0}/"
+                                f"{pull_job.get('layers_total') or 0} layers"
+                            ),
+                        },
+                    ]
+                    if pull_job.get("error"):
+                        lines.append({"level": "ERROR", "message": str(pull_job["error"])})
+                    return Response(
+                        {"job_id": job_id, "logs": lines, "total_messages": len(lines)},
+                        status=status.HTTP_200_OK,
+                    )
+
             # Try to get logs from FastAPI inference server
             try:
                 fastapi_url = _build_fastapi_url(f"run/logs/{job_id}")
@@ -2704,9 +2833,38 @@ class RegisterExternalModelView(APIView):
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
-            # Derive any remaining identity fields, then validate
+            # What the container serves is a physical fact about it, so read the
+            # routes before falling back to guessing from names. This is also the
+            # only way to learn a route that diverges from the per-type convention
+            # (a tt-dit image server serves /generate, not /v1/images/generations),
+            # which is why the route is kept even when the type came from elsewhere.
+            served_api = _detect_served_api(service_port)
+            service_route = served_api.get("service_route") or None
+            served_type = served_api.get("model_type")
+            if served_type and served_type != model_type:
+                if model_type:
+                    corrections.append(
+                        f"Model type corrected from '{model_type}' to '{served_type}' "
+                        f"based on the routes the container actually serves "
+                        f"({service_route})."
+                    )
+                else:
+                    corrections.append(
+                        f"Model type '{served_type}' detected from the container's "
+                        f"own API ({service_route})."
+                    )
+                model_type = served_type
+
+            # Derive any remaining identity fields, then settle on a model type
             if not model_type and hf_model_id:
                 model_type = _infer_model_type(hf_model_id)
+            if not model_type:
+                # No HF id to go on — fall back to the container's name/image.
+                model_type = _infer_model_type_from_container(container_info)
+                if model_type:
+                    corrections.append(
+                        f"Model type '{model_type}' inferred from the container image."
+                    )
             if not model_name:
                 model_name = (
                     hf_model_id.split("/")[-1]
@@ -2714,16 +2872,20 @@ class RegisterExternalModelView(APIView):
                     else (container_info.get("name") or container_id).lstrip("/")
                 )
 
-            if not model_type:
-                return Response(
-                    {"status": "error", "message": "Could not determine the model type from the container. Please specify model_type."},
-                    status=status.HTTP_400_BAD_REQUEST,
+            # An unidentifiable model is still registerable: it is tracked, shown
+            # with its status and manageable (logs/delete), just with no
+            # interaction UI. Only a type we can actually route is kept.
+            if model_type and model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
+                corrections.append(
+                    f"Model type '{model_type}' is not one TT Studio can drive — "
+                    "registering it without an interaction page."
                 )
-            if model_type not in self._VALID_MODEL_TYPES and model_type != "mock":
-                valid_types = ", ".join(sorted(self._VALID_MODEL_TYPES))
-                return Response(
-                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                model_type = ""
+            if not model_type:
+                model_type = "unknown"
+                corrections.append(
+                    "Could not determine what this container serves. It is registered "
+                    "for monitoring only — no chat/TTS page will be offered."
                 )
 
             # Record if the model was launched with tool-calling capability and
@@ -2743,26 +2905,10 @@ class RegisterExternalModelView(APIView):
             if jwt_secret:
                 corrections.append("Detected the container's JWT secret for authenticated inference.")
 
-            # --- Rename container based on model name ---
-            current_name = container_info.get("name", container_id)
-            if current_name.startswith("/"):
-                current_name = current_name[1:]
-
-            # Sanitize desired name: lowercase, replace problematic chars
-            desired_name = model_name.lower().replace("/", "-").replace(" ", "_")
-            # Remove any chars that aren't alphanumeric, hyphens, or underscores
-            desired_name = "".join(c for c in desired_name if c.isalnum() or c in "-_.")
-
-            container_name = current_name
-            if desired_name and current_name != desired_name:
-                try:
-                    docker_client.rename_container(container_id, desired_name)
-                    corrections.append(f"Container renamed from '{current_name}' to '{desired_name}'")
-                    container_name = desired_name
-                    logger.info(f"Renamed container '{current_name}' to '{desired_name}'")
-                except Exception as e:
-                    logger.warning(f"Could not rename container: {e}")
-                    container_name = current_name
+            # --- Container name ---
+            # Left exactly as the launching tool set it. TT Studio identifies the
+            # container by id (the deployment record carries the model name for display)
+            container_name = container_info.get("name", container_id).lstrip("/")
 
             # --- Connect container to tt_studio_network ---
             network_name = backend_config.docker_bridge_network_name
@@ -2796,12 +2942,21 @@ class RegisterExternalModelView(APIView):
             try:
                 from docker_control.models import ModelDeployment
 
-                # Check for duplicate registration
-                existing = ModelDeployment.objects.filter(
-                    container_id=container_id, status="running"
+                # Reuse any record already pointing at this container, whatever its
+                # status: re-registering the same container must revive its record
+                # rather than leave a stopped duplicate behind for every attempt.
+                rec = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[container_id, container_id[:12]]
+                    )
+                    .order_by("-deployed_at")
+                    .first()
                 )
-                if existing.exists():
-                    rec = list(existing)[0]
+                if rec is not None:
+                    rec.status = "running"
+                    rec.stopped_at = None
+                    rec.stopped_by_user = False
+                    rec.container_name = container_name
                     rec.device = "external"
                     rec.device_id = device_id
                     rec.device_ids = device_ids
@@ -2809,8 +2964,11 @@ class RegisterExternalModelView(APIView):
                     rec.port = int(service_port) if service_port else 7000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
+                    rec.model_type = model_type
+                    rec.hf_model_id = hf_model_id
+                    rec.service_route = service_route
                     rec.save()
-                    corrections.append("Deployment record already existed — updated device mapping.")
+                    corrections.append("Reused this container's existing deployment record.")
                     logger.info(f"Updated existing deployment record for '{container_name}' to device_ids={device_ids}")
                 else:
                     ModelDeployment.objects.create(
@@ -2825,6 +2983,9 @@ class RegisterExternalModelView(APIView):
                         port=int(service_port) if service_port else 7000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
+                        model_type=model_type,
+                        hf_model_id=hf_model_id,
+                        service_route=service_route,
                     )
                     logger.info(f"Created deployment record for external container '{container_name}' on device_ids={device_ids}")
             except Exception as e:
@@ -3440,6 +3601,42 @@ def _infer_model_type(hf_id: str) -> str:
     return "chat"
 
 
+# Keyword -> model_type, applied to a container's name/image when the model has
+# no HF id to infer from. Ordered: earlier entries win (a "*_tts" name contains
+# "speech", so TTS must be tested before speech recognition).
+_IMAGE_TYPE_HINTS = (
+    (("-tts-", "_tts", "tts-", "tts_", "xtts", "bark", "speecht5", "fastspeech"), "tts"),
+    (("whisper", "wav2vec", "-asr", "speech-recognition", "speech_recognition", "-stt"), "speech_recognition"),
+    (("llava", "idefics", "vision", "blip", "-vl-", "-vl:"), "vlm"),
+    (("stable-diffusion", "sdxl", "flux", "image-generation"), "image_generation"),
+    (("yolo", "objdetection", "object-detection"), "object_detection"),
+    (("wan2", "video-generation", "mochi"), "video_generation"),
+    (("embed", "-e5-", "bge-", "gte-"), "embedding"),
+    (("vllm", "llama", "qwen", "mistral", "gemma", "phi-", "deepseek"), "chat"),
+)
+
+
+def _infer_model_type_from_container(container_info: dict) -> str:
+    """Best-effort model_type from a container's name and image, for models with
+    no HF id to go on. Returns "" when nothing recognisable is found — unlike
+    _infer_model_type there is no chat default, because a wrong guess here would
+    offer an interaction page that cannot work."""
+    config_image = (container_info.get("Config") or {}).get("Image")
+    haystack = " ".join(
+        str(v or "").lower()
+        for v in (
+            container_info.get("name"),
+            container_info.get("image"),
+            container_info.get("image_name"),
+            config_image,
+        )
+    )
+    for keywords, model_type in _IMAGE_TYPE_HINTS:
+        if any(kw in haystack for kw in keywords):
+            return model_type
+    return ""
+
+
 def _parse_vllm_logs(text: str) -> dict:
     """Extract the model id and serving port from vLLM startup log lines."""
     result = {}
@@ -3487,6 +3684,60 @@ def _hf_from_container(container_info: dict):
         if val and "/" in val:  # looks like an org/name HF id, not a bare label
             return val
     return None
+
+
+def _detect_served_api(host_port) -> dict:
+    """Read a container's OpenAPI document and report the API it actually serves.
+
+    Returns {"routes": [...], "service_route": str, "model_type": str} for a
+    container whose served routes identify a contract TT Studio can drive, else
+    whatever subset could be determined ({} when the container has no OpenAPI doc).
+
+    This is the strongest identity signal available and needs no name heuristics:
+    a server that answers on ``/generate`` + ``/jobs/<id>/image`` is an image
+    generator whatever its weights are called, and one that serves no route we
+    recognise is not something we should offer an interaction page for.
+    """
+    if not host_port:
+        return {}
+    try:
+        resp = requests.get(
+            f"http://host.docker.internal:{host_port}/openapi.json", timeout=3
+        )
+        resp.raise_for_status()
+        paths = resp.json().get("paths") or {}
+    except Exception:
+        return {}
+
+    result = {"routes": sorted(paths)}
+
+    # Image dialects are the case where the served route genuinely diverges from
+    # the per-type convention, so consult the dialect table rather than
+    # duplicating its route knowledge here.
+    try:
+        from model_control.image_dialects import dialect_from_openapi
+
+        dialect = dialect_from_openapi(paths)
+    except Exception:
+        dialect = None
+    if dialect is not None:
+        result["service_route"] = dialect.submit_route
+        result["model_type"] = "image_generation"
+        return result
+
+    # Otherwise fall back to the routes that identify the remaining types.
+    for route, model_type in (
+        ("/v1/chat/completions", "chat"),
+        ("/v1/audio/transcriptions", "speech_recognition"),
+        ("/v1/audio/speech", "tts"),
+        ("/v1/videos/generations", "video_generation"),
+        ("/objdetection_v2", "object_detection"),
+    ):
+        if route in paths:
+            result["service_route"] = route
+            result["model_type"] = model_type
+            break
+    return result
 
 
 def _detect_model_info(docker_client, container_id, container_info=None) -> dict:
@@ -3539,8 +3790,24 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
         if parsed.get("port") and not result.get("port"):
             result["port"] = parsed["port"]
 
+    # What the container serves beats what its weights are named: a DiT image
+    # server and a vLLM chat server can both be called "<org>/<model>", but they
+    # do not expose the same routes.
+    served = _detect_served_api(host_port)
+    if served.get("model_type"):
+        result["model_type"] = served["model_type"]
+        result["service_route"] = served["service_route"]
+        result.setdefault("source", "openapi")
+        return result
+
     if result.get("hf_model_id"):
         result["model_type"] = _infer_model_type(result["hf_model_id"])
+    else:
+        # No model id anywhere — the container's name/image is all that's left.
+        # Registration applies the same fallback, so the form shows what it will do.
+        inferred = _infer_model_type_from_container(container_info)
+        if inferred:
+            result["model_type"] = inferred
     return result
 
 

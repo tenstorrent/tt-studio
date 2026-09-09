@@ -3,27 +3,35 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal, time, re
 import copy
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import time
 from pathlib import Path
 
 import requests
-from django.core.cache import caches
-
-from shared_config.device_config import DeviceConfigurations
-from shared_config.logger_config import get_logger
-from shared_config.model_config import model_implmentations, _impl_selector
-from shared_config.backend_config import backend_config
-from shared_config.model_type_config import ModelTypes
-from shared_config.user_config import get_tavily_api_key
-from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
-from docker_control.models import ModelDeployment
+from django.core.cache import caches
+from shared_config.backend_config import backend_config
+from shared_config.coding_agent_config import is_coding_agent_eligible
+from shared_config.device_config import DeviceConfigurations
+from shared_config.external_model_config import build_external_model_impl
+from shared_config.logger_config import get_logger
+from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_type_config import ModelTypes
+from docker_control.artifact_resolution import (
+    resolve_artifact_ref,
+    resolve_override_docker_image,
+)
 from docker_control.docker_control_client import (
     get_docker_client,
     is_service_unreachable,
 )
-
+from docker_control.models import ModelDeployment
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
 logger = get_logger(__name__)
@@ -135,6 +143,44 @@ WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GAL
 # mesh deployments let the inference server claim the full board itself.
 _SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
 
+# vLLM spec-name fallback between four-chip Blackhole meshes. The vLLM plugin
+# maps both labels to a (1, 4) mesh, so a chat model that only publishes a
+# p300x2 spec can still be asked for on p150x4 hardware (and vice versa) by
+# sending the other name.
+_VLLM_MESH_SPEC_FALLBACK = {
+    "p150x4": ("p300x2",),
+    "p300x2": ("p150x4",),
+}
+
+# Trace region size (bytes) to force where a model_spec under-allocates it, which
+# stops the deploy during traced warmup with a TT_FATAL error.
+_TRACE_REGION_OVERRIDES = {
+    # p150x4 spec is stale at 0.10.x with 30000000; traced decode needs 56557568.
+    # Value matches the maintained p300x2 spec for the same four-chip mesh.
+    ("Llama-3.3-70B-Instruct", "p150x4"): 402653184,
+    # Both P150X4 FLUX configs omit this setting and inherit 34.5 MB. Traced
+    # warmup needs 50,724,864 bytes; 51 MB matches their maintained P300X2 specs.
+    ("FLUX.1-dev", "p150x4"): 51_000_000,
+    ("FLUX.1-schnell", "p150x4"): 51_000_000,
+}
+
+# Docker images to force where the per-device model_spec resolves to one whose API
+# this backend can no longer drive. Keyed by (model_name, device); a device of "*"
+# applies to every device for that model.
+_MEDIA_IMAGE_OVERRIDES = {
+    # Wan T2V on every board: 0.17.0 carries the MODEL_WEIGHTS_DIR fix (#4107), so
+    # it reads the mounted host HF cache instead of re-downloading ~118GB.
+    ("Wan2.2-T2V-A14B-Diffusers", "*"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+    ),
+    # FLUX on p150x4: that spec resolves to 0.10.0-555f240, so override to the newer image.
+    ("FLUX.1-dev", "p150x4"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+    ),
+    ("FLUX.1-schnell", "p150x4"): (
+        "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76"
+    ),
+}
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
@@ -303,6 +349,82 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
+def _supported_devices(impl):
+    """Inference-server device names this model declares a model_spec for."""
+    return {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+
+
+def _vllm_mesh_fallback_allowed(impl):
+    """True for vLLM chat models; media/forge pin to one board topology."""
+    engine = getattr(impl, "inference_engine", None)
+    if engine:
+        return str(engine).lower() == "vllm"
+    return impl.model_type == ModelTypes.CHAT
+
+
+def equivalent_mesh_device(impl, device):
+    """For vLLM, swap `device` for the other four-chip Blackhole spec if needed.
+
+    Returns `device` untouched when the model already declares it, when the
+    engine is not vLLM, or when no fallback spec exists. Media models such as
+    FLUX keep the board's own name even if they only list the other mesh.
+    """
+    if not _vllm_mesh_fallback_allowed(impl):
+        return device
+    supported = _supported_devices(impl)
+    if device in supported:
+        return device
+    for alt in _VLLM_MESH_SPEC_FALLBACK.get(device, ()):
+        if alt in supported:
+            logger.info(
+                f"{impl.model_name}: no '{device}' vLLM model_spec; using "
+                f"'{alt}' (four-chip Blackhole mesh fallback)"
+            )
+            return alt
+    return device
+
+
+def vllm_mesh_fallback_fits(impl, board_type):
+    """True when a vLLM model has no native spec for `board_type` but does for
+    the other four-chip Blackhole mesh, so the catalog can still offer it."""
+    if not _vllm_mesh_fallback_allowed(impl):
+        return False
+    board_device = map_board_type_to_device_name(board_type)
+    supported = _supported_devices(impl)
+    if board_device in supported:
+        return False
+    return any(alt in supported for alt in _VLLM_MESH_SPEC_FALLBACK.get(board_device, ()))
+
+
+def claims_whole_board(device, board_device):
+    """True when `device` takes every chip: the board's own name or a vLLM fallback."""
+    return device == board_device or device in _VLLM_MESH_SPEC_FALLBACK.get(
+        board_device, ()
+    )
+
+
+def trace_region_override(model_name, device):
+    """Forced trace region size (bytes) for this pair, or None."""
+    size = _TRACE_REGION_OVERRIDES.get((model_name, device))
+    if size:
+        logger.info(f"{model_name} on {device}: forcing trace_region_size {size} B")
+    return size
+
+
+def media_image_override(model_name, device):
+    """Docker image to force for this model/device pair, or None.
+
+    Shared by run_container and the media pre-pull resolver so the image whose
+    download the UI reports progress for is the image the deploy actually runs.
+    """
+    image = _MEDIA_IMAGE_OVERRIDES.get(
+        (model_name, device)
+    ) or _MEDIA_IMAGE_OVERRIDES.get((model_name, "*"))
+    if image:
+        logger.info(f"{model_name} on {device}: pinning docker image {image}")
+    return image
+
+
 def infer_inference_server_device(impl, board_type=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
@@ -311,18 +433,19 @@ def infer_inference_server_device(impl, board_type=None):
     if board_type is None:
         board_type = detect_board_type()
     chips_required = infer_chips_required(impl.device_configurations)
+    board_device = map_board_type_to_device_name(board_type)
     if chips_required == 1:
         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
         # A constituent single-chip device (e.g. p150 on a P300x2 board) is only valid
         # if the model actually declares support for it. Media models like FLUX have no
         # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
         # supported device for this model but the whole board is, deploy on the board mesh.
-        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
-        board_device = map_board_type_to_device_name(board_type)
+        supported = _supported_devices(impl)
         if device not in supported and board_device in supported:
             device = board_device
     else:
-        device = map_board_type_to_device_name(board_type)
+        device = board_device
+    device = equivalent_mesh_device(impl, device)
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
@@ -400,9 +523,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if device in _SINGLE_CHIP_DEVICE_NAMES:
             payload["device_id"] = str(device_id)
 
-        # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
-        if impl.model_name == "Qwen3-32B" and device == "p300x2":
-            payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+        # The inference server merges override_tt_config over the spec's, key by key.
+        trace_region_size = trace_region_override(impl.model_name, device)
+        if trace_region_size:
+            payload["override_tt_config"] = json.dumps(
+                {"trace_region_size": trace_region_size}
+            )
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -416,12 +542,35 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Wan T2V pinned to the 0.17.0 media image: carries the MODEL_WEIGHTS_DIR fix
-        # (#4107) so it uses the mounted host HF cache instead of re-downloading ~118GB.
-        # Pinned explicitly because per-device resolution would otherwise pick older
-        # images on some boards (e.g. 0.10.0-555f240 for Wan on p150x4) that lack the fix.
-        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+        # Some per-device model_specs resolve to an image too old to serve our
+        # requests, so force the known-good one.
+        pinned_image = media_image_override(impl.model_name, device)
+        if pinned_image:
+            payload["override_docker_image"] = pinned_image
+
+        # Point this deploy at a per-model tt-inference-server build, when the
+        # catalog pins one, same functionality as the CHAT path (which calls the
+        # same helpers in artifact_resolution.py before start_chat_deployment).
+        #
+        if impl.requires_dev_catalog:
+            if not payload.get("override_docker_image"):
+                dev_image = resolve_override_docker_image(impl)
+                if dev_image:
+                    payload["override_docker_image"] = dev_image
+            artifact_ref = resolve_artifact_ref(impl, device, board_type)
+            if artifact_ref:
+                payload["dev_mode"] = True
+                payload["artifact_ref"] = artifact_ref
+                logger.info(
+                    f"{impl.model_name}: deploying against tt-inference-server "
+                    f"ref '{artifact_ref}' (dev_mode)"
+                )
+            else:
+                payload["dev_mode"] = True
+                logger.info(
+                    f"{impl.model_name}: dev_mode on, no artifact ref for "
+                    f"device='{device}' board='{board_type}'; using pinned artifact"
+                )
 
         # Disambiguate the target model_spec. Some models share a name+device across
         # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
@@ -550,35 +699,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         logger.error(error_msg)
         return {"status": "error", "message": error_msg}
 
-def run_agent_container(container_name, port_bindings, impl):
-    # runs agent container after associated llm container runs
-    run_kwargs = copy.deepcopy(impl.docker_config)
-    host_agent_port = get_host_agent_port()
-    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
-
-    docker_client = get_docker_client()
-    docker_client.run_container(
-        image='agent_image:v1',
-        command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
-        name=f'ai_agent_container_p{llm_host_port}',
-        network='tt_studio_network',
-        ports={'8080/tcp': host_agent_port},
-        environment={
-            'TAVILY_API_KEY': get_tavily_api_key() or '',
-            'LLM_CONTAINER_NAME': container_name,
-            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
-            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
-        },
-        volumes={
-            backend_config.host_peristent_storage_volume: {
-                "bind": backend_config.persistent_storage_volume,
-                "mode": "ro",
-            },
-        },
-        detach=True
-    )
-
 def stop_container(container_id):
     """Stop and remove a specific docker container"""
     try:
@@ -699,6 +819,23 @@ def get_managed_containers():
     containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
+
+    # Containers TT Studio was explicitly told about. An externally-registered
+    # container can run an arbitrary image with none of the env vars checked
+    # below (nothing forces it to be a tt-inference-server image), so without
+    # this it never appears in the listing and get_canonical_deployments
+    # reconciles its perfectly healthy record to "stopped".
+    registered_ids, registered_names = set(), set()
+    try:
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            if dep.container_id:
+                registered_ids.add(dep.container_id)
+                registered_ids.add(dep.container_id[:12])
+            if dep.container_name:
+                registered_names.add(dep.container_name)
+    except Exception as e:
+        logger.warning(f"Could not load registered containers: {e}")
+
     managed_containers = []
 
     for container_data in containers_list:
@@ -739,8 +876,14 @@ def get_managed_containers():
         # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
+        # Method 2: it has an active deployment record (deployed or registered by us)
+        elif (
+            (container.id and (container.id in registered_ids or container.id[:12] in registered_ids))
+            or (container.name and container.name in registered_names)
+        ):
+            managed_containers.append(container)
         else:
-            # Method 2: Check for TT Inference Server containers by environment variables
+            # Method 3: Check for TT Inference Server containers by environment variables
             # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
             env_list = container.attrs.get("Config", {}).get("Env", [])
             if not env_list:
@@ -849,6 +992,45 @@ def get_container_status():
     return data
 
 
+def _external_model_impl(con_id, con):
+    """Synthetic model_impl for a container registered via Register Model whose
+    model has no catalog entry. Returns None when the container was not
+    externally registered (so callers keep their existing "unmatched" behaviour).
+
+    The identity was derived from the container at registration time and stored on
+    the deployment record, so we don't have to re-inspect the container here.
+    """
+    try:
+        # Match on either id form: registration stores whatever id the caller
+        # passed (usually the short one), the live listing keys on the full one.
+        active = ModelDeployment.objects.filter(
+            device="external", status__in=["running", "starting"]
+        )
+        dep = (
+            active.filter(container_id__in=[con_id, con_id[:12]]).first()
+            or active.filter(container_name=con["name"]).first()
+        )
+    except Exception as e:
+        logger.warning(f"Could not look up external deployment for {con_id}: {e}")
+        return None
+    if dep is None:
+        return None
+
+    impl = build_external_model_impl(
+        model_name=dep.model_name or con["name"],
+        model_type=dep.model_type,
+        hf_model_id=dep.hf_model_id,
+        service_port=dep.port or 7000,
+        tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
+        service_route=getattr(dep, "service_route", None),
+    )
+    logger.debug(
+        f"Using external model_impl for '{con['name']}' "
+        f"(type={impl.model_type.value}, not in catalog)"
+    )
+    return impl
+
+
 def _enrich_container_with_model_impl(con, con_id):
     """Resolve ``model_impl`` for a live Docker container and populate the
     derived fields (``model_id``, ``weights_id``, ``model_impl``,
@@ -879,7 +1061,18 @@ def _enrich_container_with_model_impl(con, con_id):
             deployment_found = False
             try:
                 from docker_control.models import ModelDeployment
-                deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                # Match on either id form (records may hold the short id the
+                # caller passed) and fall back to the name. Registration does not
+                # rename the container, so the record is the only link between a
+                # container and the model it serves — this lookup has to be robust.
+                deployment = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[con_id, con_id[:12]]
+                    ).first()
+                    or ModelDeployment.objects.filter(
+                        container_name=con["name"]
+                    ).first()
+                )
 
                 if deployment:
                     for _k, v in model_implmentations.items():
@@ -933,6 +1126,8 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
 
                 if not model_impl:
+                    model_impl = _external_model_impl(con_id, con)
+                if not model_impl:
                     logger.warning(
                         f"Could not match TT Inference Server container {con['name']} to any model_impl."
                     )
@@ -949,11 +1144,14 @@ def _enrich_container_with_model_impl(con, con_id):
                     if v.image_version == con["image_name"]
                 ]
             if not candidates:
-                logger.warning(
-                    f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
-                )
-                return False
-            model_impl = candidates[0]
+                model_impl = _external_model_impl(con_id, con)
+                if not model_impl:
+                    logger.warning(
+                        f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
+                    )
+                    return False
+            else:
+                model_impl = candidates[0]
 
     con["model_id"] = model_impl.model_id
     con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")

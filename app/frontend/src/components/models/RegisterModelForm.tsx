@@ -306,7 +306,8 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
 
           {/* Model identity — derived from the container. Name is always derived
               server-side (never asked). Type is derived too; we only ask for it
-              (and the HF id) as a last resort when the model can't be identified. */}
+              (and the HF id) as a last resort when the model can't be identified.
+              Both stay optional: an unidentified model registers as status-only. */}
           {selectedContainerId && (
             detecting ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
@@ -333,7 +334,9 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
                   <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span>
                     Add the model's HuggingFace ID to auto-fill everything, or just
-                    pick its type.
+                    pick its type. Leave both blank to register the container for
+                    monitoring only — you'll get its status, logs and delete, but
+                    no chat/TTS page.
                   </span>
                 </div>
                 <div className="space-y-2">

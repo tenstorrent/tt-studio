@@ -18,7 +18,8 @@
 - [Before you start](#before-you-start)
 - [Quickstart](#quickstart)
 - [Documentation](#documentation)
-- [Community & License](#community--license)
+- [Community](#community)
+- [License](#license)
 
 ---
 
@@ -68,8 +69,17 @@ That's all most people need. Everything else — hardware modes, environment var
 
 ---
 
-## Community & License
+## Community
 
 - **Issues / feature requests** — [GitHub Issues](https://github.com/tenstorrent/tt-studio/issues)
 - **Contributing** — [CONTRIBUTING.md](CONTRIBUTING.md)
-- **License** — Apache-2.0 (© Tenstorrent AI ULC)
+
+---
+
+## License
+
+This project is licensed under the **Apache License 2.0** - see [LICENSE](LICENSE) for the complete license text.
+
+For clarification on how this license applies to commercial use, modifications, and patent grants, see [LICENSE_understanding.txt](LICENSE_understanding.txt).
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold this code.

@@ -475,6 +475,10 @@ export default function VoiceAgentApp() {
             temperature: 0.7,
             top_p: 0.9,
             top_k: 40,
+            // Voice turns need a fast, speakable answer. Reasoning models
+            // (Qwen3 / Qwen3.5) otherwise think out loud for tens of seconds
+            // and the transcript fills with their scratchpad.
+            chat_template_kwargs: { enable_thinking: false },
           },
           ragDatasource,
           localChatHistory,

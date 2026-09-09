@@ -25,9 +25,13 @@ _PULLS_LOCK = threading.Lock()
 _PULL_ENTRY_TTL_SECONDS = 3600  # drop finished entries after an hour to bound memory
 
 
-def _new_pull_entry() -> dict:
+def _new_pull_entry(image_ref: str = "") -> dict:
     return {
         "status": "pulling",          # pulling | success | error
+        "image_ref": image_ref,
+        # Set when this id attached to another id's in-flight pull of the same image
+        # (see start_pull_image); progress is then read from the leader.
+        "follows": None,
         "downloaded_bytes": 0,
         "total_bytes": 0,
         "layers_done": 0,
@@ -139,12 +143,42 @@ async def start_pull_image(request: ImagePullStartRequest):
     progress. Safe to call repeatedly for the same pull_id (a live pull is reused).
     """
     pull_id = request.pull_id
+    image_ref = f"{request.image_name}:{request.image_tag}"
     with _PULLS_LOCK:
         _evict_stale_locked()
         existing = _PULLS.get(pull_id)
         if existing is not None and existing["status"] == "pulling":
             return {"status": "success", "message": f"Pull {pull_id} already in progress"}
-        _PULLS[pull_id] = _new_pull_entry()
+
+        # Attach to an in-flight pull of the SAME image rather than starting a second
+        # one. Deploying several models that share an image (the Voice Agent's
+        # speech-to-text and text-to-speech both use tt-media-inference-server) used
+        # to mint one pull_id each and run two pulls of identical bytes, with two
+        # progress trackers reporting the same numbers.
+        leader_id = next(
+            (
+                pid
+                for pid, e in _PULLS.items()
+                if pid != pull_id
+                and e.get("status") == "pulling"
+                and e.get("image_ref") == image_ref
+                and not e.get("follows")
+            ),
+            None,
+        )
+        if leader_id is not None:
+            entry = _new_pull_entry(image_ref)
+            entry["follows"] = leader_id
+            _PULLS[pull_id] = entry
+            logger.info(
+                f"Pull {pull_id} attached to in-flight pull {leader_id} for {image_ref}"
+            )
+            return {
+                "status": "success",
+                "message": f"Pull {pull_id} attached to in-flight pull of {image_ref}",
+            }
+
+        _PULLS[pull_id] = _new_pull_entry(image_ref)
 
     thread = threading.Thread(
         target=_run_pull,
@@ -163,6 +197,24 @@ async def get_pull_progress(pull_id: str):
         entry = _PULLS.get(pull_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"No pull tracked for {pull_id}")
+        # A follower has no bytes of its own — report the pull it attached to.
+        leader_id = entry.get("follows")
+        if leader_id:
+            leader = _PULLS.get(leader_id)
+            if leader is not None:
+                # Mirror the leader's terminal state onto the follower so the
+                # follower's own entry can age out of the TTL sweep, which only
+                # evicts entries that are no longer "pulling".
+                entry["status"] = leader.get("status", entry.get("status"))
+                entry["updated_at"] = leader.get("updated_at", time.time())
+                entry = leader
+            else:
+                # Leader already evicted: it ran to completion an hour ago, so the
+                # image is cached. Reporting "pulling" forever would strand the
+                # caller; report done and let it move on.
+                entry["status"] = "success"
+                entry["message"] = "Image already present"
+                entry["updated_at"] = time.time()
         snapshot = dict(entry)
     snapshot["pull_id"] = pull_id
     return snapshot

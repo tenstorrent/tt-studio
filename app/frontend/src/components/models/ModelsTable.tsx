@@ -40,7 +40,15 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 
-function HealthStatusCell({ health }: { health?: HealthStatus }) {
+function HealthStatusCell({
+  health,
+  unidentified,
+}: {
+  health?: HealthStatus;
+  // Registered container whose model TT Studio could not identify: there is no
+  // known health route to probe, so explain the permanent "unknown" badge.
+  unidentified?: boolean;
+}) {
   const status = health ?? "unknown";
 
   const getBgColor = () => {
@@ -83,7 +91,9 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
     ? "The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Open logs for details, or remove this entry."
     : isDisconnected
       ? "This model was disconnected from tt_studio_network and can't be reached. Open Register Model in the sidebar to reconnect it."
-      : `Model Health: ${status}`;
+      : unidentified
+        ? "This container's model could not be identified, so TT Studio doesn't know how to probe its health. Open logs to see what it's doing."
+        : `Model Health: ${status}`;
 
   return (
     <TooltipProvider>
@@ -325,7 +335,10 @@ export default function ModelsTable({
                   </TableCell>
                 ) : null}
                 <TableCell className="text-right">
-                  <HealthStatusCell health={healthMap[row.id]} />
+                  <HealthStatusCell
+                    health={healthMap[row.id]}
+                    unidentified={row.model_type === "unknown"}
+                  />
                 </TableCell>
                 {ports ? (
                   <TableCell className="text-right">
