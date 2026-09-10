@@ -67,7 +67,7 @@ type Mode = "single" | "compare" | "documents";
 export default function EmbeddingDemo() {
   const [models, setModels] = useState<DeployedModelInfo[]>([]);
   const [selectedDeployId, setSelectedDeployId] = useState("");
-  const [mode, setMode] = useState<Mode>("single");
+  const [mode, setMode] = useState<Mode>("documents");
   const [textA, setTextA] = useState("");
   const [textB, setTextB] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -137,8 +137,19 @@ export default function EmbeddingDemo() {
   const similarity = vectorA && vectorB ? cosineSimilarity(vectorA, vectorB) : null;
 
   return (
-    <Card className="flex flex-col w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 rounded-2xl">
-      <div className="flex-1 overflow-auto flex items-center justify-center">
+    // Fixed height, not max-height: the outer page wrapper vertically centers
+    // this card (items-center in a h-screen flex). A card that grows with its
+    // content -- switching modes, search results appearing -- would grow
+    // symmetrically around that centered point, pushing its top edge upward
+    // until it goes behind the navbar. A constant footprint keeps the card's
+    // position stable; content beyond it scrolls internally instead.
+    <Card className="flex flex-col w-full max-w-3xl h-[85vh] overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 rounded-2xl">
+      {/* items-start (not center): centering a flex item taller than its
+          container defaults the scroll position to the middle, hiding the
+          header above the visible area once content (e.g. search results)
+          grows past the viewport. Top-anchoring keeps it reachable by
+          scrolling down instead. */}
+      <div className="flex-1 overflow-auto flex items-start justify-center">
         <div className="w-full max-w-3xl px-6 py-8 flex flex-col gap-6">
           {/* Header */}
           <motion.div
@@ -199,6 +210,17 @@ export default function EmbeddingDemo() {
             <div className="flex border-2 rounded-md overflow-hidden">
               <button
                 className={`px-3 py-1.5 text-sm transition-colors ${
+                  mode === "documents"
+                    ? "bg-TT-purple-accent text-white"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                }`}
+                onClick={() => switchMode("documents")}
+                disabled={isLoading}
+              >
+                Documents
+              </button>
+              <button
+                className={`px-3 py-1.5 text-sm transition-colors ${
                   mode === "single"
                     ? "bg-TT-purple-accent text-white"
                     : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
@@ -218,17 +240,6 @@ export default function EmbeddingDemo() {
                 disabled={isLoading}
               >
                 Compare Similarity
-              </button>
-              <button
-                className={`px-3 py-1.5 text-sm transition-colors ${
-                  mode === "documents"
-                    ? "bg-TT-purple-accent text-white"
-                    : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                }`}
-                onClick={() => switchMode("documents")}
-                disabled={isLoading}
-              >
-                Documents
               </button>
             </div>
           </motion.div>

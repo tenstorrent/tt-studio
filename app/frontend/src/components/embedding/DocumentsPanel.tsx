@@ -302,7 +302,7 @@ export default function DocumentsPanel({
           </div>
 
           {queryResults && (
-            <div className="flex flex-col gap-2 mt-1">
+            <div className="flex flex-col gap-2 mt-1 max-h-72 overflow-auto">
               {resultRows.length === 0 ? (
                 <p className="text-sm text-gray-500">No matches found.</p>
               ) : (

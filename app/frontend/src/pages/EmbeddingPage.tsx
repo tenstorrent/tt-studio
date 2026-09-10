@@ -14,7 +14,10 @@ export default function EmbeddingPage() {
               "radial-gradient(ellipse at center, transparent 95%, black 100%)",
           }}
         ></div>
-        <div className="w-full h-screen flex items-center justify-center pl-[4.5rem] lg:pl-32 pb-20 p-4">
+        {/* pt-28 > pb-20: centering within padding pulls the card toward
+            whichever side has more of it, so the extra top padding settles it
+            a bit below true-center -- clear of the navbar, like AppsPage. */}
+        <div className="w-full h-screen flex items-center justify-center pl-[4.5rem] lg:pl-32 pt-28 pb-20 p-4">
           <EmbeddingDemo />
         </div>
       </div>
