@@ -15,7 +15,7 @@ from model_control.views import EmbeddingInferenceView
 class TestEmbeddingInferenceView:
     @patch('model_control.serializers.get_deploy_cache')
     @patch('model_control.views.get_deploy_cache')
-    @patch('model_control.views.requests.post')
+    @patch('model_control.model_utils.requests.post')
     def test_payload_uses_hf_model_id_not_short_model_name(self, mock_post, mock_cache, mock_serializer_cache):
         """tt-media-server's embedding runners validate "model" against the HF
         org/repo id (e.g. "Qwen/Qwen3-Embedding-4B"), not the catalog's short
@@ -59,7 +59,7 @@ class TestEmbeddingInferenceView:
 
     @patch('model_control.serializers.get_deploy_cache')
     @patch('model_control.views.get_deploy_cache')
-    @patch('model_control.views.requests.post')
+    @patch('model_control.model_utils.requests.post')
     def test_falls_back_to_model_name_when_hf_model_id_missing(self, mock_post, mock_cache, mock_serializer_cache):
         mock_impl = Mock()
         mock_impl.model_name = "some-embedder"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Binary, Copy, Loader2, GitCompareArrows } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "../ui/button";
@@ -17,10 +17,12 @@ import {
 } from "../ui/select";
 import { runEmbeddingInference } from "../../api/modelsDeployedApis";
 import { customToast } from "../CustomToaster";
+import DocumentsPanel from "./DocumentsPanel";
 
 interface DeployedModelInfo {
   id: string;
   modelName: string;
+  hfModelId?: string;
   model_type?: string;
 }
 
@@ -36,6 +38,7 @@ async function fetchEmbeddingModels(): Promise<DeployedModelInfo[]> {
           info.model_impl?.model_name ||
           info.model_impl?.hf_model_id ||
           "Unknown",
+        hfModelId: info.model_impl?.hf_model_id,
         model_type: info.model_impl?.model_type,
       }))
       .filter((m) => m.model_type === "embedding");
@@ -59,7 +62,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(magA) * Math.sqrt(magB));
 }
 
-type Mode = "single" | "compare";
+type Mode = "single" | "compare" | "documents";
 
 export default function EmbeddingDemo() {
   const [models, setModels] = useState<DeployedModelInfo[]>([]);
@@ -70,6 +73,14 @@ export default function EmbeddingDemo() {
   const [isLoading, setIsLoading] = useState(false);
   const [vectorA, setVectorA] = useState<number[] | null>(null);
   const [vectorB, setVectorB] = useState<number[] | null>(null);
+
+  const selectedModel = useMemo(
+    () => models.find((m) => m.id === selectedDeployId),
+    [models, selectedDeployId]
+  );
+  // A Chroma collection is locked to one embedding function for life, so it has
+  // to key on the model's stable identity, not this ephemeral deploy/container id.
+  const modelIdentifier = selectedModel?.hfModelId || selectedModel?.modelName;
 
   useEffect(() => {
     fetchEmbeddingModels().then((found) => {
@@ -208,10 +219,34 @@ export default function EmbeddingDemo() {
               >
                 Compare Similarity
               </button>
+              <button
+                className={`px-3 py-1.5 text-sm transition-colors ${
+                  mode === "documents"
+                    ? "bg-TT-purple-accent text-white"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                }`}
+                onClick={() => switchMode("documents")}
+                disabled={isLoading}
+              >
+                Documents
+              </button>
             </div>
           </motion.div>
 
+          {/* Documents mode: upload, browse, and search a collection instead of
+              the single/compare text workflow below. */}
+          {mode === "documents" && modelIdentifier && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.2 }}
+            >
+              <DocumentsPanel modelIdentifier={modelIdentifier} />
+            </motion.div>
+          )}
+
           {/* Text input(s) */}
+          {mode !== "documents" && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -247,8 +282,10 @@ export default function EmbeddingDemo() {
               </div>
             )}
           </motion.div>
+          )}
 
           {/* Generate button */}
+          {mode !== "documents" && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -284,6 +321,7 @@ export default function EmbeddingDemo() {
               )}
             </Button>
           </motion.div>
+          )}
 
           {/* Results */}
           {vectorA && mode === "single" && (

@@ -7,6 +7,7 @@ import os
 import pickle
 import time
 import traceback
+from typing import Optional
 
 import httpx
 import requests
@@ -17,6 +18,8 @@ from django.core.cache import caches
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
+from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tts_api_key
 from docker_control.docker_utils import update_deploy_cache
 from model_control.metrics_tracker import InferenceMetricsTracker
 
@@ -50,6 +53,54 @@ def auth_headers(deploy: dict = None) -> dict:
     default token (normal deploys share the backend secret)."""
     secret = deploy.get("jwt_secret") if isinstance(deploy, dict) else None
     return {"Authorization": f"Bearer {token_for(secret)}"}
+
+
+def find_deployed_embedding_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running EMBEDDING model whose
+    hf_model_id or model_name matches `model_identifier`, or None if it isn't deployed.
+
+    Deploy/container ids are ephemeral across redeploys, so anything that needs to
+    keep working across them (a Chroma collection's stored embedding function) has
+    to key on the model's own identity instead and re-resolve the live deploy here
+    on every call.
+    """
+    for deploy in get_deploy_cache().values():
+        impl = deploy.get("model_impl")
+        if not impl or getattr(impl, "model_type", None) != ModelTypes.EMBEDDING:
+            continue
+        if model_identifier in (getattr(impl, "hf_model_id", None), getattr(impl, "model_name", None)):
+            return deploy
+    return None
+
+
+def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:
+    """POST one text to a deployed embedding model's /v1/embeddings route and
+    return the raw OpenAI-shaped response ({"data": [{"embedding": [...]}], ...}).
+    Shared by EmbeddingInferenceView and the Chroma-backed embedding function
+    (vector_db_control.tt_embedding_function) so both build the identical
+    request/auth -- see EmbeddingInferenceView for why hf_model_id (not
+    model_name) is required in the payload, and why media/forge use a static key.
+    Raises requests.exceptions.RequestException on failure; caller decides how to
+    surface it.
+    """
+    internal_url = "http://" + deploy["internal_url"]
+    model_impl = deploy.get("model_impl")
+    hf_model_id = getattr(model_impl, "hf_model_id", None) if model_impl else None
+    model_name = hf_model_id or (getattr(model_impl, "model_name", None) if model_impl else None)
+    inference_engine = getattr(model_impl, "inference_engine", None)
+
+    if inference_engine in ("media", "forge"):
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+    else:
+        headers = auth_headers(deploy)
+
+    payload = {"model": model_name, "input": text}
+    if dimensions:
+        payload["dimensions"] = dimensions
+
+    resp = requests.post(internal_url, json=payload, headers=headers, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(

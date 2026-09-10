@@ -2807,29 +2807,49 @@ class RegisterExternalModelView(APIView):
                 try:
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
-                        if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
-                            # Found a catalog match — adopt its authoritative type
-                            # and name (routing is derived from the catalog
-                            # model_impl at enrichment time, not stored here).
-                            catalog_type = catalog_model.get("model_type", "").lower()
+                        catalog_hf_id = catalog_model.get("hf_model_id") or ""
+                        catalog_model_name = catalog_model.get("model_name") or ""
+                        hf_id_match = catalog_hf_id.lower() == hf_model_id.lower()
+                        # A container that only ever advertises its bare catalog
+                        # name (tt-media-server's MODEL=<name> convention, e.g.
+                        # "Qwen3-Embedding-0.6B" rather than an org/repo id) won't
+                        # match above; matching on model_name recovers the same
+                        # entry so we can adopt its real HF id, which some
+                        # embedding runners require verbatim (see
+                        # model_control.model_utils.embed_text).
+                        name_match = (
+                            not hf_id_match
+                            and catalog_model_name.lower() == hf_model_id.lower()
+                        )
+                        if not (hf_id_match or name_match):
+                            continue
+                        if name_match and catalog_hf_id:
+                            corrections.append(
+                                f"Model id resolved to catalog's '{catalog_hf_id}' "
+                                f"(matched by short name '{hf_model_id}')"
+                            )
+                            hf_model_id = catalog_hf_id
 
-                            if catalog_type and catalog_type != model_type:
-                                if model_type:
-                                    corrections.append(
-                                        f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
-                                    )
-                                model_type = catalog_type
+                        # Found a catalog match — adopt its authoritative type and
+                        # name (routing is derived from the catalog model_impl at
+                        # enrichment time, not stored here).
+                        catalog_type = catalog_model.get("model_type", "").lower()
+                        if catalog_type and catalog_type != model_type:
+                            if model_type:
+                                corrections.append(
+                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                )
+                            model_type = catalog_type
 
-                            # Adopt the catalog's model name
-                            catalog_name = catalog_model.get("model_name")
-                            if catalog_name and catalog_name != model_name:
-                                if model_name:
-                                    corrections.append(
-                                        f"Model name set to catalog name '{catalog_name}'"
-                                    )
-                                model_name = catalog_name
+                        # Adopt the catalog's model name
+                        if catalog_model_name and catalog_model_name != model_name:
+                            if model_name:
+                                corrections.append(
+                                    f"Model name set to catalog name '{catalog_model_name}'"
+                                )
+                            model_name = catalog_model_name
 
-                            break
+                        break
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
@@ -3683,6 +3703,14 @@ def _hf_from_container(container_info: dict):
         val = env.get(key)
         if val and "/" in val:  # looks like an org/name HF id, not a bare label
             return val
+    # No org/repo-shaped value anywhere -- fall back to a bare MODEL/MODEL_ID, the
+    # tt-media-server launch convention for forge/media models (e.g. MODEL=bge-m3,
+    # MODEL=Qwen3-Embedding-4B). Lower confidence than the slash-shaped pass above,
+    # but still a real identity from the container itself, not a guess.
+    for key in ("MODEL_ID", "MODEL"):
+        val = env.get(key)
+        if val:
+            return val
     return None
 
 
@@ -3766,13 +3794,17 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
         result["source"] = "container"
 
     # Live /v1/models is authoritative when reachable (unauth'd); fills/overrides.
+    # Exception: tt-media-server's non-LLM services (embedding, CNN, etc.) report
+    # settings.model_weights_path here instead of a clean id when SERVED_MODEL_NAME
+    # isn't set at launch -- an absolute path, never a real "org/repo" HF id. Don't
+    # let that clobber a real identity already found from the container itself.
     if host_port:
         try:
             api_resp = requests.get(
                 f"http://host.docker.internal:{host_port}/v1/models", timeout=2
             )
             model_id = api_resp.json().get("data", [{}])[0].get("id")
-            if model_id:
+            if model_id and not model_id.startswith("/"):
                 result["hf_model_id"] = model_id
                 result["source"] = "api"
         except Exception:
