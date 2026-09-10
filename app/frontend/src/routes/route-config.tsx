@@ -57,6 +57,7 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import EmbeddingPage from "../pages/EmbeddingPage";
 import WelcomePage from "../pages/WelcomePage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
@@ -155,6 +156,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/tts",
       element: <TTSPage />,
+      condition: true,
+    },
+    {
+      path: "/embedding",
+      element: <EmbeddingPage />,
       condition: true,
     },
     {

@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-02T22:33:48.536105+00:00"
+    "generated_at": "2026-09-10T00:59:10.791227+00:00"
   },
   "total_models": 72,
   "models": [
@@ -1090,7 +1090,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "3072",
@@ -1100,10 +1100,7 @@
         "MAX_BATCH_SIZE": "8",
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
-      "param_count": null,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": null
     },
     {
       "model_name": "bge-m3",
@@ -1116,7 +1113,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "MODEL_RUNNER": "vllmforge_bge_m3",
@@ -1132,15 +1129,15 @@
         "TT_METAL_INSPECTOR_RPC": "0"
       },
       "param_count": null,
-      "available_in_studio": false,
-      "unavailable_reason": "known_broken",
-      "unavailable_details": "No supported device left: P300x2: Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there.",
       "unavailable_devices": {
         "P300x2": {
           "reason": "known_broken",
           "details": "Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
         }
-      }
+      },
+      "available_in_studio": false,
+      "unavailable_reason": "known_broken",
+      "unavailable_details": "No supported device left: P300x2: Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
     },
     {
       "model_name": "DeepSeek-R1-0528",
@@ -1678,7 +1675,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "MODEL_RUNNER": "vllmforge_qwen_embedding_0_6b",
@@ -1693,10 +1690,7 @@
         "DEFAULT_THROTTLE_LEVEL": "0",
         "TT_METAL_INSPECTOR_RPC": "0"
       },
-      "param_count": 0,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": 0
     },
     {
       "model_name": "Qwen3-Embedding-4B",
@@ -1715,7 +1709,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
@@ -1725,10 +1719,7 @@
         "MAX_BATCH_SIZE": "1",
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
-      "param_count": 4,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": 4
     },
     {
       "model_name": "Qwen3-Embedding-8B",
@@ -1746,7 +1737,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
@@ -1754,10 +1745,7 @@
         "VLLM__MIN_CONTEXT_LENGTH": "32",
         "VLLM__MAX_NUM_SEQS": "1"
       },
-      "param_count": 8,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": 8
     },
     {
       "model_name": "Qwen3.5-9B",

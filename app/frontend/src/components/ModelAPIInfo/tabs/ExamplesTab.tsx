@@ -193,6 +193,19 @@ const buildNonLlmExamples = (
   -F "image=@/path/to/image.jpg"`,
         },
       ];
+    case "embedding":
+      return [
+        {
+          name: "cURL - Embedding",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "deploy_id": "${deployId}",
+    "input": "Hello from Tenstorrent"
+  }'`,
+        },
+      ];
     default:
       return [
         {

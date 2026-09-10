@@ -3732,6 +3732,7 @@ def _detect_served_api(host_port) -> dict:
         ("/v1/audio/speech", "tts"),
         ("/v1/videos/generations", "video_generation"),
         ("/objdetection_v2", "object_detection"),
+        ("/v1/embeddings", "embedding"),
     ):
         if route in paths:
             result["service_route"] = route

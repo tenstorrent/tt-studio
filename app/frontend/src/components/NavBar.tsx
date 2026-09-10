@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   BrainCog,
   Video,
+  Binary,
   type LucideIcon,
   History,
   Settings as SettingsIcon,
@@ -576,8 +577,9 @@ export default function NavBar() {
     switch (model_type) {
       case ModelType.ChatModel:
       case ModelType.VLM:
-      case ModelType.Embedding:
         return BotMessageSquare;
+      case ModelType.Embedding:
+        return Binary;
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
@@ -619,7 +621,7 @@ export default function NavBar() {
       case ModelType.TTS:
         return "Text to Speech";
       case ModelType.Embedding:
-        return "Chat UI";
+        return "Embeddings";
       case ModelType.Training:
         return "Training";
       default:

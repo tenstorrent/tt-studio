@@ -50,9 +50,14 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
 
     def test_non_image_media_models_use_enqueue(self):
-        """Non-image/non-audio/non-video media models should use /enqueue."""
+        """Non-image/non-audio/non-video/non-embedding media models should use /enqueue."""
         assert map_service_route("media", "", "CNN") == "/enqueue"
-        assert map_service_route("media", "", "EMBEDDING") == "/enqueue"
+
+    def test_embedding_models_use_v1_embeddings_regardless_of_engine(self):
+        """Embedding models mount tt-media-server's embedding.router at /v1 on both
+        the media and forge runners, so the route must not depend on inference_engine."""
+        assert map_service_route("media", "", "EMBEDDING") == "/v1/embeddings"
+        assert map_service_route("forge", "", "EMBEDDING") == "/v1/embeddings"
 
     def test_video_gen_media_models_use_v1_videos_generations(self):
         """T2V video generation media models should use /v1/videos/generations."""
@@ -415,12 +420,12 @@ class TestStudioAvailability:
         assert models[0]["available_in_studio"] is False
         assert models[0]["unavailable_details"]
 
-    def test_embeddings_are_unsupported_not_broken(self):
-        """The distinction matters: these deploy fine, Studio just has no UI."""
+    def test_embeddings_are_no_longer_type_level_unsupported(self):
+        """Studio has an Embeddings UI now, so EMBEDDING carries no type-level mark;
+        only a specific STUDIO_UNAVAILABLE_MODELS/_DEVICES entry can hide one."""
         models = [{"model_name": "some-embedder", "model_type": "EMBEDDING"}]
-        apply_studio_availability(models)
-        assert models[0]["unavailable_reason"] == "unsupported_in_studio"
-        assert models[0]["unavailable_reason"] != "known_broken"
+        assert apply_studio_availability(models) == []
+        assert "unavailable_reason" not in models[0]
 
     def test_per_model_override_beats_the_type_rule(self):
         """An EMBEDDING model that is also genuinely broken reads as broken."""

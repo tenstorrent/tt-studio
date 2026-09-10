@@ -71,13 +71,12 @@ export const ModelType = {
 };
 
 /**
- * Model types TT Studio has no interaction page for. Embedding models have no UI
- * at all (they are consumed by RAG, not driven directly), and an unidentified
- * container has no known request shape — offering either a Chat page or the
- * chat-shaped API page for them would only lead somewhere that cannot work.
- * Such models still show their status and keep Logs/Delete.
+ * Model types TT Studio has no interaction page for. An unidentified container
+ * has no known request shape — offering a Chat page or the chat-shaped API
+ * page for it would only lead somewhere that cannot work. Such models still
+ * show their status and keep Logs/Delete.
  */
-const MODEL_TYPES_WITHOUT_UI: string[] = [ModelType.Embedding, ModelType.Unknown];
+const MODEL_TYPES_WITHOUT_UI: string[] = [ModelType.Unknown];
 
 export const hasInteractionPage = (frontendModelType: string): boolean =>
   !MODEL_TYPES_WITHOUT_UI.includes(frontendModelType);
@@ -452,7 +451,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.TTS:
       return "/tts";
     case ModelType.Embedding:
-      return "/chat"; // placeholder
+      return "/embedding";
     case ModelType.CNN:
       return "/object-detection"; // CNN reuses object detection UI
     case ModelType.Training:
@@ -507,6 +506,29 @@ export const runTTSInference = async (
     throw new Error(`TTS request failed: HTTP ${response.status}`);
   }
   return response.blob();
+};
+
+// ----- Embedding Inference -----
+export interface EmbeddingResult {
+  embedding: number[];
+  model: string;
+}
+
+export const runEmbeddingInference = async (
+  deployId: string,
+  input: string,
+): Promise<EmbeddingResult> => {
+  const response = await fetch("/models-api/embedding/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deploy_id: deployId, input }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Embedding request failed: HTTP ${response.status} ${errorText}`);
+  }
+  const data = await response.json();
+  return { embedding: data.data?.[0]?.embedding ?? [], model: data.model };
 };
 
 // ----- Voice Pipeline -----
@@ -611,6 +633,9 @@ export const getModelTypeFromName = (
   }
   if (combined.includes("tts")) {
     return ModelType.TTS;
+  }
+  if (combined.includes("embed") || combined.includes("bge")) {
+    return ModelType.Embedding;
   }
   if (combined.includes("training") || combined.includes("finetune") || combined.includes("fine-tune")) {
     return ModelType.Training;

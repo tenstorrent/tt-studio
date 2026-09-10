@@ -1386,6 +1386,60 @@ class TtsInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class EmbeddingInferenceView(APIView):
+    """Text embedding inference: proxies to tt-media-server's OpenAI-compatible /v1/embeddings."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        text = data.get("input") or data.get("text")
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        model_impl = deploy.get("model_impl")
+        # tt-media-server's embedding runners validate the request's "model" against
+        # their configured HF org/repo id (e.g. "Qwen/Qwen3-Embedding-4B"), not the
+        # catalog's short model_name (e.g. "Qwen3-Embedding-4B") -- unlike TTS/chat,
+        # which accept the short name. hf_model_id is that HF id for every embedding
+        # catalog entry; model_name is only a fallback for a record missing one.
+        hf_model_id = getattr(model_impl, "hf_model_id", None) if model_impl else None
+        model_name = hf_model_id or (getattr(model_impl, "model_name", None) if model_impl else None)
+        inference_engine = getattr(model_impl, "inference_engine", None)
+
+        # Embedding models only ship on tt-media-server (media or forge runner), which
+        # authenticates with a static API key rather than the per-deploy JWT chat models use.
+        if inference_engine in ("media", "forge"):
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+        else:
+            headers = auth_headers(deploy)
+
+        payload = {"model": model_name, "input": text}
+        dimensions = data.get("dimensions")
+        if dimensions:
+            payload["dimensions"] = dimensions
+
+        try:
+            embed_resp = requests.post(internal_url, json=payload, headers=headers, timeout=60)
+            embed_resp.raise_for_status()
+        except requests.exceptions.HTTPError:
+            logger.error(f"Embedding HTTP error: {embed_resp.status_code} {embed_resp.text}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Could not reach the embedding model: {exc}")
+            return Response(
+                {"error": f"Could not reach the embedding model: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(embed_resp.json(), status=status.HTTP_200_OK)
+
+
 class OpenAIAudioSpeechView(APIView):
     """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
     def post(self, request, *args, **kwargs):
@@ -1742,6 +1796,7 @@ class ModelAPIInfoView(APIView):
             "object_detection": "/object-detection/",
             "speech_recognition": "/speech-recognition/",
             "tts": "/tts/",
+            "embedding": "/embedding/",
         }
         return endpoint_map.get(model_type)
 

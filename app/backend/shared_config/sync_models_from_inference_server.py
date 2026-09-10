@@ -81,12 +81,8 @@ HAND_OWNED_MARKER = "hand_owned"
 STUDIO_UNAVAILABLE_REASONS = ("known_broken", "unsupported_in_studio")
 
 # Model types TT-Studio can deploy but has no interface for. These work.
-UNSUPPORTED_STUDIO_MODEL_TYPES = {
-    "EMBEDDING": (
-        "No embeddings UI in TT-Studio yet; the model itself deploys and serves "
-        "correctly on the inference server."
-    ),
-}
+# For models of types that TT-Studio can deploy but has no interface for, add them here.
+UNSUPPORTED_STUDIO_MODEL_TYPES: dict[str, str] = {}
 
 # Model-wide overrides, keyed by catalog model_name, for breakage that is
 # genuinely independent of hardware (a bad chat template, a missing weight file,
@@ -552,6 +548,12 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         hf_model_id: HuggingFace model ID (for vLLM chat detection)
         raw_model_type: Raw model type from inference server (TEXT_TO_SPEECH, TTS, etc.)
     """
+    # Embedding models register tt-media-server's embedding.router at "/v1" regardless of
+    # which runner backs them (media or forge) -- see tt-media-server/open_ai_api/__init__.py
+    # SERVICE_ROUTER_MAP[EMBEDDING]. Check this before the per-engine branches below, which
+    # would otherwise route forge-backed embedding models (e.g. bge-m3) to /v1/chat/completions.
+    if raw_model_type == "EMBEDDING":
+        return "/v1/embeddings"
     if inference_engine == "vLLM":
         return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
@@ -569,7 +571,7 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
             if "i2v" in hf_model_id.lower():
                 return "/v1/videos/generations/i2v"
             return "/v1/videos/generations"
-        # Other media models (embedding, etc.) use enqueue
+        # Other media models use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         if raw_model_type == "TRAINING":
