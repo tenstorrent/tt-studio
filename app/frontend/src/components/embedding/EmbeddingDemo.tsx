@@ -15,37 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { runEmbeddingInference } from "../../api/modelsDeployedApis";
+import {
+  runEmbeddingInference,
+  fetchEmbeddingModels,
+  type DeployedEmbeddingModel,
+} from "../../api/modelsDeployedApis";
 import { customToast } from "../CustomToaster";
 import DocumentsPanel from "./DocumentsPanel";
-
-interface DeployedModelInfo {
-  id: string;
-  modelName: string;
-  hfModelId?: string;
-  model_type?: string;
-}
-
-async function fetchEmbeddingModels(): Promise<DeployedModelInfo[]> {
-  try {
-    const res = await fetch("/models-api/deployed/");
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Object.entries(data)
-      .map(([id, info]: [string, any]) => ({
-        id,
-        modelName:
-          info.model_impl?.model_name ||
-          info.model_impl?.hf_model_id ||
-          "Unknown",
-        hfModelId: info.model_impl?.hf_model_id,
-        model_type: info.model_impl?.model_type,
-      }))
-      .filter((m) => m.model_type === "embedding");
-  } catch {
-    return [];
-  }
-}
 
 // Standard cosine similarity between two equal-length embedding vectors.
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -65,7 +41,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 type Mode = "single" | "compare" | "documents";
 
 export default function EmbeddingDemo() {
-  const [models, setModels] = useState<DeployedModelInfo[]>([]);
+  const [models, setModels] = useState<DeployedEmbeddingModel[]>([]);
   const [selectedDeployId, setSelectedDeployId] = useState("");
   const [mode, setMode] = useState<Mode>("documents");
   const [textA, setTextA] = useState("");

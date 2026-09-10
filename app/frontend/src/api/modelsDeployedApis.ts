@@ -514,6 +514,38 @@ export interface EmbeddingResult {
   model: string;
 }
 
+export interface DeployedEmbeddingModel {
+  id: string;
+  modelName: string;
+  /** The HF org/repo id, when known -- the stable identity a Chroma collection
+   * locks itself to (see EmbeddingDemo / RagManagement's embedding picker). */
+  hfModelId?: string;
+}
+
+/** Currently deployed embedding models, for any UI that lets the user pick one
+ * to back a Chroma collection with (EmbeddingDemo's Documents tab, RAG upload). */
+export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> => {
+  try {
+    const res = await fetch("/models-api/deployed/");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Object.entries(data)
+      .map(([id, info]: [string, any]) => ({
+        id,
+        modelName:
+          info.model_impl?.model_name ||
+          info.model_impl?.hf_model_id ||
+          "Unknown",
+        hfModelId: info.model_impl?.hf_model_id,
+        model_type: info.model_impl?.model_type,
+      }))
+      .filter((m) => m.model_type === "embedding")
+      .map(({ id, modelName, hfModelId }) => ({ id, modelName, hfModelId }));
+  } catch {
+    return [];
+  }
+};
+
 export const runEmbeddingInference = async (
   deployId: string,
   input: string,
