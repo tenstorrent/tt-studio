@@ -22,6 +22,11 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.external_model_config import build_external_model_impl
 from shared_config.logger_config import get_logger
 from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_overrides import (
+    MEDIA_IMAGE_OVERRIDES as _MEDIA_IMAGE_OVERRIDES,
+    TRACE_REGION_OVERRIDES as _TRACE_REGION_OVERRIDES,
+    VLLM_MESH_SPEC_FALLBACK as _VLLM_MESH_SPEC_FALLBACK,
+)
 from shared_config.model_type_config import ModelTypes
 from docker_control.artifact_resolution import (
     resolve_artifact_ref,
@@ -143,44 +148,6 @@ WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GAL
 # mesh deployments let the inference server claim the full board itself.
 _SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
 
-# vLLM spec-name fallback between four-chip Blackhole meshes. The vLLM plugin
-# maps both labels to a (1, 4) mesh, so a chat model that only publishes a
-# p300x2 spec can still be asked for on p150x4 hardware (and vice versa) by
-# sending the other name.
-_VLLM_MESH_SPEC_FALLBACK = {
-    "p150x4": ("p300x2",),
-    "p300x2": ("p150x4",),
-}
-
-# Trace region size (bytes) to force where a model_spec under-allocates it, which
-# stops the deploy during traced warmup with a TT_FATAL error.
-_TRACE_REGION_OVERRIDES = {
-    # p150x4 spec is stale at 0.10.x with 30000000; traced decode needs 56557568.
-    # Value matches the maintained p300x2 spec for the same four-chip mesh.
-    ("Llama-3.3-70B-Instruct", "p150x4"): 402653184,
-    # Both P150X4 FLUX configs omit this setting and inherit 34.5 MB. Traced
-    # warmup needs 50,724,864 bytes; 51 MB matches their maintained P300X2 specs.
-    ("FLUX.1-dev", "p150x4"): 51_000_000,
-    ("FLUX.1-schnell", "p150x4"): 51_000_000,
-}
-
-# Docker images to force where the per-device model_spec resolves to one whose API
-# this backend can no longer drive. Keyed by (model_name, device); a device of "*"
-# applies to every device for that model.
-_MEDIA_IMAGE_OVERRIDES = {
-    # Wan T2V on every board: 0.17.0 carries the MODEL_WEIGHTS_DIR fix (#4107), so
-    # it reads the mounted host HF cache instead of re-downloading ~118GB.
-    ("Wan2.2-T2V-A14B-Diffusers", "*"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
-    ),
-    # FLUX on p150x4: that spec resolves to 0.10.0-555f240, so override to the newer image.
-    ("FLUX.1-dev", "p150x4"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
-    ),
-    ("FLUX.1-schnell", "p150x4"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76"
-    ),
-}
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
