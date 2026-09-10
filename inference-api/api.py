@@ -2631,7 +2631,19 @@ async def run_inference(request: RunRequest):
         if request.vllm_override_args:
             base_argv.extend(["--vllm-override-args", request.vllm_override_args])
         if request.runtime_model_spec_json:
-            base_argv.extend(["--runtime-model-spec-json", request.runtime_model_spec_json])
+            # This path comes straight from the request body, so it must be
+            # constrained to TT_STUDIO_ROOT and checked to actually exist
+            # before being handed to run.py -- otherwise a caller could point
+            # this host process at an arbitrary file.
+            spec_path = Path(request.runtime_model_spec_json).resolve()
+            if _tt_studio_root not in spec_path.parents:
+                raise ValueError(
+                    f"runtime_model_spec_json must be under {_tt_studio_root}, "
+                    f"got {spec_path}"
+                )
+            if not spec_path.is_file():
+                raise ValueError(f"runtime_model_spec_json does not exist: {spec_path}")
+            base_argv.extend(["--runtime-model-spec-json", str(spec_path)])
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
 

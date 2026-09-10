@@ -41,4 +41,7 @@ class TTDeployedEmbeddingFunction:
                 f"Embedding model '{self.model_identifier}' is not currently "
                 "deployed. Redeploy it to use this collection."
             )
-        return [embed_text(deploy, text)["data"][0]["embedding"] for text in input]
+        # A bare string is iterable character-by-character; coerce it to the
+        # single-element list a caller almost certainly meant.
+        texts = [input] if isinstance(input, str) else input
+        return [embed_text(deploy, text)["data"][0]["embedding"] for text in texts]

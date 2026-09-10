@@ -136,7 +136,7 @@ def _parse_chip_tier(
 
 
 def known_devices_hint(device: str, known: list[str]) -> str:
-    """" Did you mean 'X'?" for an unavailable/serve_override device typo, or ""."""
+    """A " Did you mean 'X'?" hint for an unavailable/serve_override device typo, or ""."""
     near = get_close_matches(device, known, n=1)
     return f" Did you mean {near[0]!r}?" if near else ""
 
