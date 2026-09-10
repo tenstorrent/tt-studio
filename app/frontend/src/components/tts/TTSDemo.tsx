@@ -14,37 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { runTTSInference } from "../../api/modelsDeployedApis";
+import {
+  runTTSInference,
+  fetchHealthyModelsByType,
+  type DeployedModelSummary,
+} from "../../api/modelsDeployedApis";
 import { customToast } from "../CustomToaster";
 
-interface DeployedModelInfo {
-  id: string;
-  modelName: string;
-  model_type?: string;
-}
-
-async function fetchTTSModels(): Promise<DeployedModelInfo[]> {
-  try {
-    const res = await fetch("/models-api/deployed/");
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Object.entries(data)
-      .map(([id, info]: [string, any]) => ({
-        id,
-        modelName:
-          info.model_impl?.model_name ||
-          info.model_impl?.hf_model_id ||
-          "Unknown",
-        model_type: info.model_impl?.model_type,
-      }))
-      .filter((m) => m.model_type === "tts");
-  } catch {
-    return [];
-  }
-}
-
 export default function TTSDemo() {
-  const [ttsModels, setTtsModels] = useState<DeployedModelInfo[]>([]);
+  const [ttsModels, setTtsModels] = useState<DeployedModelSummary[]>([]);
   const [selectedDeployId, setSelectedDeployId] = useState("");
   const [text, setText] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -64,7 +42,7 @@ export default function TTSDemo() {
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   useEffect(() => {
-    fetchTTSModels().then((models) => {
+    fetchHealthyModelsByType("tts").then((models) => {
       setTtsModels(models);
       if (models.length > 0) setSelectedDeployId(models[0].id);
     });

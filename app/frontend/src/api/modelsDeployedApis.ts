@@ -522,14 +522,28 @@ export interface DeployedEmbeddingModel {
   hfModelId?: string;
 }
 
-/** Currently deployed embedding models, for any UI that lets the user pick one
- * to back a Chroma collection with (EmbeddingDemo's Documents tab, RAG upload). */
-export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> => {
+/** Shared shape for every "pick which deployed model to use" dropdown
+ * (EmbeddingDemo, TTSDemo, Chat's model selector, Speech to Text). */
+export type DeployedModelSummary = DeployedEmbeddingModel;
+
+/** Deployed models of the given backend model_type(s), filtered to only ones
+ * that have actually finished warming up. A model still deploying/starting is
+ * a running container that fetchModelHealth (the same live probe the navbar
+ * uses to gate its own nav entries) has not yet reported "healthy" for --
+ * listing it here would let a user pick a model that can't serve a request
+ * yet. Type matching is case-insensitive: backend endpoints don't agree on
+ * casing for model_type ("embedding" vs "EMBEDDING"). */
+export const fetchHealthyModelsByType = async (
+  modelType: string | string[]
+): Promise<DeployedModelSummary[]> => {
+  const wanted = (Array.isArray(modelType) ? modelType : [modelType]).map((t) =>
+    t.toLowerCase()
+  );
   try {
     const res = await fetch("/models-api/deployed/");
     if (!res.ok) return [];
     const data = await res.json();
-    return Object.entries(data)
+    const candidates = Object.entries(data)
       .map(([id, info]: [string, any]) => ({
         id,
         modelName:
@@ -537,14 +551,25 @@ export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> 
           info.model_impl?.hf_model_id ||
           "Unknown",
         hfModelId: info.model_impl?.hf_model_id,
-        model_type: info.model_impl?.model_type,
+        model_type: String(info.model_impl?.model_type ?? "").toLowerCase(),
       }))
-      .filter((m) => m.model_type === "embedding")
+      .filter((m) => wanted.includes(m.model_type));
+    const healthResults = await Promise.all(
+      candidates.map((m) => fetchModelHealth(m.id))
+    );
+    return candidates
+      .filter((_, i) => healthResults[i] === "healthy")
       .map(({ id, modelName, hfModelId }) => ({ id, modelName, hfModelId }));
   } catch {
     return [];
   }
 };
+
+/** Currently deployed, healthy embedding models, for any UI that lets the
+ * user pick one to back a Chroma collection with (EmbeddingDemo's Documents
+ * tab, RAG upload). */
+export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> =>
+  fetchHealthyModelsByType("embedding");
 
 export const runEmbeddingInference = async (
   deployId: string,

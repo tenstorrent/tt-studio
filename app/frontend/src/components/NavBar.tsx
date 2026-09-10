@@ -399,9 +399,9 @@ export default function NavBar() {
   }, [modelIdsKey]);
 
   // Only models that are actually healthy/usable should surface in the navbar.
-  // Model types with no interaction page (embeddings, and containers whose model
-  // could not be identified) are managed from the Models page only — a nav entry
-  // for them would route to a page that cannot drive them.
+  // Model types with no interaction page (containers whose model could not be
+  // identified) are managed from the Models page only — a nav entry for them
+  // would route to a page that cannot drive them.
   const healthyModels = useMemo(
     () =>
       models.filter((m) => {
@@ -413,6 +413,29 @@ export default function NavBar() {
       }),
     [models, healthById]
   );
+
+  // One nav button per destination ROUTE, not per deployed instance -- keyed
+  // by route rather than model type because several types share one page
+  // (ChatModel/VLM both open Chat UI, ObjectDetectionModel/CNN both open
+  // Object Detection), so type alone would still duplicate those. Deploying a
+  // second model of the same type (e.g. two embedding models) must not
+  // duplicate its nav entry either way. The page each button opens has its
+  // own picker to switch between multiple healthy models it can drive, so
+  // only the first one found is passed along as the initial selection.
+  const uniqueHealthyModelsByType = useMemo(() => {
+    const seen = new Set<string>();
+    const unique: typeof healthyModels = [];
+    for (const model of healthyModels) {
+      const t = model.model_type
+        ? getModelTypeFromBackendType(model.model_type)
+        : getModelTypeFromName(model.name, model.image);
+      const route = getDestinationFromModelType(t);
+      if (seen.has(route)) continue;
+      seen.add(route);
+      unique.push(model);
+    }
+    return unique;
+  }, [healthyModels]);
 
   // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
   const isVoiceAgentReady = useMemo(() => {
@@ -718,7 +741,7 @@ export default function NavBar() {
       // ready to use. Models still deploying/warming up are intentionally hidden.
       if (healthyModels.length > 0) {
         // Show navigation items for each healthy model
-        return healthyModels.map((model) => {
+        return uniqueHealthyModelsByType.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
@@ -783,7 +806,7 @@ export default function NavBar() {
     } else {
       // In TT-Studio mode, show only models that are healthy and ready to use.
       console.log("TT-Studio mode - creating navigation for healthy models");
-      return healthyModels.map((model) => {
+      return uniqueHealthyModelsByType.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
