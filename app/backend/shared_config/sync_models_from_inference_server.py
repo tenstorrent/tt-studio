@@ -11,8 +11,10 @@ Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
 """
 
+import copy
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -167,17 +169,6 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
             ),
         ),
     },
-    "bge-m3": {
-        "P300x2": (
-            "known_broken",
-            (
-                "Non-functional deploy (#869). Separate from the embedding modality "
-                "gap: this model does not run. Verified broken on a P300x2 (4x p300c "
-                "Blackhole) box. Untested on this model's other boards, so it stays "
-                "available there."
-            ),
-        ),
-    },
     "DeepSeek-R1-Distill-Llama-70B": {
         "P150X4": (
             "known_broken",
@@ -257,6 +248,145 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
         ),
     }
 }
+
+
+# Models the source artifact only ever declares on a multi-chip mesh (e.g.
+# P300x2), but which genuinely run on a single constituent chip or one P300
+# card -- confirmed by hand-launching them with a custom runtime model spec.
+# There is no upstream ModelConfigs entry for (this model, single-chip/card
+# device), so run.py's own spec resolution hard-rejects the combination
+# outright (raises "No model spec matches..."); the only sanctioned bypass is
+# --runtime-model-spec-json, which takes a spec file as-is with no
+# resolution/validation. Rather than hand-maintain a full duplicate spec file
+# per tier (drifts from the real upstream spec the moment tt-inference-server
+# bumps an image/commit/vllm arg), generate_chip_tier_specs() derives each
+# tier from the real, current upstream board_device spec below -- mirrors the
+# existing small-override pattern used for image pins (_MEDIA_IMAGE_OVERRIDES)
+# and dev branches (inference_artifact_ref) instead of shipping static JSON.
+# Value is the board device the real base spec is fetched from and derived
+# from -- always the whole-board mesh today. See issue: Qwen3-Embedding-0.6B/4B
+# and bge-m3 single-chip/card-pair-on-P300x2 (run.py --tt-device p150/p300
+# works; --tt-device p300x2 with --device-id N does not -- it wrongly pins the
+# 4-chip mesh init to fewer chips).
+STUDIO_CHIP_TIER_MODELS: dict[str, str] = {
+    "Qwen3-Embedding-0.6B": "p300x2",
+    "Qwen3-Embedding-4B": "p300x2",
+    "bge-m3": "p300x2",
+}
+
+# device_type -> DEVICE_IDS env var value (tt-media-server's scheduler splits
+# on "),(" and spawns one independent data-parallel worker per group -- see
+# tt-media-server/config/constants.py's DeviceIds; DEVICE_IDS_1/_2 there are
+# the exact upstream values already used for single-card P150/P300 deploys).
+STUDIO_CHIP_TIERS: dict[str, str] = {
+    "P150": "(0)",
+    "P300": "(0),(1)",
+}
+
+RUNTIME_MODEL_SPECS_DIR = SCRIPT_DIR / "runtime_model_specs"
+
+
+def _load_upstream_model_spec(hf_model_repo: str, board_device: str) -> dict | None:
+    """The real, current upstream ModelSpec for hf_model_repo on board_device,
+    as a plain dict, fetched straight from the tt-inference-server artifact's
+    own workflows.model_spec (the same resolution run.py itself uses).
+
+    Never raises -- returns None if the artifact isn't fetched yet or the pair
+    can't be resolved, so callers can fall back to leaving an already-generated
+    file in place instead of breaking the whole catalog sync.
+    """
+    try:
+        artifact_root = resolve_source_json().parent
+    except FileNotFoundError:
+        return None
+    artifact_root_str = str(artifact_root)
+    if artifact_root_str not in sys.path:
+        sys.path.insert(0, artifact_root_str)
+    os.environ.setdefault(
+        "OVERRIDE_BENCHMARK_TARGETS",
+        str(artifact_root / "reference_config/benchmarking/benchmark_targets/model_performance_reference.json"),
+    )
+    try:
+        import workflows.utils as _wf_utils
+
+        _wf_utils.get_repo_root_path = lambda marker=".git", _root=artifact_root: _root
+        from workflows.model_spec import get_runtime_model_spec
+
+        spec, _impl, _engine = get_runtime_model_spec(hf_model_repo, board_device)
+        return spec.get_serialized_dict()
+    except Exception as e:
+        print(
+            f"chip-tier override: could not load upstream spec for "
+            f"{hf_model_repo} on {board_device}: {e}"
+        )
+        return None
+
+
+def _derive_chip_tier_spec(base: dict, device_type: str, device_ids: str) -> dict:
+    """One P150/P300 variant of `base` (a real whole-board spec dict): same
+    model/image/engine, with only the device identity and worker split
+    overridden. VLLMForge on P300 already uses this exact DEVICE_IDS_2 pattern
+    upstream (tt-media-server/config/constants.py) -- this just derives the
+    equivalent spec for a model that has no native P150/P300 entry."""
+    spec = copy.deepcopy(base)
+    spec["device_type"] = device_type
+    spec["device_model_spec"]["device"] = device_type
+    spec["model_id"] = spec["model_id"].rsplit("_", 1)[0] + "_" + device_type.lower()
+    vllm_overrides = json.dumps(
+        {
+            "model": spec["hf_model_repo"],
+            "max_model_length": 2048,
+            "max_num_batched_tokens": 16384,
+            "min_context_length": 32,
+            "max_num_seqs": 8,
+        }
+    )
+    for env in (spec["device_model_spec"]["env_vars"], spec["env_vars"]):
+        env["MESH_DEVICE"] = device_type
+        env["DEVICE_IDS"] = device_ids
+        env["IS_GALAXY"] = "false"
+        env["VLLM"] = vllm_overrides
+    return spec
+
+
+def apply_chip_tier_overrides(models: list) -> list:
+    """Regenerate the P150/P300 runtime_model_specs/*.json for each model in
+    STUDIO_CHIP_TIER_MODELS from its real, current upstream board spec, and
+    point device_configurations + runtime_model_spec_overrides at them.
+    Returns the list of model_names touched.
+
+    Idempotent, and safe to re-run even offline: each tier's file is
+    regenerated from the live artifact every run (so it can never drift from
+    the real spec), but a model whose upstream spec can't be fetched this run
+    keeps whatever file already exists on disk instead of losing the override.
+    """
+    RUNTIME_MODEL_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+    by_name = {m["model_name"]: m for m in models}
+    touched = []
+    for model_name, board_device in STUDIO_CHIP_TIER_MODELS.items():
+        model = by_name.get(model_name)
+        if not model:
+            continue
+        base = _load_upstream_model_spec(model["hf_model_id"], board_device)
+        devices = list(model.get("device_configurations") or [])
+        specs = dict(model.get("runtime_model_spec_overrides") or {})
+        for device_type, device_ids in STUDIO_CHIP_TIERS.items():
+            spec_path = RUNTIME_MODEL_SPECS_DIR / f"{model_name.lower()}-{device_type.lower()}.json"
+            if base is not None:
+                derived = _derive_chip_tier_spec(base, device_type, device_ids)
+                with open(spec_path, "w") as f:
+                    json.dump(derived, f, indent=2)
+                    f.write("\n")
+            elif not spec_path.exists():
+                continue  # No fresh base and no existing file -- can't offer this tier.
+            if device_type not in devices:
+                devices.append(device_type)
+            specs[device_type] = str(spec_path.relative_to(_REPO_ROOT.resolve()))
+        devices.sort()
+        model["device_configurations"] = devices
+        model["runtime_model_spec_overrides"] = specs
+        touched.append(model_name)
+    return touched
 
 
 def apply_device_availability(models: list) -> list:
@@ -775,6 +905,12 @@ def main():
     for _m in models:
         if "impl" in _m:
             _m["impl"] = _impl_selector(_m.get("impl"))
+
+    # Add chip-tier device + spec overrides before the availability passes, so
+    # a model's device_configurations already reflects them going in.
+    chip_tiers = apply_chip_tier_overrides(models)
+    if chip_tiers:
+        print(f"Applied chip-tier overrides: {', '.join(sorted(chip_tiers))}")
 
     # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
     # the next resync doesn't silently reintroduce them and the reason travels

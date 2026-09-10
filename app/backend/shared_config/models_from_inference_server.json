@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-10T00:59:10.791227+00:00"
+    "generated_at": "2026-09-10T15:44:22.421575+00:00"
   },
   "total_models": 72,
   "models": [
@@ -1106,7 +1106,11 @@
       "model_name": "bge-m3",
       "model_type": "EMBEDDING",
       "display_model_type": "EMBEDDING",
-      "device_configurations": [],
+      "device_configurations": [
+        "P150",
+        "P300",
+        "P300x2"
+      ],
       "hf_model_id": "BAAI/bge-m3",
       "inference_engine": "forge",
       "impl": null,
@@ -1129,15 +1133,10 @@
         "TT_METAL_INSPECTOR_RPC": "0"
       },
       "param_count": null,
-      "unavailable_devices": {
-        "P300x2": {
-          "reason": "known_broken",
-          "details": "Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
-        }
-      },
-      "available_in_studio": false,
-      "unavailable_reason": "known_broken",
-      "unavailable_details": "No supported device left: P300x2: Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/bge-m3-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/bge-m3-p300.json"
+      }
     },
     {
       "model_name": "DeepSeek-R1-0528",
@@ -1667,6 +1666,8 @@
       "model_type": "EMBEDDING",
       "display_model_type": "EMBEDDING",
       "device_configurations": [
+        "P150",
+        "P300",
         "P300x2"
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-0.6B",
@@ -1690,7 +1691,11 @@
         "DEFAULT_THROTTLE_LEVEL": "0",
         "TT_METAL_INSPECTOR_RPC": "0"
       },
-      "param_count": 0
+      "param_count": 0,
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p300.json"
+      }
     },
     {
       "model_name": "Qwen3-Embedding-4B",
@@ -1700,6 +1705,8 @@
         "GALAXY",
         "N150",
         "N300",
+        "P150",
+        "P300",
         "P300x2",
         "T3K"
       ],
@@ -1719,7 +1726,11 @@
         "MAX_BATCH_SIZE": "1",
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
-      "param_count": 4
+      "param_count": 4,
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p300.json"
+      }
     },
     {
       "model_name": "Qwen3-Embedding-8B",

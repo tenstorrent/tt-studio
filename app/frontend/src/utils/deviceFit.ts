@@ -8,7 +8,14 @@
 // To support a new model or change which device configurations a model allows,
 // edit getModelPlacement() below — nothing else in the frontend needs to change.
 
-import { isFluxModel, isLlama31_8BModel, isP300x2Board } from "./p300x2Placement";
+import {
+  isBgeM3Model,
+  isFluxModel,
+  isLlama31_8BModel,
+  isP300x2Board,
+  isQwen3Embedding06BModel,
+  isQwen3Embedding4BModel,
+} from "./p300x2Placement";
 import type { ChipStatusSlot } from "../types/chipStatus";
 
 export type DeviceSlotLike = Pick<ChipStatusSlot, "slot_id" | "status" | "model_name">;
@@ -100,6 +107,11 @@ export interface ModelPlacement {
   // True when a single-device model deploys board-wide by default (Wormhole mesh
   // boards); auto mode previews and uses the whole board, advanced can pin a slot.
   defaultsFullBoard?: boolean;
+  // Optional 2-device card-pair tier alongside allowsSingle/allowsFullBoard, e.g.
+  // Qwen3-Embedding-0.6B/bge-m3 on P300x2 (1/2/4 chips all valid, 1 by default).
+  // Unlike cardGroups (which means pairs are the ONLY multi-device option), this
+  // is a middle tier a model can offer in addition to a true single-device mode.
+  pairGroups?: number[][];
 }
 
 // SINGLE SOURCE OF TRUTH for per-model device configurations.
@@ -112,6 +124,25 @@ export function getModelPlacement(
   // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board.
   if (isP300x2Board(boardType) && isLlama31_8BModel(modelName)) {
     return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] };
+  }
+  // Qwen3-Embedding-0.6B, Qwen3-Embedding-4B, and bge-m3 have P150/P300 chip-tier
+  // override specs (see runtime_model_spec_overrides in shared_config/model_config.py)
+  // AND a real, already-working whole-board P300x2 mesh spec -- unlike Llama's
+  // card-pair-only choice or FLUX's mesh-only fallback, these models offer all of
+  // 1/2/4 devices (each roughly N x throughput via independent data-parallel
+  // workers) and default to the cheapest, single chip.
+  if (
+    isP300x2Board(boardType) &&
+    (isQwen3Embedding06BModel(modelName) ||
+      isQwen3Embedding4BModel(modelName) ||
+      isBgeM3Model(modelName))
+  ) {
+    return {
+      allowsSingle: true,
+      allowsFullBoard: true,
+      cardGroups: [],
+      pairGroups: [[0, 1], [2, 3]],
+    };
   }
   // Multi-chip models always take the full board.
   if (isMultiChipModel(chipsRequired)) {

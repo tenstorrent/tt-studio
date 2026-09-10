@@ -2093,6 +2093,13 @@ class RunRequest(BaseModel):
     device_id: Optional[str] = None
     override_tt_config: Optional[str] = None
     vllm_override_args: Optional[str] = None
+    # Hand-authored ModelSpec JSON path for a (model, device) pair the artifact
+    # doesn't declare a spec for -- taken as-is by run.py, bypassing its normal
+    # spec resolution/matching entirely (see run.py's own resolve_runtime()).
+    # Set by TT-Studio for catalog entries with a runtime_model_spec_overrides
+    # entry (shared_config/model_config.py); mutually exclusive with
+    # --custom-weights (enforced by run.py itself).
+    runtime_model_spec_json: Optional[str] = None
     # Optional secrets - can be passed through API if not set in environment
     jwt_secret: Optional[str] = None
     hf_token: Optional[str] = None
@@ -2623,6 +2630,8 @@ async def run_inference(request: RunRequest):
             base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
             base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+        if request.runtime_model_spec_json:
+            base_argv.extend(["--runtime-model-spec-json", request.runtime_model_spec_json])
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
 

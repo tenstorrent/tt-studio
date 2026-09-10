@@ -465,11 +465,22 @@ def deploys_whole_board(impl, board_type=None):
     return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, force_full_board=False):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
     For all other model types, uses TT Inference Server API.
+
+    force_full_board: opt-in whole-board mesh deploy for a model whose default is
+    single-chip via a runtime_model_spec_overrides entry (see
+    shared_config.model_config.ModelImpl and
+    sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS), but which
+    also has a genuine, already-working whole-board spec upstream (e.g.
+    Qwen3-Embedding-0.6B/4B and bge-m3 on P300x2, at 4x throughput). Set by
+    docker_control.views.DeployView from the request's force_full_board flag,
+    gated to models it actually applies to. Bypasses the single-chip override
+    entirely: device resolves to the board mesh name, so runtime_model_spec_json
+    is never set below and normal (already-working) spec resolution runs instead.
     """
     # Face recognition bypasses TT Inference Server — deploy via docker-control-service
     if impl.model_type == ModelTypes.FACE_RECOGNITION:
@@ -485,11 +496,30 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # ("t3k"). We use chips_required + board_type to pick the right name.
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
-        chips_required = infer_chips_required(impl.device_configurations)
-        device = infer_inference_server_device(impl, board_type)
+        if force_full_board:
+            chips_required = 4
+            device = map_board_type_to_device_name(board_type)
+        else:
+            chips_required = infer_chips_required(impl.device_configurations)
+            device = infer_inference_server_device(impl, board_type)
+            # Card-pair promotion: a model with a P300 (2-chip) override spec that's
+            # asked for an explicit 2-slot device_id forming one physical P300 card
+            # ((0,1) or (2,3)) runs as that one card, not two independent p150 chips.
+            # Gated on the override existing so this never touches ordinary
+            # single-chip models -- see STUDIO_CHIP_TIER_MODELS.
+            requested_ids = [x.strip() for x in str(device_id).split(",") if x.strip() != ""]
+            if (
+                device == "p150"
+                and board_type == "P300x2"
+                and len(requested_ids) == 2
+                and sorted(int(x) for x in requested_ids) in ([0, 1], [2, 3])
+                and "p300" in {k.lower() for k in (impl.runtime_model_spec_overrides or {})}
+            ):
+                device = "p300"
+                chips_required = 2
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
-            f"(board={board_type}, chips_required={chips_required})"
+            f"(board={board_type}, chips_required={chips_required}, force_full_board={force_full_board})"
         )
 
         BASE_SERVICE_PORT = 7000
@@ -523,12 +553,29 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if device in _SINGLE_CHIP_DEVICE_NAMES:
             payload["device_id"] = str(device_id)
 
-        # The inference server merges override_tt_config over the spec's, key by key.
-        trace_region_size = trace_region_override(impl.model_name, device)
-        if trace_region_size:
-            payload["override_tt_config"] = json.dumps(
-                {"trace_region_size": trace_region_size}
+        # A model with no upstream ModelConfigs entry for this device (e.g. it only
+        # ships a multi-chip mesh spec, but genuinely runs on one chip -- see
+        # sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS) needs a
+        # hand-authored spec file: run.py's own spec resolution hard-rejects an
+        # undeclared (model, device) pair before any override flag ever runs, and
+        # --runtime-model-spec-json is the documented bypass -- it's used as-is, so
+        # override_tt_config below would be silently ignored and is skipped.
+        spec_overrides = {
+            k.lower(): v for k, v in (impl.runtime_model_spec_overrides or {}).items()
+        }
+        spec_path = spec_overrides.get(device)
+        if spec_path:
+            payload["runtime_model_spec_json"] = str(
+                Path(backend_config.host_tt_studio_root) / spec_path
             )
+            logger.info(f"Using hand-authored runtime model spec for {impl.model_name} on {device}: {spec_path}")
+        else:
+            # The inference server merges override_tt_config over the spec's, key by key.
+            trace_region_size = trace_region_override(impl.model_name, device)
+            if trace_region_size:
+                payload["override_tt_config"] = json.dumps(
+                    {"trace_region_size": trace_region_size}
+                )
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:

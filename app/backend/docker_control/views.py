@@ -159,6 +159,29 @@ def _is_llama31_8b_model(model_name: str) -> bool:
     token = (model_name or "").lower().replace("_", "").replace(" ", "")
     return "llama-3.1-8b" in token or "llama3.18b" in token
 
+def _is_qwen3_embedding_06b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-0.6b" in token or "qwen3embedding0.6b" in token
+
+def _is_qwen3_embedding_4b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-4b" in token or "qwen3embedding4b" in token
+
+def _is_bge_m3_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "bge-m3" in token or "bgem3" in token
+
+def _has_chip_tier_overrides(model_name: str) -> bool:
+    """True for models with a hand-authored P150/P300 override (see
+    shared_config.sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS)
+    alongside a genuine whole-board P300x2 spec -- these can opt into 4x
+    throughput via force_full_board, unlike single-chip-only models."""
+    return (
+        _is_qwen3_embedding_06b_model(model_name)
+        or _is_qwen3_embedding_4b_model(model_name)
+        or _is_bge_m3_model(model_name)
+    )
+
 def _lookup_deployment_device_ids(container_id):
     """Return the list of device slot ids associated with a deployment, or []."""
     try:
@@ -429,7 +452,20 @@ class DeployView(APIView):
                 and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
-            if force_full_board_requested and not should_force_full_board_llama:
+            # Qwen3-Embedding-0.6B and bge-m3 have chip-tier overrides (see
+            # shared_config.model_config.ModelImpl.runtime_model_spec_overrides) that
+            # make chips_required=1 their default, but both also have a genuine,
+            # already-working whole-board P300x2 mesh spec for 4x throughput. Opt-in
+            # only -- the default stays single-chip.
+            should_force_full_board_embedding = (
+                impl.model_type != ModelTypes.CHAT
+                and force_full_board_requested
+                and board_type == "P300x2"
+                and _has_chip_tier_overrides(impl.model_name)
+            )
+            if force_full_board_requested and not (
+                should_force_full_board_llama or should_force_full_board_embedding
+            ):
                 logger.info(
                     "Ignoring force_full_board for model=%s board=%s",
                     impl.model_name,
@@ -520,7 +556,7 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if should_force_full_board_llama or should_force_full_board_embedding or use_whole_board_deploy or mesh_whole_board:
                     # Whole-board deploy (forced QB2 Llama, a single-chip model on a
                     # Wormhole mesh board, or a media model like FLUX with no single-chip
                     # spec) takes over the entire board — reserve all slots.
@@ -580,7 +616,7 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if should_force_full_board_llama or should_force_full_board_embedding or use_whole_board_deploy or mesh_whole_board:
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -614,7 +650,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+            if should_force_full_board_llama or should_force_full_board_embedding or use_whole_board_deploy or mesh_whole_board:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -950,7 +986,7 @@ class DeployView(APIView):
                             logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
 
                     def deploy_fn(_pull_id=pull_id, _host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             # Free the slot: the deploy never started.
@@ -983,7 +1019,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id

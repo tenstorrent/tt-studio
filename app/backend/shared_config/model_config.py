@@ -104,6 +104,15 @@ class ModelImpl:
     # Only honoured for requires_dev_catalog models (see
     # docker_control.views._resolve_artifact_ref).
     inference_artifact_ref: Optional[Dict[str, str]] = None
+    # Hand-derived tt-inference-server ModelSpec JSON to pass as
+    # --runtime-model-spec-json when deploying on the given device, for a
+    # (model, device) pair the source artifact never declares -- e.g. a model
+    # that only ships a multi-chip mesh spec but genuinely runs on one chip or
+    # one card. Keyed by the tt-studio device name (e.g. "P150"); paths are
+    # relative to TT_STUDIO_ROOT. See sync_models_from_inference_server's
+    # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
+    # files and populate this, and docker_utils.run_container, which consumes it.
+    runtime_model_spec_overrides: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -394,6 +403,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             param_count=entry.get("param_count"),
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
+            runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
         )
         impls.append(impl)
     return impls
