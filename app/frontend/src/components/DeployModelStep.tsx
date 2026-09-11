@@ -469,13 +469,17 @@ export function DeployModelStep({
         )}
 
         <AnimatedDeployButton
+          data-tour="deploy-button"
           initialText={<span>{deployButtonText}</span>}
           changeText={<span>Deploying Model...</span>}
           onDeploy={onDeploy}
           disabled={isDeployDisabled}
           onDeployStarted={onDeployStarted}
         />
-        <div className="mt-6 flex flex-col items-center justify-center space-y-2">
+        <div
+          data-tour="deploy-summary-info"
+          className="mt-6 flex flex-col items-center justify-center space-y-2"
+        >
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />

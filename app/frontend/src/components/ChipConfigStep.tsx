@@ -122,6 +122,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         {/* Single / card-pick card */}
         <button
           type="button"
+          data-tour="hardware-mode-single"
           disabled={singleDisabled}
           onClick={() => !singleDisabled && setSelectedMode("single")}
           className={`
@@ -159,6 +160,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         {/* All Devices card */}
         <button
           type="button"
+          data-tour="hardware-mode-multi"
           disabled={multiDisabled}
           onClick={() => !multiDisabled && setSelectedMode("multi")}
           className={`
@@ -199,7 +201,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
       {/* Slot picker — shown when the single/card mode is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
-        <div>
+        <div data-tour="chip-slot-picker">
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
             Select Device(s)
           </h3>

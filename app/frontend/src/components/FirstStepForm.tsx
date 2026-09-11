@@ -371,7 +371,7 @@ export function FirstStepForm({
                 disabled={isLoading}
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger data-tour="model-select-dropdown">
                     <SelectValue
                       placeholder={
                         isLoading ? "Loading models..." : "Select a model"
@@ -466,7 +466,10 @@ export function FirstStepForm({
 
               {/* Summary info */}
               {filteredModels.length > 0 && !isLoading && (
-                <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
+                <div
+                  data-tour="board-info-box"
+                  className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200"
+                >
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
                       {chipMode === "single" && displayBoard !== currentBoard
