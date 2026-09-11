@@ -12,6 +12,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 from board_control.services import SystemResourceService
@@ -26,6 +27,7 @@ from shared_config.model_type_config import ModelTypes
 from docker_control.artifact_resolution import (
     resolve_artifact_ref,
     resolve_override_docker_image,
+    training_image_override,
 )
 from docker_control.docker_control_client import (
     get_docker_client,
@@ -41,6 +43,33 @@ logger.info(f"importing {__name__}")
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
+
+# Shared host-volume subdirectory (under the TT-Studio persistent volume) that
+# training deploys bind-mount via --host-volume. 
+TRAINING_HOST_VOLUME_SUBDIR = "training_volume"
+
+
+def get_training_host_volume() -> str:
+    """
+    Host path passed to run.py as --host-volume for training deploys.
+    """
+    internal_dir = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            # Dir is created root-owned, but the host user (run.py) and container
+            # (uid 1000) also write here. Sticky world-writable 01777 lets both
+            # write while blocking cross-user deletes.
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create training host-volume dir %s: %s", internal_dir, e
+            )
+    return os.path.join(
+        backend_config.host_peristent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -322,6 +351,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
+                    model_id=impl.model_id,
                     device=f"device_{device_id}",
                     device_id=deployment_device_ids[0],
                     device_ids=deployment_device_ids,
@@ -425,10 +455,13 @@ def media_image_override(model_name, device):
     return image
 
 
-def infer_inference_server_device(impl, board_type=None):
+def infer_inference_server_device(impl, board_type=None, device_ids=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
-    disagree on which model_spec (and therefore which image) the deploy uses."""
+    disagree on which model_spec (and therefore which image) the deploy uses.
+
+    `device_ids` (list or comma string) picks the P300x2 training variant: a card
+    pair (p300) vs. the whole board (p300x2, all four chips)."""
     from shared_config.model_config import infer_chips_required
     if board_type is None:
         board_type = detect_board_type()
@@ -445,7 +478,12 @@ def infer_inference_server_device(impl, board_type=None):
             device = board_device
     else:
         device = board_device
-    device = equivalent_mesh_device(impl, device)
+        device = equivalent_mesh_device(impl, device)
+    # Training on P300x2 runs on one 2-chip card (p300), or the whole board
+    # (p300x2) when all four chips are requested. Mirrors the chat card-pair path.
+    if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
+        slots = {int(x) for x in re.findall(r"\d+", str(device_ids or ""))}
+        device = "p300x2" if len(slots) > 2 else "p300"
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
@@ -465,7 +503,26 @@ def deploys_whole_board(impl, board_type=None):
     return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+
+CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
+
+
+def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
+    """Namespace a merged-checkpoint directory into a --custom-weights label.
+
+    Uniqueness already comes from the directory name (a merge-job uuid4), so this
+    only prefixes the namespace and clamps the charset. The clamp matters because
+    the inference server turns the label's basename into model_name and builds the
+    docker volume name from it — and merged_models/ entries can be renamed by hand.
+    """
+    if not host_weights_dir:
+        return None
+    dir_name = os.path.basename(os.path.normpath(str(host_weights_dir)))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", dir_name)
+    return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, host_weights_dir=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -486,7 +543,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
         chips_required = infer_chips_required(impl.device_configurations)
-        device = infer_inference_server_device(impl, board_type)
+        device = infer_inference_server_device(impl, board_type, device_ids=device_id)
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
             f"(board={board_type}, chips_required={chips_required})"
@@ -542,9 +599,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Some per-device model_specs resolve to an image too old to serve our
-        # requests, so force the known-good one.
-        pinned_image = media_image_override(impl.model_name, device)
+        # Training rows deploy whatever image the catalog pins (the server's own
+        # training spec names a locally built tag). Otherwise, some per-device
+        # model_specs resolve to an image too old to serve our requests, so force
+        # the known-good one.
+        pinned_image = training_image_override(impl) or media_image_override(
+            impl.model_name, device
+        )
         if pinned_image:
             payload["override_docker_image"] = pinned_image
 
@@ -573,8 +634,8 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 )
 
         # Disambiguate the target model_spec. Some models share a name+device across
-        # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
-        # spec on P150); without an impl the server defaults to the wrong engine and
+        # engines (e.g. Llama-3.1-8B-Instruct has both a vLLM chat spec and a forge
+        # training spec); without an impl the server defaults to the wrong engine and
         # pulls the wrong image. `impl.inference_impl` comes from the catalog.
         # The server declares `impl: Optional[str]` and matches it against
         # spec.impl.impl_name, so send the hyphenated impl_name. _impl_selector()
@@ -583,6 +644,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
         if inference_impl:
             payload["impl"] = inference_impl
+
+        if impl.model_type == ModelTypes.TRAINING:
+            payload["host_volume"] = get_training_host_volume()
+        elif host_weights_dir:
+            payload["host_weights_dir"] = host_weights_dir
+            payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
 
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
@@ -643,6 +710,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         container_id=job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=primary_device_id,
                         device_ids=deployment_device_ids,
@@ -1075,14 +1143,24 @@ def _enrich_container_with_model_impl(con, con_id):
                 )
 
                 if deployment:
-                    for _k, v in model_implmentations.items():
-                        if v.model_name == deployment.model_name:
-                            model_impl = v
-                            logger.info(
-                                f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                            )
-                            deployment_found = True
-                            break
+                    # model_name alone is ambiguous when two model specs share a name
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B-Instruct")
+                    stored_model_id = getattr(deployment, "model_id", "") or ""
+                    if stored_model_id and stored_model_id in model_implmentations:
+                        model_impl = model_implmentations[stored_model_id]
+                        logger.info(
+                            f"Matched TT Inference Server container to model_impl by id: {model_impl.model_id}"
+                        )
+                        deployment_found = True
+                    if not model_impl:
+                        for _k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(
+                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
+                                )
+                                deployment_found = True
+                                break
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -1112,8 +1190,8 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
                         break
 
-                # Fallback: longest-substring match — prevents "Llama-3.1-8B"
-                # winning over "Llama-3.1-8B-Instruct" on the same name.
+                # Fallback: longest-substring match. Can't tell two same-named
+                # specs apart (CHAT vs TRAINING); model_id above is authoritative.
                 if not model_impl:
                     best_match_len = 0
                     for _k, v in model_implmentations.items():
@@ -1447,14 +1525,18 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl_id, _impl = next(
-                (
-                    (k, v)
-                    for k, v in model_implmentations.items()
-                    if v.model_name == dep.model_name
-                ),
-                (None, None),
-            )
+            _stored_model_id = getattr(dep, "model_id", "") or ""
+            if _stored_model_id and _stored_model_id in model_implmentations:
+                _impl_id, _impl = _stored_model_id, model_implmentations[_stored_model_id]
+            else:
+                _impl_id, _impl = next(
+                    (
+                        (k, v)
+                        for k, v in model_implmentations.items()
+                        if v.model_name == dep.model_name
+                    ),
+                    (None, None),
+                )
             _grace = (
                 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
                 if _impl and getattr(_impl, "inference_engine", None) == "media"

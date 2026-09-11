@@ -16,6 +16,7 @@ module scope from both.
 
 
 from shared_config.logger_config import get_logger
+from shared_config.model_type_config import ModelTypes
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,29 @@ def resolve_override_docker_image(impl) -> str | None:
     if impl.requires_dev_catalog:
         return impl.image_version
     return None
+
+
+def training_image_override(impl) -> str | None:
+    """The catalog `docker_image` of a TRAINING row, sent as override_docker_image.
+
+    The inference server's training specs pin `tt-media-server-forge:local` -- an
+    image built on the box from tt-media-server/Dockerfile.forge, not a published
+    tag -- so the artifact cannot say which build a given machine runs. The
+    tt-studio catalog row is the source of truth instead: point it at the
+    published studio_images tag (the default) or at the local tag to test a fresh
+    build, and both the pre-pull and the deploy follow it. Returns None for every
+    other model type and for a training row with no image, so the server's own
+    spec stays in charge there.
+    """
+    if getattr(impl, "model_type", None) != ModelTypes.TRAINING:
+        return None
+    image = (getattr(impl, "image_version", "") or "").strip()
+    # An empty catalog docker_image loads as ":latest" (model_config splits on the
+    # colon); that is not an image, so leave the choice to the inference server.
+    if not image or image.startswith(":"):
+        return None
+    logger.info(f"{impl.model_name}: training deploy uses catalog image {image}")
+    return image
 
 
 def resolve_artifact_ref(impl, device, board_type) -> str | None:

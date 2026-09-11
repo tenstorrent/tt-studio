@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from docker_control.chip_allocator import ChipSlotAllocator
 from docker_control.deployment_sync import _classify_failure
-from docker_control.artifact_resolution import _LLAMA_V014_IMAGE
+from docker_control.artifact_resolution import _LLAMA_V014_IMAGE, training_image_override
 from docker_control.docker_utils import (
     claims_whole_board,
     deploys_whole_board,
@@ -234,6 +234,30 @@ class _FakeModelImpl:
     requires_dev_catalog: bool = False
     image_version: str = "ghcr.io/example/img:v1"
     inference_artifact_ref: Optional[dict] = None
+    model_type: ModelTypes = ModelTypes.CHAT
+
+
+class TrainingImageOverrideTests(SimpleTestCase):
+    """A TRAINING row's catalog docker_image is the deploy image, verbatim."""
+
+    _STUDIO_TAG = "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260908"
+
+    def test_training_row_forwards_its_catalog_image(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=self._STUDIO_TAG)
+        self.assertEqual(training_image_override(impl), self._STUDIO_TAG)
+
+    def test_local_build_tag_is_forwarded_verbatim(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version="tt-media-server-forge:local")
+        self.assertEqual(training_image_override(impl), "tt-media-server-forge:local")
+
+    def test_non_training_row_gets_no_override(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.CHAT, image_version=self._STUDIO_TAG)
+        self.assertIsNone(training_image_override(impl))
+
+    def test_training_row_without_image_leaves_server_spec_in_charge(self):
+        # model_config renders an empty catalog docker_image as ":latest".
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=":latest")
+        self.assertIsNone(training_image_override(impl))
 
 
 class OverrideDockerImageResolutionTests(SimpleTestCase):

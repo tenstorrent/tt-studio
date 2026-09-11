@@ -14,6 +14,7 @@ from sync_models_from_inference_server import (
     STUDIO_UNAVAILABLE_MODELS,
     STUDIO_UNAVAILABLE_REASONS,
     UNSUPPORTED_STUDIO_MODEL_TYPES,
+    _entry_identity,
     _impl_selector,
     _iter_v1_entries,
     apply_device_availability,
@@ -139,23 +140,25 @@ class TestHandOwnedFieldPreservation:
 
 
 class TestHandOwnedCollision:
-    """A hand-added entry whose model_name collides with a synced one must win.
+    """A hand-added row may share a model_name with a synced one as long as they
+    use different engines -- the axis the inference server disambiguates on.
 
-    The source JSON carries a vLLM CHAT "Llama-3.1-8B"; the catalog carries a
-    hand-added forge TRAINING row of the same name. Name-keyed merging replaced
-    the training row on every resync, taking fine-tuning offline (training_control
-    filters on model_type == TRAINING) while leaving the entry-name set unchanged,
-    so a count or name-set check could not see it."""
+    The source JSON carries a vLLM CHAT "Llama-3.1-8B-Instruct"; the catalog also
+    carries a hand-added forge TRAINING row of the same name. Keyed on
+    (model_name, inference_engine) they are distinct identities, so both must
+    survive a resync: drop the forge row and fine-tuning goes offline
+    (training_control filters on model_type == TRAINING); drop the vLLM row and
+    chat goes offline."""
 
     def _rows(self):
         synced = [{
-            "model_name": "Llama-3.1-8B",
+            "model_name": "Llama-3.1-8B-Instruct",
             "model_type": "CHAT",
             "inference_engine": "vLLM",
-            "service_route": "/v1/completions",
+            "service_route": "/v1/chat/completions",
         }]
-        existing = {"Llama-3.1-8B": {
-            "model_name": "Llama-3.1-8B",
+        existing = {"Llama-3.1-8B-Instruct": {
+            "model_name": "Llama-3.1-8B-Instruct",
             "hand_owned": True,
             "model_type": "TRAINING",
             "inference_engine": "forge",
@@ -164,32 +167,62 @@ class TestHandOwnedCollision:
         }}
         return synced, existing
 
-    def test_hand_owned_row_survives_name_collision(self):
+    def test_training_and_chat_rows_coexist(self):
         synced, existing = self._rows()
         merged, _, retained = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["model_type"] == "TRAINING"
-        assert by_name["Llama-3.1-8B"]["inference_engine"] == "forge"
-        assert by_name["Llama-3.1-8B"]["service_route"] == "/v1/jobs"
-        assert by_name["Llama-3.1-8B"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
-        assert retained == ["Llama-3.1-8B"]
+        by_engine = {m["inference_engine"]: m for m in merged}
+        # The synced vLLM chat row is untouched...
+        assert by_engine["vLLM"]["model_type"] == "CHAT"
+        # ...and the hand-added forge training row survives intact.
+        assert by_engine["forge"]["model_type"] == "TRAINING"
+        assert by_engine["forge"]["service_route"] == "/v1/jobs"
+        assert by_engine["forge"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
+        # The forge row is absent from source, so it comes back via retention.
+        assert retained == ["Llama-3.1-8B-Instruct"]
 
-    def test_collision_does_not_duplicate_the_name(self):
-        """model_name must stay unique: get_model_impl and the deployment->impl
-        mapping both take the first name match, so a duplicate is ambiguous."""
+    def test_identity_stays_unique(self):
+        """Rows may share a model_name but never a (model_name, engine) identity:
+        model_id and the deployment->impl mapping rely on that pair being unique."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        assert [m["model_name"] for m in merged].count("Llama-3.1-8B") == 1
+        idents = [_entry_identity(m) for m in merged]
+        assert len(idents) == len(set(idents))
+        assert ("Llama-3.1-8B-Instruct", "vllm") in idents
+        assert ("Llama-3.1-8B-Instruct", "forge") in idents
 
     def test_marker_itself_survives_the_resync(self):
         """hand_owned is in HAND_OWNED_KEYS, so the protection is not one-shot."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["hand_owned"] is True
+        forge = next(m for m in merged if m["inference_engine"] == "forge")
+        assert forge["hand_owned"] is True
+
+    def test_true_duplicate_same_engine_is_displaced(self):
+        """When a hand-owned row shares BOTH name and engine with a synced row (a
+        genuine duplicate), the hand-owned row still wins outright and the synced
+        one is dropped, so the identity stays unique."""
+        synced = [{
+            "model_name": "Qwen3.5-9B",
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/completions",
+        }]
+        existing = {"Qwen3.5-9B": {
+            "model_name": "Qwen3.5-9B",
+            "hand_owned": True,
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/chat/completions",
+        }}
+
+        merged, _, retained = merge_hand_owned(synced, existing)
+
+        assert len(merged) == 1
+        assert merged[0]["service_route"] == "/v1/chat/completions"
+        assert retained == ["Qwen3.5-9B"]
 
     def test_unmarked_existing_row_still_yields_to_source(self):
         """Only marked rows win. An ordinary catalog entry is still rebuilt from
@@ -379,18 +412,21 @@ class TestLoadExistingCatalog:
         path.write_text("{not valid json")
         assert load_existing_catalog(path) == {}
 
-    def test_indexes_models_by_name(self, tmp_path):
+    def test_indexes_models_by_identity(self, tmp_path):
+        """Indexed by (model_name, engine) so two rows sharing a name but on
+        different engines both survive; a name-keyed index would drop one."""
         path = tmp_path / "catalog.json"
         path.write_text(json.dumps({"models": [
-            {"model_name": "A", "requires_dev_catalog": True},
-            {"model_name": "B"},
+            {"model_name": "A", "inference_engine": "vLLM", "requires_dev_catalog": True},
+            {"model_name": "A", "inference_engine": "forge"},
+            {"model_name": "B", "inference_engine": "vLLM"},
             {"no_name": "skipped"},
         ]}))
 
         loaded = load_existing_catalog(path)
 
-        assert set(loaded) == {"A", "B"}
-        assert loaded["A"]["requires_dev_catalog"] is True
+        assert set(loaded) == {("A", "vllm"), ("A", "forge"), ("B", "vllm")}
+        assert loaded[("A", "vllm")]["requires_dev_catalog"] is True
 
 
 class TestStudioAvailability:
