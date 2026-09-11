@@ -1002,6 +1002,15 @@ class DeployView(APIView):
                             pass
                         return job_id, None
 
+                    # Only Whisper/SpeechT5 (TTS, SPEECH_RECOGNITION) forcefully download their weights
+                    # inside the media server container -- the pull is the whole deploy for
+                    # those. Every other non-CHAT model on this path (embedding, image/
+                    # video generation, ...) fetches its weights from HF after the pull,
+                    # same as CHAT models.
+                    expects_weights = impl.model_type not in (
+                        ModelTypes.TTS,
+                        ModelTypes.SPEECH_RECOGNITION,
+                    )
                     start_prepull_and_deploy(
                         pull_id=pull_id,
                         image_name=image_name,
@@ -1009,9 +1018,7 @@ class DeployView(APIView):
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
                         heartbeat_fn=_refresh_media_placeholder,
-                        # The media server image ships Whisper/SpeechT5 weights, so
-                        # nothing downloads after the pull — the pull is the deploy.
-                        expects_weights=False,
+                        expects_weights=expects_weights,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
