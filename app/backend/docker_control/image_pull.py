@@ -6,7 +6,7 @@
 Pre-pull-then-deploy orchestration.
 
 When a model is deployed and its Docker image is not yet cached, we pull the image
-ourselves (host-side, via docker-control-service's streamed pull) so the UI can show
+ourselves (via docker-control-service's streamed pull) so the UI can show
 real byte-level progress, then trigger the actual deployment. Because every component
 shares one host Docker daemon, the inference server's own `docker pull` during /run is
 then a cache hit (instant).

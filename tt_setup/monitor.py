@@ -5,8 +5,8 @@
 
 A k9s-style dashboard: a services pane (live health dot, port, uptime) on the
 left, a live log pane on the right, and footer key bindings. Container services
-stream `docker compose logs -f`; host services (inference, docker-control) tail
-their log files. Health is probed concurrently every couple of seconds.
+stream `docker compose logs -f`; the host inference service tails its log file.
+Health is probed concurrently every couple of seconds.
 
 On a non-TTY (piped/redirected), `run_status()` falls back to a one-shot text
 table instead of launching the full-screen app.
@@ -15,8 +15,8 @@ table instead of launching the full-screen app.
 import os
 import sys
 
-from tt_setup.constants import DOCKER_CONTROL_LOG_FILE, MODEL_RUN_LOG_FILE, TT_STUDIO_ROOT
-from tt_setup.services import snapshot_health
+from tt_setup.constants import DOCKER_CONTROL_CONTAINER_NAME, MODEL_RUN_LOG_FILE, TT_STUDIO_ROOT
+from tt_setup.services import snapshot_container_health, snapshot_health
 
 # Compose service names are stable across dev/prod/tt-hardware overrides, so we
 # drive logs/restart by service name and never juggle container-name suffixes.
@@ -26,7 +26,7 @@ SERVICES = [
     {"name": "Agent",          "compose": "tt_studio_agent",    "port": 8080, "health": "http://localhost:8080/",                 "kind": "container"},
     {"name": "ChromaDB",       "compose": "tt_studio_chroma",   "port": 8111, "health": "http://localhost:8111/api/v1/heartbeat", "kind": "container"},
     {"name": "Inference",      "compose": None,                 "port": 8001, "health": "http://localhost:8001/",                 "kind": "host", "log": MODEL_RUN_LOG_FILE},
-    {"name": "Docker Control", "compose": None,                 "port": 8002, "health": "http://localhost:8002/api/v1/health",    "kind": "host", "log": DOCKER_CONTROL_LOG_FILE},
+    {"name": "Docker Control", "compose": "tt_studio_docker_control", "port": "internal:8002", "health": None, "health_container": DOCKER_CONTROL_CONTAINER_NAME, "kind": "container"},
 ]
 
 _APP_DIR = os.path.join(TT_STUDIO_ROOT, "app")
@@ -61,13 +61,20 @@ def _print_text_snapshot():
     from rich.table import Table
 
     from tt_setup.console import console
-    health = snapshot_health([s["health"] for s in SERVICES])
+    http_health = snapshot_health([s["health"] for s in SERVICES if s.get("health")])
+    container_health = snapshot_container_health(
+        [s["health_container"] for s in SERVICES if s.get("health_container")]
+    )
     table = Table(title="TT Studio · status", title_style="bold accent")
     table.add_column("Service")
     table.add_column("Port")
     table.add_column("Health")
     for s in SERVICES:
-        up = health.get(s["health"], False)
+        up = (
+            http_health.get(s["health"], False)
+            if s.get("health")
+            else container_health.get(s.get("health_container"), False)
+        )
         glyph = "[success]● up[/success]" if up else "[error]✗ down[/error]"
         table.add_row(s["name"], str(s["port"]), glyph)
     console.print(table)

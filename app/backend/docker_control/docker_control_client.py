@@ -59,10 +59,10 @@ class DockerControlClient:
         Initialize the Docker Control Service client
 
         Args:
-            url: Base URL of the docker-control-service (default: env DOCKER_CONTROL_SERVICE_URL)
+            url: Base URL of the internal docker-control-service (default: env DOCKER_CONTROL_SERVICE_URL)
             jwt_secret: JWT secret for authentication (default: env DOCKER_CONTROL_JWT_SECRET)
         """
-        self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL")
+        self.url = (url or os.getenv("DOCKER_CONTROL_SERVICE_URL") or "").rstrip("/")
         self.jwt_secret = jwt_secret or os.getenv("DOCKER_CONTROL_JWT_SECRET")
 
         if not self.url:
@@ -414,7 +414,7 @@ class DockerControlClient:
     # Host log files
 
     def get_service_log(self, tail: int = 500) -> Dict:
-        """Fetch docker-control-service log content from the host"""
+        """Fetch docker-control-service log content through its internal API."""
         response = self._request("GET", "/api/v1/logs/service", params={"tail": tail})
         return response.json()
 
