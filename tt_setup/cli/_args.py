@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import List, Optional
 from tt_setup.console import console, ensure_region_reset, set_no_clear, set_verbose
 from tt_setup.constants import *
-from tt_setup.constants import _PURGE_MODEL_PICKER
+from tt_setup.constants import _PURGE_MODEL_PICKER, _RC_BUMP_PICKER
 from tt_setup.cli._run import _run
 
 
@@ -226,6 +226,10 @@ def _entry(
     # ── Developer Tools ──────────────────────────────────────────────────────
     add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend).", rich_help_panel="Developer Tools"),
     check_headers: bool = typer.Option(False, "--check-headers", help="Check for missing SPDX license headers.", rich_help_panel="Developer Tools"),
+    # ── Release (maintainers) ────────────────────────────────────────────────
+    make_rc_branch: str = typer.Option(None, "--make-rc-branch", metavar="[major|minor|patch|vX.Y.Z]", help="Cut a new rc-vX.Y.Z branch from main and open the RC PR (bare flag asks which part to bump).", rich_help_panel="Release (maintainers)"),
+    update_rc_branch: bool = typer.Option(False, "--update-rc-branch", help="Cherry-pick new dev commits into the current rc-vX.Y.Z branch (interactive picker).", rich_help_panel="Release (maintainers)"),
+    merge_rc_branch: bool = typer.Option(False, "--merge-rc-branch", help="Merge the approved RC PR into main, push the vX.Y.Z tag (publishes GHCR images), and create the GitHub release.", rich_help_panel="Release (maintainers)"),
     # ── Troubleshooting & Info ───────────────────────────────────────────────
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help.", rich_help_panel="Troubleshooting & Info"),
     report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and open a pre-filled GitHub issue.", rich_help_panel="Troubleshooting & Info"),
@@ -271,6 +275,8 @@ def _entry(
         report_bug=report_bug, install_shortcut=install_shortcut,
         accept_terms=accept_terms, switch=switch, uninstall=uninstall,
         purge_model=list(purge_model or []), stop_model=list(stop_model or []),
+        make_rc_branch=make_rc_branch, update_rc_branch=update_rc_branch,
+        merge_rc_branch=merge_rc_branch,
     )
     _run(args)
 
@@ -304,24 +310,32 @@ def run_model_command(
     _run(args)
 
 
-# Flags that take an optional model name: bare means "open the picker".
-_OPTIONAL_MODEL_FLAGS = ("--purge-model", "--stop-model")
+# Flags that accept an optional value: bare usage injects a sentinel meaning
+# "open the interactive picker/prompt" (the vendored click in this typer
+# version can't express an option with an optional value).
+_BARE_FLAG_SENTINELS = {
+    "--purge-model": _PURGE_MODEL_PICKER,
+    "--stop-model": _PURGE_MODEL_PICKER,
+    "--make-rc-branch": _RC_BUMP_PICKER,
+}
 
 
-def _normalize_purge_model_argv(argv):
-    """Support a bare `--purge-model` / `--stop-model` (no model name) meaning
-    "open the picker". The vendored click in this typer version can't express an
-    option with an optional value, so inject the picker sentinel whenever such a
-    flag is the last token or is followed by another flag. `--flag NAME` and
-    `--flag=NAME` pass through untouched."""
+def _normalize_argv(argv):
+    """Inject a flag's sentinel whenever it is the last token or is followed by
+    another flag. `--flag VALUE` and `--flag=VALUE` pass through untouched."""
     out = []
     for i, token in enumerate(argv):
         out.append(token)
-        if token in _OPTIONAL_MODEL_FLAGS and (
+        if token in _BARE_FLAG_SENTINELS and (
             i + 1 == len(argv) or argv[i + 1].startswith("-")
         ):
-            out.append(_PURGE_MODEL_PICKER)
+            out.append(_BARE_FLAG_SENTINELS[token])
     return out
+
+
+def _normalize_purge_model_argv(argv):
+    """Back-compat alias for _normalize_argv (kept for existing callers/tests)."""
+    return _normalize_argv(argv)
 
 
 def main():
@@ -331,7 +345,7 @@ def main():
     import atexit
     atexit.register(ensure_region_reset)
     try:
-        app(_normalize_purge_model_argv(sys.argv[1:]))
+        app(_normalize_argv(sys.argv[1:]))
     finally:
         ensure_region_reset()
 
