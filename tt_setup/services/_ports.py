@@ -170,6 +170,104 @@ def kill_process_on_port(port, no_sudo=False, quiet=False, attempts=3):
     return check_port_available(port)
 
 
+def _get_parent_pid(pid, use_sudo=False):
+    """Return parent PID of `pid`, or None."""
+    cmd = ["ps", "-o", "ppid=", "-p", str(pid)]
+    if use_sudo:
+        cmd.insert(0, "sudo")
+    result = run_command(cmd, check=False, capture_output=True)
+    if result.returncode == 0 and result.stdout.strip():
+        val = result.stdout.strip()
+        return int(val) if val.isdigit() else None
+    return None
+
+
+def _get_process_command(pid, use_sudo=False):
+    """Return command string of `pid`, or empty string."""
+    cmd = ["ps", "-o", "command=", "-p", str(pid)]
+    if use_sudo:
+        cmd.insert(0, "sudo")
+    result = run_command(cmd, check=False, capture_output=True)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return ""
+
+
+def _is_supervisor_wrapper(cmd_str):
+    """True if `cmd_str` matches a TT Studio bash supervisor wrapper."""
+    cmd = cmd_str.lower()
+    is_bash = "bash" in cmd or "sh" in cmd
+    has_script = ".sh" in cmd
+    targets_service = (
+        "docker-control-service" in cmd
+        or "inference-api" in cmd
+        or "docker_control" in cmd
+    )
+    if is_bash and (targets_service or (has_script and ("tmp" in cmd or "/var/folders" in cmd))):
+        return True
+    return False
+
+
+def _find_supervisor_wrapper_pid(pid, use_sudo=False, max_depth=5):
+    """Walk up the process tree to find any ancestor bash supervisor wrapper.
+
+    Handles dev mode where `uvicorn --reload` spawns intermediate reloader
+    processes between the bash wrapper and the socket listener.
+    """
+    curr = pid
+    for _ in range(max_depth):
+        ppid = _get_parent_pid(curr, use_sudo=use_sudo)
+        if not ppid or ppid <= 1:
+            break
+        cmd = _get_process_command(ppid, use_sudo=use_sudo)
+        if _is_supervisor_wrapper(cmd):
+            return ppid
+        curr = ppid
+    return None
+
+
+def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False):
+    """Send SIGTERM (-15), wait 2s, escalate to SIGKILL (-9) if still alive."""
+    try:
+        pid_int = int(pid)
+    except (ValueError, TypeError):
+        return True
+
+    if pid_int <= 1:
+        return True
+
+    pid_str = str(pid_int)
+    kill_cmd_graceful = ["kill", "-15", pid_str]
+    kill_cmd_force = ["kill", "-9", pid_str]
+    check_alive_cmd = ["kill", "-0", pid_str]
+
+    if use_sudo:
+        kill_cmd_graceful.insert(0, "sudo")
+        kill_cmd_force.insert(0, "sudo")
+        check_alive_cmd.insert(0, "sudo")
+
+    try:
+        run_command(kill_cmd_graceful, check=False, capture_output=True)
+        time.sleep(2)
+
+        result = run_command(check_alive_cmd, check=False, capture_output=True)
+        if result.returncode == 0:
+            if not quiet:
+                print(f"⚠️  Process {pid_str} still alive. Forcing termination...")
+            run_command(kill_cmd_force, check=True, capture_output=True)
+            if not quiet:
+                print(f"{C_GREEN}✅ Process {pid_str} terminated by force.{C_RESET}")
+        else:
+            if not quiet:
+                print(f"{C_GREEN}✅ Process {pid_str} terminated gracefully.{C_RESET}")
+    except Exception as e:
+        if not quiet:
+            print(f"{C_RED}⛔ Failed to kill process {pid_str}: {e}{C_RESET}")
+            print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
+        return False
+    return True
+
+
 def _kill_port_holder(port, no_sudo=False, quiet=False):
     """One pass: find whoever holds `port` and stop it (see kill_process_on_port)."""
     pid = None
@@ -213,6 +311,9 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
             print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
         return True
 
+    if str(pid).isdigit():
+        pid = int(pid)
+
     # NEVER kill Docker itself. On macOS/Docker Desktop the port is held by
     # com.docker.backend; killing it crashes the engine and the build then fails
     # with "Cannot connect to the Docker daemon". A TT Studio container holding
@@ -220,42 +321,19 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     if _process_is_docker(pid):
         return "docker"
 
+    use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
+
+    # Stop supervisor wrapper first if one exists in the process tree.
+    # Killing only the socket holder leaves the supervisor loop alive to respawn
+    # its child 3 seconds later and recapture the port (Issue #1307).
+    supervisor_pid = _find_supervisor_wrapper_pid(pid, use_sudo=use_sudo_for_kill)
+    if supervisor_pid and supervisor_pid != pid:
+        if not quiet:
+            print(f"🛑 Found parent supervisor wrapper with PID {supervisor_pid}. Stopping it first...")
+        if not _terminate_pid_graceful_then_force(supervisor_pid, use_sudo=use_sudo_for_kill, quiet=quiet):
+            return False
+
     if not quiet:
         print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
 
-    # Build kill commands
-    kill_cmd_graceful = ["kill", "-15", pid]
-    kill_cmd_force = ["kill", "-9", pid]
-    check_alive_cmd = ["kill", "-0", pid]
-    # os.geteuid() is POSIX-only; guard it so a non-POSIX host doesn't crash with
-    # AttributeError. (The kill/-15/-9 commands here are POSIX anyway.)
-    use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
-
-    if use_sudo_for_kill:
-        kill_cmd_graceful.insert(0, "sudo")
-        kill_cmd_force.insert(0, "sudo")
-        check_alive_cmd.insert(0, "sudo")
-
-    try:
-        run_command(kill_cmd_graceful, check=False, capture_output=True)
-        time.sleep(2)
-
-        result = run_command(check_alive_cmd, check=False, capture_output=True)
-        if result.returncode == 0:
-            if not quiet:
-                print(f"⚠️  Process {pid} still alive. Forcing termination...")
-            run_command(kill_cmd_force, check=True, capture_output=True)
-            if not quiet:
-                print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
-        else:
-            if not quiet:
-                print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
-
-    except Exception as e:
-        if not quiet:
-            print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
-            print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
-        return False
-
-    return True
-
+    return _terminate_pid_graceful_then_force(pid, use_sudo=use_sudo_for_kill, quiet=quiet)
