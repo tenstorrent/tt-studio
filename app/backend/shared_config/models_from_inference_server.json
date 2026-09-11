@@ -1419,23 +1419,25 @@
       "model_type": "TRAINING",
       "display_model_type": "TRAINING",
       "device_configurations": [
-        "P150"
+        "P150",
+        "P300",
+        "P300X2"
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "inference_engine": "forge",
-      "impl": "training-lora",
+      "impl": "trainer-training-lora",
       "supported_modalities": [
         "text"
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260908",
+      "docker_image": "ghcr.io/mcupactt/tt-media-server-forge:ttstudio-test",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
-        "MODEL_RUNNER": "training-lora",
+        "MODEL_RUNNER": "trainer-training-lora",
         "TRAINING_MODEL": "Llama-3.1-8B-Instruct",
         "ENABLE_JOB_PERSISTENCE": true,
         "JOB_CLEANUP_INTERVAL_SECONDS": 10000,
