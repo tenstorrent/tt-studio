@@ -13,6 +13,8 @@ interface AnimatedDeployButtonProps {
   disabled?: boolean;
   // Called once the backend accepts the deploy and returns a job id
   onDeployStarted: (jobId: string) => void;
+  dataTour?: string;
+  "data-tour"?: string;
 }
 
 export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
@@ -21,6 +23,8 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   onDeploy,
   disabled = false,
   onDeployStarted,
+  dataTour,
+  "data-tour": dataTourAttr,
 }) => {
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
@@ -93,6 +97,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     <div className="w-full flex flex-col items-center">
       <AnimatePresence mode="wait">
         <motion.button
+          data-tour={dataTourAttr || dataTour}
           className={`${buttonClass} ${!disabled &&
             "cursor-pointer transition-transform duration-700 ease-in-out hover:scale-105"
             }`}

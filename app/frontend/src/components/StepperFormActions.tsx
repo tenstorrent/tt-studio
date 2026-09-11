@@ -68,6 +68,7 @@ export function StepperFormActions<
           </Button>
           {activeStep < steps.length - 1 && (
             <Button
+              data-tour="hardware-config-continue"
               size="sm"
               type={form ? "submit" : "button"}
               disabled={isSubmitting || disableNext}
