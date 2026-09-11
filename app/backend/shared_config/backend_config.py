@@ -35,7 +35,6 @@ class BackendConfig:
     jwt_secret: str
     tt_inference_api_url: str
     github_username: str = os.environ.get("GITHUB_USERNAME", "")
-    github_pat: str = os.environ.get("GITHUB_PAT", "")
 
 
 # environment variables are ideally terminated on import to fail-fast and provide obvious
@@ -57,7 +56,6 @@ backend_config = BackendConfig(
         os.getenv("TT_INFERENCE_API_URL")
     ),
     github_username=os.environ.get("GITHUB_USERNAME", ""),
-    github_pat=os.environ.get("GITHUB_PAT", ""),
 )
 
 # make backend volume if not existing

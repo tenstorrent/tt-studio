@@ -232,7 +232,7 @@ def _entry(
     merge_rc_branch: bool = typer.Option(False, "--merge-rc-branch", help="Merge the approved RC PR into main, push the vX.Y.Z tag (publishes GHCR images), and create the GitHub release.", rich_help_panel="Release (maintainers)"),
     # ── Troubleshooting & Info ───────────────────────────────────────────────
     help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help.", rich_help_panel="Troubleshooting & Info"),
-    report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and open a pre-filled GitHub issue.", rich_help_panel="Troubleshooting & Info"),
+    report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and draft a support email (support@tenstorrent.com).", rich_help_panel="Troubleshooting & Info"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary.", rich_help_panel="Troubleshooting & Info"),
     no_clear: bool = typer.Option(False, "--no-clear", help="Keep the terminal's contents and show full startup detail (don't clear the screen).", rich_help_panel="Troubleshooting & Info"),
     # ── Deprecated / hidden ──────────────────────────────────────────────────

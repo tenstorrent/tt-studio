@@ -44,9 +44,10 @@ tooling for diagnosing a failed or unhealthy run.
 
 - **Bundle everything for a bug report.** `--report-bug` collects the host-side
   logs plus a non-secret system snapshot into
-  `logs/tt-studio-logs-ttbr-*.zip` and opens a pre-filled GitHub issue. The
-  bundle never includes your `.env`. If `python run.py` itself errors, it offers
-  this same flow from the "Next steps" panel.
+  `logs/tt-studio-logs-ttbr-*.zip` and drafts a pre-filled support email to
+  support@tenstorrent.com — attach the ZIP and send. The bundle never includes
+  your `.env`. If `python run.py` itself errors, it offers this same flow from
+  the "Next steps" panel.
 
   ```bash
   python run.py --report-bug

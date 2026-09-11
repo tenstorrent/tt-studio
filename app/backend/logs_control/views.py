@@ -4,19 +4,20 @@
 import io
 import json
 import os
+import platform
 import re
 import glob
 import subprocess
-import urllib.request
-import urllib.error
 import zipfile
 import docker
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
 from shared_config.logger_config import get_logger
+
+from . import support_email
 
 # Setting up logger
 logger = get_logger(__name__)
@@ -698,70 +699,55 @@ class BugReportDownloadView(APIView):
             return JsonResponse({"error": str(e)}, status=500)
 
 
-class GitHubIssueView(APIView):
+class SupportEmailView(APIView):
     """
-    Creates a GitHub issue via the API using GITHUB_PAT from backend config.
-    Falls back to returning a pre-built browser URL if no PAT is configured.
+    Builds a pre-filled support-email draft (support@tenstorrent.com) for a bug
+    report. The support inbox creates a Jira ticket from the email; a weekly
+    rotation picks the Assignee stamped into the body (see support_email.py).
 
-    POST body (JSON): { title, body, labels? }
-    Success response: { issue_url, issue_number, created_via_api }  (201)
-                   or { url, created_via_api: false }               (200, fallback)
+    POST body (JSON): { ref, title?, description?, steps?, expected?, actual? }
+    Response 200: { to, subject, body, mailto_url, assignee: {name, email}, ref }
     """
-
-    GITHUB_API_URL = "https://api.github.com/repos/tenstorrent/tt-studio/issues"
-    GITHUB_NEW_ISSUE_URL = "https://github.com/tenstorrent/tt-studio/issues/new"
 
     def post(self, request, *args, **kwargs):
-        from shared_config.backend_config import backend_config
-
         try:
             body_data = json.loads(request.body)
         except Exception:
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
-        title = body_data.get("title", "").strip()
-        body = body_data.get("body", "").strip()
-        labels = body_data.get("labels", ["bug", "auto-generated"])
+        ref = (body_data.get("ref") or "").strip()
+        if not ref:
+            return JsonResponse({"error": "ref is required"}, status=400)
 
-        if not title:
-            return JsonResponse({"error": "title is required"}, status=400)
-
-        pat = backend_config.github_pat
-        if not pat:
-            # Graceful fallback: return a pre-built browser URL (body truncated for URL safety)
-            params = urlencode({"title": title, "body": body[:8000], "labels": ",".join(labels)})
-            url = f"{self.GITHUB_NEW_ISSUE_URL}?{params}"
-            return JsonResponse({"url": url, "created_via_api": False}, status=200)
-
-        # Create the issue via GitHub REST API
-        payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
-        req = urllib.request.Request(
-            self.GITHUB_API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {pat}",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json",
-                "User-Agent": "tt-studio-bug-reporter",
-            },
-            method="POST",
-        )
+        form = {
+            key: (body_data.get(key) or "").strip()
+            for key in ("title", "description", "steps", "expected", "actual")
+        }
+        # Cheap environment summary only — the heavy diagnostics already live in
+        # the bundle ZIP the user downloads alongside this draft.
+        environment_lines = [
+            f"OS: {platform.platform()}",
+            f"Python: {platform.python_version()}",
+            "Reported from: TT-Studio web UI",
+        ]
 
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                return JsonResponse(
-                    {
-                        "issue_url": result.get("html_url"),
-                        "issue_number": result.get("number"),
-                        "created_via_api": True,
-                    },
-                    status=201,
-                )
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8", errors="replace")
-            logger.error(f"GitHub API error {e.code}: {error_body}")
-            return JsonResponse({"error": f"GitHub API error: {e.code}", "detail": error_body}, status=502)
+            assignee = support_email.assignee_for_date()
+            subject = support_email.build_subject(form["title"], ref)
+            body = support_email.build_body(
+                ref, assignee, form, environment_lines, f"tt-studio-logs-{ref}.zip"
+            )
+            return JsonResponse(
+                {
+                    "to": support_email.SUPPORT_EMAIL,
+                    "subject": subject,
+                    "body": body,
+                    "mailto_url": support_email.build_mailto_url(subject, body),
+                    "assignee": {"name": assignee[0], "email": assignee[1]},
+                    "ref": ref,
+                },
+                status=200,
+            )
         except Exception as e:
-            logger.error(f"Failed to create GitHub issue: {e}")
+            logger.error(f"Failed to build support email draft: {e}")
             return JsonResponse({"error": str(e)}, status=500)
