@@ -34,10 +34,19 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import {
   fetchTrainingCatalogFull,
+  fetchCustomDatasets,
   createTrainingJob,
+  DEFAULT_DATASET_LOADER,
   type CatalogEntry,
+  type CustomDataset,
 } from "../../api/trainingApi";
 import { customToast } from "../CustomToaster";
+
+// Custom datasets share the dataset dropdown with the built-in catalog entries.
+// Prefixing their select value lets us distinguish them at submit time so we can
+// fall back to the default recipe (the training server can't consume arbitrary
+// datasets yet) while still showing the user's selection.
+const CUSTOM_DATASET_PREFIX = "custom:";
 
 // Default hyperparameters mirror the reference gemma_sst2 single-chip recipe:
 // https://github.com/tenstorrent/tt-blacksmith/blob/main/blacksmith/experiments/torch/gemma/single_chip/gemma_sst2.yaml
@@ -72,6 +81,7 @@ export function TrainingConfigDialog({
 }: TrainingConfigDialogProps) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [datasets, setDatasets] = useState<CatalogEntry[]>([]);
+  const [customDatasets, setCustomDatasets] = useState<CustomDataset[]>([]);
   const [device, setDevice] = useState<string | undefined>(undefined);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -98,12 +108,18 @@ export function TrainingConfigDialog({
   useEffect(() => {
     if (!open) return;
     setCatalogLoading(true);
-    fetchTrainingCatalogFull()
-      .then(({ models, datasets: datasetEntries, device: catalogDevice }) => {
-        setCatalog(models);
-        setDatasets(datasetEntries);
-        setDevice(catalogDevice);
-      })
+    Promise.all([fetchTrainingCatalogFull(), fetchCustomDatasets()])
+      .then(
+        ([
+          { models, datasets: datasetEntries, device: catalogDevice },
+          custom,
+        ]) => {
+          setCatalog(models);
+          setDatasets(datasetEntries);
+          setCustomDatasets(custom);
+          setDevice(catalogDevice);
+        },
+      )
       .catch(() => customToast.error("Failed to load training catalog"))
       .finally(() => setCatalogLoading(false));
   }, [open]);
@@ -124,10 +140,15 @@ export function TrainingConfigDialog({
     }
     setSubmitting(true);
     try {
+      // Custom datasets can't be consumed by the training server yet, so a job
+      // that selects one still trains on the default (sst2) recipe. The UI keeps
+      // showing the user's custom selection regardless.
+      const isCustom = values.dataset.startsWith(CUSTOM_DATASET_PREFIX);
+      const datasetLoader = isCustom ? DEFAULT_DATASET_LOADER : values.dataset;
       // Map form fields to the container's `TrainingRequest` schema. Field names
       // must match exactly (e.g. `dataset_loader`, `lora_r`) or they are dropped.
       await createTrainingJob({
-        dataset_loader: values.dataset,
+        dataset_loader: datasetLoader,
         device_type: device,
         learning_rate: values.learning_rate,
         batch_size: values.batch_size,
@@ -245,6 +266,21 @@ export function TrainingConfigDialog({
                             {entry.name}
                           </SelectItem>
                         ))}
+                        {customDatasets.length > 0 && (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+                              Custom Datasets
+                            </div>
+                            {customDatasets.map((ds) => (
+                              <SelectItem
+                                key={`${CUSTOM_DATASET_PREFIX}${ds.id}`}
+                                value={`${CUSTOM_DATASET_PREFIX}${ds.id}`}
+                              >
+                                {ds.name}
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />

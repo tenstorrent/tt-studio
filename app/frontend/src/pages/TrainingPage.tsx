@@ -26,6 +26,7 @@ import {
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
+import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
 
 const STATUS_STYLES: Record<
   string,
@@ -291,6 +292,19 @@ export default function TrainingPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Dataset management */}
+        <div className="pt-2 text-left">
+          <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Dataset Management
+          </h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Upload and preview datasets for fine-tuning
+          </p>
+        </div>
+
+        {/* Custom dataset upload & preview */}
+        <DatasetPreviewPanel />
       </div>
 
       {/* New Job Dialog */}
