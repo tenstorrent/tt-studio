@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-02T22:33:48.536105+00:00"
+    "generated_at": "2026-09-10T17:35:17.098729+00:00"
   },
   "total_models": 72,
   "models": [
@@ -33,7 +33,7 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry above: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
         },
         "P300x2": {
           "reason": "known_broken",
@@ -138,7 +138,7 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry above: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
         },
         "P300x2": {
           "reason": "known_broken",
@@ -174,7 +174,7 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry above: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
         },
         "P300x2": {
           "reason": "known_broken",
@@ -584,7 +584,7 @@
       },
       "available_in_studio": false,
       "unavailable_reason": "known_broken",
-      "unavailable_details": "Not deployable today, and not because of any board: the forge image runs as USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is created root-owned, so warmup dies in ~0.3s with a PermissionError on cache_root/huggingface before the device is ever opened. Verified on P300x2; the same volume ownership applies on every board. Drop this entry once the forge image ships a uid-1000-owned cache_root."
+      "unavailable_details": "Not deployable today, and not because of any board: the forge image runs as USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is created root-owned, so warmup dies in ~0.3s with a PermissionError on cache_root/huggingface before the device is ever opened. Verified on P300x2; the same volume ownership applies on every board. Drop this entry once the forge image ships a uid-1000-owned cache_root. Will be available in tt-inference-server release after merging raahem/yolox_nano_qb2 into main, or once the object detection UI is fixed in TT-Studio and the model is added to the catalog with a custom branch."
     },
     {
       "model_name": "Llama-3.2-11B-Vision",
@@ -1090,7 +1090,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "3072",
@@ -1100,23 +1100,24 @@
         "MAX_BATCH_SIZE": "8",
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
-      "param_count": null,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": null
     },
     {
       "model_name": "bge-m3",
       "model_type": "EMBEDDING",
       "display_model_type": "EMBEDDING",
-      "device_configurations": [],
+      "device_configurations": [
+        "P150",
+        "P300",
+        "P300x2"
+      ],
       "hf_model_id": "BAAI/bge-m3",
       "inference_engine": "forge",
       "impl": null,
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "MODEL_RUNNER": "vllmforge_bge_m3",
@@ -1132,14 +1133,9 @@
         "TT_METAL_INSPECTOR_RPC": "0"
       },
       "param_count": null,
-      "available_in_studio": false,
-      "unavailable_reason": "known_broken",
-      "unavailable_details": "No supported device left: P300x2: Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there.",
-      "unavailable_devices": {
-        "P300x2": {
-          "reason": "known_broken",
-          "details": "Non-functional deploy (#869). Separate from the embedding modality gap: this model does not run. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
-        }
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/bge-m3-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/bge-m3-p300.json"
       }
     },
     {
@@ -1670,6 +1666,8 @@
       "model_type": "EMBEDDING",
       "display_model_type": "EMBEDDING",
       "device_configurations": [
+        "P150",
+        "P300",
         "P300x2"
       ],
       "hf_model_id": "Qwen/Qwen3-Embedding-0.6B",
@@ -1678,7 +1676,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "MODEL_RUNNER": "vllmforge_qwen_embedding_0_6b",
@@ -1694,9 +1692,10 @@
         "TT_METAL_INSPECTOR_RPC": "0"
       },
       "param_count": 0,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p300.json"
+      }
     },
     {
       "model_name": "Qwen3-Embedding-4B",
@@ -1706,6 +1705,8 @@
         "GALAXY",
         "N150",
         "N300",
+        "P150",
+        "P300",
         "P300x2",
         "T3K"
       ],
@@ -1715,7 +1716,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.20.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
-      "service_route": "/v1/chat/completions",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
@@ -1726,9 +1727,10 @@
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
       "param_count": 4,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p300.json"
+      }
     },
     {
       "model_name": "Qwen3-Embedding-8B",
@@ -1746,7 +1748,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
@@ -1754,10 +1756,7 @@
         "VLLM__MIN_CONTEXT_LENGTH": "32",
         "VLLM__MAX_NUM_SEQS": "1"
       },
-      "param_count": 8,
-      "available_in_studio": false,
-      "unavailable_reason": "unsupported_in_studio",
-      "unavailable_details": "No embeddings UI in TT-Studio yet; the model itself deploys and serves correctly on the inference server."
+      "param_count": 8
     },
     {
       "model_name": "Qwen3.5-9B",

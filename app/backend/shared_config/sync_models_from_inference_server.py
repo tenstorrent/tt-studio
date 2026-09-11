@@ -11,8 +11,10 @@ Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
 """
 
+import copy
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,8 +66,9 @@ HAND_OWNED_MARKER = "hand_owned"
 # had to be re-done by hand after each resync (see the string of "remove
 # non-working models" commits), and the catalog lost the record of *why* a model
 # was pulled. Instead the rows stay and carry a mark, applied on every sync from
-# the two tables below, so hiding a model is a one-line, reproducible edit here
-# rather than a JSON deletion someone has to remember to repeat.
+# model_overrides.toml's [[unavailable]] entries, so hiding a model is a
+# one-line, reproducible edit there rather than a JSON deletion someone has to
+# remember to repeat.
 #
 # Two distinct reasons, deliberately not conflated:
 #   known_broken          - the model does not deploy or does not run correctly
@@ -75,192 +78,138 @@ HAND_OWNED_MARKER = "hand_owned"
 #                           TT-Studio has no UI for its modality yet. Nothing is
 #                           broken; there is just nowhere to put it.
 #
-# These marks are script-owned, NOT hand-owned: the tables here are the single
-# source of truth, so deleting an entry below genuinely unhides the model on the
-# next sync instead of a stale flag in the JSON resurrecting it.
-STUDIO_UNAVAILABLE_REASONS = ("known_broken", "unsupported_in_studio")
-
-# Model types TT-Studio can deploy but has no interface for. These work.
-UNSUPPORTED_STUDIO_MODEL_TYPES = {
-    "EMBEDDING": (
-        "No embeddings UI in TT-Studio yet; the model itself deploys and serves "
-        "correctly on the inference server."
-    ),
-}
-
-# Model-wide overrides, keyed by catalog model_name, for breakage that is
-# genuinely independent of hardware (a bad chat template, a missing weight file,
-# a broken container image). Each value is (reason, details).
-#
-# Prefer STUDIO_UNAVAILABLE_DEVICES: most failures we see are one board's, and a
-# model-wide mark hides the model from boards nobody ever tested. Only add here
-# when the failure is known not to be board-specific -- and say how you know.
-_FORGE_CACHE_ROOT_BUG = (
-    "Not deployable today, and not because of any board: the forge image runs as "
-    "USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is "
-    "created root-owned, so warmup dies in ~0.3s with a PermissionError on "
-    "cache_root/huggingface before the device is ever opened. Verified on P300x2; "
-    "the same volume ownership applies on every board. Drop this entry once the "
-    "forge image ships a uid-1000-owned cache_root."
+# These marks are script-owned, NOT hand-owned: model_overrides.toml is the
+# single source of truth, so deleting an entry there genuinely unhides the
+# model on the next sync instead of a stale flag in the JSON resurrecting it.
+from model_overrides import (
+    CHIP_TIER_MODELS as STUDIO_CHIP_TIER_MODELS,
+    CHIP_TIERS as STUDIO_CHIP_TIERS,
+    STUDIO_UNAVAILABLE_DEVICES,
+    STUDIO_UNAVAILABLE_MODELS,
+    STUDIO_UNAVAILABLE_REASONS,
 )
 
-STUDIO_UNAVAILABLE_MODELS: dict[str, tuple[str, str]] = {
-    # yolox_nano will be available in tt-inference-server release after merging of raahem/yolox_nano_qb2 into main branch
-    # or once the object detection UI is fixed in TT-Studio and the model is added to the catalog with a custom branch.
-    "yolox_nano": ("known_broken", _FORGE_CACHE_ROOT_BUG),
-    "Falcon3-7B-Instruct": ("known_broken", _FORGE_CACHE_ROOT_BUG),
-}
+# Model types TT-Studio can deploy but has no interface for. These work.
+# For models of types that TT-Studio can deploy but has no interface for, add them here.
+UNSUPPORTED_STUDIO_MODEL_TYPES: dict[str, str] = {}
 
 
 
-# Per-device unavailability: the artifact advertises a model on several boards
-# and it genuinely works on some of them. Marking the whole model hidden would
-# throw away the boards where it runs, so these are keyed by
-# model_name -> {device_configuration: (reason, details)}. Device keys use the
-# tt-studio spelling that lands in "device_configurations" (e.g. "P300x2").
-#
-# The sync REMOVES the named device from device_configurations and records why in
-# an "unavailable_devices" object. That is deliberate: every consumer already
-# gates on device_configurations (docker_control's compatibility check, the
+# Per-device unavailability and the chip-tier table (STUDIO_UNAVAILABLE_DEVICES,
+# STUDIO_CHIP_TIER_MODELS, STUDIO_CHIP_TIERS) are imported above from
+# model_overrides -- see model_overrides.toml's [[unavailable]] and
+# [[chip_tier]] entries for the data and model_overrides.py's docstring for the
+# exact shapes. Sync REMOVES a marked device from device_configurations and
+# records why in an "unavailable_devices" object: every consumer already gates
+# on device_configurations (docker_control's compatibility check, the
 # frontend's is_compatible badge, infer_chips_required), so per-device hiding
-# needs no new logic anywhere -- the model simply stops claiming a board it
-# cannot run on, and the reason stays in the file for whoever asks later.
-#
-# If every device is removed this way, the model falls back to being hidden
-# outright rather than being left with an empty device list.
-STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = {
-    "Z-Image-Turbo": {
-        "P300x2": (
-            "known_broken",
-            (
-                "Wedges Blackhole P300 devices during warmup (eth-core init timeout "
-                "or a hard device hang mid kernel-compile) badly enough that the host "
-                "needs a board reset. Re-enable once the media image ships a "
-                "tt-metal/firmware combo validated on fw 19.7.0."
-            ),
-        ),
-    },
-    "Motif-Image-6B-Preview": {
-        "P300x2": (
-            "known_broken",
-            (
-                "Media container never reaches a healthy state. Verified broken on a "
-                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
-                "boards, so it stays available there."
-            ),
-        ),
-    },
-    "gpt-oss-120b": {
-        "P300x2": (
-            "known_broken",
-            (
-                "vLLM container never reaches a healthy state. Verified broken on a "
-                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
-                "boards, so it stays available there."
-            ),
-        ),
-    },
-    "mochi-1-preview": {
-        "P300x2": (
-            "known_broken",
-            (
-                "Deploy fails with the catalog-pinned image; needs a newer media "
-                "image plus a spec-level env override the artifact does not carry. "
-                "Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on "
-                "this model's other boards, so it stays available there."
-            ),
-        ),
-    },
-    "bge-m3": {
-        "P300x2": (
-            "known_broken",
-            (
-                "Non-functional deploy (#869). Separate from the embedding modality "
-                "gap: this model does not run. Verified broken on a P300x2 (4x p300c "
-                "Blackhole) box. Untested on this model's other boards, so it stays "
-                "available there."
-            ),
-        ),
-    },
-    "DeepSeek-R1-Distill-Llama-70B": {
-        "P150X4": (
-            "known_broken",
-            (
-                "Does not deploy on P150X4 either. Blocked alongside this model's "
-                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
-                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
-                "specs are untested and stay available."
-            ),
-        ),
-        "P300x2": (
-            "known_broken",
-            (
-                "Non-functional deploy (#869). Verified broken on a P300x2 (4x p300c "
-                "Blackhole) box. Untested on this model's other boards, so it stays "
-                "available there."
-            ),
-        ),
-    },
-    "Llama-3.1-70B": {
-        "P150X4": (
-            "known_broken",
-            (
-                "Does not deploy on P150X4 either. Blocked alongside this model's "
-                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
-                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
-                "specs are untested and stay available."
-            ),
-        ),
-        "P300x2": (
-            "known_broken",
-            (
-                "Base (non-instruct) 70B pulled alongside the Instruct variant in "
-                "#904; deploy does not resolve a usable image. Verified broken on a "
-                "P300x2 (4x p300c Blackhole) box. Untested on this model's other "
-                "boards, so it stays available there."
-            ),
-        ),
-    },
-    "Llama-3.1-70B-Instruct": {
-        "P150X4": (
-            "known_broken",
-            (
-                "Does not deploy on P150X4 either. Blocked alongside this model's "
-                "P300x2 entry above: both four-chip Blackhole meshes are known bad "
-                "for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K "
-                "specs are untested and stay available."
-            ),
-        ),
-        "P300x2": (
-            "known_broken",
-            (
-                "Removed from the deploy UI in #904 - deploy needs a docker image "
-                "override the catalog cannot express. Use Llama-3.3-70B-Instruct. "
-                "Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on "
-                "this model's other boards, so it stays available there."
-            ),
-        ),
-    },
-    "Qwen3-8B": {
-        "P300": (
-            "known_broken",
-            (
-                "Removed from the deploy UI in #878 after failing on our Blackhole "
-                "box. Scoped to P300 rather than P300x2 because this model only ever "
-                "claims the single-chip Blackhole device; its Wormhole boards "
-                "(N150/N300/T3K/Galaxy) are untested and stay available."
-            ),
-        ),
-    },
-    "Llama-3.3-70B-Instruct": {
-        "P150X4": (
-            "known_broken",
-            (
-                "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
-            ),
-        ),
-    }
-}
+# needs no new logic anywhere. If every device is removed this way, the model
+# falls back to being hidden outright rather than left with an empty list.
+
+RUNTIME_MODEL_SPECS_DIR = SCRIPT_DIR / "runtime_model_specs"
+
+
+def _load_upstream_model_spec(hf_model_repo: str, board_device: str) -> dict | None:
+    """The real, current upstream ModelSpec for hf_model_repo on board_device,
+    as a plain dict, fetched straight from the tt-inference-server artifact's
+    own workflows.model_spec (the same resolution run.py itself uses).
+
+    Never raises -- returns None if the artifact isn't fetched yet or the pair
+    can't be resolved, so callers can fall back to leaving an already-generated
+    file in place instead of breaking the whole catalog sync.
+    """
+    try:
+        artifact_root = resolve_source_json().parent
+    except FileNotFoundError:
+        return None
+    artifact_root_str = str(artifact_root)
+    if artifact_root_str not in sys.path:
+        sys.path.insert(0, artifact_root_str)
+    os.environ.setdefault(
+        "OVERRIDE_BENCHMARK_TARGETS",
+        str(artifact_root / "reference_config/benchmarking/benchmark_targets/model_performance_reference.json"),
+    )
+    try:
+        import workflows.utils as _wf_utils
+
+        _wf_utils.get_repo_root_path = lambda marker=".git", _root=artifact_root: _root
+        from workflows.model_spec import get_runtime_model_spec
+
+        spec, _impl, _engine = get_runtime_model_spec(hf_model_repo, board_device)
+        return spec.get_serialized_dict()
+    except Exception as e:
+        print(
+            f"chip-tier override: could not load upstream spec for "
+            f"{hf_model_repo} on {board_device}: {e}"
+        )
+        return None
+
+
+def _derive_chip_tier_spec(base: dict, device_type: str, device_ids: str) -> dict:
+    """One P150/P300 variant of `base` (a real whole-board spec dict): same
+    model/image/engine, with only the device identity and worker split
+    overridden. VLLMForge on P300 already uses this exact DEVICE_IDS_2 pattern
+    upstream (tt-media-server/config/constants.py) -- this just derives the
+    equivalent spec for a model that has no native P150/P300 entry."""
+    spec = copy.deepcopy(base)
+    spec["device_type"] = device_type
+    spec["device_model_spec"]["device"] = device_type
+    spec["model_id"] = spec["model_id"].rsplit("_", 1)[0] + "_" + device_type.lower()
+    vllm_overrides = json.dumps(
+        {
+            "model": spec["hf_model_repo"],
+            "max_model_length": 2048,
+            "max_num_batched_tokens": 16384,
+            "min_context_length": 32,
+            "max_num_seqs": 8,
+        }
+    )
+    for env in (spec["device_model_spec"]["env_vars"], spec["env_vars"]):
+        env["MESH_DEVICE"] = device_type
+        env["DEVICE_IDS"] = device_ids
+        env["IS_GALAXY"] = "false"
+        env["VLLM"] = vllm_overrides
+    return spec
+
+
+def apply_chip_tier_overrides(models: list) -> list:
+    """Regenerate the P150/P300 runtime_model_specs/*.json for each model in
+    STUDIO_CHIP_TIER_MODELS from its real, current upstream board spec, and
+    point device_configurations + runtime_model_spec_overrides at them.
+    Returns the list of model_names touched.
+
+    Idempotent, and safe to re-run even offline: each tier's file is
+    regenerated from the live artifact every run (so it can never drift from
+    the real spec), but a model whose upstream spec can't be fetched this run
+    keeps whatever file already exists on disk instead of losing the override.
+    """
+    RUNTIME_MODEL_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+    by_name = {m["model_name"]: m for m in models}
+    touched = []
+    for model_name, board_device in STUDIO_CHIP_TIER_MODELS.items():
+        model = by_name.get(model_name)
+        if not model:
+            continue
+        base = _load_upstream_model_spec(model["hf_model_id"], board_device)
+        devices = list(model.get("device_configurations") or [])
+        specs = dict(model.get("runtime_model_spec_overrides") or {})
+        for device_type, device_ids in STUDIO_CHIP_TIERS[model_name].items():
+            spec_path = RUNTIME_MODEL_SPECS_DIR / f"{model_name.lower()}-{device_type.lower()}.json"
+            if base is not None:
+                derived = _derive_chip_tier_spec(base, device_type, device_ids)
+                with open(spec_path, "w") as f:
+                    json.dump(derived, f, indent=2)
+                    f.write("\n")
+            elif not spec_path.exists():
+                continue  # No fresh base and no existing file -- can't offer this tier.
+            if device_type not in devices:
+                devices.append(device_type)
+            specs[device_type] = str(spec_path.relative_to(_REPO_ROOT.resolve()))
+        devices.sort()
+        model["device_configurations"] = devices
+        model["runtime_model_spec_overrides"] = specs
+        touched.append(model_name)
+    return touched
 
 
 def apply_device_availability(models: list) -> list:
@@ -552,6 +501,12 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         hf_model_id: HuggingFace model ID (for vLLM chat detection)
         raw_model_type: Raw model type from inference server (TEXT_TO_SPEECH, TTS, etc.)
     """
+    # Embedding models register tt-media-server's embedding.router at "/v1" regardless of
+    # which runner backs them (media or forge) -- see tt-media-server/open_ai_api/__init__.py
+    # SERVICE_ROUTER_MAP[EMBEDDING]. Check this before the per-engine branches below, which
+    # would otherwise route forge-backed embedding models (e.g. bge-m3) to /v1/chat/completions.
+    if raw_model_type == "EMBEDDING":
+        return "/v1/embeddings"
     if inference_engine == "vLLM":
         return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
@@ -569,7 +524,7 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
             if "i2v" in hf_model_id.lower():
                 return "/v1/videos/generations/i2v"
             return "/v1/videos/generations"
-        # Other media models (embedding, etc.) use enqueue
+        # Other media models use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         if raw_model_type == "TRAINING":
@@ -773,6 +728,12 @@ def main():
     for _m in models:
         if "impl" in _m:
             _m["impl"] = _impl_selector(_m.get("impl"))
+
+    # Add chip-tier device + spec overrides before the availability passes, so
+    # a model's device_configurations already reflects them going in.
+    chip_tiers = apply_chip_tier_overrides(models)
+    if chip_tiers:
+        print(f"Applied chip-tier overrides: {', '.join(sorted(chip_tiers))}")
 
     # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
     # the next resync doesn't silently reintroduce them and the reason travels

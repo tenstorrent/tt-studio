@@ -137,6 +137,7 @@ from model_control.model_utils import (
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
+    embed_text,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
@@ -1386,6 +1387,38 @@ class TtsInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class EmbeddingInferenceView(APIView):
+    """Text embedding inference: proxies to tt-media-server's OpenAI-compatible /v1/embeddings."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        text = data.get("input") or data.get("text")
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        dimensions = data.get("dimensions")
+
+        try:
+            result = embed_text(deploy, text, dimensions=dimensions)
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"Embedding HTTP error: {http_err}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Could not reach the embedding model: {exc}")
+            return Response(
+                {"error": f"Could not reach the embedding model: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class OpenAIAudioSpeechView(APIView):
     """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
     def post(self, request, *args, **kwargs):
@@ -1742,6 +1775,7 @@ class ModelAPIInfoView(APIView):
             "object_detection": "/object-detection/",
             "speech_recognition": "/speech-recognition/",
             "tts": "/tts/",
+            "embedding": "/embedding/",
         }
         return endpoint_map.get(model_type)
 

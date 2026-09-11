@@ -28,6 +28,7 @@ urlpatterns = [
     path("face-recognition/faces/", views.FaceRecognitionListView.as_view()),
     path("face-recognition/faces/<str:name>/", views.FaceRecognitionDeleteView.as_view()),
     path("tts/", views.TtsInferenceView.as_view()),
+    path("embedding/", views.EmbeddingInferenceView.as_view()),
     path("pipeline/voice/", VoicePipelineView.as_view()),
     path("health/", views.ModelHealthView.as_view()),
     path("inference_cloud/", views.InferenceCloudView.as_view()),

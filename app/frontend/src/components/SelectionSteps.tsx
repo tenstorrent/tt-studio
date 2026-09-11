@@ -205,6 +205,10 @@ export default function StepperDemo() {
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
+  // A model with no card groups but that allows *both* a single device and the
+  // full board (e.g. Qwen3-Embedding-0.6B) also needs an explicit opt-in to go
+  // full-board -- it just doesn't group into pairs the way Llama does.
+  const hasFullBoardOptIn = placement.allowsSingle && placement.allowsFullBoard;
   const allSlotsSelected =
     selectedDeviceIds.length > 0 && selectedDeviceIds.length === (totalSlots ?? 0);
   // In auto mode, the best currently-available placement (accounting for in-flight
@@ -213,17 +217,21 @@ export default function StepperDemo() {
   const autoPlace = advancedActive
     ? null
     : autoPlacement(placement, selectedModelChips, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
-  // The full-board (force_full_board) flow applies only to flexible models.
+  // The full-board (force_full_board) flow applies to flexible (card-pair) models
+  // and to single-vs-full-board opt-in models; both need every slot selected in
+  // advanced mode, or a full-board auto-placement, to actually mean "full board".
   const fullBoardSelected =
-    isFlexible && (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
+    (isFlexible || hasFullBoardOptIn) &&
+    (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
   // Chips the deployment actually occupies (full-board takes every slot).
   const effectiveChips = fullBoardSelected ? 4 : selectedModelChips;
   // Devices shown in the deploy preview; undefined means the backend auto-allocates.
   const previewDeviceIds: number[] | undefined = (() => {
     if (!advancedActive) return autoPlace?.deviceIds;
     const board = fullBoardSlots(totalSlots ?? 4);
-    if (placement.allowsFullBoard && !isFlexible) return board; // true multi-chip
-    if (isFlexible) {
+    // True multi-chip: no single-device option at all, so always the whole board.
+    if (placement.allowsFullBoard && !isFlexible && !placement.allowsSingle) return board;
+    if (isFlexible || hasFullBoardOptIn) {
       return fullBoardSelected ? board : selectedDeviceIds.length ? selectedDeviceIds : undefined;
     }
     return selectedDeviceIds.length ? selectedDeviceIds : undefined;
@@ -270,7 +278,7 @@ export default function StepperDemo() {
       // Find the model by name — exact match first, then a unique substring
       // match, mirroring the CLI's resolve_model_id so both paths behave alike.
       const response = await axios.get("/docker-api/get_containers/");
-      const models: { id: string; name: string }[] = response.data;
+      const models: { id: string; name: string; chips_required?: number }[] = response.data;
       const needle = modelName.toLowerCase();
       let model = models.find((m) => m.name.toLowerCase() === needle);
       if (!model) {
@@ -319,8 +327,18 @@ export default function StepperDemo() {
       } else {
         // Same whole-card hint the manual flow sends for an unpinned deploy. The
         // backend honours it only where it matters (Llama-3.1-8B on P300x2 dies
-        // on a lone chip) and ignores it everywhere else.
-        deployPayload.force_full_board = true;
+        // on a lone chip) and ignores it everywhere else -- except a model that
+        // also allows a single-device default (e.g. Qwen3-Embedding-0.6B), where
+        // sending it unconditionally would override that default. Use the same
+        // placement rules the manual flow uses to decide.
+        const resolvedPlacement = getModelPlacement(
+          model.name,
+          model.chips_required ?? 1,
+          effectiveChipStatus?.board_type
+        );
+        if (!resolvedPlacement.allowsSingle) {
+          deployPayload.force_full_board = true;
+        }
       }
 
       console.log("Auto-deploy payload:", deployPayload);

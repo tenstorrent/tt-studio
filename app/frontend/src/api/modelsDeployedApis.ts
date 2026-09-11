@@ -71,13 +71,12 @@ export const ModelType = {
 };
 
 /**
- * Model types TT Studio has no interaction page for. Embedding models have no UI
- * at all (they are consumed by RAG, not driven directly), and an unidentified
- * container has no known request shape — offering either a Chat page or the
- * chat-shaped API page for them would only lead somewhere that cannot work.
- * Such models still show their status and keep Logs/Delete.
+ * Model types TT Studio has no interaction page for. An unidentified container
+ * has no known request shape — offering a Chat page or the chat-shaped API
+ * page for it would only lead somewhere that cannot work. Such models still
+ * show their status and keep Logs/Delete.
  */
-const MODEL_TYPES_WITHOUT_UI: string[] = [ModelType.Embedding, ModelType.Unknown];
+const MODEL_TYPES_WITHOUT_UI: string[] = [ModelType.Unknown];
 
 export const hasInteractionPage = (frontendModelType: string): boolean =>
   !MODEL_TYPES_WITHOUT_UI.includes(frontendModelType);
@@ -452,7 +451,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.TTS:
       return "/tts";
     case ModelType.Embedding:
-      return "/chat"; // placeholder
+      return "/embedding";
     case ModelType.CNN:
       return "/object-detection"; // CNN reuses object detection UI
     case ModelType.Training:
@@ -507,6 +506,86 @@ export const runTTSInference = async (
     throw new Error(`TTS request failed: HTTP ${response.status}`);
   }
   return response.blob();
+};
+
+// ----- Embedding Inference -----
+export interface EmbeddingResult {
+  embedding: number[];
+  model: string;
+}
+
+export interface DeployedEmbeddingModel {
+  id: string;
+  modelName: string;
+  /** The HF org/repo id, when known -- the stable identity a Chroma collection
+   * locks itself to (see EmbeddingDemo / RagManagement's embedding picker). */
+  hfModelId?: string;
+}
+
+/** Shared shape for every "pick which deployed model to use" dropdown
+ * (EmbeddingDemo, TTSDemo, Chat's model selector, Speech to Text). */
+export type DeployedModelSummary = DeployedEmbeddingModel;
+
+/** Deployed models of the given backend model_type(s), filtered to only ones
+ * that have actually finished warming up. A model still deploying/starting is
+ * a running container that fetchModelHealth (the same live probe the navbar
+ * uses to gate its own nav entries) has not yet reported "healthy" for --
+ * listing it here would let a user pick a model that can't serve a request
+ * yet. Type matching is case-insensitive: backend endpoints don't agree on
+ * casing for model_type ("embedding" vs "EMBEDDING"). */
+export const fetchHealthyModelsByType = async (
+  modelType: string | string[]
+): Promise<DeployedModelSummary[]> => {
+  const wanted = (Array.isArray(modelType) ? modelType : [modelType]).map((t) =>
+    t.toLowerCase()
+  );
+  try {
+    const res = await fetch("/models-api/deployed/");
+    if (!res.ok) return [];
+    const data = await res.json();
+    const candidates = Object.entries(data)
+      .map(([id, info]: [string, any]) => ({
+        id,
+        modelName:
+          info.model_impl?.model_name ||
+          info.model_impl?.hf_model_id ||
+          "Unknown",
+        hfModelId: info.model_impl?.hf_model_id,
+        model_type: String(info.model_impl?.model_type ?? "").toLowerCase(),
+      }))
+      .filter((m) => wanted.includes(m.model_type));
+    const healthResults = await Promise.all(
+      candidates.map((m) => fetchModelHealth(m.id))
+    );
+    return candidates
+      .filter((_, i) => healthResults[i] === "healthy")
+      .map(({ id, modelName, hfModelId }) => ({ id, modelName, hfModelId }));
+  } catch {
+    return [];
+  }
+};
+
+/** Currently deployed, healthy embedding models, for any UI that lets the
+ * user pick one to back a Chroma collection with (EmbeddingDemo's Documents
+ * tab, RAG upload). */
+export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> =>
+  fetchHealthyModelsByType("embedding");
+
+export const runEmbeddingInference = async (
+  deployId: string,
+  input: string,
+): Promise<EmbeddingResult> => {
+  const response = await fetch("/models-api/embedding/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deploy_id: deployId, input }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Embedding request failed: HTTP ${response.status} ${errorText}`);
+  }
+  const data = await response.json();
+  return { embedding: data.data?.[0]?.embedding ?? [], model: data.model };
 };
 
 // ----- Voice Pipeline -----
@@ -611,6 +690,9 @@ export const getModelTypeFromName = (
   }
   if (combined.includes("tts")) {
     return ModelType.TTS;
+  }
+  if (combined.includes("embed") || combined.includes("bge")) {
+    return ModelType.Embedding;
   }
   if (combined.includes("training") || combined.includes("finetune") || combined.includes("fine-tune")) {
     return ModelType.Training;
