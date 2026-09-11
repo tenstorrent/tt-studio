@@ -1,0 +1,24 @@
+# Category mapping for GitHub's auto-generated release notes
+# (used by `gh api .../releases/generate-notes` in `python run.py --merge-rc-branch`
+# and by the "Generate release notes" button in the UI).
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: "🚀 Features"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 Fixes"
+      labels:
+        - bug
+    - title: "📖 Documentation"
+      labels:
+        - documentation
+    - title: "📦 Dependencies"
+      labels:
+        - dependencies
+    - title: "🔧 Other changes"
+      labels:
+        - "*"
