@@ -2496,6 +2496,64 @@ def _acquire_run_lock(job_id: str) -> None:
                 entry["waiting_for_job_id"] = _active_run_job_id
 
 
+# Container-side cache root: matches setup_config.cache_root and
+# HF_HOME=<cache_root>/huggingface in the artifact's run_docker_server.py.
+_CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
+
+
+def _ensure_volume_hf_home(job_id, model, device, impl, initial_argv):
+    """Pre-create HF_HOME inside the model's docker volume for token-less deploys.
+
+    Workaround for tt-media-server's base_device_runner: when HF_TOKEN is unset,
+    its no-token warning check evaluates any(os.scandir(HF_HOME)) — and on a
+    fresh cache_root volume that directory doesn't exist yet, so the scan raises
+    FileNotFoundError and kills the device worker before weights ever load.
+    Creating the directory up front degrades the check to the warning it was
+    meant to be.
+
+    Runs a one-shot `mkdir -p` container with the deploy's own image (needed
+    anyway, so no extra pull) mounted at the same path the real server uses, so
+    a fresh volume is initialized with the image's ownership rather than root's.
+    Best-effort: any failure is logged and the deploy proceeds unchanged.
+    Remove once deployed media images carry the guarded-scandir fix upstream.
+    """
+    image = None
+    if "--override-docker-image" in initial_argv:
+        image = initial_argv[initial_argv.index("--override-docker-image") + 1]
+    try:
+        spec, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        image = image or getattr(spec, "docker_image", None)
+        if not image:
+            logger.info(
+                "Job %s: no docker image known; skipping HF_HOME pre-create", job_id
+            )
+            return
+        # Same naming as the artifact's generate_docker_volume_name().
+        volume_name = f"volume_id_{spec.impl.impl_id}-{spec.model_name}"
+        client = docker.from_env()
+        hf_home = f"{_CONTAINER_CACHE_ROOT}/huggingface"
+        client.containers.run(
+            image,
+            # chmod 2775 to match the volume's other dirs (e.g. logs/): the
+            # server runs as container_app_user, whose write access to the
+            # root-owned volume comes through its root group membership.
+            entrypoint=["sh", "-c", f"mkdir -p {hf_home} && chmod 2775 {hf_home}"],
+            volumes={volume_name: {"bind": _CONTAINER_CACHE_ROOT, "mode": "rw"}},
+            remove=True,
+        )
+        logger.info(
+            "Job %s: ensured HF_HOME exists in docker volume %s (no HF token configured)",
+            job_id,
+            volume_name,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Job %s: could not pre-create HF_HOME in the model volume: %s",
+            job_id,
+            exc,
+        )
+
+
 @app.post("/run")
 async def run_inference(request: RunRequest):
     deployment_log_handler = None
@@ -2712,6 +2770,15 @@ async def run_inference(request: RunRequest):
                 else "using --host-volume"
             )
             logger.info("Job %s: skipping --host-hf-cache (%s)", job_id, reason)
+
+        # Token-less deploys: make sure the container's HF_HOME exists in the
+        # model's named volume (see _ensure_volume_hf_home). --host-volume mode
+        # bind-mounts cache_root from the host instead and never uses the volume.
+        if not env_vars_to_set.get("HF_TOKEN") and "--host-volume" not in initial_argv:
+            _ensure_volume_hf_home(
+                job_id, request.model, normalized_device, request.impl, initial_argv
+            )
+
         def _run_job_in_background():
             global _active_run_job_id
             weights_stop_event = threading.Event()
