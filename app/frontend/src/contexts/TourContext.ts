@@ -9,6 +9,7 @@ export interface TourContextState {
   stepIndex: number;
   activeTourId: string | null;
   steps: Step[];
+  setSteps: (steps: Step[]) => void;
   startTour: (tourId?: string, initialStepIndex?: number) => void;
   stopTour: () => void;
   setStepIndex: (index: number) => void;
