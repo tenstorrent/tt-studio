@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Joyride,
   type Step,
@@ -34,18 +34,44 @@ export function TourProvider({ children }: TourProviderProps) {
     () => TOUR_REGISTRY[DEFAULT_TOUR_ID]?.steps ?? []
   );
 
-  // Auto-start onboarding tour on first visit if not previously completed
+  const isFirstVisitAutoRunRef = useRef<boolean>(false);
+
+  // Auto-start onboarding tours on first visit if not previously completed
   useEffect(() => {
-    const completed = safeGetItem<boolean>(
-      `tourCompleted:${DEFAULT_TOUR_ID}`,
+    const onboardingCompleted = safeGetItem<boolean>(
+      "tourCompleted:onboarding",
       false
     );
-    if (!completed) {
+    const deployCompleted = safeGetItem<boolean>(
+      "tourCompleted:deploy-model",
+      false
+    );
+
+    if (!onboardingCompleted) {
       const timer = setTimeout(() => {
-        const tour = getTourById(DEFAULT_TOUR_ID);
+        const tour = getTourById("onboarding");
         if (tour) {
+          isFirstVisitAutoRunRef.current = true;
+          // In first-visit auto-run, customize the last step button to point to the deploy tour
+          const chainedSteps = tour.steps.map((step, idx) =>
+            idx === tour.steps.length - 1
+              ? { ...step, locale: { last: "Next: Deploy a Model →" } }
+              : step
+          );
+          setSteps(chainedSteps);
+          setActiveTourId("onboarding");
+          setStepIndex(0);
+          setRun(true);
+        }
+      }, 700);
+      return () => clearTimeout(timer);
+    } else if (!deployCompleted) {
+      const timer = setTimeout(() => {
+        const tour = getTourById("deploy-model");
+        if (tour) {
+          isFirstVisitAutoRunRef.current = false;
           setSteps(tour.steps);
-          setActiveTourId(DEFAULT_TOUR_ID);
+          setActiveTourId("deploy-model");
           setStepIndex(0);
           setRun(true);
         }
@@ -53,6 +79,13 @@ export function TourProvider({ children }: TourProviderProps) {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  // Guard against out-of-bounds stepIndex when steps array dynamically shrinks
+  useEffect(() => {
+    if (steps.length > 0 && stepIndex >= steps.length) {
+      setStepIndex(steps.length - 1);
+    }
+  }, [stepIndex, steps.length]);
 
   const isDark = useMemo(() => {
     if (theme === "dark") return true;
@@ -113,25 +146,62 @@ export function TourProvider({ children }: TourProviderProps) {
   const handleJoyrideEvent = useCallback(
     (data: EventData) => {
       const { status, type, index, action } = data;
-      const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
 
-      if (finishedStatuses.includes(status)) {
+      if (status === STATUS.FINISHED) {
         setRun(false);
         setStepIndex(0);
         if (activeTourId) {
           safeSetItem(`tourCompleted:${activeTourId}`, true);
         }
-      } else if (action === ACTIONS.CLOSE) {
+
+        // Only continue into "deploy-model" if this was a first-visit auto-run
+        if (activeTourId === "onboarding" && isFirstVisitAutoRunRef.current) {
+          isFirstVisitAutoRunRef.current = false;
+          const deployCompleted = safeGetItem<boolean>(
+            "tourCompleted:deploy-model",
+            false
+          );
+          if (!deployCompleted) {
+            const deployTour = getTourById("deploy-model");
+            if (deployTour) {
+              setTimeout(() => {
+                setSteps(deployTour.steps);
+                setActiveTourId("deploy-model");
+                setStepIndex(0);
+                setRun(true);
+              }, 300);
+              return;
+            }
+          }
+        }
+      } else if (status === STATUS.SKIPPED || action === ACTIONS.CLOSE) {
         setRun(false);
         setStepIndex(0);
+        isFirstVisitAutoRunRef.current = false;
+        if (activeTourId) {
+          safeSetItem(`tourCompleted:${activeTourId}`, true);
+          // If the user dismisses/skips onboarding, mark deploy-model completed too so it doesn't auto-popup
+          if (activeTourId === "onboarding") {
+            safeSetItem("tourCompleted:deploy-model", true);
+          }
+        }
       } else if (type === EVENTS.STEP_AFTER) {
         setStepIndex(index + (action === ACTIONS.PREV ? -1 : 1));
       } else if (type === EVENTS.TARGET_NOT_FOUND) {
-        if (index >= steps.length - 1) {
-          setRun(false);
-          setStepIndex(0);
+        if (action === ACTIONS.PREV) {
+          if (index <= 0) {
+            setRun(false);
+            setStepIndex(0);
+          } else {
+            setStepIndex(index - 1);
+          }
         } else {
-          setStepIndex(index + 1);
+          if (index >= steps.length - 1) {
+            setRun(false);
+            setStepIndex(0);
+          } else {
+            setStepIndex(index + 1);
+          }
         }
       }
     },
@@ -140,6 +210,7 @@ export function TourProvider({ children }: TourProviderProps) {
 
   const startTour = useCallback(
     (tourId: string = DEFAULT_TOUR_ID, initialStepIndex = 0) => {
+      isFirstVisitAutoRunRef.current = false;
       const tour = getTourById(tourId);
       if (tour) {
         setSteps(tour.steps);
@@ -173,6 +244,7 @@ export function TourProvider({ children }: TourProviderProps) {
       stepIndex,
       activeTourId,
       steps,
+      setSteps,
       startTour,
       stopTour,
       setStepIndex,
@@ -184,6 +256,7 @@ export function TourProvider({ children }: TourProviderProps) {
       stepIndex,
       activeTourId,
       steps,
+      setSteps,
       startTour,
       stopTour,
       isTourCompleted,

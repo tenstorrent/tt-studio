@@ -36,7 +36,6 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
 import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";

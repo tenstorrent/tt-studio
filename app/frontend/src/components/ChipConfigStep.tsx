@@ -11,6 +11,7 @@ import {
   fullBoardSlots,
 } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
+import { useTour } from "../hooks/useTour";
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -20,6 +21,15 @@ interface ChipConfigStepProps {
 }
 
 export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigStepProps) {
+  const {
+    run: tourRun,
+    activeTourId,
+    stepIndex: tourStepIndex,
+    setStepIndex,
+    steps,
+  } = useTour();
+  const isDeployTour = tourRun && activeTourId === "deploy-model";
+
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
     null
   );
@@ -47,9 +57,17 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
   // Pre-select the only valid mode for this model.
   useEffect(() => {
-    setSelectedMode(pickEnabled ? "single" : "multi");
-    setSelectedSlots([]);
-  }, [pickEnabled]);
+    const defaultMode = pickEnabled ? "single" : "multi";
+    setSelectedMode(defaultMode);
+    if (isDeployTour && defaultMode === "single") {
+      const firstSlot =
+        chipStatus?.slots.find((s) => s.status === "available")?.slot_id ?? 0;
+      const initialSlots = isGrouped ? cardGroupFor(firstSlot, cardGroups) : [firstSlot];
+      setSelectedSlots(initialSlots);
+    } else {
+      setSelectedSlots([]);
+    }
+  }, [pickEnabled, isDeployTour, isGrouped, cardGroups, chipStatus]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
@@ -60,6 +78,26 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
       onConfirm(selectedSlots);
     }
   }, [selectedMode, selectedSlots, multiBoardFree, multiSlots, onConfirm]);
+
+  // Ensure slot picker is open when the tour arrives at the slot picker step
+  useEffect(() => {
+    const isAtSlotPicker =
+      isDeployTour &&
+      steps[tourStepIndex]?.target === '[data-tour="chip-slot-picker"]';
+    if (isAtSlotPicker && selectedMode !== "single") {
+      setSelectedMode("single");
+    }
+  }, [isDeployTour, steps, tourStepIndex, selectedMode]);
+
+  const handleContinue = () => {
+    if (isDeployTour) {
+      setStepIndex(tourStepIndex + 1);
+    }
+    const deployEl =
+      document.querySelector('[data-tour="deploy-summary-info"]') ||
+      document.querySelector('[data-tour="deploy-button"]');
+    deployEl?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const slotIsAvailable = (slotId: number) => {
     if (!chipStatus) return false;
@@ -279,6 +317,18 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             Fetching hardware status...
           </div>
         )}
+      </div>
+
+      {/* Confirm / Continue button */}
+      <div className="flex justify-end pt-2">
+        <button
+          type="button"
+          data-tour="hardware-config-continue"
+          onClick={handleContinue}
+          className="px-6 py-2 rounded-lg font-mono font-semibold text-sm transition-all duration-200 bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)] cursor-pointer"
+        >
+          Continue →
+        </button>
       </div>
     </div>
   );
