@@ -23,6 +23,7 @@ import type { ChipStatus } from "../types/chipStatus";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
+  selectedModelName,
   selectedDeviceIds,
   chipsRequired,
   previewDeviceIds,
@@ -35,6 +36,7 @@ export function DeployModelStep({
   activeProgress,
 }: {
   selectedModel: string | null;
+  selectedModelName?: string | null;
   handleDeploy: (options?: {
     device_id?: number | string;
     host_port?: number | null;
@@ -68,7 +70,15 @@ export function DeployModelStep({
   const { removeDeployment } = useActiveDeploymentsContext();
   // Block deployment while a board/device reset is in progress.
   const isResetting = useIsResetting();
-  const [modelName, setModelName] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(
+    selectedModelName ?? null
+  );
+
+  useEffect(() => {
+    if (selectedModelName) {
+      setModelName(selectedModelName);
+    }
+  }, [selectedModelName]);
   // A missing HF token is the most common reason a deploy of a gated model
   // stalls at 0% — warn up front and sharpen the stall message in the progress
   // card. On lookup failure stay silent rather than warn spuriously.
@@ -480,6 +490,12 @@ export function DeployModelStep({
           data-tour="deploy-summary-info"
           className="mt-6 flex flex-col items-center justify-center space-y-2"
         >
+          {!modelName && (
+            <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
+              <Cpu className="text-TT-purple-accent" />
+              <span className="text-sm">Select a model to view deployment summary</span>
+            </div>
+          )}
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
@@ -516,6 +532,17 @@ export function DeployModelStep({
                 <span className="text-sm text-gray-800 dark:text-gray-400">Device:</span>
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                   Auto · next free device
+                </span>
+              </div>
+            )}
+          {(!previewDeviceIds || previewDeviceIds.length === 0) &&
+            modelName &&
+            !cannotFit &&
+            needsSelection && (
+              <div className="flex items-center space-x-2 text-amber-500/90 dark:text-amber-400">
+                <Cpu className="text-amber-500/90 dark:text-amber-400" />
+                <span className="text-sm font-medium">
+                  Device: None selected (manual selection required)
                 </span>
               </div>
             )}

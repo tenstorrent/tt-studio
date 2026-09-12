@@ -15,6 +15,7 @@ import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import { useRefresh } from "../hooks/useRefresh";
+import { useTour } from "../hooks/useTour";
 import type { ChipStatus } from "../types/chipStatus";
 import {
   autoPlacement,
@@ -22,6 +23,7 @@ import {
   getModelPlacement,
   isMultiChipModel,
 } from "../utils/deviceFit";
+import { getDeployModelSteps } from "./tour/tours/deployModel";
 import { parseDeviceIds } from "../utils/p300x2Placement";
 
 const dockerAPIURL = "/docker-api/";
@@ -150,7 +152,9 @@ export default function StepperDemo() {
     axios
       .get(getModelsUrl)
       .then((res) => setModels(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setModels([])); // on error, treat as no models → single-model only
+      .catch(() => {
+        setModels([]); // on error, treat as no models → single-model only
+      });
   }, []);
 
   // Advanced config is reachable only after a model is chosen, on multi-chip boards.
@@ -164,17 +168,24 @@ export default function StepperDemo() {
   const rawMode = searchParams.get("view");
   const deployMode: "solution" | "single" | null =
     rawMode === "solution" || rawMode === "single" ? rawMode : null;
-  const setDeployMode = (mode: "solution" | "single" | null) => {
-    if (mode === null) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("view");
-      setSearchParams(next, { replace: true });
-    } else {
-      const next = new URLSearchParams(searchParams);
-      next.set("view", mode);
-      setSearchParams(next, { replace: true });
-    }
-  };
+  const setDeployMode = useCallback(
+    (mode: "solution" | "single" | null) => {
+      if (mode === null) {
+        const next = new URLSearchParams(searchParams);
+        next.delete("view");
+        setSearchParams(next, { replace: true });
+      } else {
+        const next = new URLSearchParams(searchParams);
+        next.set("view", mode);
+        setSearchParams(next, { replace: true });
+      }
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const [targetStepperStep, setTargetStepperStep] = useState<number>(
+    resumeModelId ? 1 : 0
+  );
 
   const [selectedModel, setSelectedModel] = useState<string | null>(resumeModelId);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
@@ -255,6 +266,151 @@ export default function StepperDemo() {
     { label: "Step 1", description: "Model Selection" },
     { label: "Final Step", description: "Deploy Model" },
   ];
+
+  // The Voice Agent solution needs a board-compatible LLM, STT and TTS model. On
+  // hardware that can't run all three (e.g. P100, where only the LLM is supported),
+  // hide the Solutions card and offer single-model deployment only.
+  const voiceAgentAvailable = useMemo(() => {
+    if (!models) return false;
+    const hasCompatType = (t: string) =>
+      models.some((m) => m.model_type === t && m.is_compatible === true);
+    return (
+      hasCompatType("chat") &&
+      hasCompatType("speech_recognition") &&
+      hasCompatType("tts")
+    );
+  }, [models]);
+
+  const {
+    run: tourRun,
+    activeTourId,
+    stepIndex: tourStepIndex,
+    setStepIndex,
+    setSteps,
+    steps: tourSteps,
+  } = useTour();
+  const isDeployTour = tourRun && activeTourId === "deploy-model";
+
+  // Dynamically tailor tour steps to detected hardware topology & view state
+  useEffect(() => {
+    if (!isDeployTour) return;
+
+    const isConfigExpanded =
+      isMultiChipBoard && (!isQB2 || showHardwareConfig);
+
+    const tailoredSteps = getDeployModelSteps({
+      isMultiChip: isMultiChipBoard,
+      isConfigExpanded,
+      hasModeSelection: voiceAgentAvailable,
+    });
+
+    setSteps(tailoredSteps);
+  }, [
+    isDeployTour,
+    isMultiChipBoard,
+    isQB2,
+    showHardwareConfig,
+    voiceAgentAvailable,
+    setSteps,
+  ]);
+
+  // Synchronize wizard view and stepper step with the guided tour using target-based matching
+  useEffect(() => {
+    if (!isDeployTour || !tourSteps || tourSteps.length === 0) return;
+
+    const currentTarget = tourSteps[tourStepIndex]?.target;
+    if (!currentTarget) return;
+
+    // Helper to ensure a model is selected when entering hardware or deploy steps
+    const ensureModelSelected = () => {
+      if (!selectedModel) {
+        if (models && models.length > 0) {
+          const firstComp =
+            models.find(
+              (m) =>
+                m.is_compatible &&
+                (m.chips_required === 1 || !isMultiChipModel(m.chips_required))
+            ) ??
+            models.find((m) => m.chips_required === 1) ??
+            models.find((m) => m.is_compatible) ??
+            models[0];
+          setSelectedModel(firstComp.id);
+          setSelectedModelName(firstComp.name);
+        } else {
+          setSelectedModel("llama-3.1-8b-instruct");
+          setSelectedModelName("Llama 3.1 8B Instruct");
+        }
+      }
+    };
+
+    // Mode Selection targets
+    if (
+      currentTarget === '[data-tour="deploy-mode-single"]' ||
+      currentTarget === '[data-tour="deploy-mode-solutions"]'
+    ) {
+      if (deployMode !== null && voiceAgentAvailable) {
+        setDeployMode(null);
+      }
+      setTargetStepperStep(0);
+      setShowHardwareConfig(false);
+    }
+    // Model Selection targets
+    else if (
+      currentTarget === '[data-tour="model-select-dropdown"]' ||
+      currentTarget === '[data-tour="board-info-box"]'
+    ) {
+      if (deployMode !== "single") {
+        setDeployMode("single");
+      }
+      setTargetStepperStep(0);
+      setShowHardwareConfig(false);
+    }
+    // Hardware Config Toggle (P300x2 simplified flow)
+    else if (currentTarget === '[data-tour="hardware-config-toggle"]') {
+      if (deployMode !== "single") {
+        setDeployMode("single");
+      }
+      ensureModelSelected();
+      setTargetStepperStep(1);
+    }
+    // Full Hardware Configuration targets
+    else if (
+      currentTarget === '[data-tour="hardware-mode-single"]' ||
+      currentTarget === '[data-tour="hardware-mode-multi"]' ||
+      currentTarget === '[data-tour="chip-slot-picker"]' ||
+      currentTarget === '[data-tour="hardware-config-continue"]'
+    ) {
+      if (deployMode !== "single") {
+        setDeployMode("single");
+      }
+      ensureModelSelected();
+      setTargetStepperStep(1);
+      if (!showHardwareConfig) {
+        setShowHardwareConfig(true);
+      }
+    }
+    // Deploy Model targets
+    else if (
+      currentTarget === '[data-tour="deploy-summary-info"]' ||
+      currentTarget === '[data-tour="deploy-button"]'
+    ) {
+      if (deployMode !== "single") {
+        setDeployMode("single");
+      }
+      ensureModelSelected();
+      setTargetStepperStep(1);
+    }
+  }, [
+    isDeployTour,
+    tourSteps,
+    tourStepIndex,
+    deployMode,
+    setDeployMode,
+    voiceAgentAvailable,
+    selectedModel,
+    models,
+    showHardwareConfig,
+  ]);
 
   // Log when selectedModel changes
   useEffect(() => {
@@ -585,11 +741,10 @@ export default function StepperDemo() {
         <ElevatedCard accent="neutral" depth="lg" className="h-auto py-10 px-8 md:px-12">
           <div className="flex flex-col items-center text-center gap-5">
             <div
-              className={`p-4 rounded-full ${
-                failed
-                  ? "bg-red-500/10 text-red-500"
-                  : "bg-TT-purple/10 dark:bg-TT-purple/20 text-TT-purple"
-              }`}
+              className={`p-4 rounded-full ${failed
+                ? "bg-red-500/10 text-red-500"
+                : "bg-TT-purple/10 dark:bg-TT-purple/20 text-TT-purple"
+                }`}
             >
               {failed ? (
                 <AlertTriangle className="w-8 h-8" />
@@ -655,15 +810,6 @@ export default function StepperDemo() {
     );
   }
 
-  // The Voice Agent solution needs a board-compatible LLM, STT and TTS model. On
-  // hardware that can't run all three (e.g. P100, where only the LLM is supported),
-  // hide the Solutions card and offer single-model deployment only.
-  const hasCompatType = (t: string) =>
-    models.some((m) => m.model_type === t && m.is_compatible === true);
-  const voiceAgentAvailable =
-    hasCompatType("chat") &&
-    hasCompatType("speech_recognition") &&
-    hasCompatType("tts");
   const effectiveMode = voiceAgentAvailable ? deployMode : "single";
 
   // Mode selector — show when no mode chosen yet
@@ -706,7 +852,17 @@ export default function StepperDemo() {
               {/* Single / Multi model card */}
               <button
                 data-tour="deploy-mode-single"
-                onClick={() => setDeployMode("single")}
+                onClick={() => {
+                  setDeployMode("single");
+                  if (isDeployTour) {
+                    const nextDropdownIdx = tourSteps.findIndex(
+                      (s) => s.target === '[data-tour="model-select-dropdown"]'
+                    );
+                    if (nextDropdownIdx !== -1) {
+                      setStepIndex(nextDropdownIdx);
+                    }
+                  }
+                }}
                 className="text-left rounded-xl border-[2px] border-stone-200 dark:border-stone-700 bg-white/60 dark:bg-stone-900/60 p-6 flex flex-col gap-3 hover:border-stone-400 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/60 hover:shadow-[0_0_20px_rgba(120,113,108,0.15)] hover:scale-[1.015] active:scale-[0.99] transition-all duration-300 group"
               >
                 <div className="flex items-center gap-3">
@@ -789,7 +945,8 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {(voiceAgentAvailable || (isMultiChipBoard && activeStep === 1)) && (
+        {(voiceAgentAvailable ||
+          (isMultiChipBoard && (targetStepperStep === 1 || activeStep === 1))) && (
           <div className="flex items-center mb-4">
             {voiceAgentAvailable && (
               <button
@@ -799,7 +956,7 @@ export default function StepperDemo() {
                 <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
               </button>
             )}
-            {isMultiChipBoard && activeStep === 1 && (
+            {isMultiChipBoard && (targetStepperStep === 1 || activeStep === 1) && (
               <button
                 type="button"
                 data-tour="hardware-config-toggle"
@@ -809,8 +966,8 @@ export default function StepperDemo() {
                   if (showHardwareConfig) setSelectedDeviceIds([]);
                 }}
                 className={`group ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors focus:outline-none ${showHardwareConfig
-                    ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
-                    : "text-muted-foreground hover:text-foreground"
+                  ? "bg-TT-purple/10 text-TT-purple-accent font-medium"
+                  : "text-muted-foreground hover:text-foreground"
                   }`}
               >
                 <Cpu className={`w-3.5 h-3.5 ${showHardwareConfig ? "" : "opacity-70"}`} />
@@ -823,10 +980,10 @@ export default function StepperDemo() {
           </div>
         )}
         <Stepper
-          // Remount to jump to the deploy step when arriving via a tray click.
-          key={resumeModelId ?? "select"}
+          // Remount to jump to the deploy step when arriving via a tray click or tour.
+          key={resumeModelId ? `resume-${resumeModelId}` : `step-${targetStepperStep}`}
           variant="circle-alt"
-          initialStep={resumeModelId ? 1 : 0}
+          initialStep={resumeModelId ? 1 : targetStepperStep}
           steps={steps}
           state={loading ? "loading" : formError ? "error" : undefined}
         >
@@ -862,6 +1019,7 @@ export default function StepperDemo() {
                   )}
                   <DeployModelStep
                     selectedModel={selectedModel}
+                    selectedModelName={selectedModelName}
                     handleDeploy={handleDeploy}
                     selectedDeviceIds={advancedActive ? selectedDeviceIds : undefined}
                     chipsRequired={effectiveChips}
@@ -878,7 +1036,12 @@ export default function StepperDemo() {
               )}
             </Step>
           ))}
-          <StepWatcher onChange={setActiveStep} />
+          <StepWatcher
+            onChange={(step) => {
+              setActiveStep(step);
+              setTargetStepperStep((prev) => (prev !== step ? step : prev));
+            }}
+          />
           <div className="py-12">
             <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
