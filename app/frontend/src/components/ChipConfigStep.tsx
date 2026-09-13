@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Cpu, Layers } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
 import {
@@ -55,19 +55,46 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     [isGrouped, chipStatus]
   );
 
+  const slotIsAvailable = useCallback(
+    (slotId: number) => {
+      if (!chipStatus) return false;
+      // Flexible models occupy a whole card, so every slot in the group must be free.
+      const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
+      return group.every(
+        (g) =>
+          chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
+      );
+    },
+    [chipStatus, isGrouped, cardGroups]
+  );
+
   // Pre-select the only valid mode for this model.
   useEffect(() => {
     const defaultMode = pickEnabled ? "single" : "multi";
     setSelectedMode(defaultMode);
     if (isDeployTour && defaultMode === "single") {
-      const firstSlot =
-        chipStatus?.slots.find((s) => s.status === "available")?.slot_id ?? 0;
-      const initialSlots = isGrouped ? cardGroupFor(firstSlot, cardGroups) : [firstSlot];
-      setSelectedSlots(initialSlots);
+      const availableSlot = chipStatus?.slots.find((s) =>
+        slotIsAvailable(s.slot_id)
+      )?.slot_id;
+      if (availableSlot !== undefined) {
+        const initialSlots = isGrouped
+          ? cardGroupFor(availableSlot, cardGroups)
+          : [availableSlot];
+        setSelectedSlots(initialSlots);
+      } else {
+        setSelectedSlots([]);
+      }
     } else {
       setSelectedSlots([]);
     }
-  }, [pickEnabled, isDeployTour, isGrouped, cardGroups, chipStatus]);
+  }, [
+    pickEnabled,
+    isDeployTour,
+    isGrouped,
+    cardGroups,
+    chipStatus,
+    slotIsAvailable,
+  ]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
@@ -97,15 +124,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
       document.querySelector('[data-tour="deploy-summary-info"]') ||
       document.querySelector('[data-tour="deploy-button"]');
     deployEl?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const slotIsAvailable = (slotId: number) => {
-    if (!chipStatus) return false;
-    // Flexible models occupy a whole card, so every slot in the group must be free.
-    const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
-    return group.every(
-      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
-    );
   };
 
   const toggleSlot = (slotId: number) => {

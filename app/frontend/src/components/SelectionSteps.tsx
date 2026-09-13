@@ -291,13 +291,25 @@ export default function StepperDemo() {
     stepIndex: tourStepIndex,
     setStepIndex,
     setSteps,
+    startTour,
+    isTourCompleted,
     steps: tourSteps,
   } = useTour();
   const isDeployTour = tourRun && activeTourId === "deploy-model";
 
+  // Auto-start deploy-model tour on arrival at the wizard if onboarding is done but deploy-model is not
+  useEffect(() => {
+    if (models === null) return;
+    const onboardingCompleted = isTourCompleted("onboarding");
+    const deployCompleted = isTourCompleted("deploy-model");
+    if (onboardingCompleted && !deployCompleted && !tourRun) {
+      startTour("deploy-model");
+    }
+  }, [models, tourRun, startTour, isTourCompleted]);
+
   // Dynamically tailor tour steps to detected hardware topology & view state
   useEffect(() => {
-    if (!isDeployTour) return;
+    if (!isDeployTour || models === null) return;
 
     const isConfigExpanded =
       isMultiChipBoard && (!isQB2 || showHardwareConfig);
@@ -311,6 +323,7 @@ export default function StepperDemo() {
     setSteps(tailoredSteps);
   }, [
     isDeployTour,
+    models,
     isMultiChipBoard,
     isQB2,
     showHardwareConfig,
@@ -320,7 +333,14 @@ export default function StepperDemo() {
 
   // Synchronize wizard view and stepper step with the guided tour using target-based matching
   useEffect(() => {
-    if (!isDeployTour || !tourSteps || tourSteps.length === 0) return;
+    if (
+      !isDeployTour ||
+      models === null ||
+      !tourSteps ||
+      tourSteps.length === 0
+    ) {
+      return;
+    }
 
     const currentTarget = tourSteps[tourStepIndex]?.target;
     if (!currentTarget) return;

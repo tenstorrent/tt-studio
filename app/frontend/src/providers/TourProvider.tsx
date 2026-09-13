@@ -36,14 +36,20 @@ export function TourProvider({ children }: TourProviderProps) {
 
   const isFirstVisitAutoRunRef = useRef<boolean>(false);
 
+  const startWaitRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (startWaitRef.current) {
+        clearInterval(startWaitRef.current);
+      }
+    };
+  }, []);
+
   // Auto-start onboarding tours on first visit if not previously completed
   useEffect(() => {
     const onboardingCompleted = safeGetItem<boolean>(
       "tourCompleted:onboarding",
-      false
-    );
-    const deployCompleted = safeGetItem<boolean>(
-      "tourCompleted:deploy-model",
       false
     );
 
@@ -60,18 +66,6 @@ export function TourProvider({ children }: TourProviderProps) {
           );
           setSteps(chainedSteps);
           setActiveTourId("onboarding");
-          setStepIndex(0);
-          setRun(true);
-        }
-      }, 700);
-      return () => clearTimeout(timer);
-    } else if (!deployCompleted) {
-      const timer = setTimeout(() => {
-        const tour = getTourById("deploy-model");
-        if (tour) {
-          isFirstVisitAutoRunRef.current = false;
-          setSteps(tour.steps);
-          setActiveTourId("deploy-model");
           setStepIndex(0);
           setRun(true);
         }
@@ -143,6 +137,63 @@ export function TourProvider({ children }: TourProviderProps) {
     [isDark]
   );
 
+  const startTour = useCallback(
+    (tourId: string = DEFAULT_TOUR_ID, initialStepIndex = 0) => {
+      if (startWaitRef.current) {
+        clearInterval(startWaitRef.current);
+        startWaitRef.current = null;
+      }
+
+      isFirstVisitAutoRunRef.current = false;
+      const tour = getTourById(tourId);
+      if (!tour) return;
+
+      setSteps(tour.steps);
+      setActiveTourId(tour.id);
+      setStepIndex(initialStepIndex);
+
+      // Determine initial targets to verify in DOM before launching Joyride
+      const stepTarget = tour.steps[initialStepIndex]?.target;
+      const targetSelectors =
+        tour.id === "deploy-model"
+          ? [
+              '[data-tour="deploy-mode-single"]',
+              '[data-tour="deploy-mode-solutions"]',
+              '[data-tour="model-select-dropdown"]',
+            ]
+          : typeof stepTarget === "string" && stepTarget !== "body"
+          ? [stepTarget]
+          : [];
+
+      const isTargetReady =
+        targetSelectors.length === 0 ||
+        targetSelectors.some((sel) => document.querySelector(sel) !== null);
+
+      if (isTargetReady) {
+        setRun(true);
+      } else {
+        // Wait for destination DOM element to mount (poll every 100ms up to 5s)
+        let elapsed = 0;
+        const interval = setInterval(() => {
+          elapsed += 100;
+          const ready = targetSelectors.some(
+            (sel) => document.querySelector(sel) !== null
+          );
+          if (ready) {
+            clearInterval(interval);
+            startWaitRef.current = null;
+            setRun(true);
+          } else if (elapsed >= 5000) {
+            clearInterval(interval);
+            startWaitRef.current = null;
+          }
+        }, 100);
+        startWaitRef.current = interval;
+      }
+    },
+    []
+  );
+
   const handleJoyrideEvent = useCallback(
     (data: EventData) => {
       const { status, type, index, action } = data;
@@ -162,16 +213,8 @@ export function TourProvider({ children }: TourProviderProps) {
             false
           );
           if (!deployCompleted) {
-            const deployTour = getTourById("deploy-model");
-            if (deployTour) {
-              setTimeout(() => {
-                setSteps(deployTour.steps);
-                setActiveTourId("deploy-model");
-                setStepIndex(0);
-                setRun(true);
-              }, 300);
-              return;
-            }
+            startTour("deploy-model");
+            return;
           }
         }
       } else if (status === STATUS.SKIPPED || action === ACTIONS.CLOSE) {
@@ -205,24 +248,14 @@ export function TourProvider({ children }: TourProviderProps) {
         }
       }
     },
-    [activeTourId, steps.length]
-  );
-
-  const startTour = useCallback(
-    (tourId: string = DEFAULT_TOUR_ID, initialStepIndex = 0) => {
-      isFirstVisitAutoRunRef.current = false;
-      const tour = getTourById(tourId);
-      if (tour) {
-        setSteps(tour.steps);
-        setActiveTourId(tour.id);
-        setStepIndex(initialStepIndex);
-        setRun(true);
-      }
-    },
-    []
+    [activeTourId, steps.length, startTour]
   );
 
   const stopTour = useCallback(() => {
+    if (startWaitRef.current) {
+      clearInterval(startWaitRef.current);
+      startWaitRef.current = null;
+    }
     setRun(false);
     setStepIndex(0);
   }, []);

@@ -43,10 +43,6 @@ export function TourHelpButton({
     const tour = getTourById(tourId);
     if (tour?.route && location.pathname !== tour.route) {
       navigate(tour.route);
-      setTimeout(() => {
-        startTour(tourId);
-      }, 300);
-      return;
     }
     startTour(tourId);
   };
