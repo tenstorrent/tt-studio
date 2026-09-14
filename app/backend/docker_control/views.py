@@ -65,6 +65,7 @@ from docker_control.chip_allocator import (
     _detect_device_ids_from_mounts,
 )
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
+from types import SimpleNamespace
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
 from shared_config.community_model_config import (
@@ -330,10 +331,12 @@ class ContainersView(APIView):
 def _community_model_entries(current_board, refresh=False):
     """Community bundles, in the same row shape ContainersView returns for the catalog.
 
+    Every row is described from its manifest, downloaded or not, because that is what
+    carries the mesh size and engine the UI needs: a row listed without them would
+    either hide a deployable model or offer chips the deploy cannot take.
+
     Best-effort by design: tt-model-manager may not be installed and the Hub may be
-    unreachable, and neither must break the catalog model list. A bundle is only listed
-    once its manifest is readable, because that is what carries the mesh size and engine
-    the UI needs to decide whether it can be deployed here.
+    unreachable, and neither must break the catalog model list.
     """
     from docker_control.tt_model_client import fetch_bundle, fetch_catalog
     from shared_config.community_model_config import build_community_model_impl
@@ -345,77 +348,163 @@ def _community_model_entries(current_board, refresh=False):
         logger.warning(f"Could not list community models: {e}")
         return []
 
+    # Used to rule out a mesh this board cannot hold, and as the reservation for a row
+    # whose mesh could not be read at all.
+    try:
+        from docker_control.chip_allocator import ChipSlotAllocator
+
+        board_slots = ChipSlotAllocator().total_slots
+    except Exception as e:
+        logger.warning(f"Could not read chip slot count: {e}")
+        board_slots = 1
+
     entries = []
     for row in bundles:
         repo_id = row.get("repo_id")
         if not repo_id:
             continue
-        detail = fetch_bundle(repo_id) if row.get("installed") else None
-        if detail is None:
-            # Not installed yet: the manifest costs a Hub request per bundle, so the
-            # row is listed from the catalog alone and inspected when it is selected.
-            entries.append({
-                "id": community_model_id(repo_id),
-                "name": repo_id,
-                # Arch match is all the catalog tells us; the manifest's mesh decides
-                # the rest, so compatibility stays unknown rather than asserted.
-                "is_compatible": None,
-                "compatible_boards": [],
-                "model_type": ModelTypes.CHAT.value,
-                "display_model_type": "LLM",
-                "current_board": current_board,
-                "status": None,
-                # No manifest yet, so the mesh size is unknown; 1 is the common case and
-                # the only cost of guessing is the device preview, because the deploy
-                # re-reads the manifest and allocates from that (community_deploy).
-                "chips_required": 1,
-                "hf_model_id": None,
-                "source": launchers.COMMUNITY,
-                "author": row.get("author"),
-                "downloads": row.get("downloads"),
-                "installed": False,
-                "profiles": row.get("profiles") or [],
-            })
+        # An installed bundle is described from the manifest on disk, which is what
+        # would actually be served. Otherwise the catalog row carries the Hub's copy:
+        # the runner reads every bundle's manifest (one small file, no image and no
+        # weights), so a bundle that has never been pulled is described just as fully.
+        detail = (fetch_bundle(repo_id) if row.get("installed") else None) or row
+        if detail.get("supported") is False:
+            # An engine this build cannot serve. Refused at deploy time anyway, so
+            # listing it as a deployable LLM only wastes the user's click.
+            continue
+        if not detail.get("profiles"):
+            entries.append(_unreadable_community_entry(row, current_board, board_slots))
             continue
 
-        if not detail.get("supported"):
-            continue
-        impl = build_community_model_impl(detail)
+        impl = build_community_model_impl(
+            detail, _preferred_community_profile(detail, current_board, board_slots)
+        )
         entries.append({
             "id": impl.model_id,
             "name": impl.model_name,
-            "is_compatible": _community_is_compatible(impl, current_board),
+            "is_compatible": _community_fit(
+                impl.device_configurations, impl.chips_required, current_board, board_slots
+            ),
             "compatible_boards": [],
             "model_type": impl.model_type.value,
             "display_model_type": impl.display_model_type,
             "current_board": current_board,
             "status": None,
-            # The mesh the bundle's profile opens, which is exactly what the deploy
-            # reserves — tt-model-manager scopes the container to those chips.
+            # The mesh the bundle's default profile opens, which is exactly what the
+            # deploy reserves — tt-model-manager scopes the container to those chips.
             "chips_required": impl.chips_required,
             "hf_model_id": impl.hf_model_id,
             "source": launchers.COMMUNITY,
             "author": impl.author,
+            # Hub popularity is a catalog field; the manifest knows nothing about it.
             "downloads": row.get("downloads"),
-            "installed": True,
+            "installed": bool(row.get("installed")),
             "profiles": list(impl.profiles),
             "profile": impl.profile,
         })
     return entries
 
 
-def _community_is_compatible(impl, current_board):
-    """Whether a bundle's mesh fits this board. None when the board is unknown.
+def _preferred_community_profile(detail, current_board, board_slots):
+    """The profile to present for a bundle, given this board.
 
-    Uses the same board-to-device map as the catalog path, so a bundle targeting
-    p150 on a P300x2 reads compatible for the same reason a catalog model does.
+    A bundle may declare several meshes, and the author's default need not be the one
+    that runs here — a p150x4 default alongside a p300x2 profile built for exactly this
+    box. Judging the row by the default alone marks the whole bundle incompatible and
+    hides a model that would have run. Prefer the default when it fits, else the largest
+    mesh that does: the closest runnable thing to what the author recommended.
+
+    A mesh of unknown compatibility counts as runnable, for the same reason the row-level
+    check reports None rather than False — an unrecognised board label is not a refusal.
+    Returns None when nothing fits, leaving the caller on the default so the row still
+    reports a mesh and still reads incompatible, which it is.
+    """
+    from shared_config.community_model_config import devices_for_hardware
+
+    profiles = detail.get("profiles") or []
+
+    def fits(profile):
+        return _community_fit(
+            devices_for_hardware(profile.get("hardware")),
+            profile.get("chips_required"),
+            current_board,
+            board_slots,
+        ) is not False
+
+    default_name = detail.get("default_profile")
+    default = next((p for p in profiles if p.get("name") == default_name), None)
+    if default is not None and fits(default):
+        return default_name
+    runnable = [p for p in profiles if fits(p)]
+    if not runnable:
+        return None
+    return max(runnable, key=lambda p: p.get("chips_required") or 1).get("name")
+
+
+def _unreadable_community_entry(row, current_board, board_slots):
+    """A catalog row whose manifest could not be read — listed, but nothing asserted.
+
+    Only reachable when the Hub refuses the manifest (gated, unpublished, offline).
+    The repo's tags may still name a board, which is enough to rule out a mesh larger
+    than this one; anything finer needs the manifest, so the mesh falls back to the
+    whole board. That is pessimistic in the device preview but never wrong about
+    placement, and the deploy re-reads the manifest before it allocates anything.
+    """
+    from shared_config.community_model_config import devices_for_hardware
+
+    repo_id = row["repo_id"]
+    chips = row.get("chips_required")
+    return {
+        "id": community_model_id(repo_id),
+        "name": repo_id,
+        "is_compatible": _community_fit(
+            devices_for_hardware(row.get("hardware")), chips, current_board, board_slots
+        ),
+        "compatible_boards": [],
+        "model_type": ModelTypes.CHAT.value,
+        "display_model_type": "LLM",
+        "current_board": current_board,
+        "status": None,
+        "chips_required": chips or board_slots,
+        "hf_model_id": None,
+        "source": launchers.COMMUNITY,
+        "author": row.get("author"),
+        "downloads": row.get("downloads"),
+        "installed": bool(row.get("installed")),
+        "profiles": [],
+    }
+
+
+def _community_fit(device_configurations, chips_required, current_board, board_slots):
+    """Whether a bundle's mesh fits this board. None when it cannot be determined.
+
+    One rule for both listing paths, so an installed bundle and a catalog row are
+    judged the same way. Beyond the board-to-device map the catalog path uses, a mesh
+    with more chips than the board has is ruled out outright: that holds whatever the
+    bundle's hardware label maps to, and it is the case a label-only check misses
+    (a p150x8 bundle offered on a four-slot board).
     """
     if not current_board or current_board == "unknown":
         return None
-    if not impl.device_configurations:
+    if chips_required and board_slots and chips_required > board_slots:
+        return False
+    if not device_configurations:
         return None
     board_devices = set(_BOARD_TO_DEVICE_CONFIGS.get(current_board, []))
-    return bool(board_devices.intersection(impl.device_configurations))
+    if board_devices.intersection(device_configurations):
+        return True
+    # The same four-chip Blackhole mesh equivalence the catalog grants a vLLM model,
+    # where a p150x4 and a p300x2 mesh are interchangeable. It applies here because
+    # every community bundle TT Studio serves is vLLM (see SUPPORTED_KINDS in the
+    # runner) — so the engine is fixed rather than read off the bundle.
+    return bool(
+        vllm_mesh_fallback_fits(
+            SimpleNamespace(
+                device_configurations=device_configurations, inference_engine="vllm"
+            ),
+            current_board,
+        )
+    )
 
 
 class StatusView(APIView):

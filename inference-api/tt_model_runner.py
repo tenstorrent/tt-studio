@@ -29,12 +29,18 @@ import json
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 # Engines this build of TT Studio can present as a chat model. tt_kernel may support
 # more kinds than we have a UI for (an image/DiT launcher is expected), so an unknown
 # kind is refused by name rather than deployed into a route that would 404.
 SUPPORTED_KINDS = ("vllm-plugin", "vllm-fork")
+
+# Manifests are read concurrently for the whole catalog listing. Measured at ~1.1s
+# for 43 bundles cold and ~0.4s warm, against ~0.2s each serially; the backend caches
+# the result, so this is paid once per refresh rather than per page view.
+_MANIFEST_WORKERS = 8
 
 
 def emit(event: str, **fields: Any) -> None:
@@ -163,34 +169,156 @@ def _load_manifest(repo_id: str, *, allow_fetch: bool):
 # ---------------------------------------------------------------------- commands
 
 
+def _hardware_from_tags(tags: List[str]) -> Optional[str]:
+    """The board label among a repo's tags, via tt_kernel's own reader.
+
+    ``hardware_chip_count`` answers for every real board label ("p150", "p300x2") and
+    None for everything else, so it doubles as the discriminator — no second list of
+    board names to keep in step with tt_kernel's.
+    """
+    from tt_kernel.container_manifest import hardware_chip_count
+
+    return next((t for t in tags if t and hardware_chip_count(t) is not None), None)
+
+
+def _kind_from_tags(tags: List[str]) -> Optional[str]:
+    """The engine among a repo's tags, named against the launcher registry."""
+    from tt_kernel.launchers import KINDS
+
+    return next((t for t in tags if t in KINDS), None)
+
+
+def _catalog_tags(arch: Optional[str], query: Optional[str], limit: int) -> Dict[str, List[str]]:
+    """Repo tags for the catalog listing, keyed by repo id.
+
+    ``tt-model package`` writes a bundle's board and engine into its repo tags, and the
+    Hub returns them with the listing at no extra cost — so the deploy UI can size a
+    bundle's mesh before anything is downloaded. Separate from ``hub.search`` only
+    because that drops tags on the floor; the caller prefers the tags search returns if
+    a later tt_kernel starts carrying them.
+    """
+    from huggingface_hub import HfApi
+    from tt_kernel import TT_MODEL_CATALOG_TAG
+
+    filters = [TT_MODEL_CATALOG_TAG] + ([arch] if arch else [])
+    found = HfApi().list_models(
+        filter=filters if len(filters) > 1 else TT_MODEL_CATALOG_TAG,
+        search=query or None,
+        limit=limit,
+    )
+    return {
+        m.id: [t for t in (getattr(m, "tags", None) or []) if t]
+        for m in found
+        if getattr(m, "id", None)
+    }
+
+
+def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
+    """A catalog row's deployable detail, read from its manifest alone.
+
+    The manifest is one small JSON file, so a bundle that has never been pulled is
+    described here without touching its image or weights. Profiles come back in the
+    same shape ``inspect`` returns, so one code path in TT Studio can build a
+    model_impl from either — which matters because a bundle may declare several
+    profiles with different meshes, and only the manifest lists them all.
+
+    No image probe: that is a docker call per row and the listing does not report it.
+    Best-effort — a bundle the Hub will not serve stays on its tag fallback rather
+    than failing the whole listing.
+    """
+    from tt_kernel import hub
+
+    try:
+        manifest = hub.fetch_manifest(repo_id, None)
+        if not manifest.is_container:
+            return None
+        spec = manifest.container
+        profiles = [
+            _profile_summary(manifest, spec.resolve_profile(name))
+            for name in spec.profile_names()
+        ]
+        default = spec.resolve_profile(None)
+    except Exception as e:
+        emit("log", level="DEBUG", message=f"could not read manifest for {repo_id}: {e}")
+        return None
+    return {
+        "arch": manifest.arch,
+        "kind": spec.kind,
+        "supported": spec.kind in SUPPORTED_KINDS,
+        "weights_repo": manifest.weights.repo_id if manifest.weights else None,
+        "default_profile": spec.resolved_default(),
+        "profiles": profiles,
+        # Kept consistent with `profiles` above rather than left on the tag reading:
+        # a repo carries one hardware tag, which need not be the default profile's.
+        "hardware": default.hardware,
+        "chips_required": _chips_for(default.mesh_device, default.hardware),
+    }
+
+
+def _annotate_from_manifests(bundles: List[Dict[str, Any]]) -> None:
+    """Replace each row's tag-derived guess with its manifest, in place.
+
+    Concurrent because every row is an independent Hub round-trip; bounded because
+    this runs while the deploy page waits. A row whose manifest cannot be read keeps
+    whatever its tags said, which is why the tag reading above is not redundant.
+    """
+    if not bundles:
+        return
+    with ThreadPoolExecutor(max_workers=_MANIFEST_WORKERS) as pool:
+        details = pool.map(_catalog_entry, [b["repo_id"] for b in bundles])
+    for bundle, detail in zip(bundles, details):
+        if detail:
+            bundle.update(detail)
+
+
 def cmd_catalog(args: argparse.Namespace) -> int:
     """The community catalog, annotated with what is already installed locally."""
     from tt_kernel import hub, localdb
 
     installed = {e.get("repo_id"): e for e in localdb.all_entries() if e.get("repo_id")}
     tags = [args.arch] if args.arch else []
+    # One block: fetch_manifest writes progress to stdout, which has to stay pure NDJSON,
+    # and redirect_stdout is process-wide — so the thread pool below must run inside it.
     with _quiet_tt_kernel():
         found = hub.search(
             args.query or "", limit=args.limit, catalog_only=True, tags=tags
         )
-    bundles = []
-    for row in found:
-        repo_id = row.get("id")
-        if not repo_id:
-            continue
-        entry = installed.get(repo_id) or {}
-        bundles.append(
-            {
-                "repo_id": repo_id,
-                "author": repo_id.split("/")[0],
-                "downloads": row.get("downloads"),
-                "last_modified": row.get("last_modified"),
-                "installed": bool(entry),
-                "arch": entry.get("arch") or args.arch,
-                "default_profile": entry.get("profile"),
-                "profiles": entry.get("profiles") or [],
-            }
-        )
+        try:
+            tags_by_repo = _catalog_tags(args.arch, args.query, args.limit)
+        except Exception as e:
+            emit("warning", message=f"could not read catalog tags: {e}")
+            tags_by_repo = {}
+
+        bundles = []
+        for row in found:
+            repo_id = row.get("id")
+            if not repo_id:
+                continue
+            entry = installed.get(repo_id) or {}
+            repo_tags = row.get("tags") or tags_by_repo.get(repo_id) or []
+            hardware = _hardware_from_tags(repo_tags)
+            kind = _kind_from_tags(repo_tags)
+            bundles.append(
+                {
+                    "repo_id": repo_id,
+                    "author": repo_id.split("/")[0],
+                    "downloads": row.get("downloads"),
+                    "last_modified": row.get("last_modified"),
+                    "installed": bool(entry),
+                    "arch": entry.get("arch") or args.arch,
+                    "default_profile": entry.get("profile"),
+                    "profiles": [],
+                    # Fallback only: the repo's tags, for a row whose manifest the Hub
+                    # will not serve. None means genuinely unknown, which the UI must
+                    # not read as "one chip".
+                    "hardware": hardware,
+                    "chips_required": _chips_for(None, hardware) if hardware else None,
+                    "kind": kind,
+                    "supported": kind in SUPPORTED_KINDS if kind else None,
+                    "weights_repo": None,
+                }
+            )
+        _annotate_from_manifests(bundles)
     emit("catalog", arch=args.arch, bundles=bundles)
     return 0
 

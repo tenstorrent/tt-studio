@@ -109,7 +109,11 @@ def fetch_catalog(arch: Optional[str] = None, refresh: bool = False) -> List[Dic
     key = f"catalog:{arch}"
 
     def produce():
-        params = {"arch": arch} if arch else {}
+        params: Dict[str, Any] = {"arch": arch} if arch else {}
+        # inference-api caches the catalog too, so an explicit refresh has to reach it
+        # or the user gets a listing up to its own TTL stale.
+        if refresh:
+            params["refresh"] = "true"
         return (_get("models", params, timeout=60) or {}).get("bundles") or []
 
     return _cached(key, _CATALOG_TTL_SECONDS, produce) or []
