@@ -10,6 +10,7 @@ import time
 import tempfile
 import signal
 from tt_setup.constants import *
+from tt_setup.model_manager import model_manager_python
 from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
@@ -166,6 +167,16 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+
+    # Point inference-api at the tt-model-manager venv so the community-model path
+    # can run its bridge (tt_model_runner.py) under that interpreter. Absent means
+    # community models are simply not offered.
+    mm_python = model_manager_python()
+    if os.path.exists(mm_python):
+        env["TT_MODEL_MANAGER_PYTHON"] = mm_python
+        mm_ref = get_env_var("TT_MODEL_MANAGER_REF")
+        if mm_ref:
+            env["TT_MODEL_MANAGER_REF"] = mm_ref
 
     # STOPGAP (excise when upstream catalog carries the var): overlay
     # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted

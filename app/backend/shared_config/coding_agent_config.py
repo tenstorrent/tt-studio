@@ -49,17 +49,21 @@ def is_coding_agent_eligible(model_impl) -> bool:
     Catalog models are allowlisted by name: we know which of them we have
     verified against coding agents. An externally-registered model has no
     catalog entry to allowlist, so it qualifies on structure instead — a chat or
-    VLM container the user explicitly registered. Whether it can actually be
-    driven is a separate question answered by `tool_calling_enabled`, which every
-    caller here already filters on (see _running_coding_agent_deploys); that
-    keeps a tool-calling-less container out of the usable list while still
-    letting the UI explain how to relaunch it.
+    VLM container the user explicitly registered. A community bundle qualifies the
+    same way, its parser being declared in the manifest rather than guessed.
+    Whether it can actually be driven is a separate question answered by
+    `tool_calling_enabled`, which every caller here already filters on (see
+    _running_coding_agent_deploys); that keeps a tool-calling-less container out of
+    the usable list while still letting the UI explain how to relaunch it.
     """
     if model_impl is None:
         return False
     if getattr(model_impl, "model_type", None) not in CODING_AGENT_MODEL_TYPES:
         return False
-    if getattr(model_impl, "is_external", False):
+    # An externally-registered or community model has no catalog entry to allowlist,
+    # so it qualifies on structure. A community bundle's tool-calling support is
+    # declared in its manifest, which is stronger evidence than the name allowlist.
+    if getattr(model_impl, "is_external", False) or getattr(model_impl, "is_community", False):
         return True
     return getattr(model_impl, "model_name", None) in CODING_AGENT_ELIGIBLE_MODELS
 

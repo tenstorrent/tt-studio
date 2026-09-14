@@ -25,6 +25,7 @@ from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _catalog_missing_generated_specs, _sync_model_catalog, setup_tt_inference_server
+from tt_setup.model_manager import setup_tt_model_manager
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -854,6 +855,12 @@ def _run(args):
                         _sync_model_catalog()
                 elif show_detail():
                     console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
+
+                # Community-model path. Non-fatal by design: without it the backend
+                # simply doesn't offer community models, and inference-server
+                # deploys are unaffected.
+                with step("tt-model-manager artifact", spinner=True):
+                    setup_tt_model_manager()
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
