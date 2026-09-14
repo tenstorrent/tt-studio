@@ -67,6 +67,14 @@ from docker_control.chip_allocator import (
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
+from shared_config.community_model_config import (
+    arch_for_board,
+    community_model_id,
+    is_community_model_id,
+)
+from docker_control import launchers
+from docker_control.community_deploy import deploy_community_model
+from docker_control.deploy_guards import deploy_in_flight_refusal, hugging_face_access_refusal
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -215,48 +223,50 @@ def _lookup_deployment_device_ids(container_id):
         logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
         return []
 
+# Board type -> the device configurations a model may declare to run on it. Module
+# level so the catalog and community compatibility checks share one table.
+_BOARD_TO_DEVICE_CONFIGS = {
+    # Wormhole single devices
+    'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+    'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'E150': [DeviceConfigurations.E150],
+    
+    # Wormhole multi-device
+    'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+    'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    
+    # Blackhole single devices
+    'P100': [DeviceConfigurations.P100],
+    'P150': [DeviceConfigurations.P150],
+    'P300': [DeviceConfigurations.P300],
+
+    # Blackhole multi-device
+    # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
+    # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
+    # models that only have the other mesh still show via vllm_mesh_fallback_fits.
+    'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
+    'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
+    # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
+    'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
+    'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
+    
+    # Galaxy systems
+    'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    
+    'unknown': []  # Empty list for unknown board type
+}
+
+
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
         # Detect current board type using tt-smi command
         current_board = detect_board_type()
         logger.info(f"Detected board type: {current_board}")
         
-        # Map board types to their corresponding device configurations
-        board_to_device_map = {
-            # Wormhole single devices
-            'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'E150': [DeviceConfigurations.E150],
-            
-            # Wormhole multi-device
-            'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
-            # Blackhole single devices
-            'P100': [DeviceConfigurations.P100],
-            'P150': [DeviceConfigurations.P150],
-            'P300': [DeviceConfigurations.P300],
-
-            # Blackhole multi-device
-            # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
-            # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
-            # models that only have the other mesh still show via vllm_mesh_fallback_fits.
-            'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
-            'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            
-            # Galaxy systems
-            'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
-            'unknown': []  # Empty list for unknown board type
-        }
-        
         # Get the device configurations for current board
-        current_board_devices = set(board_to_device_map.get(current_board, []))
+        current_board_devices = set(_BOARD_TO_DEVICE_CONFIGS.get(current_board, []))
         logger.info(f"Current board devices: {current_board_devices}")
         
         data = []
@@ -275,7 +285,7 @@ class ContainersView(APIView):
             
             # Get all boards this model can run on
             compatible_boards = []
-            for board, devices in board_to_device_map.items():
+            for board, devices in _BOARD_TO_DEVICE_CONFIGS.items():
                 if board == 'unknown':
                     continue
                 if bool(set(devices).intersection(impl.device_configurations)) or vllm_mesh_fallback_fits(impl, board):
@@ -306,9 +316,106 @@ class ContainersView(APIView):
                 "chips_required": chips_required,
                 # Lets the UI pre-flight the HF gate before attempting a deploy.
                 "hf_model_id": impl.hf_model_id,
+                "source": launchers.INFERENCE_SERVER,
             })
-        
+
+        data.extend(
+            _community_model_entries(
+                current_board, refresh=request.query_params.get("refresh") in ("1", "true")
+            )
+        )
         return Response(data, status=status.HTTP_200_OK)
+
+
+def _community_model_entries(current_board, refresh=False):
+    """Community bundles, in the same row shape ContainersView returns for the catalog.
+
+    Best-effort by design: tt-model-manager may not be installed and the Hub may be
+    unreachable, and neither must break the catalog model list. A bundle is only listed
+    once its manifest is readable, because that is what carries the mesh size and engine
+    the UI needs to decide whether it can be deployed here.
+    """
+    from docker_control.tt_model_client import fetch_bundle, fetch_catalog
+    from shared_config.community_model_config import build_community_model_impl
+
+    arch = arch_for_board(current_board)
+    try:
+        bundles = fetch_catalog(arch, refresh=refresh)
+    except Exception as e:
+        logger.warning(f"Could not list community models: {e}")
+        return []
+
+    entries = []
+    for row in bundles:
+        repo_id = row.get("repo_id")
+        if not repo_id:
+            continue
+        detail = fetch_bundle(repo_id) if row.get("installed") else None
+        if detail is None:
+            # Not installed yet: the manifest costs a Hub request per bundle, so the
+            # row is listed from the catalog alone and inspected when it is selected.
+            entries.append({
+                "id": community_model_id(repo_id),
+                "name": repo_id,
+                # Arch match is all the catalog tells us; the manifest's mesh decides
+                # the rest, so compatibility stays unknown rather than asserted.
+                "is_compatible": None,
+                "compatible_boards": [],
+                "model_type": ModelTypes.CHAT.value,
+                "display_model_type": "LLM",
+                "current_board": current_board,
+                "status": None,
+                # No manifest yet, so the mesh size is unknown; 1 is the common case and
+                # the only cost of guessing is the device preview, because the deploy
+                # re-reads the manifest and allocates from that (community_deploy).
+                "chips_required": 1,
+                "hf_model_id": None,
+                "source": launchers.COMMUNITY,
+                "author": row.get("author"),
+                "downloads": row.get("downloads"),
+                "installed": False,
+                "profiles": row.get("profiles") or [],
+            })
+            continue
+
+        if not detail.get("supported"):
+            continue
+        impl = build_community_model_impl(detail)
+        entries.append({
+            "id": impl.model_id,
+            "name": impl.model_name,
+            "is_compatible": _community_is_compatible(impl, current_board),
+            "compatible_boards": [],
+            "model_type": impl.model_type.value,
+            "display_model_type": impl.display_model_type,
+            "current_board": current_board,
+            "status": None,
+            # The mesh the bundle's profile opens, which is exactly what the deploy
+            # reserves — tt-model-manager scopes the container to those chips.
+            "chips_required": impl.chips_required,
+            "hf_model_id": impl.hf_model_id,
+            "source": launchers.COMMUNITY,
+            "author": impl.author,
+            "downloads": row.get("downloads"),
+            "installed": True,
+            "profiles": list(impl.profiles),
+            "profile": impl.profile,
+        })
+    return entries
+
+
+def _community_is_compatible(impl, current_board):
+    """Whether a bundle's mesh fits this board. None when the board is unknown.
+
+    Uses the same board-to-device map as the catalog path, so a bundle targeting
+    p150 on a P300x2 reads compatible for the same reason a catalog model does.
+    """
+    if not current_board or current_board == "unknown":
+        return None
+    if not impl.device_configurations:
+        return None
+    board_devices = set(_BOARD_TO_DEVICE_CONFIGS.get(current_board, []))
+    return bool(board_devices.intersection(impl.device_configurations))
 
 
 class StatusView(APIView):
@@ -405,7 +512,6 @@ class ChipStatusView(APIView):
             )
 
 
-
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
         # Block new deployments while a board/device reset is in progress — deploying
@@ -415,6 +521,11 @@ class DeployView(APIView):
                 {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
                 status=status.HTTP_409_CONFLICT,
             )
+        # Community bundles are served by tt-model-manager, not tt-inference-server.
+        # Dispatched before validation because DeploymentSerializer resolves model_id
+        # against the tt-inference-server catalog, which never contains a bundle.
+        if is_community_model_id(request.data.get("model_id")):
+            return deploy_community_model(request)
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
@@ -489,41 +600,9 @@ class DeployView(APIView):
                 )
 
             # Pre-check Hugging Face access before consuming a chip slot.
-            hf_repo = getattr(impl, "hf_model_id", None)
-            if hf_repo and "/" in hf_repo:
-                from shared_config.user_config import get_hf_token
-                token = get_hf_token()
-                from api.hf_access import _check_repo, _status_from_code
-                code = _check_repo(token or "", hf_repo)
-                # diffusers repos (FLUX/Wan) have no root config.json and 404;
-                # retry with model_index.json so a gated diffusers repo still
-                # surfaces denied/auth_failed instead of a false "error".
-                if code == 404:
-                    code = _check_repo(token or "", hf_repo, "model_index.json")
-                status_str = _status_from_code(code)
-                if status_str in ("denied", "auth_failed"):
-                    message = (
-                        f"Your Hugging Face token does not have access to {hf_repo}."
-                        if token
-                        else f"A Hugging Face token is required to access {hf_repo}. Please add a token in Settings."
-                    )
-                    return Response(
-                        {
-                            "error_code": "hf_access_denied",
-                            "message": message,
-                            "hf_url": f"https://huggingface.co/{hf_repo}",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                elif status_str == "not_found" or code == 404:
-                    return Response(
-                        {
-                            "error_code": "hf_model_not_found",
-                            "message": f"The Hugging Face model repository '{hf_repo}' could not be found or is unavailable.",
-                            "hf_url": f"https://huggingface.co/{hf_repo}",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            refusal = hugging_face_access_refusal(getattr(impl, "hf_model_id", None))
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
             # On Wormhole mesh boards a single-chip-capable model deploys across the whole
             # board by default; only an explicit slot selection ("1 Device") pins it to a
@@ -544,37 +623,9 @@ class DeployView(APIView):
                 or mesh_whole_board
             )
 
-            # Multiple concurrent instances of the same model are allowed when chip
-            # capacity is available: this guard blocks a second concurrent *start*, not
-            # a second running instance. A model still in 'starting' has a deploy in
-            # flight on the inference server, and firing another one achieves nothing —
-            # the inference server serialises /run behind a single process-wide lock, so
-            # the duplicate would either be rejected or sit invisibly queued and then
-            # start a second container on the same devices and port when the first
-            # finished. Deliberately independent of chip-slot accounting so it still
-            # holds if the slot bookkeeping is ever wrong about the board being free.
-            from docker_control.models import ModelDeployment as _ModelDeployment
-            in_flight = _ModelDeployment.objects.filter(
-                model_name=impl.model_name, status="starting"
-            ).first()
-            if in_flight is not None:
-                logger.info(
-                    f"Rejecting duplicate deploy of {impl.model_name}: job "
-                    f"{in_flight.container_id} is already starting"
-                )
-                return Response(
-                    {
-                        "status": "error",
-                        "error_type": "deploy_in_flight",
-                        "message": (
-                            f"{impl.model_name} is already deploying. Wait for it to "
-                            f"finish, or cancel it from the Deployed Models page before "
-                            f"starting another."
-                        ),
-                        "job_id": in_flight.container_id,
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
+            refusal = deploy_in_flight_refusal(impl.model_name)
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
             # Allocate a chip slot for all model types so device_id is always set correctly.
             try:
@@ -3212,6 +3263,33 @@ class _StopFailed(Exception):
     """Raised when a container cannot be stopped; the stream aborts with an error."""
 
 
+def _community_stop_for_container(container_id):
+    """Stop a community deployment via its launcher, or None if this isn't one.
+
+    Returns ``{"lines", "error"}`` so the caller can stream the progress it produced
+    before failing, rather than losing it to an exception.
+    """
+    from docker_control.models import ModelDeployment
+
+    try:
+        deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+    except Exception as e:
+        logger.warning(f"Could not read deployment for {container_id[:12]}: {e}")
+        return None
+    if deployment is None or not getattr(deployment, "community_model_id", None):
+        return None
+
+    lines = [f"Stopping {deployment.model_name} via tt-model-manager…"]
+    result = launchers.get(launchers.COMMUNITY).stop(deployment)
+    if result.status != "success":
+        message = result.message or f"Failed to stop {deployment.model_name}"
+        return {"lines": lines + [f"Error: {message}"], "error": message}
+    if result.mesh_reset:
+        lines.append("The server did not shut down cleanly, so the mesh was reset.")
+    lines.append(f"{deployment.model_name} stopped and removed successfully")
+    return {"lines": lines, "error": None}
+
+
 async def _astream_stop_remove_container(container_id, truncated):
     """Stop and remove a model's container, yielding progress lines.
 
@@ -3272,6 +3350,22 @@ async def _astream_stop_remove_container(container_id, truncated):
         yield await asyncio.to_thread(_mark_stopped)
     except Exception as e:
         yield f"Warning: failed to update deployment record: {e}"
+
+    # A community bundle must be stopped through its launcher: tt-model-manager
+    # SIGTERMs the server so it closes the mesh, and resets the mesh itself if docker
+    # had to SIGKILL. A plain docker stop skips both and leaves the chips unusable
+    # until the next board reset.
+    community_stop = await asyncio.to_thread(_community_stop_for_container, container_id)
+    if community_stop is not None:
+        for line in community_stop["lines"]:
+            yield line
+        if community_stop["error"]:
+            raise _StopFailed(community_stop["error"])
+        try:
+            await asyncio.to_thread(update_deploy_cache)
+        except Exception:
+            pass
+        return
 
     yield f"Sending stop signal to container {truncated}…"
     docker_client = get_docker_client()

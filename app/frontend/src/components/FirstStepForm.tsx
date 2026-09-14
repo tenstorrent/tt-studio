@@ -14,6 +14,7 @@ import {
   FlaskConical,
   AlertTriangle,
   Copy,
+  Users,
 } from "lucide-react";
 
 import {
@@ -298,11 +299,14 @@ export function FirstStepForm({
 
   // Group models by display type, then by status, then by hardware compatibility
   type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };
-  const groupModelsByType = () => {
+  const groupModelsByType = (models: Model[]) => {
     const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
-    filteredModels.forEach((model) => {
+    models.forEach((model) => {
       const displayType = model.display_model_type || "LLM";
+      // Community bundles carry no verification status and fall into Experimental,
+      // which is the honest label for one: the catalog's Complete/Functional grades
+      // mean Tenstorrent verified the model, and nobody has verified these.
       const modelStatus = model.status || "EXPERIMENTAL";
 
       if (!grouped[displayType]) grouped[displayType] = {};
@@ -319,7 +323,11 @@ export function FirstStepForm({
     return grouped;
   };
 
-  const groupedModels = groupModelsByType();
+  // Tenstorrent-verified models and community bundles are listed separately: a
+  // community bundle is published by a Hub user and carries no verification status,
+  // so it must not sit unlabelled among the catalog's Complete/Functional groups.
+  const verifiedModels = filteredModels.filter((m) => m.source !== "community");
+  const communityModels = filteredModels.filter((m) => m.source === "community");
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
@@ -327,7 +335,14 @@ export function FirstStepForm({
   // deployed against the currently free devices.
   const renderModelItem = (model: Model, dotClass: string) => {
     const chips = model.chips_required ?? 1;
-    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type, model.model_type);
+    const placement = getModelPlacement(
+      model.name,
+      chips,
+      chipStatus?.board_type,
+      model.model_type,
+      chipStatus?.total_slots ?? 4,
+      model.source === "community"
+    );
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
     const fits =
@@ -347,6 +362,14 @@ export function FirstStepForm({
         <div className="flex items-center w-full">
           <span className={`${dotClass} mr-2 text-xs`}>●</span>
           <span className="flex-1">{model.name}</span>
+          {/* A community bundle has no verification status, so its provenance is
+              what the row shows instead: who published it, and whether deploying
+              it will have to download the bundle first. */}
+          {model.source === "community" && (
+            <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+              {model.installed ? "installed" : "not downloaded"}
+            </span>
+          )}
           {isDeploying ? (
             <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
               Deploying…
@@ -360,6 +383,78 @@ export function FirstStepForm({
           )}
         </div>
       </SelectItem>
+    );
+  };
+
+  // One source's models, grouped by type then verification status. Shared by both
+  // sections so the verified and community lists render identically.
+  const renderTypeGroups = (models: Model[]) => {
+    const groupedModels = groupModelsByType(models);
+    return (
+      <>
+        {Object.entries(groupedModels)
+          .sort(([a], [b]) => {
+            const orderA = TYPE_CONFIG[a]?.order ?? 99;
+            const orderB = TYPE_CONFIG[b]?.order ?? 99;
+            return orderA - orderB;
+          })
+          .map(([displayType, statusGroups], typeIndex) => {
+            const typeConfig = TYPE_CONFIG[displayType];
+            const typeLabel = typeConfig?.label || `${displayType} Models`;
+
+            return (
+              <div key={displayType}>
+                {/* Type Group Header */}
+                {typeIndex > 0 && (
+                  <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
+                )}
+                <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
+                  <span>{typeLabel}</span>
+                </div>
+
+                {/* Status sub-groups within this type */}
+                {Object.entries(statusGroups)
+                  .sort(
+                    ([a], [b]) =>
+                      (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
+                  )
+                  .map(([modelStatus, modelsByCompatibility]) => {
+                    const statusConfig =
+                      STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
+                    const hasModels =
+                      modelsByCompatibility.compatible.length +
+                      modelsByCompatibility.unknown.length > 0;
+
+                    if (!hasModels) return null;
+
+                    const IconComponent = statusConfig?.icon || Bot;
+
+                    return (
+                      <div key={`${displayType}-${modelStatus}`}>
+                        {/* Status Sub-Header */}
+                        <div
+                          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                        >
+                          <IconComponent className="w-3 h-3" />
+                          <span>{statusConfig?.label || modelStatus}</span>
+                        </div>
+
+                        {/* Compatible Models */}
+                        {modelsByCompatibility.compatible.map((model: Model) =>
+                          renderModelItem(model, "text-green-500")
+                        )}
+
+                        {/* Unknown Compatibility Models */}
+                        {modelsByCompatibility.unknown.map((model: Model) =>
+                          renderModelItem(model, "text-yellow-500")
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            );
+          })}
+      </>
     );
   };
 
@@ -438,69 +533,23 @@ export function FirstStepForm({
                   )}
 
                   {/* Render models grouped by type, then by status */}
-                  {Object.entries(groupedModels)
-                    .sort(([a], [b]) => {
-                      const orderA = TYPE_CONFIG[a]?.order ?? 99;
-                      const orderB = TYPE_CONFIG[b]?.order ?? 99;
-                      return orderA - orderB;
-                    })
-                    .map(([displayType, statusGroups], typeIndex) => {
-                      const typeConfig = TYPE_CONFIG[displayType];
-                      const typeLabel = typeConfig?.label || `${displayType} Models`;
+                  {renderTypeGroups(verifiedModels)}
 
-                      return (
-                        <div key={displayType}>
-                          {/* Type Group Header */}
-                          {typeIndex > 0 && (
-                            <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
-                          )}
-                          <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
-                            <span>{typeLabel}</span>
-                          </div>
-
-                          {/* Status sub-groups within this type */}
-                          {Object.entries(statusGroups)
-                            .sort(
-                              ([a], [b]) =>
-                                (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
-                            )
-                            .map(([modelStatus, modelsByCompatibility]) => {
-                              const statusConfig =
-                                STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
-                              const hasModels =
-                                modelsByCompatibility.compatible.length +
-                                modelsByCompatibility.unknown.length > 0;
-
-                              if (!hasModels) return null;
-
-                              const IconComponent = statusConfig?.icon || Bot;
-
-                              return (
-                                <div key={`${displayType}-${modelStatus}`}>
-                                  {/* Status Sub-Header */}
-                                  <div
-                                    className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
-                                  >
-                                    <IconComponent className="w-3 h-3" />
-                                    <span>{statusConfig?.label || modelStatus}</span>
-                                  </div>
-
-                                  {/* Compatible Models */}
-                                  {modelsByCompatibility.compatible.map((model: Model) =>
-                                    renderModelItem(model, "text-green-500")
-                                  )}
-
-
-                                  {/* Unknown Compatibility Models */}
-                                  {modelsByCompatibility.unknown.map((model: Model) =>
-                                    renderModelItem(model, "text-yellow-500")
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      );
-                    })}
+                  {/* Community bundles, labelled and last: published by Hub users and
+                      not verified by Tenstorrent. */}
+                  {communityModels.length > 0 && (
+                    <div>
+                      <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
+                      <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Community Models</span>
+                        <span className="font-normal text-xs text-gray-500 dark:text-gray-400">
+                          published by the community, not verified by Tenstorrent
+                        </span>
+                      </div>
+                      {renderTypeGroups(communityModels)}
+                    </div>
+                  )}
 
                   {/* If no models loaded yet */}
                   {filteredModels.length === 0 && !isLoading && (

@@ -25,6 +25,7 @@ import math
 import shlex
 import urllib.request
 import urllib.error
+from community import create_community_router
 
 # Force a sane umask so files run.py writes for read-only container bind mounts
 # (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
@@ -2129,6 +2130,17 @@ app = FastAPI(
     title="TT Inference Server API",
     description="Fast API wrapper for the TT Inference Server run script",
     version="1.3.0"
+)
+
+# Community-model path (tt-model-manager). Mounted here so community deploys share
+# this module's job stores and are served by the same /run/progress|logs|stream APIs.
+app.include_router(
+    create_community_router(
+        progress_store=progress_store,
+        log_store=log_store,
+        progress_lock=progress_lock,
+        max_log_messages=MAX_LOG_MESSAGES,
+    )
 )
 
 # Test logging on startup

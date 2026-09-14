@@ -48,7 +48,8 @@ function isMultiChipBlackholeBoard(boardType?: string): boolean {
   return !!boardType && MULTI_CHIP_BLACKHOLE_BOARDS.has(boardType.toUpperCase());
 }
 
-// Models declare 1 (single device) or >1 (full board: slots 0..3).
+// True when a model needs more than one chip. Whether that means a card group or the
+// whole board is getModelPlacement's call.
 export function isMultiChipModel(chipsRequired?: number): boolean {
   return (chipsRequired ?? 1) > 1;
 }
@@ -57,6 +58,21 @@ export function isMultiChipModel(chipsRequired?: number): boolean {
 export function fullBoardSlots(totalSlots: number): number[] {
   const count = Math.min(4, Math.max(totalSlots, 1));
   return Array.from({ length: count }, (_, i) => i);
+}
+
+// Slot groups a mesh of `chipsRequired` chips may occupy, aligned to a multiple of
+// its own size because the chips of one card are adjacent: a 2-chip mesh on a P300x2
+// belongs on a single card ([0,1] or [2,3]) and must not straddle two ([1,2]).
+// Mirrors ChipSlotAllocator._allocate_chip_group — keep the two in sync.
+export function alignedChipGroups(
+  chipsRequired: number,
+  totalSlots: number
+): number[][] {
+  const groups: number[][] = [];
+  for (let base = 0; base + chipsRequired <= totalSlots; base += chipsRequired) {
+    groups.push(Array.from({ length: chipsRequired }, (_, i) => base + i));
+  }
+  return groups;
 }
 
 // Whether a model can deploy right now given current slot occupancy.
@@ -117,14 +133,41 @@ export interface ModelPlacement {
   autoFullBoard?: boolean;
 }
 
+// Placement implied by a mesh size alone: one chip, one card group, or the board.
+// 4 remains the catalog's "whole board" value (see infer_chips_required), so a group
+// is only ever produced for a mesh genuinely smaller than the board.
+function meshPlacement(chipsRequired: number, totalSlots: number): ModelPlacement {
+  if (chipsRequired <= 1) {
+    return { allowsSingle: true, allowsFullBoard: false, cardGroups: [] };
+  }
+  if (chipsRequired >= 4 || chipsRequired >= totalSlots) {
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  }
+  return {
+    allowsSingle: false,
+    allowsFullBoard: false,
+    cardGroups: alignedChipGroups(chipsRequired, totalSlots),
+  };
+}
+
 // SINGLE SOURCE OF TRUTH for per-model device configurations.
 // Add a branch here to support a new flexible/custom model.
 export function getModelPlacement(
   modelName: string,
   chipsRequired: number,
   boardType?: string,
-  modelType?: string
+  modelType?: string,
+  totalSlots = 4,
+  isCommunity = false
 ): ModelPlacement {
+  // A community bundle's manifest is authoritative: tt-model-manager scopes the
+  // container to exactly the chips it is handed. The special cases below are
+  // name-matched and describe how tt-inference-server deploys a catalog model, so
+  // applying them to a bundle would place it on chips it never asked for — and a
+  // bundle's Hub id ("ns/llama-3.1-8b-...") readily matches those names.
+  if (isCommunity) {
+    return meshPlacement(chipsRequired, totalSlots);
+  }
   // Training on P300x2 runs on a single 2-chip card (auto default) or the full
   // board; elsewhere the full board. Routed by model_type, not name, since it
   // shares the "Llama-3.1-8B-Instruct" name with the chat model.

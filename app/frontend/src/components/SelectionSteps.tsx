@@ -39,9 +39,19 @@ export interface Model {
   current_board: string; // The detected board type
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
-  chips_required?: number; // Number of chips required (1 or 4)
+  chips_required?: number; // Chips the model occupies: 1, a bundle's mesh size, or 4 for a whole board
   /** Hugging Face repo backing this model; null when it has no HF source. */
   hf_model_id?: string | null;
+  /** Which launcher backend serves this model. Community models come from the
+   *  Hugging Face Hub via tt-model-manager rather than the released catalog. */
+  source?: "inference-server" | "community";
+  /** Community models only: the publishing Hub namespace and its usage signals. */
+  author?: string | null;
+  downloads?: number | null;
+  installed?: boolean;
+  /** Serve profiles the bundle declares, and the one this entry targets. */
+  profiles?: string[];
+  profile?: string;
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
@@ -212,6 +222,8 @@ export default function StepperDemo() {
     models?.find((m) => m.id === selectedModel)?.model_type ?? "";
 
   const boardType = effectiveChipStatus?.board_type;
+  const isSelectedModelCommunity =
+    models?.find((m) => m.id === selectedModel)?.source === "community";
   // Supported device configurations for the selected model (single source of truth).
   // Memoized so re-renders hand ChipConfigStep the same placement object instead of
   // a fresh one, which its selection effects would read as a rule change.
@@ -221,9 +233,19 @@ export default function StepperDemo() {
         selectedModelName ?? selectedModel ?? "",
         selectedModelChips,
         boardType,
-        selectedModelType
+        selectedModelType,
+        totalSlots ?? 4,
+        isSelectedModelCommunity
       ),
-    [selectedModelName, selectedModel, selectedModelChips, boardType, selectedModelType]
+    [
+      selectedModelName,
+      selectedModel,
+      selectedModelChips,
+      boardType,
+      selectedModelType,
+      totalSlots,
+      isSelectedModelCommunity,
+    ]
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
@@ -260,10 +282,11 @@ export default function StepperDemo() {
   })();
   // Auto mode with no available configuration → block deploy with a clear reason.
   const placementBlocked = !advancedActive && !!chipStatus && autoPlace === null;
-  // Single-device and flexible models in advanced mode need an explicit pick;
-  // true multi-chip models auto-allocate the whole board.
+  // Single-device and flexible models in advanced mode need an explicit pick, as do
+  // meshes smaller than the board (which have card groups to choose between); only
+  // true whole-board models auto-allocate.
   const requireDeviceSelection =
-    advancedActive && !isMultiChipModel(selectedModelChips);
+    advancedActive && (isFlexible || !isMultiChipModel(selectedModelChips));
 
   // Models with a deploy already in flight — stay selectable (so the user can
   // reconnect to their progress) rather than being greyed by their own reservation.
@@ -616,9 +639,14 @@ export default function StepperDemo() {
 
       // Devices this deploy occupies: the ones the CLI pinned, else whatever the
       // backend allocated (a slot number, or "0,1" / [0, 1] for multi-chip models).
+      // These feed the in-flight chip reservations, so a mesh spanning several slots
+      // has to report all of them or a second deploy is offered a busy chip.
       let deviceIds: number[] = [];
       if (deviceIdParam !== null && deviceIdParam !== "") {
         deviceIds = parseDeviceIds(deviceIdParam);
+      } else if (Array.isArray(data.device_ids) && data.device_ids.length > 0) {
+        // The full group, when the backend reports one (community deploys do).
+        deviceIds = data.device_ids.map(Number).filter((n: number) => Number.isFinite(n));
       } else {
         const allocated = data.allocated_device_id;
         if (typeof allocated === "number") deviceIds = [allocated];
