@@ -50,6 +50,7 @@ from .artifact_resolution import resolve_artifact_ref as _resolve_artifact_ref
 from .artifact_resolution import (
     resolve_override_docker_image as _resolve_override_docker_image,
 )
+from .artifact_resolution import training_image_override as _training_image_override
 from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
 from shared_config.coding_agent_config import get_reasoning_parser
 from .docker_control_client import (
@@ -394,6 +395,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
             force_full_board_requested = serializer.validated_data.get("force_full_board", False)
+            host_weights_dir = serializer.validated_data.get("host_weights_dir") or None
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -429,7 +431,16 @@ class DeployView(APIView):
                 and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
-            if force_full_board_requested and not should_force_full_board_llama:
+            # Training on P300x2 can also claim the whole board (all 4 chips) instead
+            # of a single P300 card, mirroring the flexible Llama card-pair choice.
+            should_force_full_board_training = (
+                impl.model_type == ModelTypes.TRAINING
+                and force_full_board_requested
+                and board_type == "P300x2"
+            )
+            if force_full_board_requested and not (
+                should_force_full_board_llama or should_force_full_board_training
+            ):
                 logger.info(
                     "Ignoring force_full_board for model=%s board=%s",
                     impl.model_name,
@@ -483,6 +494,13 @@ class DeployView(APIView):
                 and not requested_device_ids
                 and board_type in WHOLE_BOARD_DEFAULT_BOARDS
             )
+            # Any deploy that claims the entire board (reserve all slots, no device_id).
+            whole_board_deploy = (
+                should_force_full_board_llama
+                or should_force_full_board_training
+                or use_whole_board_deploy
+                or mesh_whole_board
+            )
 
             # Multiple concurrent instances of the same model are allowed when chip
             # capacity is available: this guard blocks a second concurrent *start*, not
@@ -520,10 +538,13 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
-                    # Wormhole mesh board, or a media model like FLUX with no single-chip
-                    # spec) takes over the entire board — reserve all slots.
+                # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
+                # training (force_full_board) are both driven by the frontend, exactly
+                # like the flexible Llama path — no server-side slot normalization needed.
+                if whole_board_deploy:
+                    # Whole-board deploy (forced QB2 Llama or training, a single-chip
+                    # model on a Wormhole mesh board, or a media model like FLUX with no
+                    # single-chip spec) takes over the entire board — reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -580,7 +601,7 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if whole_board_deploy:
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -614,7 +635,7 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+            if whole_board_deploy:
                 service_port = BASE_SERVICE_PORT
             else:
                 service_port = BASE_SERVICE_PORT + device_id
@@ -707,6 +728,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
+                    host_weights_dir=host_weights_dir,
                     dev_mode=impl.requires_dev_catalog,
                     artifact_ref=artifact_ref,
                     # First-load weight remaps on experimental blackhole builds can
@@ -749,6 +771,7 @@ class DeployView(APIView):
                             container_id=pull_id,
                             container_name=impl.model_name,
                             model_name=impl.model_name,
+                            model_id=impl.model_id,
                             device=device,
                             device_id=device_id,
                             device_ids=occupied_device_ids,
@@ -846,6 +869,7 @@ class DeployView(APIView):
                         container_id=result.job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=device_id,
                         device_ids=occupied_device_ids,
@@ -878,7 +902,7 @@ class DeployView(APIView):
                 host_port = serializer.validated_data.get("host_port")
 
                 # Pre-pull the media image first so the UI shows real progress.
-                media_device = infer_inference_server_device(impl)
+                media_device = infer_inference_server_device(impl, device_ids=device_ids_str)
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
@@ -887,7 +911,8 @@ class DeployView(APIView):
                 # would show progress for layers the deploy never uses and then stall
                 # while run.py pulls the pinned one untracked.
                 deploy_image = (
-                    media_image_override(impl.model_name, media_device)
+                    _training_image_override(impl)
+                    or media_image_override(impl.model_name, media_device)
                     or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
                     or impl.image_version
                 )
@@ -950,7 +975,7 @@ class DeployView(APIView):
                             logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
 
                     def deploy_fn(_pull_id=pull_id, _host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             # Free the slot: the deploy never started.
@@ -983,7 +1008,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id

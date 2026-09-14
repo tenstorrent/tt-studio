@@ -196,12 +196,16 @@ export default function StepperDemo() {
   // Chip requirement of the currently selected model (selectedModel holds the id).
   const selectedModelChips =
     models?.find((m) => m.id === selectedModel)?.chips_required ?? 1;
+  // Model type gates placement (e.g. training builds claim the whole board).
+  const selectedModelType =
+    models?.find((m) => m.id === selectedModel)?.model_type ?? "";
 
   // Supported device configurations for the selected model (single source of truth).
   const placement = getModelPlacement(
     selectedModelName ?? selectedModel ?? "",
     selectedModelChips,
-    effectiveChipStatus?.board_type
+    effectiveChipStatus?.board_type,
+    selectedModelType
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
@@ -430,6 +434,7 @@ export default function StepperDemo() {
   const handleDeploy = async (options?: {
     device_id?: number | string;
     host_port?: number | null;
+    host_weights_dir?: string;
   }): Promise<{
     success: boolean;
     job_id?: string;
@@ -472,6 +477,10 @@ export default function StepperDemo() {
     }
     if (resolvedDeviceId !== undefined) {
       payloadObj.device_id = resolvedDeviceId;
+    }
+    // Merged LoRA checkpoint selected in the deploy step → load via --host-weights-dir.
+    if (options?.host_weights_dir) {
+      payloadObj.host_weights_dir = options.host_weights_dir;
     }
     const payload = JSON.stringify(payloadObj);
 
@@ -843,6 +852,8 @@ export default function StepperDemo() {
                   }}
                   onModelNameChange={setSelectedModelName}
                   setFormError={setFormError}
+                  autoDeployModel={autoDeployModel}
+                  isAutoDeploying={isAutoDeploying}
                   chipStatus={effectiveChipStatus}
                   deployingModelIds={deployingModelIds}
                 />
