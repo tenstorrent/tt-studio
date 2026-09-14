@@ -100,6 +100,9 @@ export interface ModelPlacement {
   // True when a single-device model deploys board-wide by default (Wormhole mesh
   // boards); auto mode previews and uses the whole board, advanced can pin a slot.
   defaultsFullBoard?: boolean;
+  // For card-pair models: prefer the whole board over a free card pair in auto mode.
+  // Without it, auto mode picks a single card (advanced can still choose full board).
+  autoFullBoard?: boolean;
 }
 
 // SINGLE SOURCE OF TRUTH for per-model device configurations.
@@ -107,11 +110,22 @@ export interface ModelPlacement {
 export function getModelPlacement(
   modelName: string,
   chipsRequired: number,
-  boardType?: string
+  boardType?: string,
+  modelType?: string
 ): ModelPlacement {
-  // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board.
+  // Training on P300x2 runs on a single 2-chip card (auto default) or the full
+  // board; elsewhere the full board. Routed by model_type, not name, since it
+  // shares the "Llama-3.1-8B-Instruct" name with the chat model.
+  if ((modelType ?? "").toLowerCase() === "training") {
+    return isP300x2Board(boardType)
+      ? { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] }
+      : { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  }
+
+  // Llama 3.1 8B on P300x2 runs on either P300 card (2 devices) or the full board
+  // (auto default).
   if (isP300x2Board(boardType) && isLlama31_8BModel(modelName)) {
-    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]] };
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [[0, 1], [2, 3]], autoFullBoard: true };
   }
   // Multi-chip models always take the full board.
   if (isMultiChipModel(chipsRequired)) {
@@ -164,7 +178,7 @@ export function autoPlacement(
     slots.find((s) => s.slot_id === id)?.status === "available";
 
   if (placement.cardGroups.length > 0) {
-    if (placement.allowsFullBoard && board.every(isFree)) {
+    if (placement.allowsFullBoard && placement.autoFullBoard && board.every(isFree)) {
       return { deviceIds: board, fullBoard: true };
     }
     for (const group of placement.cardGroups) {
