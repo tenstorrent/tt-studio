@@ -138,6 +138,7 @@ from model_control.model_utils import (
     health_check,
     stream_to_cloud_model,
     embed_text,
+    find_deployed_embedding_model,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
@@ -2115,6 +2116,50 @@ class OpenAIModelsView(APIView):
         return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
 
 
+class OpenAIEmbeddingsView(APIView):
+    """OpenAI-compatible POST /v1/embeddings for companion apps (e.g. AnythingLLM).
+
+    Resolves the OpenAI `model` field to a running embedding deployment and
+    proxies to it via embed_text, same lookup EmbeddingInferenceView uses but
+    by model name instead of deploy_id -- the shape a generic OpenAI-compatible
+    client expects.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data
+        model_name = data.get("model")
+        text = data.get("input")
+        if not model_name or not text:
+            return Response(
+                {"error": {"message": "model and input are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deploy = find_deployed_embedding_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": {"message": f"No running embedding model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            result = embed_text(deploy, text, dimensions=data.get("dimensions"))
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"OpenAIEmbeddingsView error: {exc}")
+            return Response(
+                {"error": {"message": f"Could not reach the embedding model: {exc}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class CodingAgentsView(APIView):
     """Info for the frontend 'Coding Agents' page: gateway health, key, models.
 
@@ -2262,6 +2307,15 @@ class MarketplaceLaunchView(APIView):
                 }
             )
 
+        # Apps that offer an embedding picker (app.embedding_choice) may be told
+        # which deployed model to wire up instead of the app's own native one.
+        embedding_model = (request.data or {}).get("embedding_model") or None
+        if embedding_model and find_deployed_embedding_model(embedding_model) is None:
+            return Response(
+                {"error": f"No running embedding model named '{embedding_model}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         host_port = marketplace.claim_host_port(app, containers)
         if host_port is None:
             return Response(
@@ -2269,7 +2323,7 @@ class MarketplaceLaunchView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        marketplace.start_launch(app, host_port)
+        marketplace.start_launch(app, host_port, embedding_model=embedding_model)
         return Response(
             {"status": "starting", "host_port": host_port},
             status=status.HTTP_202_ACCEPTED,

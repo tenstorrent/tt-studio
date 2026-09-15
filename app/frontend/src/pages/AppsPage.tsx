@@ -22,9 +22,17 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -35,7 +43,9 @@ import CodeBlock from "../components/chatui/CodeBlock";
 import { customToast } from "../components/CustomToaster";
 import {
   fetchCodingAgentsInfo,
+  fetchEmbeddingModels,
   type CodingAgentsInfo,
+  type DeployedEmbeddingModel,
   type UnavailableCodingAgentModel,
 } from "../api/modelsDeployedApis";
 import {
@@ -51,6 +61,9 @@ import { cn } from "../lib/utils";
 
 const POLL_INTERVAL_MS = 3000;
 const PLACEHOLDER_MODEL = "your-model-name";
+// Sentinel for "use the app's own built-in embedder" in the launch picker --
+// never sent to the backend as embedding_model (see openEmbeddingChoice below).
+const NATIVE_EMBEDDING = "native";
 
 const formatBytes = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
@@ -92,6 +105,13 @@ export default function AppsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [guideApp, setGuideApp] = useState<MarketplaceApp | null>(null);
+  const [embeddingChoiceApp, setEmbeddingChoiceApp] =
+    useState<MarketplaceApp | null>(null);
+  const [embeddingModels, setEmbeddingModels] = useState<
+    DeployedEmbeddingModel[]
+  >([]);
+  const [selectedEmbeddingModel, setSelectedEmbeddingModel] =
+    useState<string>(NATIVE_EMBEDDING);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES);
   // Apps with a launch/stop request in flight, so buttons can't be double-fired.
   const [pending, setPending] = useState<Record<string, boolean>>({});
@@ -191,6 +211,25 @@ export default function AppsPage() {
     } finally {
       setPending((p) => ({ ...p, [app.id]: false }));
     }
+  };
+
+  const openEmbeddingChoice = async (app: MarketplaceApp) => {
+    setSelectedEmbeddingModel(NATIVE_EMBEDDING);
+    setEmbeddingChoiceApp(app);
+    setEmbeddingModels(await fetchEmbeddingModels());
+  };
+
+  const confirmEmbeddingChoice = async () => {
+    if (!embeddingChoiceApp) return;
+    const app = embeddingChoiceApp;
+    const embeddingModel =
+      selectedEmbeddingModel === NATIVE_EMBEDDING
+        ? undefined
+        : selectedEmbeddingModel;
+    setEmbeddingChoiceApp(null);
+    await runAction(app, (id) =>
+      launchMarketplaceApp(id, { embeddingModel })
+    );
   };
 
   const guide: Guide | null = useMemo(() => {
@@ -296,7 +335,11 @@ export default function AppsPage() {
                   app={app}
                   disabled={!!pending[app.id] || !gatewayConfigured}
                   url={app.host_port ? appUrl(app) : null}
-                  onLaunch={() => runAction(app, launchMarketplaceApp)}
+                  onLaunch={() =>
+                    app.embedding_choice
+                      ? openEmbeddingChoice(app)
+                      : runAction(app, launchMarketplaceApp)
+                  }
                   onStop={() => runAction(app, stopMarketplaceApp)}
                   onConnect={() => setGuideApp(app)}
                 />
@@ -361,6 +404,49 @@ export default function AppsPage() {
               </a>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!embeddingChoiceApp}
+        onOpenChange={(open) => !open && setEmbeddingChoiceApp(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Launch {embeddingChoiceApp?.name}</DialogTitle>
+            <DialogDescription>
+              Choose which embedding model {embeddingChoiceApp?.name} should
+              use for its document collections.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Select
+            value={selectedEmbeddingModel}
+            onValueChange={setSelectedEmbeddingModel}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NATIVE_EMBEDDING}>
+                Native (built-in embedder)
+              </SelectItem>
+              {embeddingModels.map((model) => (
+                <SelectItem
+                  key={model.id}
+                  value={model.hfModelId ?? model.modelName}
+                >
+                  {model.modelName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <DialogFooter>
+            <Button onClick={confirmEmbeddingChoice}>
+              <Play className="h-4 w-4 mr-2" /> Launch
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

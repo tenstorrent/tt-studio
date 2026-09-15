@@ -323,6 +323,28 @@ def _model_env(app: MarketplaceApp) -> Dict[str, str]:
     }
 
 
+def embedding_model_env(app: MarketplaceApp, embedding_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's embedding-endpoint env vars, if the user picked a model.
+
+    `embedding_model` is the identifier the frontend's embedding picker sent
+    (whatever find_deployed_embedding_model matches on). None means the app
+    keeps using its own native embedder, so no override is rendered and the
+    app's static `env` defaults apply. Always points directly at TT-Studio's
+    backend, bypassing the LiteLLM gateway used for chat -- embeddings aren't
+    part of its OpenAI surface.
+    """
+    if not embedding_model or not app.embedding_gateway_env:
+        return {}
+    return {
+        key: template.format(
+            base_url=BACKEND_OPENAI_URL,
+            api_key=LITELLM_UPSTREAM_KEY,
+            model=embedding_model,
+        )
+        for key, template in app.embedding_gateway_env.items()
+    }
+
+
 # --- Serialization ----------------------------------------------------------
 
 
@@ -371,6 +393,8 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
         "kind": app.kind.value,
         "docs_url": app.docs_url,
         "first_run_note": app.first_run_note,
+        # Lets the UI offer a "native vs. deployed model" picker before launch.
+        "embedding_choice": bool(app.embedding_gateway_env),
     }
 
     # Apps configured through their own UI need the endpoint as reachable from
@@ -532,10 +556,15 @@ def remove_container_if_present(client, name: str) -> None:
             raise
 
 
-def start_launch(app: MarketplaceApp, host_port: int) -> None:
+def start_launch(
+    app: MarketplaceApp, host_port: int, embedding_model: Optional[str] = None
+) -> None:
     """Pull and start an app in the background. Poll get_job / serialize_app."""
     threading.Thread(
-        target=_launch, args=(app, host_port), daemon=True, name=f"launch-{app.id}"
+        target=_launch,
+        args=(app, host_port, embedding_model),
+        daemon=True,
+        name=f"launch-{app.id}",
     ).start()
 
 
@@ -547,7 +576,9 @@ def stop_app(app: MarketplaceApp) -> None:
     clear_job(app.id)
 
 
-def _launch(app: MarketplaceApp, host_port: int) -> None:
+def _launch(
+    app: MarketplaceApp, host_port: int, embedding_model: Optional[str] = None
+) -> None:
     """Pull the image if needed, then run the container. Runs in a worker thread."""
     client = get_docker_client()
     image_name, image_tag = split_image_ref(app.image)
@@ -576,7 +607,11 @@ def _launch(app: MarketplaceApp, host_port: int) -> None:
                 name=app.container_name,
                 hostname=app.container_name,
                 ports={f"{app.container_port}/tcp": host_port},
-                environment={**app.env, **_model_env(app)},
+                environment={
+                    **app.env,
+                    **_model_env(app),
+                    **embedding_model_env(app, embedding_model),
+                },
                 volumes=dict(app.volumes),
                 network=backend_config.docker_bridge_network_name,
                 cap_add=list(app.cap_add),

@@ -69,6 +69,12 @@ class MarketplaceApp:
     env: Dict[str, str] = field(default_factory=dict)
     # Env vars wired to the model endpoint at launch. Values are templates rendered with {base_url}, {api_key}, {model} and {context_window}.
     gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed EMBEDDING model, only rendered when the user
+    # picks one at launch time instead of the app's own native embedder. Values
+    # are templates rendered with {base_url}, {api_key} and {model}; always
+    # point at TT-Studio's backend directly (not the LiteLLM gateway), since
+    # embeddings aren't part of the gateway's OpenAI surface.
+    embedding_gateway_env: Dict[str, str] = field(default_factory=dict)
     upstream: Upstream = Upstream.GATEWAY
     # True for apps that must be given one concrete model name up front rather than choosing from a list, so launching without a deployed model is refused.
     requires_model: bool = False
@@ -144,6 +150,15 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "GENERIC_OPEN_AI_API_KEY": "{api_key}",
             "GENERIC_OPEN_AI_MODEL_PREF": "{model}",
             "GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT": "{context_window}",
+        },
+        # Rendered instead of the "native" defaults in `env` when the user picks
+        # a deployed embedding model at launch (see marketplace_utils.embedding_model_env).
+        embedding_gateway_env={
+            "EMBEDDING_ENGINE": "generic-openai",
+            "EMBEDDING_BASE_PATH": "{base_url}",
+            "EMBEDDING_MODEL_PREF": "{model}",
+            "GENERIC_OPEN_AI_EMBEDDING_API_KEY": "{api_key}",
+            "EMBEDDING_MODEL_MAX_CHUNK_LENGTH": "8192",
         },
         requires_model=True,
         # Required by AnythingLLM's document collector.
