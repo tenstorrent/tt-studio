@@ -334,11 +334,6 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
-        # Training models are hidden for this release: the pinned inference-server
-        # artifact can't run the training-lora impl yet, so offering them only
-        # produces deploys that die at dispatch. Remove this once training ships.
-        if entry.get("model_type") == "TRAINING":
-            continue
         # Models the catalog marks unavailable are not offered for deploy. The
         # row stays in the JSON (with the reason) rather than being deleted, so a
         # catalog resync can't quietly reintroduce a model we already know is
@@ -470,6 +465,16 @@ _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 model_implmentations = {}
 for impl in _json_impls + _hardcoded_impls:
     validate_model_implemenation_config(impl)
+    # model_id omits the engine, so same-name cross-engine rows collide unless
+    # their versions differ. Fail loudly instead of silently overwriting.
+    if impl.model_id in model_implmentations:
+        existing = model_implmentations[impl.model_id]
+        raise ValueError(
+            f"Duplicate model_id '{impl.model_id}': "
+            f"'{existing.model_name}' ({existing.inference_engine}) and "
+            f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+            "Give them different versions or model_ids."
+        )
     model_implmentations[impl.model_id] = impl
 
 
