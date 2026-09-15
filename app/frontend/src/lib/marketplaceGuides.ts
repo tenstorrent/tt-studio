@@ -348,7 +348,7 @@ Base URL         ${BACKEND_INTERNAL_BASE}
 -> Add custom model
 Model type       Embedding
 Model name       <your deployed embedding model's name>`,
-        note: "Only needed if you'd rather use a deployed embedding model than RAGFlow's own local embedder. Deploy the embedding model from the Home page first, then set it as the default under System Model Settings.",
+        note: "Only needed if you'd rather use a deployed embedding model than RAGFlow's own local embedder. Deploy the embedding model from the Home page first, then set it as the default under System Model Settings. Also lower each knowledge base's Chunk Token Number to roughly 3/4 of that model's max sequence length (check the Home page's model card) -- RAGFlow's own default (128) is only safe for the smallest deployed embedders, and a chunk sized past what the model accepts fails to index rather than silently truncating.",
       },
     ],
   };

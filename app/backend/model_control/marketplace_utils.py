@@ -323,6 +323,39 @@ def _model_env(app: MarketplaceApp) -> Dict[str, str]:
     }
 
 
+# Fraction of an embedding model's own configured max sequence length left as
+# the token budget for one RAG chunk. A chunk sized right at that boundary can
+# still overflow it once the runner retokenizes: apps size chunks with their
+# own text splitter (a raw character count, or a generic tokenizer like
+# tiktoken), neither of which matches the model's actual vocabulary, and the
+# runner also needs room for any special tokens it adds server-side.
+EMBEDDING_CHUNK_SAFETY_MARGIN = 0.75
+# ~4 English characters per token is the standard estimate (used the same way
+# in LangChain's and OpenAI's own docs) -- only for apps whose splitter counts
+# characters rather than tokens; see max_chunk_chars below.
+CHARS_PER_TOKEN_ESTIMATE = 4
+# Used when a deployed embedding model doesn't report its own max sequence length.
+DEFAULT_EMBEDDING_MAX_LENGTH = 512
+
+
+def _embedding_model_max_length(embedding_model: str) -> int:
+    """The deployed embedding model's own configured max sequence length, in
+    tokens (from its catalog env_vars), or a conservative default if unknown."""
+    from model_control.model_utils import find_deployed_embedding_model
+
+    deploy = find_deployed_embedding_model(embedding_model)
+    impl = deploy.get("model_impl") if deploy else None
+    raw_max_length = None
+    if impl is not None:
+        raw_max_length = impl.docker_config.get("environment", {}).get(
+            "VLLM__MAX_MODEL_LENGTH"
+        )
+    try:
+        return int(raw_max_length)
+    except (TypeError, ValueError):
+        return DEFAULT_EMBEDDING_MAX_LENGTH
+
+
 def embedding_model_env(app: MarketplaceApp, embedding_model: Optional[str]) -> Dict[str, str]:
     """Render the app's embedding-endpoint env vars, if the user picked a model.
 
@@ -332,14 +365,28 @@ def embedding_model_env(app: MarketplaceApp, embedding_model: Optional[str]) -> 
     app's static `env` defaults apply. Always points directly at TT-Studio's
     backend, bypassing the LiteLLM gateway used for chat -- embeddings aren't
     part of its OpenAI surface.
+
+    Templates also get `max_chunk_tokens` and `max_chunk_chars` (`chunk_overlap_tokens`
+    too) -- the picked model's own max sequence length with a safety margin,
+    not a fixed guess, so an app's RAG chunking never sends the model more
+    than it actually accepts. Use `max_chunk_tokens` for a token-counting text
+    splitter (e.g. Open WebUI's), `max_chunk_chars` for a character-counting
+    one (e.g. AnythingLLM's).
     """
     if not embedding_model or not app.embedding_gateway_env:
         return {}
+    max_length = _embedding_model_max_length(embedding_model)
+    max_chunk_tokens = max(1, int(max_length * EMBEDDING_CHUNK_SAFETY_MARGIN))
+    max_chunk_chars = max_chunk_tokens * CHARS_PER_TOKEN_ESTIMATE
+    chunk_overlap_tokens = max_chunk_tokens // 10 if max_chunk_tokens > 1 else 0
     return {
         key: template.format(
             base_url=BACKEND_OPENAI_URL,
             api_key=LITELLM_UPSTREAM_KEY,
             model=embedding_model,
+            max_chunk_tokens=max_chunk_tokens,
+            max_chunk_chars=max_chunk_chars,
+            chunk_overlap_tokens=chunk_overlap_tokens,
         )
         for key, template in app.embedding_gateway_env.items()
     }

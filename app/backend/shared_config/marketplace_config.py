@@ -120,12 +120,18 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         },
         # Rendered instead of Open WebUI's default local sentence-transformers
         # embedder when the user picks a deployed embedding model at launch
-        # (see marketplace_utils.embedding_model_env).
+        # (see marketplace_utils.embedding_model_env). Token-based splitting
+        # with a chunk size sized off the picked model's own max sequence
+        # length -- Open WebUI's character-based default can chunk well past
+        # what a small embedding model (e.g. 128-token bge-m3) actually accepts.
         embedding_gateway_env={
             "RAG_EMBEDDING_ENGINE": "openai",
             "RAG_OPENAI_API_BASE_URL": "{base_url}",
             "RAG_OPENAI_API_KEY": "{api_key}",
             "RAG_EMBEDDING_MODEL": "{model}",
+            "RAG_TEXT_SPLITTER": "token",
+            "CHUNK_SIZE": "{max_chunk_tokens}",
+            "CHUNK_OVERLAP": "{chunk_overlap_tokens}",
         },
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,
@@ -162,12 +168,16 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         },
         # Rendered instead of the "native" defaults in `env` when the user picks
         # a deployed embedding model at launch (see marketplace_utils.embedding_model_env).
+        # AnythingLLM's chunk length is a character cap on its text splitter,
+        # clamped to this value -- sized off the picked model's own max
+        # sequence length, not a flat 8192 that could be many times too large
+        # for a small deployed embedder (e.g. 128-token bge-m3).
         embedding_gateway_env={
             "EMBEDDING_ENGINE": "generic-openai",
             "EMBEDDING_BASE_PATH": "{base_url}",
             "EMBEDDING_MODEL_PREF": "{model}",
             "GENERIC_OPEN_AI_EMBEDDING_API_KEY": "{api_key}",
-            "EMBEDDING_MODEL_MAX_CHUNK_LENGTH": "8192",
+            "EMBEDDING_MODEL_MAX_CHUNK_LENGTH": "{max_chunk_chars}",
         },
         requires_model=True,
         # Required by AnythingLLM's document collector.
