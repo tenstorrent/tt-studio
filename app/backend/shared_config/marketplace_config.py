@@ -118,6 +118,15 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "OPENAI_API_BASE_URL": "{base_url}",
             "OPENAI_API_KEY": "{api_key}",
         },
+        # Rendered instead of Open WebUI's default local sentence-transformers
+        # embedder when the user picks a deployed embedding model at launch
+        # (see marketplace_utils.embedding_model_env).
+        embedding_gateway_env={
+            "RAG_EMBEDDING_ENGINE": "openai",
+            "RAG_OPENAI_API_BASE_URL": "{base_url}",
+            "RAG_OPENAI_API_KEY": "{api_key}",
+            "RAG_EMBEDDING_MODEL": "{model}",
+        },
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,
         health_path="/health",

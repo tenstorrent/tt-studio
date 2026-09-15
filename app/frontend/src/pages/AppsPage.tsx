@@ -22,7 +22,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
@@ -105,25 +104,27 @@ export default function AppsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [guideApp, setGuideApp] = useState<MarketplaceApp | null>(null);
-  const [embeddingChoiceApp, setEmbeddingChoiceApp] =
-    useState<MarketplaceApp | null>(null);
   const [embeddingModels, setEmbeddingModels] = useState<
     DeployedEmbeddingModel[]
   >([]);
-  const [selectedEmbeddingModel, setSelectedEmbeddingModel] =
-    useState<string>(NATIVE_EMBEDDING);
+  // Per-app inline embedding choice, keyed by app id. Defaults to native.
+  const [embeddingChoices, setEmbeddingChoices] = useState<
+    Record<string, string>
+  >({});
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES);
   // Apps with a launch/stop request in flight, so buttons can't be double-fired.
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
-    const [marketplace, gatewayInfo] = await Promise.all([
+    const [marketplace, gatewayInfo, embeddings] = await Promise.all([
       fetchMarketplaceApps(),
       fetchCodingAgentsInfo().catch(() => null),
+      fetchEmbeddingModels().catch(() => []),
     ]);
     setApps(marketplace.apps);
     setGatewayConfigured(marketplace.gateway_configured);
     if (gatewayInfo) setGateway(gatewayInfo);
+    setEmbeddingModels(embeddings);
   }, []);
 
   useEffect(() => {
@@ -213,22 +214,11 @@ export default function AppsPage() {
     }
   };
 
-  const openEmbeddingChoice = async (app: MarketplaceApp) => {
-    setSelectedEmbeddingModel(NATIVE_EMBEDDING);
-    setEmbeddingChoiceApp(app);
-    setEmbeddingModels(await fetchEmbeddingModels());
-  };
-
-  const confirmEmbeddingChoice = async () => {
-    if (!embeddingChoiceApp) return;
-    const app = embeddingChoiceApp;
-    const embeddingModel =
-      selectedEmbeddingModel === NATIVE_EMBEDDING
-        ? undefined
-        : selectedEmbeddingModel;
-    setEmbeddingChoiceApp(null);
-    await runAction(app, (id) =>
-      launchMarketplaceApp(id, { embeddingModel })
+  const launchApp = (app: MarketplaceApp) => {
+    const choice = embeddingChoices[app.id] ?? NATIVE_EMBEDDING;
+    const embeddingModel = choice === NATIVE_EMBEDDING ? undefined : choice;
+    return runAction(app, (id) =>
+      launchMarketplaceApp(id, app.embedding_choice ? { embeddingModel } : undefined)
     );
   };
 
@@ -335,11 +325,12 @@ export default function AppsPage() {
                   app={app}
                   disabled={!!pending[app.id] || !gatewayConfigured}
                   url={app.host_port ? appUrl(app) : null}
-                  onLaunch={() =>
-                    app.embedding_choice
-                      ? openEmbeddingChoice(app)
-                      : runAction(app, launchMarketplaceApp)
+                  embeddingModels={embeddingModels}
+                  embeddingChoice={embeddingChoices[app.id] ?? NATIVE_EMBEDDING}
+                  onEmbeddingChoiceChange={(value) =>
+                    setEmbeddingChoices((c) => ({ ...c, [app.id]: value }))
                   }
+                  onLaunch={() => launchApp(app)}
                   onStop={() => runAction(app, stopMarketplaceApp)}
                   onConnect={() => setGuideApp(app)}
                 />
@@ -404,49 +395,6 @@ export default function AppsPage() {
               </a>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!embeddingChoiceApp}
-        onOpenChange={(open) => !open && setEmbeddingChoiceApp(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Launch {embeddingChoiceApp?.name}</DialogTitle>
-            <DialogDescription>
-              Choose which embedding model {embeddingChoiceApp?.name} should
-              use for its document collections.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Select
-            value={selectedEmbeddingModel}
-            onValueChange={setSelectedEmbeddingModel}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NATIVE_EMBEDDING}>
-                Native (built-in embedder)
-              </SelectItem>
-              {embeddingModels.map((model) => (
-                <SelectItem
-                  key={model.id}
-                  value={model.hfModelId ?? model.modelName}
-                >
-                  {model.modelName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <DialogFooter>
-            <Button onClick={confirmEmbeddingChoice}>
-              <Play className="h-4 w-4 mr-2" /> Launch
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -699,6 +647,9 @@ function AppCard({
   app,
   url,
   disabled,
+  embeddingModels,
+  embeddingChoice,
+  onEmbeddingChoiceChange,
   onLaunch,
   onStop,
   onConnect,
@@ -706,6 +657,9 @@ function AppCard({
   app: MarketplaceApp;
   url: string | null;
   disabled: boolean;
+  embeddingModels: DeployedEmbeddingModel[];
+  embeddingChoice: string;
+  onEmbeddingChoiceChange: (value: string) => void;
   onLaunch: () => void;
   onStop: () => void;
   onConnect: () => void;
@@ -713,6 +667,10 @@ function AppCard({
   const busy = app.status === "pulling" || app.status === "starting";
   const running = app.status === "running";
   const reachable = useAppReachable(running ? url : null);
+  // Only a real decision when at least one embedding model is deployed --
+  // otherwise native is the only option and asking is pointless.
+  const showEmbeddingPicker =
+    !running && app.embedding_choice && embeddingModels.length > 0;
 
   return (
     // A launched app is the one thing on this page the user is likely to act on,
@@ -856,6 +814,29 @@ function AppCard({
           </div>
         ) : (
           <div className="space-y-2">
+            {showEmbeddingPicker && (
+              <Select
+                value={embeddingChoice}
+                onValueChange={onEmbeddingChoiceChange}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NATIVE_EMBEDDING}>
+                    Native (built-in embedder)
+                  </SelectItem>
+                  {embeddingModels.map((model) => (
+                    <SelectItem
+                      key={model.id}
+                      value={model.hfModelId ?? model.modelName}
+                    >
+                      {model.modelName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               className="w-full"
               onClick={onLaunch}
