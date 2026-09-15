@@ -75,6 +75,15 @@ class MarketplaceApp:
     # point at TT-Studio's backend directly (not the LiteLLM gateway), since
     # embeddings aren't part of the gateway's OpenAI surface.
     embedding_gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed SPEECH_RECOGNITION model, only rendered when
+    # the user picks one at launch time instead of the app's own native/cloud
+    # STT. Same template variables and BACKEND_OPENAI_URL rationale as
+    # embedding_gateway_env.
+    stt_gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed TTS model, only rendered when the user picks
+    # one at launch time instead of the app's own native/cloud TTS. Same
+    # template variables and BACKEND_OPENAI_URL rationale as embedding_gateway_env.
+    tts_gateway_env: Dict[str, str] = field(default_factory=dict)
     upstream: Upstream = Upstream.GATEWAY
     # True for apps that must be given one concrete model name up front rather than choosing from a list, so launching without a deployed model is refused.
     requires_model: bool = False
@@ -133,6 +142,27 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "CHUNK_SIZE": "{max_chunk_tokens}",
             "CHUNK_OVERLAP": "{chunk_overlap_tokens}",
         },
+        # Rendered instead of Open WebUI's default (browser-native or cloud)
+        # speech engines when the user picks a deployed model at launch.
+        stt_gateway_env={
+            "AUDIO_STT_ENGINE": "openai",
+            "AUDIO_STT_OPENAI_API_BASE_URL": "{base_url}",
+            "AUDIO_STT_OPENAI_API_KEY": "{api_key}",
+            "AUDIO_STT_MODEL": "{model}",
+            # Pinned explicitly: Open WebUI's alternate "json" request format
+            # sends base64 input_audio instead of a multipart file field, which
+            # TT's inference server (like real OpenAI) rejects at this route --
+            # and a stale persisted value from earlier UI toggling can stick
+            # even with ENABLE_PERSISTENT_CONFIG=false, since only settings
+            # backed by an env var are forced back to it.
+            "AUDIO_STT_OPENAI_API_REQUEST_FORMAT": "multipart",
+        },
+        tts_gateway_env={
+            "AUDIO_TTS_ENGINE": "openai",
+            "AUDIO_TTS_OPENAI_API_BASE_URL": "{base_url}",
+            "AUDIO_TTS_OPENAI_API_KEY": "{api_key}",
+            "AUDIO_TTS_MODEL": "{model}",
+        },
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,
         health_path="/health",
@@ -178,6 +208,20 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "EMBEDDING_MODEL_PREF": "{model}",
             "GENERIC_OPEN_AI_EMBEDDING_API_KEY": "{api_key}",
             "EMBEDDING_MODEL_MAX_CHUNK_LENGTH": "{max_chunk_chars}",
+        },
+        # Rendered instead of AnythingLLM's default (browser-native or cloud)
+        # speech engines when the user picks a deployed model at launch.
+        stt_gateway_env={
+            "STT_PROVIDER": "generic-openai",
+            "STT_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "STT_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "STT_OPEN_AI_COMPATIBLE_MODEL": "{model}",
+        },
+        tts_gateway_env={
+            "TTS_PROVIDER": "generic-openai",
+            "TTS_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "TTS_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "TTS_OPEN_AI_COMPATIBLE_MODEL": "{model}",
         },
         requires_model=True,
         # Required by AnythingLLM's document collector.

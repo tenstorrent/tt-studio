@@ -571,6 +571,16 @@ export const fetchHealthyModelsByType = async (
 export const fetchEmbeddingModels = async (): Promise<DeployedEmbeddingModel[]> =>
   fetchHealthyModelsByType("embedding");
 
+/** Currently deployed, healthy speech-recognition models, for the marketplace
+ * apps' companion STT picker. */
+export const fetchSttModels = async (): Promise<DeployedModelSummary[]> =>
+  fetchHealthyModelsByType("speech_recognition");
+
+/** Currently deployed, healthy TTS models, for the marketplace apps'
+ * companion TTS picker. */
+export const fetchTtsModels = async (): Promise<DeployedModelSummary[]> =>
+  fetchHealthyModelsByType("tts");
+
 export const runEmbeddingInference = async (
   deployId: string,
   input: string,

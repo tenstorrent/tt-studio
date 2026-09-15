@@ -55,22 +55,42 @@ def auth_headers(deploy: dict = None) -> dict:
     return {"Authorization": f"Bearer {token_for(secret)}"}
 
 
-def find_deployed_embedding_model(model_identifier: str) -> Optional[dict]:
-    """Return the deploy-cache entry for a currently-running EMBEDDING model whose
-    hf_model_id or model_name matches `model_identifier`, or None if it isn't deployed.
+def find_deployed_model_by_type(model_identifier: str, model_type: ModelTypes) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running model of the given
+    type whose hf_model_id or model_name matches `model_identifier`, or None if
+    it isn't deployed.
 
     Deploy/container ids are ephemeral across redeploys, so anything that needs to
-    keep working across them (a Chroma collection's stored embedding function) has
-    to key on the model's own identity instead and re-resolve the live deploy here
-    on every call.
+    keep working across them (a Chroma collection's stored embedding function, a
+    companion app's chosen speech model) has to key on the model's own identity
+    instead and re-resolve the live deploy here on every call.
     """
     for deploy in get_deploy_cache().values():
         impl = deploy.get("model_impl")
-        if not impl or getattr(impl, "model_type", None) != ModelTypes.EMBEDDING:
+        if not impl or getattr(impl, "model_type", None) != model_type:
             continue
         if model_identifier in (getattr(impl, "hf_model_id", None), getattr(impl, "model_name", None)):
             return deploy
     return None
+
+
+def find_deployed_embedding_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running EMBEDDING model whose
+    hf_model_id or model_name matches `model_identifier`, or None if it isn't deployed.
+    """
+    return find_deployed_model_by_type(model_identifier, ModelTypes.EMBEDDING)
+
+
+def find_deployed_speech_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running SPEECH_RECOGNITION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.SPEECH_RECOGNITION)
+
+
+def find_deployed_tts_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running TTS model whose
+    hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.TTS)
 
 
 def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:

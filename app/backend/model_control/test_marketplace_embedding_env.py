@@ -20,11 +20,13 @@ django.setup()
 from model_control.marketplace_utils import (
     DEFAULT_EMBEDDING_MAX_LENGTH,
     embedding_model_env,
+    stt_model_env,
+    tts_model_env,
 )
 from shared_config.marketplace_config import MarketplaceApp, AppKind
 
 
-def _app(embedding_gateway_env):
+def _app(embedding_gateway_env=None, stt_gateway_env=None, tts_gateway_env=None):
     return MarketplaceApp(
         id="test-app",
         name="Test App",
@@ -32,7 +34,9 @@ def _app(embedding_gateway_env):
         category="Chat",
         kind=AppKind.CONTAINER,
         docs_url="https://example.com",
-        embedding_gateway_env=embedding_gateway_env,
+        embedding_gateway_env=embedding_gateway_env or {},
+        stt_gateway_env=stt_gateway_env or {},
+        tts_gateway_env=tts_gateway_env or {},
     )
 
 
@@ -88,6 +92,49 @@ class TestEmbeddingModelEnv:
         app = _app({"CHUNK_TOKENS": "{max_chunk_tokens}"})
         rendered = embedding_model_env(app, "bge-m3")
         assert rendered["CHUNK_TOKENS"] == str(int(DEFAULT_EMBEDDING_MAX_LENGTH * 0.75))
+
+
+class TestSttModelEnv:
+    def test_no_model_renders_nothing(self):
+        app = _app(stt_gateway_env={"MODEL": "{model}"})
+        assert stt_model_env(app, None) == {}
+
+    def test_app_without_stt_support_renders_nothing(self):
+        app = _app()
+        assert stt_model_env(app, "distil-large-v3") == {}
+
+    def test_renders_base_url_key_and_model(self):
+        app = _app(stt_gateway_env={
+            "STT_PROVIDER": "generic-openai",
+            "STT_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "STT_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "STT_OPEN_AI_COMPATIBLE_MODEL": "{model}",
+        })
+        rendered = stt_model_env(app, "distil-whisper/distil-large-v3")
+        assert rendered["STT_PROVIDER"] == "generic-openai"
+        assert rendered["STT_OPEN_AI_COMPATIBLE_MODEL"] == "distil-whisper/distil-large-v3"
+        assert rendered["STT_OPEN_AI_COMPATIBLE_ENDPOINT"]  # non-empty
+
+
+class TestTtsModelEnv:
+    def test_no_model_renders_nothing(self):
+        app = _app(tts_gateway_env={"MODEL": "{model}"})
+        assert tts_model_env(app, None) == {}
+
+    def test_app_without_tts_support_renders_nothing(self):
+        app = _app()
+        assert tts_model_env(app, "some-tts") == {}
+
+    def test_renders_base_url_key_and_model(self):
+        app = _app(tts_gateway_env={
+            "TTS_PROVIDER": "generic-openai",
+            "TTS_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "TTS_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "TTS_OPEN_AI_COMPATIBLE_MODEL": "{model}",
+        })
+        rendered = tts_model_env(app, "some-tts")
+        assert rendered["TTS_PROVIDER"] == "generic-openai"
+        assert rendered["TTS_OPEN_AI_COMPATIBLE_MODEL"] == "some-tts"
 
 
 if __name__ == "__main__":

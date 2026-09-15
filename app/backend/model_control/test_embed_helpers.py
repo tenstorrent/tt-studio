@@ -8,16 +8,25 @@ Tests for model_control.model_utils.find_deployed_embedding_model and embed_text
 from unittest.mock import Mock, patch
 
 from shared_config.model_type_config import ModelTypes
-from model_control.model_utils import find_deployed_embedding_model, embed_text
+from model_control.model_utils import (
+    find_deployed_embedding_model,
+    find_deployed_speech_model,
+    find_deployed_tts_model,
+    embed_text,
+)
 
 
-def _embedding_impl(model_name=None, hf_model_id=None, inference_engine="forge"):
+def _impl(model_type, model_name=None, hf_model_id=None, inference_engine="forge"):
     impl = Mock()
-    impl.model_type = ModelTypes.EMBEDDING
+    impl.model_type = model_type
     impl.model_name = model_name
     impl.hf_model_id = hf_model_id
     impl.inference_engine = inference_engine
     return impl
+
+
+def _embedding_impl(model_name=None, hf_model_id=None, inference_engine="forge"):
+    return _impl(ModelTypes.EMBEDDING, model_name, hf_model_id, inference_engine)
 
 
 class TestFindDeployedEmbeddingModel:
@@ -46,6 +55,34 @@ class TestFindDeployedEmbeddingModel:
     def test_not_deployed_returns_none(self, mock_cache):
         mock_cache.return_value = {}
         assert find_deployed_embedding_model("Qwen/Qwen3-Embedding-4B") is None
+
+
+class TestFindDeployedSpeechModel:
+    @patch("model_control.model_utils.get_deploy_cache")
+    def test_matches_by_hf_model_id(self, mock_cache):
+        deploy = {"model_impl": _impl(ModelTypes.SPEECH_RECOGNITION, "distil-large-v3", "distil-whisper/distil-large-v3")}
+        mock_cache.return_value = {"d1": deploy}
+        assert find_deployed_speech_model("distil-whisper/distil-large-v3") is deploy
+
+    @patch("model_control.model_utils.get_deploy_cache")
+    def test_ignores_non_speech_models(self, mock_cache):
+        deploy = {"model_impl": _impl(ModelTypes.TTS, "distil-large-v3", "distil-whisper/distil-large-v3")}
+        mock_cache.return_value = {"d1": deploy}
+        assert find_deployed_speech_model("distil-whisper/distil-large-v3") is None
+
+
+class TestFindDeployedTtsModel:
+    @patch("model_control.model_utils.get_deploy_cache")
+    def test_matches_by_model_name(self, mock_cache):
+        deploy = {"model_impl": _impl(ModelTypes.TTS, "some-tts", "org/some-tts")}
+        mock_cache.return_value = {"d1": deploy}
+        assert find_deployed_tts_model("some-tts") is deploy
+
+    @patch("model_control.model_utils.get_deploy_cache")
+    def test_ignores_non_tts_models(self, mock_cache):
+        deploy = {"model_impl": _impl(ModelTypes.CHAT, "some-tts", "org/some-tts")}
+        mock_cache.return_value = {"d1": deploy}
+        assert find_deployed_tts_model("some-tts") is None
 
 
 class TestEmbedText:
