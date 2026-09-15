@@ -20,12 +20,12 @@ export interface CatalogEntry {
 export interface TrainingJob {
   id: string;
   status:
-    | "queued"
-    | "in_progress"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "cancelling";
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "cancelling";
   model: string;
   // The dataset is not a top-level field on the container's job object; it lives
   // inside `request_parameters.dataset_loader`. Use `getJobDataset()` to read it.
@@ -76,10 +76,19 @@ export interface TrainingCheckpoint {
 export interface CreateTrainingJobParams {
   dataset_loader: string;
   device_type: string;
+  // Custom-dataset fields. `custom_dataset` is a TT-Studio-only helper the
+  // backend consumes: it names an uploaded dataset file, which the backend stages
+  // into the container's volume and rewrites into `train_dataset_path`. The
+  // others map straight onto the container's custom-dataset contract and are only
+  // sent when `dataset_loader` is "Custom".
+  custom_dataset?: string;
+  file_type?: string;
+  template?: string;
+  column_mapping?: Record<string, string>;
   learning_rate?: number;
   batch_size?: number;
   num_epochs?: number;
-  max_length?: number;
+  dataset_max_sequence_length?: number;
   max_steps?: number;
   lora_r?: number;
   lora_alpha?: number;
@@ -134,9 +143,8 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
 
 // A dataset JSON file the user uploaded, stored under the shared training volume
 // at training_volume/custom_datasets/. These are offered as choices in the New
-// Training Job dialog. The training server does not yet accept arbitrary
-// datasets, so selecting one still trains on the default (sst2) recipe — see
-// DEFAULT_DATASET_LOADER.
+// Training Job dialog; selecting one trains on that dataset (the backend stages
+// the file into the container's volume — see CUSTOM_DATASET_LOADER).
 export interface CustomDataset {
   id: string;
   name: string;
@@ -144,11 +152,10 @@ export interface CustomDataset {
   modified_at?: number | null;
 }
 
-// Dataset the training server actually uses when a custom dataset is selected.
-// Custom datasets aren't supported by the inference/training server yet, so jobs
-// fall back to this built-in recipe while still showing the user's choice. Value
-// matches the dataset `id` exposed by the training container's /v1/catalog.
-export const DEFAULT_DATASET_LOADER = "SST2";
+// `dataset_loader` value that tells the training server to use a user-supplied
+// dataset (via train_dataset_path/file_type/template) instead of a built-in
+// recipe. Distinct from the built-in loader ids in the /v1/catalog datasets list.
+export const CUSTOM_DATASET_LOADER = "Custom";
 
 export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
   const { data } = await axios.get(`${TRAINING_API}/datasets/custom/`);

@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import re
+import shutil
 
 import requests
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -36,6 +37,20 @@ MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 # for multi-tenant scoping. TT Studio is single-tenant, so we send a fixed value.
 ORG_ID_HEADER = "X-TT-Organization"
 ORG_ID = "tenstorrent"
+
+# dataset_loader value the training server expects for user-supplied datasets.
+# When set, the server reads `train_dataset_path`/`file_type`/`template` instead
+# of a built-in recipe (see tt-media-server domain/training_request.py).
+CUSTOM_DATASET_LOADER = "Custom"
+DEFAULT_CUSTOM_FILE_TYPE = "json"
+DEFAULT_CUSTOM_TEMPLATE = "alpaca"
+
+# The training container bind-mounts its per-model data volume
+# (`{training_host_volume}/volume_id_*`) at this path — tt-inference-server's
+# CACHE_ROOT. A dataset copied into the matching host-side volume dir is visible
+# to the container under here, so custom datasets are staged there at job submit.
+CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
+CONTAINER_CUSTOM_DATASETS_DIR = f"{CONTAINER_CACHE_ROOT}/custom_datasets"
 
 
 def _find_training_container(deploy_id=None):
@@ -205,6 +220,83 @@ def _resolve_dataset_path(directory, name):
     if real_path != os.path.join(real_dir, filename):
         return None
     return path
+
+
+def _resolve_training_volume_dir(impl):
+    """Backend-internal path of the per-model volume dir the training container
+    bind-mounts at :data:`CONTAINER_CACHE_ROOT`.
+
+    Only TRAINING deploys use the training host volume, so every ``volume_id_*``
+    dir under it belongs to a training model (the same layout the merged-checkpoint
+    scan relies on). When several exist — multiple training models deployed over
+    time — prefer the one whose name carries the deployed model's name, then the
+    most recently modified. Returns ``None`` if none are present yet.
+    """
+    internal_root = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
+    )
+    candidates = [
+        d
+        for d in glob.glob(os.path.join(internal_root, "volume_id_*"))
+        if os.path.isdir(d)
+    ]
+    if not candidates:
+        return None
+
+    model_name = getattr(impl, "model_name", None)
+    if model_name:
+        matched = [d for d in candidates if model_name in os.path.basename(d)]
+        if matched:
+            candidates = matched
+
+    return max(candidates, key=os.path.getmtime)
+
+
+def _stage_custom_dataset(impl, name):
+    """Copy an uploaded custom dataset into the training container's mounted
+    volume and return its container-side path.
+
+    The upload lives at ``training_volume/custom_datasets/`` (a sibling of the
+    per-model ``volume_id_*`` dir), which the container does not mount. Copying it
+    into ``<volume_id_*>/custom_datasets/`` places it under the mounted
+    :data:`CONTAINER_CACHE_ROOT`, so training can read it.
+
+    Returns ``(container_path, error_response)`` – exactly one is ``None``.
+    """
+    directory = _custom_datasets_dir()
+    src = _resolve_dataset_path(directory, name)
+    if src is None or not os.path.isfile(src):
+        return None, JsonResponse(
+            {"error": f"Custom dataset {name!r} not found."}, status=404
+        )
+
+    volume_dir = _resolve_training_volume_dir(impl)
+    if volume_dir is None:
+        return None, JsonResponse(
+            {
+                "error": (
+                    "Could not locate the training container's data volume to "
+                    "stage the custom dataset. Is a training model deployed?"
+                )
+            },
+            status=502,
+        )
+
+    base = os.path.basename(src)
+    dest_dir = os.path.join(volume_dir, "custom_datasets")
+    dest = os.path.join(dest_dir, base)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        # The backend runs as root but the training container runs as uid 1000,
+        # so the staged file and its dir must be world-readable/traversable.
+        os.chmod(dest_dir, 0o755)
+        shutil.copyfile(src, dest)
+        os.chmod(dest, 0o644)
+    except OSError as e:
+        logger.exception("Could not stage custom dataset %s into %s", src, dest_dir)
+        return None, JsonResponse({"error": str(e)}, status=500)
+
+    return f"{CONTAINER_CUSTOM_DATASETS_DIR}/{base}", None
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +514,29 @@ class TrainingJobsListView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
+
+        # A custom dataset selection sends the uploaded file's name; stage it into
+        # the container's mounted volume and translate the request into the
+        # training server's custom-dataset contract. Popped unconditionally so the
+        # helper field never leaks to the server.
+        custom_name = body.pop("custom_dataset", None)
+        if body.get("dataset_loader") == CUSTOM_DATASET_LOADER:
+            if not custom_name:
+                return JsonResponse(
+                    {
+                        "error": "custom_dataset is required when dataset_loader is 'Custom'."
+                    },
+                    status=400,
+                )
+            container_path, stage_err = _stage_custom_dataset(
+                entry.get("model_impl"), custom_name
+            )
+            if stage_err:
+                return stage_err
+            body["train_dataset_path"] = container_path
+            body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
+            body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
+
         url = f"{_base_url(entry)}/v1/jobs"
         return _proxy_post(url, body=body)
 
