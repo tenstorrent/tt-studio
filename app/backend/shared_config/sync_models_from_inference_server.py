@@ -44,15 +44,10 @@ _CANDIDATE_SOURCES = [
 # error. Adding a future hand-owned field means adding it here. See issue #977.
 HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned")
 
-# Marker on a catalog entry that exists only because someone added it by hand
-# (e.g. the forge TRAINING rows, which no prod release snapshot contains). Such
-# an entry outranks a synced entry of the same model_name: the source JSON has a
-# vLLM CHAT "Llama-3.1-8B" whose name collides with the hand-added forge TRAINING
-# one, and without this the resync silently replaces the training row -- taking
-# the fine-tuning feature offline, since training_control filters on
-# model_type == TRAINING. Catalog model_name must stay unique: several lookups
-# (model_config.get_model_impl, docker_utils' deployment->impl mapping) take the
-# first name match, so keeping both would make them pick arbitrarily.
+# Marker for a hand-added entry (e.g. the forge TRAINING rows, absent from prod
+# snapshots). It outranks a synced entry of the same identity -- (model_name,
+# inference_engine); a same-name row on another engine (the vLLM CHAT beside the
+# forge TRAINING "Llama-3.1-8B-Instruct") is left alone so both coexist.
 HAND_OWNED_MARKER = "hand_owned"
 
 # ---------------------------------------------------------------------------
@@ -378,11 +373,20 @@ def _impl_selector(value):
     return None
 
 
-def load_existing_catalog(path: Path) -> dict:
-    """Return {model_name: entry} for the catalog already on disk, or {} if none.
+def _entry_identity(entry: dict) -> tuple:
+    """(model_name, inference_engine) -- distinguishes rows that share a name but
+    differ by engine (forge TRAINING vs vLLM CHAT "Llama-3.1-8B-Instruct")."""
+    return (
+        entry.get("model_name"),
+        (entry.get("inference_engine") or "").lower(),
+    )
 
-    Never fatal: a missing or malformed catalog just means there is nothing to
-    preserve, which is the correct outcome for a first-time sync.
+
+def load_existing_catalog(path: Path) -> dict:
+    """Return {identity: entry} for the on-disk catalog, or {} if missing/corrupt.
+
+    Keyed by identity, not name, so two same-named rows on different engines both
+    survive (a name-keyed index would drop one).
     """
     if not path.exists():
         return {}
@@ -393,7 +397,7 @@ def load_existing_catalog(path: Path) -> dict:
         print(f"Warning: could not read existing catalog ({e}); nothing to preserve")
         return {}
     return {
-        m["model_name"]: m
+        _entry_identity(m): m
         for m in data.get("models", [])
         if isinstance(m, dict) and m.get("model_name")
     }
@@ -408,34 +412,32 @@ def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
     - A model that exists ONLY in the dev-tier catalog can't appear in a prod
       release snapshot at all, so a rebuild deletes the whole entry.
 
-    A third loss, and the reason for HAND_OWNED_MARKER: a hand-added entry whose
-    model_name COLLIDES with a synced one. Name-keyed preservation silently hands
-    the synced entry the hand-owned fields and throws the rest of the hand-added
-    row away -- a different model_type, engine, service_route and env_vars. The
-    marked entry wins outright instead, and the colliding synced entry is dropped
-    so model_name stays unique.
+    A third loss (the reason for HAND_OWNED_MARKER): a hand-added row displaced by
+    a synced one of the same identity. The marked row wins; only a synced row of
+    the SAME identity is dropped, so a same-name row on another engine coexists.
+    Matching is by identity, so this ignores how `existing` was keyed.
 
     Returns (merged_models, preserved_field_names, retained_model_names).
     """
     preserved, retained = [], []
+    by_identity = {_entry_identity(old): old for old in existing.values()}
     hand_owned = {
-        name for name, old in existing.items() if old.get(HAND_OWNED_MARKER)
+        ident for ident, old in by_identity.items() if old.get(HAND_OWNED_MARKER)
     }
 
-    # Drop synced entries whose name is claimed by a hand-owned entry; the
-    # hand-owned row is re-appended intact by the retain loop below.
-    displaced = [m["model_name"] for m in models if m["model_name"] in hand_owned]
+    # Drop synced entries claimed by a hand-owned identity; retained below.
+    displaced = [m["model_name"] for m in models if _entry_identity(m) in hand_owned]
     if displaced:
-        models = [m for m in models if m["model_name"] not in hand_owned]
+        models = [m for m in models if _entry_identity(m) not in hand_owned]
         print(
-            f"Kept {len(displaced)} hand-owned entry(ies) over a same-named source "
+            f"Kept {len(displaced)} hand-owned entry(ies) over a same-identity source "
             f"entry: {', '.join(sorted(displaced))}"
         )
 
-    synced_names = {m["model_name"] for m in models}
+    synced_idents = {_entry_identity(m) for m in models}
 
     for model in models:
-        old = existing.get(model["model_name"])
+        old = by_identity.get(_entry_identity(model))
         if not old:
             continue
         for key in HAND_OWNED_KEYS:
@@ -443,10 +445,10 @@ def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
                 model[key] = old[key]
                 preserved.append(f"{model['model_name']}.{key}")
 
-    for name, old in existing.items():
-        if name not in synced_names:
+    for ident, old in by_identity.items():
+        if ident not in synced_idents:
             models.append(old)
-            retained.append(name)
+            retained.append(old.get("model_name"))
 
     return models, preserved, retained
 
