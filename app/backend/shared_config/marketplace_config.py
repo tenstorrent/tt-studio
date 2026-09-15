@@ -194,6 +194,18 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         kind=AppKind.GUIDE,
         docs_url="https://docs.claude.com/en/docs/claude-code/overview",
     ),
+    # TODO: Add RAGFlow once we want to support it
+    # MarketplaceApp(
+    #     id="ragflow",
+    #     name="RAGFlow",
+    #     tagline="Deep document understanding and agentic RAG workflows.",
+    #     category="Chat",
+    #     kind=AppKind.GUIDE,
+    #     # Ships as its own Elasticsearch/MySQL/MinIO/Redis compose stack, so it
+    #     # is set up from its own compose file rather than launched here (same
+    #     # shape as Dify below).
+    #     docs_url="https://ragflow.io/docs/dev/",
+    # ),
     MarketplaceApp(
         id="dify",
         name="Dify",

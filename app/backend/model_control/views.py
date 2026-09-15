@@ -2117,12 +2117,16 @@ class OpenAIModelsView(APIView):
 
 
 class OpenAIEmbeddingsView(APIView):
-    """OpenAI-compatible POST /v1/embeddings for companion apps (e.g. AnythingLLM).
+    """OpenAI-compatible POST /v1/embeddings for companion apps (e.g. AnythingLLM,
+    Open WebUI).
 
     Resolves the OpenAI `model` field to a running embedding deployment and
     proxies to it via embed_text, same lookup EmbeddingInferenceView uses but
     by model name instead of deploy_id -- the shape a generic OpenAI-compatible
-    client expects.
+    client expects. The OpenAI API lets `input` be a batch (a list of strings),
+    which RAG apps use when embedding a document's chunks in one call, but the
+    TT inference server's /v1/embeddings takes one string per request -- so a
+    batch is fanned out into one call per item and stitched back together.
     """
 
     def post(self, request, *args, **kwargs):
@@ -2132,10 +2136,18 @@ class OpenAIEmbeddingsView(APIView):
 
         data = request.data
         model_name = data.get("model")
-        text = data.get("input")
-        if not model_name or not text:
+        raw_input = data.get("input")
+        if not model_name or not raw_input:
             return Response(
                 {"error": {"message": "model and input are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inputs = raw_input if isinstance(raw_input, list) else [raw_input]
+        if not inputs or not all(isinstance(item, str) for item in inputs):
+            return Response(
+                {"error": {"message": "input must be a string or a list of strings",
                            "type": "invalid_request_error"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2149,7 +2161,10 @@ class OpenAIEmbeddingsView(APIView):
             )
 
         try:
-            result = embed_text(deploy, text, dimensions=data.get("dimensions"))
+            embeddings = [
+                embed_text(deploy, item, dimensions=data.get("dimensions"))["data"][0]["embedding"]
+                for item in inputs
+            ]
         except requests.exceptions.RequestException as exc:
             logger.error(f"OpenAIEmbeddingsView error: {exc}")
             return Response(
@@ -2157,7 +2172,17 @@ class OpenAIEmbeddingsView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": i, "embedding": embedding}
+                    for i, embedding in enumerate(embeddings)
+                ],
+                "model": model_name,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class CodingAgentsView(APIView):
