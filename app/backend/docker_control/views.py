@@ -778,6 +778,7 @@ class DeployView(APIView):
                             status="starting",
                             port=service_port,
                             tool_calling_enabled=tool_calling_supported,
+                            host_weights_dir=host_weights_dir,
                         )
                     except Exception as e:
                         logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
@@ -876,6 +877,7 @@ class DeployView(APIView):
                         status="starting",
                         port=service_port,
                         tool_calling_enabled=tool_calling_supported,
+                        host_weights_dir=host_weights_dir,
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")

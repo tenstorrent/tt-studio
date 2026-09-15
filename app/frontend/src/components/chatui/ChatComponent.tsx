@@ -18,6 +18,7 @@ import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
+import CompletionTemplatePanel from "./CompletionTemplatePanel";
 import { HistoryPanel } from "./HistoryPanel";
 import type {
   InferenceRequest,
@@ -99,6 +100,9 @@ export default function ChatComponent() {
     usePersistentState<number>("current_thread_index", 0);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
+  // True when the selected model was deployed with merged fine-tuned weights.
+  // Switches the composer to raw-completion/template testing mode.
+  const [isFineTuned, setIsFineTuned] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
   const [reRenderingMessageId, setReRenderingMessageId] = useState<
@@ -256,9 +260,13 @@ export default function ChatComponent() {
 
   // Set dynamic token defaults when the selected model changes
   useEffect(() => {
-    if (!modelID) return;
+    if (!modelID) {
+      setIsFineTuned(false);
+      return;
+    }
     fetchDeployedModelsInfo().then((deployedModels) => {
       const match = deployedModels.find((m) => m.id === modelID);
+      setIsFineTuned(!!match?.host_weights_dir);
       const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
         match?.model_impl?.param_count,
         match?.max_model_len
@@ -536,8 +544,20 @@ export default function ChatComponent() {
   };
 
   const handleInference = useCallback(
-    async (continuationMessageId: string | null = null) => {
-      if (textInput.trim() === "" && files.length === 0) return;
+    async (
+      continuationMessageId: string | null = null,
+      // Raw-completion override (fine-tuned template mode): a pre-rendered prompt
+      // string plus stop sequences. When present, the normal text/file input is
+      // bypassed and the prompt is sent straight to /v1/completions.
+      completion?: { prompt: string; stop?: string[] },
+    ) => {
+      const isCompletion = completion !== undefined;
+      const effectiveText = completion ? completion.prompt : textInput;
+      if (completion) {
+        if (effectiveText.trim() === "") return;
+      } else if (textInput.trim() === "" && files.length === 0) {
+        return;
+      }
 
       const modelsDeployed = await checkDeployedModels();
       if (modelsDeployed && !modelID) {
@@ -545,7 +565,7 @@ export default function ChatComponent() {
       }
 
       // Process and classify uploaded files
-      if (files.length > 0) {
+      if (!isCompletion && files.length > 0) {
         const processedFiles = await Promise.all(
           files.map(async (file) => {
             // Classify file type and extract metadata
@@ -618,9 +638,9 @@ export default function ChatComponent() {
         const userMessage: ChatMessage = {
           id: uuidv4(),
           sender: "user",
-          text: textInput,
-          files: files,
-          ragDatasource: ragDatasource,
+          text: effectiveText,
+          files: isCompletion ? [] : files,
+          ragDatasource: isCompletion ? undefined : ragDatasource,
         };
         updatedMessages = [...(threadToUse.messages || []), userMessage];
 
@@ -664,13 +684,16 @@ export default function ChatComponent() {
       // Create inference request with detailed logging
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID || "",
-        text: continuationMessageId ? `Continue: ${textInput}` : textInput,
-        files: files,
+        text: continuationMessageId ? `Continue: ${effectiveText}` : effectiveText,
+        files: isCompletion ? [] : files,
         temperature: modelSettings.temperature,
         max_tokens: modelSettings.maxLength,
         top_p: modelSettings.topP,
         top_k: modelSettings.topK,
         ...(modelSettings.seed > 0 && { seed: modelSettings.seed }),
+        ...(completion
+          ? { prompt: completion.prompt, ...(completion.stop ? { stop: completion.stop } : {}) }
+          : {}),
         stream_options: {
           include_usage: true,
           continuous_usage_stats: true,
@@ -1389,23 +1412,33 @@ export default function ChatComponent() {
                 : undefined,
             }}
           >
-            <InputArea
-              textInput={textInput}
-              setTextInput={setTextInput}
-              handleInference={() => handleInference(null)}
-              isStreaming={isStreaming}
-              isListening={isListening}
-              setIsListening={setIsListening}
-              voiceInputAvailable={voiceInputAvailable}
-              sttDeployId={sttDeployId}
-              isMobileView={screenSize.isMobileView}
-              onCreateNewConversation={createNewConversation}
-              onStopInference={handleStopInference}
-              showInitialPromptAnimation={showInitialPromptAnimation}
-              isAgentSelected={isAgentSelected}
-              setIsAgentSelected={setIsAgentSelected}
-              isAgentAvailable={isAgentAvailable}
-            />
+            {isFineTuned ? (
+              <CompletionTemplatePanel
+                isStreaming={isStreaming}
+                onSend={(prompt, stop) =>
+                  handleInference(null, { prompt, stop })
+                }
+                onStop={handleStopInference}
+              />
+            ) : (
+              <InputArea
+                textInput={textInput}
+                setTextInput={setTextInput}
+                handleInference={() => handleInference(null)}
+                isStreaming={isStreaming}
+                isListening={isListening}
+                setIsListening={setIsListening}
+                voiceInputAvailable={voiceInputAvailable}
+                sttDeployId={sttDeployId}
+                isMobileView={screenSize.isMobileView}
+                onCreateNewConversation={createNewConversation}
+                onStopInference={handleStopInference}
+                showInitialPromptAnimation={showInitialPromptAnimation}
+                isAgentSelected={isAgentSelected}
+                setIsAgentSelected={setIsAgentSelected}
+                isAgentAvailable={isAgentAvailable}
+              />
+            )}
           </div>
         </div>
       </Card>
