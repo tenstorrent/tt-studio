@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Optional
 import asyncio
 import base64
+import math
 import threading
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 import io
 import time
 import datetime
@@ -158,6 +159,10 @@ CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
 CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
+# An external OCR endpoint, used when a request carries no deploy_id. It must be a
+# full chat/completions URL, e.g. http://host:8100/v1/chat/completions.
+CLOUD_OCR_URL = os.environ.get("CLOUD_OCR_URL")
+CLOUD_OCR_AUTH_TOKEN = os.environ.get("CLOUD_OCR_AUTH_TOKEN")
 
 @method_decorator(csrf_exempt, name="dispatch")
 class InferenceCloudView(View):
@@ -1337,6 +1342,176 @@ class SpeechRecognitionInferenceCloudView(APIView):
             speech_recognition_options(data),
             self.__class__.__name__,
         )
+
+
+# OCR reads pages through a vision-language model, so it speaks
+# /v1/chat/completions with an image content part rather than having an endpoint
+# of its own. The work this view does is turning uploaded files into that
+# request: orienting and bounding each image, building the data URL, and running
+# the pages in order.
+OCR_DEFAULT_PROMPT = "OCR:"
+OCR_DEFAULT_MAX_TOKENS = 4096
+# PaddleOCR-VL's processor caps an image at 1280 merged tokens (28*28 pixels
+# each). Downscaling to that bound here means the model sees the same pixels it
+# would anyway, while the upload and the base64 body shrink, and the vision
+# tower stays inside its largest compiled bucket.
+OCR_MAX_PIXELS = 1280 * 28 * 28
+OCR_PAGE_SEPARATOR = "\n\n---\n\n"
+
+
+def _ocr_image_to_data_url(upload) -> str:
+    """Normalize one uploaded image and return it as a data URL.
+
+    EXIF orientation is applied rather than ignored: phone photos routinely
+    carry a rotation flag, and a sideways page reads as gibberish. Line art and
+    screenshots keep PNG so text edges stay crisp; photographs go to JPEG, where
+    the size saving is large and the artefacts are below what the tower resolves.
+    """
+    img = Image.open(upload)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+
+    w, h = img.size
+    if w * h > OCR_MAX_PIXELS:
+        scale = math.sqrt(OCR_MAX_PIXELS / (w * h))
+        img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+
+    source_type = (getattr(upload, "content_type", "") or "").lower()
+    fmt = "JPEG" if "jpeg" in source_type or "jpg" in source_type else "PNG"
+    buf = io.BytesIO()
+    img.save(buf, format=fmt, **({"quality": 92} if fmt == "JPEG" else {}))
+    mime = "image/jpeg" if fmt == "JPEG" else "image/png"
+    return f"data:{mime};base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+class OcrInferenceView(APIView):
+    """Read text off one or more uploaded images.
+
+    Multipart rather than JSON on purpose. ``DATA_UPLOAD_MAX_MEMORY_SIZE``
+    defaults to 2.5 MB and applies to a JSON body, which a single phone photo
+    exceeds once base64-encoded; file parts are exempt. It also keeps the
+    base64 encoding server-side, where the MIME type is known.
+
+    ``deploy_id`` targets a deployed model. Omitted (or "null"), the request
+    goes to ``CLOUD_OCR_URL``, matching how the other cloud-capable views
+    behave, which is what allows an external OCR endpoint to be used with no
+    local deployment.
+    """
+
+    def post(self, request, *args, **kwargs):
+        images = request.data.getlist("images") if hasattr(request.data, "getlist") else []
+        if not images:
+            return Response(
+                {"error": "at least one image is required (field name: images)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        prompt = (request.data.get("prompt") or OCR_DEFAULT_PROMPT).strip() or OCR_DEFAULT_PROMPT
+        try:
+            max_tokens = int(request.data.get("max_tokens") or OCR_DEFAULT_MAX_TOKENS)
+        except (TypeError, ValueError):
+            max_tokens = OCR_DEFAULT_MAX_TOKENS
+
+        deploy_id = request.data.get("deploy_id")
+        if deploy_id in (None, "", "null"):
+            internal_url = CLOUD_OCR_URL
+            if not internal_url:
+                return Response(
+                    {"error": "No deploy_id given and CLOUD_OCR_URL is not configured"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            headers = {"Authorization": f"Bearer {CLOUD_OCR_AUTH_TOKEN}"} if CLOUD_OCR_AUTH_TOKEN else {}
+            model_name = os.environ.get("CLOUD_OCR_MODEL_NAME", "")
+        else:
+            cache = get_deploy_cache()
+            deploy = cache.get(deploy_id)
+            if not deploy:
+                return Response(
+                    {"error": f"no deployed model with deploy_id {deploy_id}"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            internal_url = "http://" + deploy["internal_url"]
+            headers = auth_headers(deploy)
+            model_name = deploy.get("cached_model_name") or get_model_name_from_container(deploy_id) or ""
+            # Keep the request inside what the server will accept.
+            max_model_len = deploy.get("max_model_len")
+            if max_model_len:
+                max_tokens = min(max_tokens, int(max_model_len * 0.75))
+
+        logger.info(
+            f"{self.__class__.__name__}: {len(images)} image(s) -> {internal_url} "
+            f"(model={model_name or 'unset'}, prompt={prompt!r}, max_tokens={max_tokens})"
+        )
+
+        pages = []
+        for index, upload in enumerate(images):
+            filename = getattr(upload, "name", f"image-{index}")
+            try:
+                data_url = _ocr_image_to_data_url(upload)
+            except Exception as exc:  # noqa: BLE001 - a bad upload should not fail the batch
+                logger.warning(f"{self.__class__.__name__}: cannot decode {filename}: {exc}")
+                pages.append({"index": index, "filename": filename, "error": f"unreadable image: {exc}"})
+                continue
+
+            body = {
+                "temperature": 0,
+                "max_tokens": max_tokens,
+                "stream": False,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+            }
+            if model_name:
+                body["model"] = model_name
+
+            try:
+                # Read timeout sits inside nginx's proxy_read_timeout (1200s); a
+                # dense page can take a while on the largest vision bucket.
+                upstream = requests.post(internal_url, json=body, headers=headers, timeout=(10, 900))
+                upstream.raise_for_status()
+            except requests.exceptions.Timeout:
+                return Response(
+                    {"error": "OCR model timed out", "pages": pages},
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
+            except requests.exceptions.HTTPError as exc:
+                detail = (getattr(exc.response, "text", "") or str(exc))[:500]
+                code = getattr(exc.response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+                # Prefer the upstream body: a 400 here is usually
+                # limit-mm-per-prompt or a pixel bound, and the message says which.
+                return Response({"error": detail, "pages": pages}, status=code)
+            except requests.exceptions.RequestException as exc:
+                return Response(
+                    {"error": f"cannot reach OCR model: {exc}", "pages": pages},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            payload = upstream.json()
+            choice = (payload.get("choices") or [{}])[0]
+            pages.append(
+                {
+                    "index": index,
+                    "filename": filename,
+                    "text": (choice.get("message") or {}).get("content", ""),
+                    "finish_reason": choice.get("finish_reason"),
+                    "usage": payload.get("usage"),
+                }
+            )
+
+        return Response(
+            {
+                "pages": pages,
+                "text": OCR_PAGE_SEPARATOR.join(p["text"] for p in pages if p.get("text")),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class TtsInferenceView(APIView):
     """Text-to-speech inference: supports both OpenAI-style and enqueue-style endpoints."""
