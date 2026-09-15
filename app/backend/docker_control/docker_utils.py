@@ -460,8 +460,8 @@ def infer_inference_server_device(impl, board_type=None, device_ids=None):
     truth shared by run_container and the pre-pull image resolver so they never
     disagree on which model_spec (and therefore which image) the deploy uses.
 
-    `device_ids` (list or comma string) picks the P300x2 training variant: a card
-    pair (p300) vs. the whole board (p300x2, all four chips)."""
+    `device_ids` is accepted for call-site symmetry but no longer affects the
+    result (training is always pinned to a single p150 chip)."""
     from shared_config.model_config import infer_chips_required
     if board_type is None:
         board_type = detect_board_type()
@@ -479,11 +479,10 @@ def infer_inference_server_device(impl, board_type=None, device_ids=None):
     else:
         device = board_device
         device = equivalent_mesh_device(impl, device)
-    # Training on P300x2 runs on one 2-chip card (p300), or the whole board
-    # (p300x2) when all four chips are requested. Mirrors the chat card-pair path.
-    if impl.model_type == ModelTypes.TRAINING and board_type == "P300x2":
-        slots = {int(x) for x in re.findall(r"\d+", str(device_ids or ""))}
-        device = "p300x2" if len(slots) > 2 else "p300"
+    # LoRA training is single-chip only upstream, so always pin it to one p150
+    # chip.
+    if impl.model_type == ModelTypes.TRAINING and "p150" in _supported_devices(impl):
+        device = "p150"
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
