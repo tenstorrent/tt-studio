@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Cpu, Layers } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
 import {
@@ -11,6 +11,7 @@ import {
   fullBoardSlots,
 } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
+import { useTour } from "../hooks/useTour";
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -20,6 +21,15 @@ interface ChipConfigStepProps {
 }
 
 export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigStepProps) {
+  const {
+    run: tourRun,
+    activeTourId,
+    stepIndex: tourStepIndex,
+    setStepIndex,
+    steps,
+  } = useTour();
+  const isDeployTour = tourRun && activeTourId === "deploy-model";
+
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
     null
   );
@@ -45,11 +55,46 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     [isGrouped, chipStatus]
   );
 
+  const slotIsAvailable = useCallback(
+    (slotId: number) => {
+      if (!chipStatus) return false;
+      // Flexible models occupy a whole card, so every slot in the group must be free.
+      const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
+      return group.every(
+        (g) =>
+          chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
+      );
+    },
+    [chipStatus, isGrouped, cardGroups]
+  );
+
   // Pre-select the only valid mode for this model.
   useEffect(() => {
-    setSelectedMode(pickEnabled ? "single" : "multi");
-    setSelectedSlots([]);
-  }, [pickEnabled]);
+    const defaultMode = pickEnabled ? "single" : "multi";
+    setSelectedMode(defaultMode);
+    if (isDeployTour && defaultMode === "single") {
+      const availableSlot = chipStatus?.slots.find((s) =>
+        slotIsAvailable(s.slot_id)
+      )?.slot_id;
+      if (availableSlot !== undefined) {
+        const initialSlots = isGrouped
+          ? cardGroupFor(availableSlot, cardGroups)
+          : [availableSlot];
+        setSelectedSlots(initialSlots);
+      } else {
+        setSelectedSlots([]);
+      }
+    } else {
+      setSelectedSlots([]);
+    }
+  }, [
+    pickEnabled,
+    isDeployTour,
+    isGrouped,
+    cardGroups,
+    chipStatus,
+    slotIsAvailable,
+  ]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
@@ -61,13 +106,24 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     }
   }, [selectedMode, selectedSlots, multiBoardFree, multiSlots, onConfirm]);
 
-  const slotIsAvailable = (slotId: number) => {
-    if (!chipStatus) return false;
-    // Flexible models occupy a whole card, so every slot in the group must be free.
-    const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
-    return group.every(
-      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
-    );
+  // Ensure slot picker is open when the tour arrives at the slot picker step
+  useEffect(() => {
+    const isAtSlotPicker =
+      isDeployTour &&
+      steps[tourStepIndex]?.target === '[data-tour="chip-slot-picker"]';
+    if (isAtSlotPicker && selectedMode !== "single") {
+      setSelectedMode("single");
+    }
+  }, [isDeployTour, steps, tourStepIndex, selectedMode]);
+
+  const handleContinue = () => {
+    if (isDeployTour) {
+      setStepIndex(tourStepIndex + 1);
+    }
+    const deployEl =
+      document.querySelector('[data-tour="deploy-summary-info"]') ||
+      document.querySelector('[data-tour="deploy-button"]');
+    deployEl?.scrollIntoView({ behavior: "smooth" });
   };
 
   const toggleSlot = (slotId: number) => {
@@ -122,6 +178,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         {/* Single / card-pick card */}
         <button
           type="button"
+          data-tour="hardware-mode-single"
           disabled={singleDisabled}
           onClick={() => !singleDisabled && setSelectedMode("single")}
           className={`
@@ -159,6 +216,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         {/* All Devices card */}
         <button
           type="button"
+          data-tour="hardware-mode-multi"
           disabled={multiDisabled}
           onClick={() => !multiDisabled && setSelectedMode("multi")}
           className={`
@@ -199,7 +257,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
       {/* Slot picker — shown when the single/card mode is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
-        <div>
+        <div data-tour="chip-slot-picker">
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
             Select Device(s)
           </h3>
@@ -277,6 +335,18 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             Fetching hardware status...
           </div>
         )}
+      </div>
+
+      {/* Confirm / Continue button */}
+      <div className="flex justify-end pt-2">
+        <button
+          type="button"
+          data-tour="hardware-config-continue"
+          onClick={handleContinue}
+          className="px-6 py-2 rounded-lg font-mono font-semibold text-sm transition-all duration-200 bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)] cursor-pointer"
+        >
+          Continue →
+        </button>
       </div>
     </div>
   );
