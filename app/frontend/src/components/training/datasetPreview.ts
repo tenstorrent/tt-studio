@@ -38,24 +38,6 @@ function isPlainObject(value: unknown): value is DatasetRow {
   );
 }
 
-// Pull the record list out of a { rows|data: [...] } wrapper, including the HF
-// datasets-server envelope. Returns null if there is no such list.
-function extractRowsFromEnvelope(value: unknown): unknown[] | null {
-  if (!isPlainObject(value)) return null;
-  const container = Array.isArray(value.rows)
-    ? (value.rows as unknown[])
-    : Array.isArray(value.data)
-      ? (value.data as unknown[])
-      : null;
-  if (!container) return null;
-  // HF wraps each record as { row_idx, row: {...} }; unwrap it.
-  return container.map((item) =>
-    isPlainObject(item) && isPlainObject((item as DatasetRow).row)
-      ? (item as DatasetRow).row
-      : item,
-  );
-}
-
 // Parse JSON Lines (one object per line). Returns null if invalid.
 function parseJsonl(trimmed: string): unknown[] | null {
   const rows: unknown[] = [];
@@ -87,11 +69,9 @@ function extractRows(trimmed: string): unknown[] {
 
   if (jsonError === undefined) {
     if (Array.isArray(parsed)) return parsed;
-    const unwrapped = extractRowsFromEnvelope(parsed);
-    if (unwrapped) return unwrapped;
     throw new DatasetParseError(
-      "Expected a JSON array of objects (e.g. [{ ... }, { ... }]), a JSON Lines " +
-        'file (one object per line), or a Hugging Face datasets export with a "rows" array.',
+      "Expected a JSON array of objects (e.g. [{ ... }, { ... }]) or a JSON " +
+        "Lines file (one object per line).",
     );
   }
 
@@ -107,8 +87,7 @@ function extractRows(trimmed: string): unknown[] {
  * Parse the text contents of a dataset file into a preview.
  *
  * Accepts, all normalized to a flat list of object rows:
- *  - a JSON array of objects, e.g. `[{ "prompt": "...", "completion": "..." }, ...]`
- *  - a `{ "rows"|"data": [ ... ] }` wrapper (incl. HF datasets exports)
+ *  - a JSON array of objects, e.g. `[{ "instruction": "...", "output": "..." }, ...]`
  *  - JSON Lines (one JSON object per line)
  *
  * Throws {@link DatasetParseError} with a friendly message for anything else.

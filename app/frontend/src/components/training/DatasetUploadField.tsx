@@ -103,8 +103,8 @@ export function DatasetUploadField({
           : "Drag & drop a dataset file here"}
       </p>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-        or click to browse. Accepts a JSON array of objects, JSON Lines, or a
-        Hugging Face datasets export (.json / .jsonl)
+        or click to browse. Accepts a JSON array of objects or JSON Lines (.json
+        / .jsonl)
       </p>
     </div>
   );

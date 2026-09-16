@@ -219,25 +219,6 @@ def _resolve_dataset_path(directory, name):
     return path
 
 
-def _extract_rows_from_envelope(value):
-    """Pull the record list out of a ``{"rows"|"data": [..]}`` wrapper, including
-    the HF datasets-server envelope. Returns ``None`` if there is no such list."""
-    if not isinstance(value, dict):
-        return None
-    container = value.get("rows")
-    if not isinstance(container, list):
-        container = value.get("data")
-    if not isinstance(container, list):
-        return None
-    # HF wraps each record as {"row_idx": .., "row": {..}}; unwrap it.
-    return [
-        item["row"]
-        if isinstance(item, dict) and isinstance(item.get("row"), dict)
-        else item
-        for item in container
-    ]
-
-
 def _parse_jsonl(text):
     """Parse JSON Lines (one object per line). Returns ``None`` if invalid."""
     rows = []
@@ -257,8 +238,8 @@ def _parse_jsonl(text):
 
 def _normalize_dataset_rows(text):
     """Normalize uploaded dataset *text* into the flat list of object rows the
-    trainer expects. Accepts a JSON array, a ``{"rows"|"data": [..]}`` wrapper
-    (incl. HF datasets exports), or JSON Lines.
+    trainer expects. Accepts a JSON array of objects or JSON Lines (one object
+    per line).
 
     Returns ``(rows, None)`` on success or ``(None, error_message)``.
     """
@@ -274,16 +255,12 @@ def _normalize_dataset_rows(text):
         parse_error = e
 
     if parse_error is None:
-        if isinstance(parsed, list):
-            rows = parsed
-        else:
-            rows = _extract_rows_from_envelope(parsed)
-            if rows is None:
-                return None, (
-                    "Expected a JSON array of objects, a JSON Lines file "
-                    "(one object per line), or a Hugging Face datasets export "
-                    'with a top-level "rows" array.'
-                )
+        if not isinstance(parsed, list):
+            return None, (
+                "Expected a JSON array of objects or a JSON Lines file "
+                "(one object per line)."
+            )
+        rows = parsed
     else:
         # Not a single JSON value; try JSON Lines.
         rows = _parse_jsonl(stripped)
