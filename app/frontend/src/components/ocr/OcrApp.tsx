@@ -31,7 +31,7 @@ import type { HealthStatus } from "../../types/models";
 import { OcrDropzone } from "./OcrDropzone";
 import { OcrResultCard } from "./OcrResultCard";
 import { OcrResultsToolbar } from "./OcrResultsToolbar";
-import { useOcrRun } from "./useOcrRun";
+import { isPendingStatus, useOcrRun } from "./useOcrRun";
 import { OCR_MAX_IMAGES } from "./lib/ocrClient";
 
 /** Radix rejects an empty SelectItem value, so the remote option needs a name. */
@@ -103,8 +103,8 @@ export default function OcrApp() {
   }, [deployId]);
 
   const isRunning = run.runStatus === "running";
-  const queuedCount = run.items.filter(
-    (item) => item.status === "queued" || item.status === "cancelled",
+  const queuedCount = run.items.filter((item) =>
+    isPendingStatus(item.status),
   ).length;
   const isWarming = health === "starting";
   const canStart = !isRunning && queuedCount > 0 && !isWarming;

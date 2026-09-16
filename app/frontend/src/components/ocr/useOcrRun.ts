@@ -102,6 +102,19 @@ function dedupeKey(file: File): string {
   return `${file.name}|${file.size}|${file.lastModified}`;
 }
 
+/**
+ * Statuses that "Read text" should pick up.
+ *
+ * Includes failed, not just queued and cancelled: when a 5xx stops the queue
+ * the image that hit it is left failed while the rest are cancelled, so
+ * skipping failed would silently pass over exactly the image the banner just
+ * named. Re-reading an image that genuinely cannot be decoded is the user's
+ * call, and its card still shows why it failed.
+ */
+export function isPendingStatus(status: OcrItemStatus): boolean {
+  return status === "queued" || status === "cancelled" || status === "failed";
+}
+
 function joinDone(items: OcrItem[]): string {
   return items
     .filter((item) => item.status === "done" && item.text)
@@ -316,7 +329,7 @@ export function useOcrRun() {
   const start = useCallback(
     async (deployId: string | null) => {
       const queued = itemsRef.current
-        .filter((item) => item.status === "queued" || item.status === "cancelled")
+        .filter((item) => isPendingStatus(item.status))
         .map((item) => item.id);
       if (!queued.length) return;
 
