@@ -2434,10 +2434,18 @@ async def stream_run_progress(job_id: str):
         }
     )
 
-def sync_tokens_from_tt_studio():
+def sync_tokens_from_tt_studio(
+    request_hf_token: Optional[str] = None,
+    request_jwt_secret: Optional[str] = None,
+):
     """
-    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env 
+    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env
     to inference server's .env file if they differ.
+
+    request_hf_token / request_jwt_secret are the current deploy's own secrets
+    (from RunRequest). They're consulted as a fallback, before deciding there's
+    nothing to sync, so a token that only exists on this request still lands in
+    the artifact .env instead of leaving it permanently empty (see below).
     """
     from workflows.utils import load_dotenv
     
@@ -2487,6 +2495,13 @@ def sync_tokens_from_tt_studio():
         tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
     if not tt_studio_jwt:
         tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
+
+    # Last resort: the current request's own secrets. On a
+    # fresh deploy, get the secrets from the request.
+    if not tt_studio_hf:
+        tt_studio_hf = (request_hf_token or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (request_jwt_secret or "").strip() or None
 
     if not tt_studio_jwt and not tt_studio_hf:
         # Nothing to sync, but the model launcher still passes this file to
@@ -2626,7 +2641,10 @@ async def run_inference(request: RunRequest):
         
         # Sync tokens from TT Studio before setting environment variables
         try:
-            sync_tokens_from_tt_studio()
+            sync_tokens_from_tt_studio(
+                request_hf_token=request.hf_token,
+                request_jwt_secret=request.jwt_secret,
+            )
         except Exception as e:
             logger.warning(f"Failed to sync tokens from TT Studio: {e}")
             # Continue anyway - tokens might be set via request or environment
