@@ -2705,6 +2705,7 @@ async def run_inference(request: RunRequest):
         base_argv.extend(["--workflow", request.workflow])
         base_argv.extend(["--device", normalized_device])
         base_argv.extend(["--docker-server"])
+        base_argv.append("--no-auth")   # No auth required for local deployment
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
             base_argv.extend(["--dev-mode"])
