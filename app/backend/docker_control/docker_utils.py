@@ -10,6 +10,7 @@ import re
 import signal
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -734,6 +735,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 "status": "success",
                 "job_id": job_id,
                 "message": "Deployment started",
+                "service_port": service_port,
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"
@@ -880,26 +882,44 @@ def get_host_port(impl):
     return None
 
 
+_service_port_lock = threading.Lock()
+
+
 def get_next_service_port(start_port=20000, max_tries=1000):
     """First free host port at/after start_port, across all currently running
-    managed containers.
+    managed containers and any deployment still starting up.
 
     Deliberately independent of chip/device_id: a model still needs only one
     port no matter how many chip slots it occupies, and scanning live usage
     (rather than deriving the port from a slot number) means a port freed by
     a stopped deployment gets reused before this ever has to grow past the
     lowest few ports in the block.
+
+    A deploy's container can take a while to actually start (image pull,
+    etc.), so live Docker port mappings alone would let two near-simultaneous
+    deploys both pick the same free port before either container exists.
+    Also treating any "starting"/"running" ModelDeployment's port as taken
+    closes most of that window; the lock closes the rest (two callers
+    literally scanning at the same instant), though full atomicity would
+    still need the caller's deployment record created inside this same lock.
     """
-    managed_containers = get_managed_containers()
-    port_mappings = get_port_mappings(managed_containers)
-    used_host_ports = get_used_host_ports(port_mappings)
-    for port in range(start_port, start_port + max_tries):
-        if str(port) not in used_host_ports:
-            return port
-    logger.warning(
-        f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
-    )
-    return None
+    with _service_port_lock:
+        managed_containers = get_managed_containers()
+        port_mappings = get_port_mappings(managed_containers)
+        used_host_ports = set(get_used_host_ports(port_mappings))
+        in_flight_ports = {
+            str(dep.port)
+            for dep in ModelDeployment.objects.filter(status__in=["starting", "running"])
+            if dep.port is not None
+        }
+        used_host_ports |= in_flight_ports
+        for port in range(start_port, start_port + max_tries):
+            if str(port) not in used_host_ports:
+                return port
+        logger.warning(
+            f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
+        )
+        return None
 
 
 

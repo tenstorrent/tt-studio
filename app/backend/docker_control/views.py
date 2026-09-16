@@ -905,6 +905,7 @@ class DeployView(APIView):
                     "message": result.message or "Deployment started",
                     "api_response": result.api_response or {},
                     "allocated_device_id": device_id,
+                    "service_port": service_port,
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
