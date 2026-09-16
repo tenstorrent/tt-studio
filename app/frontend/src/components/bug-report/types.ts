@@ -39,6 +39,9 @@ export interface SupportEmailDraft {
   to: string;
   subject: string;
   body: string;
+  /** Server-built mailto: link. The web UI does not navigate to it — it
+   * assembles its own from `to`/`subject`/`body` so no server-supplied URL
+   * reaches a DOM sink. Kept for API consumers (e.g. the CLI twin). */
   mailto_url: string;
   assignee: { name: string; email: string };
   ref: string;

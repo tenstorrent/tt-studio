@@ -84,6 +84,33 @@ function currentSupportAssignee(): string {
   return `${assignee.name} <${assignee.email}>`;
 }
 
+// Mirrors the backend builder (app/backend/logs_control/support_email.py):
+// mailto: bodies beyond ~2000 chars get truncated by common mail clients and
+// browsers; everything heavy lives in the attached ZIP anyway.
+const MAX_MAILTO_BODY = 1800;
+const TRUNCATION_NOTICE = "\n[truncated — full details in the attached ZIP]";
+const SUPPORT_EMAIL = "support@tenstorrent.com";
+const EMAIL_ADDRESS = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+/** Build the mailto: link locally from the draft's structured fields.
+ * The scheme is a constant, the recipient must be a plain email address, and
+ * the subject/body are percent-encoded, so no server-supplied URL is ever
+ * handed to a navigable DOM sink (XSS hardening). */
+function buildMailtoUrl(to: string, subject: string, body: string): string {
+  const recipient = EMAIL_ADDRESS.test(to) ? to : SUPPORT_EMAIL;
+  let mailBody = body;
+  if (mailBody.length > MAX_MAILTO_BODY) {
+    mailBody =
+      mailBody.slice(0, MAX_MAILTO_BODY - TRUNCATION_NOTICE.length) +
+      TRUNCATION_NOTICE;
+  }
+  return (
+    `mailto:${recipient}` +
+    `?subject=${encodeURIComponent(subject)}` +
+    `&body=${encodeURIComponent(mailBody)}`
+  );
+}
+
 /** Plain-text fallback when the support-email draft endpoint is unreachable —
  * mirrors the backend's email body closely enough to paste into a mail client. */
 function buildFallbackEmailBody(
@@ -205,9 +232,11 @@ export function useBugReport() {
       const draft: SupportEmailDraft = await response.json();
       setEmailDraft(draft);
 
-      // Open the pre-filled draft in the user's default mail client.
+      // Open the pre-filled draft in the user's default mail client. The link
+      // is assembled here from the draft's fields rather than taken from the
+      // response, so the navigated URL is always a mailto: we constructed.
       const a = document.createElement("a");
-      a.href = draft.mailto_url;
+      a.href = buildMailtoUrl(draft.to, draft.subject, draft.body);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
