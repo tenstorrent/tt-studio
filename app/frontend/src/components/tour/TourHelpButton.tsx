@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { HelpCircle, Compass, PlayCircle } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -19,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { useTour } from "../../hooks/useTour";
-import { getAllTours } from "./tourRegistry";
+import { getAllTours, getTourById } from "./tourRegistry";
 
 interface TourHelpButtonProps {
   /** "icon" — icon-only button for the navbar; "full" — icon + text for the footer */
@@ -32,12 +33,31 @@ export function TourHelpButton({
   className,
 }: TourHelpButtonProps) {
   const { startTour } = useTour();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const tours = getAllTours();
 
   const handleLaunchTour = (tourId: string) => {
     setOpen(false);
-    startTour(tourId);
+    const tour = getTourById(tourId);
+    if (!tour) return;
+
+    const originRoute = location.pathname + location.search;
+    const targetRoute = tour.route;
+    const shouldNavigate = Boolean(targetRoute && location.pathname !== targetRoute);
+
+    if (shouldNavigate && targetRoute) {
+      navigate(targetRoute);
+    }
+
+    startTour(tourId, 0, {
+      onExit: () => {
+        if (shouldNavigate) {
+          navigate(originRoute);
+        }
+      },
+    });
   };
 
   return (

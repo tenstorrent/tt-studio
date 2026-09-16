@@ -142,6 +142,7 @@ def start_chat_deployment(
     vllm_override_args: Optional[str] = None,
     override_tt_config: Optional[str] = None,
     override_docker_image: Optional[str] = None,
+    host_weights_dir: Optional[str] = None,
     artifact_ref: Optional[str] = None,
     disable_metal_timeout: bool = False,
 ) -> TTInferenceRunResult:
@@ -171,6 +172,11 @@ def start_chat_deployment(
         payload["override_tt_config"] = override_tt_config
     if override_docker_image is not None:
         payload["override_docker_image"] = override_docker_image
+    if host_weights_dir:
+        payload["host_weights_dir"] = host_weights_dir
+
+        from docker_control.docker_utils import derive_custom_weights_label
+        payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
     if artifact_ref is not None:
         payload["artifact_ref"] = artifact_ref
     if disable_metal_timeout:
