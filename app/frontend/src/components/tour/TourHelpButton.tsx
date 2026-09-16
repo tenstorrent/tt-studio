@@ -41,10 +41,23 @@ export function TourHelpButton({
   const handleLaunchTour = (tourId: string) => {
     setOpen(false);
     const tour = getTourById(tourId);
-    if (tour?.route && location.pathname !== tour.route) {
-      navigate(tour.route);
+    if (!tour) return;
+
+    const originRoute = location.pathname + location.search;
+    const targetRoute = tour.route;
+    const shouldNavigate = Boolean(targetRoute && location.pathname !== targetRoute);
+
+    if (shouldNavigate && targetRoute) {
+      navigate(targetRoute);
     }
-    startTour(tourId);
+
+    startTour(tourId, 0, {
+      onExit: () => {
+        if (shouldNavigate) {
+          navigate(originRoute);
+        }
+      },
+    });
   };
 
   return (

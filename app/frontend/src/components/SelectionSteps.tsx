@@ -297,6 +297,63 @@ export default function StepperDemo() {
   } = useTour();
   const isDeployTour = tourRun && activeTourId === "deploy-model";
 
+  interface TourSnapshot {
+    targetStepperStep: number;
+    showHardwareConfig: boolean;
+    deployMode: "solution" | "single" | null;
+    selectedModel: string | null;
+    selectedModelName: string | null;
+    selectedDeviceIds: number[];
+  }
+
+  const tourInitialStateRef = useRef<TourSnapshot | null>(null);
+  const wasDeployTourRef = useRef<boolean>(false);
+
+  // Snapshot wizard state when deploy tour starts, and restore it on tour completion/exit
+  useEffect(() => {
+    if (isDeployTour && !wasDeployTourRef.current) {
+      tourInitialStateRef.current = {
+        targetStepperStep,
+        showHardwareConfig,
+        deployMode,
+        selectedModel,
+        selectedModelName,
+        selectedDeviceIds,
+      };
+      wasDeployTourRef.current = true;
+    } else if (!isDeployTour && wasDeployTourRef.current) {
+      wasDeployTourRef.current = false;
+      if (tourInitialStateRef.current) {
+        const snapshot = tourInitialStateRef.current;
+        setTargetStepperStep(snapshot.targetStepperStep);
+        setShowHardwareConfig(snapshot.showHardwareConfig);
+        if (snapshot.deployMode !== deployMode) {
+          setDeployMode(snapshot.deployMode);
+        }
+        setSelectedModel(snapshot.selectedModel);
+        setSelectedModelName(snapshot.selectedModelName);
+        setSelectedDeviceIds(snapshot.selectedDeviceIds);
+        tourInitialStateRef.current = null;
+      } else {
+        setTargetStepperStep(0);
+        setShowHardwareConfig(false);
+        if (voiceAgentAvailable) {
+          setDeployMode(null);
+        }
+      }
+    }
+  }, [
+    isDeployTour,
+    targetStepperStep,
+    showHardwareConfig,
+    deployMode,
+    selectedModel,
+    selectedModelName,
+    selectedDeviceIds,
+    setDeployMode,
+    voiceAgentAvailable,
+  ]);
+
   // Auto-start deploy-model tour on arrival at the wizard if onboarding is done but deploy-model is not
   useEffect(() => {
     if (models === null) return;

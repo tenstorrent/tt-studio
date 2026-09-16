@@ -4,13 +4,21 @@
 import { createContext } from "react";
 import type { Step } from "react-joyride";
 
+export interface StartTourOptions {
+  onExit?: () => void;
+}
+
 export interface TourContextState {
   run: boolean;
   stepIndex: number;
   activeTourId: string | null;
   steps: Step[];
   setSteps: (steps: Step[]) => void;
-  startTour: (tourId?: string, initialStepIndex?: number) => void;
+  startTour: (
+    tourId?: string,
+    initialStepIndex?: number,
+    options?: StartTourOptions
+  ) => void;
   stopTour: () => void;
   setStepIndex: (index: number) => void;
   isTourCompleted: (tourId?: string) => boolean;

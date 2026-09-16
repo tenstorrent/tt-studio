@@ -12,7 +12,11 @@ import {
   type PartialDeep,
   type Styles,
 } from "react-joyride";
-import { TourContext, type TourContextState } from "../contexts/TourContext";
+import {
+  TourContext,
+  type TourContextState,
+  type StartTourOptions,
+} from "../contexts/TourContext";
 import {
   DEFAULT_TOUR_ID,
   getTourById,
@@ -35,6 +39,19 @@ export function TourProvider({ children }: TourProviderProps) {
   );
 
   const isFirstVisitAutoRunRef = useRef<boolean>(false);
+  const onExitRef = useRef<(() => void) | null>(null);
+
+  const triggerExit = useCallback(() => {
+    if (onExitRef.current) {
+      const callback = onExitRef.current;
+      onExitRef.current = null;
+      try {
+        callback();
+      } catch (err) {
+        console.error("Error executing tour onExit callback:", err);
+      }
+    }
+  }, []);
 
   const startWaitRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -138,12 +155,17 @@ export function TourProvider({ children }: TourProviderProps) {
   );
 
   const startTour = useCallback(
-    (tourId: string = DEFAULT_TOUR_ID, initialStepIndex = 0) => {
+    (
+      tourId: string = DEFAULT_TOUR_ID,
+      initialStepIndex = 0,
+      options?: StartTourOptions
+    ) => {
       if (startWaitRef.current) {
         clearInterval(startWaitRef.current);
         startWaitRef.current = null;
       }
 
+      onExitRef.current = options?.onExit ?? null;
       isFirstVisitAutoRunRef.current = false;
       const tour = getTourById(tourId);
       if (!tour) return;
@@ -217,6 +239,7 @@ export function TourProvider({ children }: TourProviderProps) {
             return;
           }
         }
+        triggerExit();
       } else if (status === STATUS.SKIPPED || action === ACTIONS.CLOSE) {
         setRun(false);
         setStepIndex(0);
@@ -228,6 +251,7 @@ export function TourProvider({ children }: TourProviderProps) {
             safeSetItem("tourCompleted:deploy-model", true);
           }
         }
+        triggerExit();
       } else if (type === EVENTS.STEP_AFTER) {
         setStepIndex(index + (action === ACTIONS.PREV ? -1 : 1));
       } else if (type === EVENTS.TARGET_NOT_FOUND) {
@@ -235,6 +259,7 @@ export function TourProvider({ children }: TourProviderProps) {
           if (index <= 0) {
             setRun(false);
             setStepIndex(0);
+            triggerExit();
           } else {
             setStepIndex(index - 1);
           }
@@ -242,13 +267,14 @@ export function TourProvider({ children }: TourProviderProps) {
           if (index >= steps.length - 1) {
             setRun(false);
             setStepIndex(0);
+            triggerExit();
           } else {
             setStepIndex(index + 1);
           }
         }
       }
     },
-    [activeTourId, steps.length, startTour]
+    [activeTourId, steps.length, startTour, triggerExit]
   );
 
   const stopTour = useCallback(() => {
@@ -258,7 +284,8 @@ export function TourProvider({ children }: TourProviderProps) {
     }
     setRun(false);
     setStepIndex(0);
-  }, []);
+    triggerExit();
+  }, [triggerExit]);
 
   const isTourCompleted = useCallback(
     (tourId: string = DEFAULT_TOUR_ID): boolean => {
