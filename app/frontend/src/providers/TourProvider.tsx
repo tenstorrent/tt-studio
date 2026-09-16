@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Joyride,
   type Step,
@@ -12,7 +12,11 @@ import {
   type PartialDeep,
   type Styles,
 } from "react-joyride";
-import { TourContext, type TourContextState } from "../contexts/TourContext";
+import {
+  TourContext,
+  type TourContextState,
+  type StartTourOptions,
+} from "../contexts/TourContext";
 import {
   DEFAULT_TOUR_ID,
   getTourById,
@@ -34,18 +38,51 @@ export function TourProvider({ children }: TourProviderProps) {
     () => TOUR_REGISTRY[DEFAULT_TOUR_ID]?.steps ?? []
   );
 
-  // Auto-start onboarding tour on first visit if not previously completed
+  const isFirstVisitAutoRunRef = useRef<boolean>(false);
+  const onExitRef = useRef<(() => void) | null>(null);
+
+  const triggerExit = useCallback(() => {
+    if (onExitRef.current) {
+      const callback = onExitRef.current;
+      onExitRef.current = null;
+      try {
+        callback();
+      } catch (err) {
+        console.error("Error executing tour onExit callback:", err);
+      }
+    }
+  }, []);
+
+  const startWaitRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
-    const completed = safeGetItem<boolean>(
-      `tourCompleted:${DEFAULT_TOUR_ID}`,
+    return () => {
+      if (startWaitRef.current) {
+        clearInterval(startWaitRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-start onboarding tours on first visit if not previously completed
+  useEffect(() => {
+    const onboardingCompleted = safeGetItem<boolean>(
+      "tourCompleted:onboarding",
       false
     );
-    if (!completed) {
+
+    if (!onboardingCompleted) {
       const timer = setTimeout(() => {
-        const tour = getTourById(DEFAULT_TOUR_ID);
+        const tour = getTourById("onboarding");
         if (tour) {
-          setSteps(tour.steps);
-          setActiveTourId(DEFAULT_TOUR_ID);
+          isFirstVisitAutoRunRef.current = true;
+          // In first-visit auto-run, customize the last step button to point to the deploy tour
+          const chainedSteps = tour.steps.map((step, idx) =>
+            idx === tour.steps.length - 1
+              ? { ...step, locale: { last: "Next: Deploy a Model →" } }
+              : step
+          );
+          setSteps(chainedSteps);
+          setActiveTourId("onboarding");
           setStepIndex(0);
           setRun(true);
         }
@@ -53,6 +90,13 @@ export function TourProvider({ children }: TourProviderProps) {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  // Guard against out-of-bounds stepIndex when steps array dynamically shrinks
+  useEffect(() => {
+    if (steps.length > 0 && stepIndex >= steps.length) {
+      setStepIndex(steps.length - 1);
+    }
+  }, [stepIndex, steps.length]);
 
   const isDark = useMemo(() => {
     if (theme === "dark") return true;
@@ -110,51 +154,138 @@ export function TourProvider({ children }: TourProviderProps) {
     [isDark]
   );
 
-  const handleJoyrideEvent = useCallback(
-    (data: EventData) => {
-      const { status, type, index, action } = data;
-      const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-      if (finishedStatuses.includes(status)) {
-        setRun(false);
-        setStepIndex(0);
-        if (activeTourId) {
-          safeSetItem(`tourCompleted:${activeTourId}`, true);
-        }
-      } else if (action === ACTIONS.CLOSE) {
-        setRun(false);
-        setStepIndex(0);
-      } else if (type === EVENTS.STEP_AFTER) {
-        setStepIndex(index + (action === ACTIONS.PREV ? -1 : 1));
-      } else if (type === EVENTS.TARGET_NOT_FOUND) {
-        if (index >= steps.length - 1) {
-          setRun(false);
-          setStepIndex(0);
-        } else {
-          setStepIndex(index + 1);
-        }
-      }
-    },
-    [activeTourId, steps.length]
-  );
-
   const startTour = useCallback(
-    (tourId: string = DEFAULT_TOUR_ID, initialStepIndex = 0) => {
+    (
+      tourId: string = DEFAULT_TOUR_ID,
+      initialStepIndex = 0,
+      options?: StartTourOptions
+    ) => {
+      if (startWaitRef.current) {
+        clearInterval(startWaitRef.current);
+        startWaitRef.current = null;
+      }
+
+      onExitRef.current = options?.onExit ?? null;
+      isFirstVisitAutoRunRef.current = false;
       const tour = getTourById(tourId);
-      if (tour) {
-        setSteps(tour.steps);
-        setActiveTourId(tour.id);
-        setStepIndex(initialStepIndex);
+      if (!tour) return;
+
+      setSteps(tour.steps);
+      setActiveTourId(tour.id);
+      setStepIndex(initialStepIndex);
+
+      // Determine initial targets to verify in DOM before launching Joyride
+      const stepTarget = tour.steps[initialStepIndex]?.target;
+      const targetSelectors =
+        tour.id === "deploy-model"
+          ? [
+              '[data-tour="deploy-mode-single"]',
+              '[data-tour="deploy-mode-solutions"]',
+              '[data-tour="model-select-dropdown"]',
+            ]
+          : typeof stepTarget === "string" && stepTarget !== "body"
+          ? [stepTarget]
+          : [];
+
+      const isTargetReady =
+        targetSelectors.length === 0 ||
+        targetSelectors.some((sel) => document.querySelector(sel) !== null);
+
+      if (isTargetReady) {
         setRun(true);
+      } else {
+        // Wait for destination DOM element to mount (poll every 100ms up to 5s)
+        let elapsed = 0;
+        const interval = setInterval(() => {
+          elapsed += 100;
+          const ready = targetSelectors.some(
+            (sel) => document.querySelector(sel) !== null
+          );
+          if (ready) {
+            clearInterval(interval);
+            startWaitRef.current = null;
+            setRun(true);
+          } else if (elapsed >= 5000) {
+            clearInterval(interval);
+            startWaitRef.current = null;
+          }
+        }, 100);
+        startWaitRef.current = interval;
       }
     },
     []
   );
 
+  const handleJoyrideEvent = useCallback(
+    (data: EventData) => {
+      const { status, type, index, action } = data;
+
+      if (status === STATUS.FINISHED) {
+        setRun(false);
+        setStepIndex(0);
+        if (activeTourId) {
+          safeSetItem(`tourCompleted:${activeTourId}`, true);
+        }
+
+        // Only continue into "deploy-model" if this was a first-visit auto-run
+        if (activeTourId === "onboarding" && isFirstVisitAutoRunRef.current) {
+          isFirstVisitAutoRunRef.current = false;
+          const deployCompleted = safeGetItem<boolean>(
+            "tourCompleted:deploy-model",
+            false
+          );
+          if (!deployCompleted) {
+            startTour("deploy-model");
+            return;
+          }
+        }
+        triggerExit();
+      } else if (status === STATUS.SKIPPED || action === ACTIONS.CLOSE) {
+        setRun(false);
+        setStepIndex(0);
+        isFirstVisitAutoRunRef.current = false;
+        if (activeTourId) {
+          safeSetItem(`tourCompleted:${activeTourId}`, true);
+          // If the user dismisses/skips onboarding, mark deploy-model completed too so it doesn't auto-popup
+          if (activeTourId === "onboarding") {
+            safeSetItem("tourCompleted:deploy-model", true);
+          }
+        }
+        triggerExit();
+      } else if (type === EVENTS.STEP_AFTER) {
+        setStepIndex(index + (action === ACTIONS.PREV ? -1 : 1));
+      } else if (type === EVENTS.TARGET_NOT_FOUND) {
+        if (action === ACTIONS.PREV) {
+          if (index <= 0) {
+            setRun(false);
+            setStepIndex(0);
+            triggerExit();
+          } else {
+            setStepIndex(index - 1);
+          }
+        } else {
+          if (index >= steps.length - 1) {
+            setRun(false);
+            setStepIndex(0);
+            triggerExit();
+          } else {
+            setStepIndex(index + 1);
+          }
+        }
+      }
+    },
+    [activeTourId, steps.length, startTour, triggerExit]
+  );
+
   const stopTour = useCallback(() => {
+    if (startWaitRef.current) {
+      clearInterval(startWaitRef.current);
+      startWaitRef.current = null;
+    }
     setRun(false);
     setStepIndex(0);
-  }, []);
+    triggerExit();
+  }, [triggerExit]);
 
   const isTourCompleted = useCallback(
     (tourId: string = DEFAULT_TOUR_ID): boolean => {
@@ -173,6 +304,7 @@ export function TourProvider({ children }: TourProviderProps) {
       stepIndex,
       activeTourId,
       steps,
+      setSteps,
       startTour,
       stopTour,
       setStepIndex,
@@ -184,6 +316,7 @@ export function TourProvider({ children }: TourProviderProps) {
       stepIndex,
       activeTourId,
       steps,
+      setSteps,
       startTour,
       stopTour,
       isTourCompleted,
