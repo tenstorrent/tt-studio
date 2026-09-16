@@ -718,6 +718,8 @@ class SupportEmailView(APIView):
         ref = (body_data.get("ref") or "").strip()
         if not ref:
             return JsonResponse({"error": "ref is required"}, status=400)
+        if not re.fullmatch(r"ttbr-[0-9a-z]{12,32}", ref):
+            return JsonResponse({"error": "ref must look like ttbr-<id>"}, status=400)
 
         form = {
             key: (body_data.get(key) or "").strip()
