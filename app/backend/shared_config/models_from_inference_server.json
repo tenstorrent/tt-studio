@@ -3,7 +3,7 @@
     "artifact_version": "0.21.0",
     "generated_at": "2026-09-02T22:33:48.536105+00:00"
   },
-  "total_models": 72,
+  "total_models": 73,
   "models": [
     {
       "model_name": "DeepSeek-R1-Distill-Llama-70B",
@@ -1869,6 +1869,38 @@
       "health_route": "/health",
       "env_vars": {},
       "param_count": null
+    },
+    {
+      "model_name": "PaddleOCR-VL-1.6",
+      "hand_owned": true,
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "P150"
+      ],
+      "hf_model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+      "inference_engine": "vLLM",
+      "status": "EXPERIMENTAL",
+      "version": "0.0.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:paddleocr-vl-1.6-p150-20260916-0.20.0-1008b25bae67ad7ee3757798558a60ae9080992e-6d3bb28",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "HF_MODEL": "PaddlePaddle/PaddleOCR-VL-1.6",
+        "MESH_DEVICE": "P150",
+        "ARCH_NAME": "blackhole",
+        "EXTRA_MODELS_DIR": "../../tt-metal/models/demos/blackhole/paddleocr_vl/vllm_bundle",
+        "TT_MESH_GRAPH_DESC_PATH": "../../tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto"
+      },
+      "param_count": 1,
+      "requires_dev_catalog": true,
+      "inference_artifact_ref": {
+        "P150": "stisi/add-paddleocr-vl-p150-dev-spec"
+      }
     }
   ]
 }
