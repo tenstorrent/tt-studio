@@ -36,6 +36,24 @@ export function isFluxModel(modelNameOrId?: string | null): boolean {
   return normalizeToken(modelNameOrId).includes("flux");
 }
 
+export function isQwen3Embedding06BModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("qwen3-embedding-0.6b") || token.includes("qwen3embedding0.6b");
+}
+
+export function isQwen3Embedding4BModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("qwen3-embedding-4b") || token.includes("qwen3embedding4b");
+}
+
+export function isBgeM3Model(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("bge-m3") || token.includes("bgem3");
+}
+
 export function parseDeviceIds(deviceId?: string | number): number[] {
   if (deviceId === undefined || deviceId === null) {
     return [];

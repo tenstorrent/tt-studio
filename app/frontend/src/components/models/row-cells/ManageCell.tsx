@@ -15,6 +15,7 @@ import {
   Volume2,
   ScanFace,
   BrainCog,
+  Binary,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
@@ -94,8 +95,8 @@ export default React.memo(function ManageCell({
   const modelType = model_type
     ? getModelTypeFromBackendType(model_type)
     : getModelTypeFromName(name ?? "");
-  // Embedding models have no UI, and an unidentified container has no known API
-  // shape — neither gets an interaction or API button, only management actions.
+  // An unidentified container has no known API shape — it gets no interaction
+  // or API button, only management actions.
   const noInteraction = !hasInteractionPage(modelType);
   const openLabel =
     modelType === ModelType.ImageGeneration
@@ -108,9 +109,11 @@ export default React.memo(function ManageCell({
             ? "Face Rec"
             : modelType === ModelType.TTS
               ? "TTS"
-              : modelType === ModelType.Training
-                ? "Training Dashboard"
-                : "Chat";
+              : modelType === ModelType.Embedding
+                ? "Embed"
+                : modelType === ModelType.Training
+                  ? "Training Dashboard"
+                  : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration
       ? ImageIcon
@@ -122,9 +125,11 @@ export default React.memo(function ManageCell({
             ? ScanFace
             : modelType === ModelType.TTS
               ? Volume2
-              : modelType === ModelType.Training
-                ? BrainCog
-                : MessageSquareText;
+              : modelType === ModelType.Embedding
+                ? Binary
+                : modelType === ModelType.Training
+                  ? BrainCog
+                  : MessageSquareText;
 
   if (isFailed) {
     return (

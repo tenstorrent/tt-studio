@@ -161,6 +161,29 @@ def _is_llama31_8b_model(model_name: str) -> bool:
     token = (model_name or "").lower().replace("_", "").replace(" ", "")
     return "llama-3.1-8b" in token or "llama3.18b" in token
 
+def _is_qwen3_embedding_06b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-0.6b" in token or "qwen3embedding0.6b" in token
+
+def _is_qwen3_embedding_4b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-4b" in token or "qwen3embedding4b" in token
+
+def _is_bge_m3_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "bge-m3" in token or "bgem3" in token
+
+def _has_chip_tier_overrides(model_name: str) -> bool:
+    """True for models with a hand-authored P150/P300 override (see
+    shared_config.sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS)
+    alongside a genuine whole-board P300x2 spec -- these can opt into 4x
+    throughput via force_full_board, unlike single-chip-only models."""
+    return (
+        _is_qwen3_embedding_06b_model(model_name)
+        or _is_qwen3_embedding_4b_model(model_name)
+        or _is_bge_m3_model(model_name)
+    )
+
 def _lookup_deployment_device_ids(container_id):
     """Return the list of device slot ids associated with a deployment, or []."""
     try:
@@ -432,6 +455,17 @@ class DeployView(APIView):
                 and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
+            # Qwen3-Embedding-0.6B and bge-m3 have chip-tier overrides (see
+            # shared_config.model_config.ModelImpl.runtime_model_spec_overrides) that
+            # make chips_required=1 their default, but both also have a genuine,
+            # already-working whole-board P300x2 mesh spec for 4x throughput. Opt-in
+            # only -- the default stays single-chip.
+            should_force_full_board_embedding = (
+                impl.model_type != ModelTypes.CHAT
+                and force_full_board_requested
+                and board_type == "P300x2"
+                and _has_chip_tier_overrides(impl.model_name)
+            )
             # Training on P300x2 can also claim the whole board (all 4 chips) instead
             # of a single P300 card, mirroring the flexible Llama card-pair choice.
             should_force_full_board_training = (
@@ -440,7 +474,9 @@ class DeployView(APIView):
                 and board_type == "P300x2"
             )
             if force_full_board_requested and not (
-                should_force_full_board_llama or should_force_full_board_training
+                should_force_full_board_llama
+                or should_force_full_board_embedding
+                or should_force_full_board_training
             ):
                 logger.info(
                     "Ignoring force_full_board for model=%s board=%s",
@@ -498,6 +534,7 @@ class DeployView(APIView):
             # Any deploy that claims the entire board (reserve all slots, no device_id).
             whole_board_deploy = (
                 should_force_full_board_llama
+                or should_force_full_board_embedding
                 or should_force_full_board_training
                 or use_whole_board_deploy
                 or mesh_whole_board
@@ -542,9 +579,10 @@ class DeployView(APIView):
                 # training (force_full_board) are both driven by the frontend, exactly
                 # like the flexible Llama path — no server-side slot normalization needed.
                 if whole_board_deploy:
-                    # Whole-board deploy (forced QB2 Llama or training, a single-chip
-                    # model on a Wormhole mesh board, or a media model like FLUX with no
-                    # single-chip spec) takes over the entire board — reserve all slots.
+                    # Whole-board deploy (forced QB2 Llama, training, embedding models,
+                    # a single-chip model on a Wormhole mesh board, or a media model
+                    # like FLUX with no single-chip spec) takes over the entire board —
+                    # reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
                         0, 4, impl.model_name
                     )
@@ -986,7 +1024,7 @@ class DeployView(APIView):
                             logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
 
                     def deploy_fn(_pull_id=pull_id, _host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding, host_weights_dir=host_weights_dir)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             # Free the slot: the deploy never started.
@@ -1002,6 +1040,15 @@ class DeployView(APIView):
                             pass
                         return job_id, None
 
+                    # Only Whisper/SpeechT5 (TTS, SPEECH_RECOGNITION) forcefully download their weights
+                    # inside the media server container -- the pull is the whole deploy for
+                    # those. Every other non-CHAT model on this path (embedding, image/
+                    # video generation, ...) fetches its weights from HF after the pull,
+                    # same as CHAT models.
+                    expects_weights = impl.model_type not in (
+                        ModelTypes.TTS,
+                        ModelTypes.SPEECH_RECOGNITION,
+                    )
                     start_prepull_and_deploy(
                         pull_id=pull_id,
                         image_name=image_name,
@@ -1009,9 +1056,7 @@ class DeployView(APIView):
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
                         heartbeat_fn=_refresh_media_placeholder,
-                        # The media server image ships Whisper/SpeechT5 weights, so
-                        # nothing downloads after the pull — the pull is the deploy.
-                        expects_weights=False,
+                        expects_weights=expects_weights,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
@@ -1019,7 +1064,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, host_weights_dir=host_weights_dir)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding, host_weights_dir=host_weights_dir)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -2843,29 +2888,49 @@ class RegisterExternalModelView(APIView):
                 try:
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
-                        if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
-                            # Found a catalog match — adopt its authoritative type
-                            # and name (routing is derived from the catalog
-                            # model_impl at enrichment time, not stored here).
-                            catalog_type = catalog_model.get("model_type", "").lower()
+                        catalog_hf_id = catalog_model.get("hf_model_id") or ""
+                        catalog_model_name = catalog_model.get("model_name") or ""
+                        hf_id_match = catalog_hf_id.lower() == hf_model_id.lower()
+                        # A container that only ever advertises its bare catalog
+                        # name (tt-media-server's MODEL=<name> convention, e.g.
+                        # "Qwen3-Embedding-0.6B" rather than an org/repo id) won't
+                        # match above; matching on model_name recovers the same
+                        # entry so we can adopt its real HF id, which some
+                        # embedding runners require verbatim (see
+                        # model_control.model_utils.embed_text).
+                        name_match = (
+                            not hf_id_match
+                            and catalog_model_name.lower() == hf_model_id.lower()
+                        )
+                        if not (hf_id_match or name_match):
+                            continue
+                        if name_match and catalog_hf_id:
+                            corrections.append(
+                                f"Model id resolved to catalog's '{catalog_hf_id}' "
+                                f"(matched by short name '{hf_model_id}')"
+                            )
+                            hf_model_id = catalog_hf_id
 
-                            if catalog_type and catalog_type != model_type:
-                                if model_type:
-                                    corrections.append(
-                                        f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
-                                    )
-                                model_type = catalog_type
+                        # Found a catalog match — adopt its authoritative type and
+                        # name (routing is derived from the catalog model_impl at
+                        # enrichment time, not stored here).
+                        catalog_type = catalog_model.get("model_type", "").lower()
+                        if catalog_type and catalog_type != model_type:
+                            if model_type:
+                                corrections.append(
+                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                )
+                            model_type = catalog_type
 
-                            # Adopt the catalog's model name
-                            catalog_name = catalog_model.get("model_name")
-                            if catalog_name and catalog_name != model_name:
-                                if model_name:
-                                    corrections.append(
-                                        f"Model name set to catalog name '{catalog_name}'"
-                                    )
-                                model_name = catalog_name
+                        # Adopt the catalog's model name
+                        if catalog_model_name and catalog_model_name != model_name:
+                            if model_name:
+                                corrections.append(
+                                    f"Model name set to catalog name '{catalog_model_name}'"
+                                )
+                            model_name = catalog_model_name
 
-                            break
+                        break
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
@@ -3719,6 +3784,14 @@ def _hf_from_container(container_info: dict):
         val = env.get(key)
         if val and "/" in val:  # looks like an org/name HF id, not a bare label
             return val
+    # No org/repo-shaped value anywhere -- fall back to a bare MODEL/MODEL_ID, the
+    # tt-media-server launch convention for forge/media models (e.g. MODEL=bge-m3,
+    # MODEL=Qwen3-Embedding-4B). Lower confidence than the slash-shaped pass above,
+    # but still a real identity from the container itself, not a guess.
+    for key in ("MODEL_ID", "MODEL"):
+        val = env.get(key)
+        if val:
+            return val
     return None
 
 
@@ -3768,6 +3841,7 @@ def _detect_served_api(host_port) -> dict:
         ("/v1/audio/speech", "tts"),
         ("/v1/videos/generations", "video_generation"),
         ("/objdetection_v2", "object_detection"),
+        ("/v1/embeddings", "embedding"),
     ):
         if route in paths:
             result["service_route"] = route
@@ -3801,13 +3875,17 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
         result["source"] = "container"
 
     # Live /v1/models is authoritative when reachable (unauth'd); fills/overrides.
+    # Exception: tt-media-server's non-LLM services (embedding, CNN, etc.) report
+    # settings.model_weights_path here instead of a clean id when SERVED_MODEL_NAME
+    # isn't set at launch -- an absolute path, never a real "org/repo" HF id. Don't
+    # let that clobber a real identity already found from the container itself.
     if host_port:
         try:
             api_resp = requests.get(
                 f"http://host.docker.internal:{host_port}/v1/models", timeout=2
             )
             model_id = api_resp.json().get("data", [{}])[0].get("id")
-            if model_id:
+            if model_id and not model_id.startswith("/"):
                 result["hf_model_id"] = model_id
                 result["source"] = "api"
         except Exception:

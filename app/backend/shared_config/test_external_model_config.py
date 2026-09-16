@@ -42,11 +42,11 @@ class TestBuildExternalModelImpl:
         assert impl.service_port == 8000
         assert impl.hf_model_id == "org/my-tts"
 
-    def test_embedding_uses_the_media_enqueue_contract(self):
-        # Not a chat route: media embedding models serve /enqueue, and TT Studio
-        # has no embedding UI to drive a chat endpoint anyway.
+    def test_embedding_uses_the_openai_embeddings_route(self):
+        # tt-media-server mounts embedding.router at /v1 for both the media and
+        # forge runners, so this is the route regardless of engine.
         impl = build_external_model_impl("some-embedder", "embedding")
-        assert impl.service_route == "/enqueue"
+        assert impl.service_route == "/v1/embeddings"
         assert impl.inference_engine == "media"
 
     def test_chat_model_routes_like_a_catalog_chat_model(self):

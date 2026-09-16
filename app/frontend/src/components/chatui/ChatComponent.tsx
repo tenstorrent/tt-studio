@@ -9,6 +9,7 @@ import { useLogo } from "../../utils/logo";
 import {
   fetchModels,
   fetchDeployedModelsInfo,
+  fetchModelHealth,
   getModelTypeFromBackendType,
   ModelType,
 } from "../../api/modelsDeployedApis";
@@ -101,6 +102,7 @@ export default function ChatComponent() {
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
+  const [modelHealthById, setModelHealthById] = useState<Record<string, string>>({});
   const [reRenderingMessageId, setReRenderingMessageId] = useState<
     string | null
   >(null);
@@ -240,17 +242,49 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
+  // Probe each deployed model's actual readiness -- the same live /health
+  // check the navbar uses to gate its own entries. A container can be
+  // "deployed" (running) well before it's warmed up enough to serve a
+  // request, so the model switcher and voice-input lookup below must not
+  // offer one that isn't there yet.
+  useEffect(() => {
+    if (modelsDeployed.length === 0) {
+      setModelHealthById({});
+      return;
+    }
+    let cancelled = false;
+    const ids = modelsDeployed
+      .map((model) => model.id)
+      .filter((id): id is string => !!id);
+    Promise.all(
+      ids.map(async (id) => [id, await fetchModelHealth(id)] as const)
+    ).then((entries) => {
+      if (!cancelled) setModelHealthById(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelsDeployed]);
+
+  const healthyModelsDeployed = useMemo(
+    () =>
+      modelsDeployed.filter(
+        (model) => !!model.id && modelHealthById[model.id] === "healthy"
+      ),
+    [modelsDeployed, modelHealthById]
+  );
+
   // Voice input transcribes through a deployed speech recognition model, or the
   // cloud endpoint in deployed mode. Without either, the mic button is hidden.
   const sttDeployId = useMemo(() => {
-    const sttModel = modelsDeployed.find(
+    const sttModel = healthyModelsDeployed.find(
       (model) =>
         model.model_type &&
         getModelTypeFromBackendType(model.model_type) ===
           ModelType.SpeechRecognitionModel
     );
     return sttModel?.id ?? null;
-  }, [modelsDeployed]);
+  }, [healthyModelsDeployed]);
   const voiceInputAvailable =
     sttDeployId !== null || import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
@@ -1024,11 +1058,17 @@ export default function ChatComponent() {
     }
   }, [chatThreads, currentThreadIndex, getCurrentThread]);
 
-  // Transform Model[] to the format expected by Header component
-  const headerModelsDeployed = modelsDeployed.map((model) => ({
-    id: model.containerID || model.id || "", // Use containerID from Model type or fall back to id
-    name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
-  }));
+  // The model switcher only makes sense for models this page can actually
+  // drive (chat + VLM), and only ones that have finished warming up.
+  const headerModelsDeployed = healthyModelsDeployed
+    .filter((model) => {
+      const t = model.model_type && getModelTypeFromBackendType(model.model_type);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    })
+    .map((model) => ({
+      id: model.containerID || model.id || "", // Use containerID from Model type or fall back to id
+      name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
+    }));
   const currentThreadMessages = (() => {
     const currentThread = getCurrentThread();
     return Array.isArray(currentThread?.messages) ? currentThread.messages : [];
