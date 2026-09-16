@@ -91,7 +91,7 @@ def _detect_device_ids_from_mounts(container_info: dict):
     for d in (hc.get("Devices") or []):
         if not isinstance(d, dict):
             continue
-        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
+        path = (d.get("PathOnHost") or d.get("PathInContainer") or "").rstrip("/")
         m = _TT_DEVICE_NODE.match(path)
         if m:
             ids.append(int(m.group(1)))
