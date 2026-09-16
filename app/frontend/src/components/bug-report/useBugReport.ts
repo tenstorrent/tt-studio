@@ -52,12 +52,36 @@ const INITIAL_SOURCES: LogSourceState[] = [
   },
 ];
 
+const SUPPORT_ROTATION = [
+  { name: "Anirudh", email: "anirud@tenstorrent.com" },
+  { name: "Jashan", email: "jashansingh@tenstorrent.com" },
+  { name: "Raheem", email: "rnabeel@tenstorrent.com" },
+] as const;
+
 function makeDiagnosticsRef(): string {
   const suffix =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
       : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   return `ttbr-${suffix}`;
+}
+
+function currentSupportAssignee(): string {
+  const today = new Date();
+  const firstThursday = new Date(Date.UTC(today.getUTCFullYear(), 0, 4));
+  const dayOffset = (firstThursday.getUTCDay() || 7) - 1;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - dayOffset);
+  const dayDiff =
+    (Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate()
+    ) -
+      firstThursday.getTime()) /
+    86_400_000;
+  const isoWeek = 1 + Math.floor(dayDiff / 7);
+  const assignee = SUPPORT_ROTATION[isoWeek % SUPPORT_ROTATION.length];
+  return `${assignee.name} <${assignee.email}>`;
 }
 
 /** Plain-text fallback when the support-email draft endpoint is unreachable —
@@ -67,9 +91,11 @@ function buildFallbackEmailBody(
   diagnosticsRef: string
 ): string {
   const field = (v: string) => v.trim() || "_fill in_";
-  return `Reference: ${diagnosticsRef}
+  return `Assignee: ${currentSupportAssignee()}
+Reference: ${diagnosticsRef}
 
-TT-Studio bug report.
+TT-Studio bug report. Do not edit the Assignee/Reference lines — Jira
+automation reads them.
 
 ## Summary
 ${field(form.title)}
