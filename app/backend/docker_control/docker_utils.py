@@ -10,6 +10,7 @@ import re
 import signal
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -545,8 +546,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             f"(board={board_type}, chips_required={chips_required}, force_full_board={force_full_board})"
         )
 
-        BASE_SERVICE_PORT = 7000
-
         # Create payload for the API call
         payload = {
             "model": impl.model_name,
@@ -555,12 +554,16 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip).
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
-        # single-card deployments; use the first slot for the service port.
+        # single-card deployments; use the first slot for chip pinning below.
         primary_device_id = int(str(device_id).split(",")[0].strip())
-        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
-        service_port = BASE_SERVICE_PORT + primary_device_id
+        service_port = get_next_service_port()
+        if service_port is None:
+            raise RuntimeError(
+                "No free host port available for the model server. "
+                "Stop an unused deployment and try again."
+            )
+        payload["service_port"] = str(service_port)
 
         # Pin to a specific chip slot only for single-chip models. For multi-chip
         # single-card mode (chips_required == 1 with an explicit slot list) this is a
@@ -746,6 +749,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 "status": "success",
                 "job_id": job_id,
                 "message": "Deployment started",
+                "service_port": service_port,
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"
@@ -875,19 +879,61 @@ def get_port_mounts(impl, host_port=None):
 def get_host_port(impl):
     # Reserve ports used by TT-Studio services on the host:
     #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
-    # Model containers start at 8003.
+    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003.
+    # A live scan of used ports (below) means this can never actually collide
+    # with get_next_service_port()'s 20000+ block even though both can grow.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     RESERVED_PORTS = ["8000", "8001", "8002"]
     used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8003
+    BASE_MODEL_PORT = 21003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8003-8102")
+    logger.warning("Could not find an unused port in block: 21003-21102")
     return None
+
+
+_service_port_lock = threading.Lock()
+
+
+def get_next_service_port(start_port=20000, max_tries=1000):
+    """First free host port at/after start_port, across all currently running
+    managed containers and any deployment still starting up.
+
+    Deliberately independent of chip/device_id: a model still needs only one
+    port no matter how many chip slots it occupies, and scanning live usage
+    (rather than deriving the port from a slot number) means a port freed by
+    a stopped deployment gets reused before this ever has to grow past the
+    lowest few ports in the block.
+
+    A deploy's container can take a while to actually start (image pull,
+    etc.), so live Docker port mappings alone would let two near-simultaneous
+    deploys both pick the same free port before either container exists.
+    Also treating any "starting"/"running" ModelDeployment's port as taken
+    closes most of that window; the lock closes the rest (two callers
+    literally scanning at the same instant), though full atomicity would
+    still need the caller's deployment record created inside this same lock.
+    """
+    with _service_port_lock:
+        managed_containers = get_managed_containers()
+        port_mappings = get_port_mappings(managed_containers)
+        used_host_ports = set(get_used_host_ports(port_mappings))
+        in_flight_ports = {
+            str(dep.port)
+            for dep in ModelDeployment.objects.filter(status__in=["starting", "running"])
+            if dep.port is not None
+        }
+        used_host_ports |= in_flight_ports
+        for port in range(start_port, start_port + max_tries):
+            if str(port) not in used_host_ports:
+                return port
+        logger.warning(
+            f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
+        )
+        return None
 
 
 
@@ -1101,7 +1147,7 @@ def _external_model_impl(con_id, con):
         model_name=dep.model_name or con["name"],
         model_type=dep.model_type,
         hf_model_id=dep.hf_model_id,
-        service_port=dep.port or 7000,
+        service_port=dep.port or 20000,
         tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
         service_route=getattr(dep, "service_route", None),
     )

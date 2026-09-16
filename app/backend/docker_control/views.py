@@ -28,6 +28,7 @@ import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
+    get_next_service_port,
     get_container_status,
     get_canonical_deployments,
     serialize_canonical_entry_for_http,
@@ -571,8 +572,7 @@ class DeployView(APIView):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            # Allocate a chip slot for all model types so device_id and service_port
-            # are always set correctly (port = 7000 + device_id).
+            # Allocate a chip slot for all model types so device_id is always set correctly.
             try:
                 allocator = ChipSlotAllocator()
                 # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
@@ -672,11 +672,21 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            BASE_SERVICE_PORT = 7000
-            if whole_board_deploy:
-                service_port = BASE_SERVICE_PORT
-            else:
-                service_port = BASE_SERVICE_PORT + device_id
+            # First free port from 20000, independent of chip slot -- a model
+            # still needs only one port whether it's whole-board or single-chip,
+            # and this reuses a port freed by a stopped deployment before it
+            # ever grows past the lowest few ports in the block.
+            service_port = get_next_service_port()
+            if service_port is None:
+                logger.error(f"No free service port available for {impl.model_name}")
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "allocation_failed",
+                        "message": "No free host port available for the model server. Stop an unused deployment and try again.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
@@ -933,6 +943,7 @@ class DeployView(APIView):
                     "message": result.message or "Deployment started",
                     "api_response": result.api_response or {},
                     "allocated_device_id": device_id,
+                    "service_port": service_port,
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
@@ -2762,9 +2773,9 @@ class RegisterExternalModelView(APIView):
             except (TypeError, ValueError):
                 chips_required = 1
             try:
-                service_port = int(data.get("service_port", 7000))
+                service_port = int(data.get("service_port", 20000))
             except (TypeError, ValueError):
-                service_port = 7000
+                service_port = 20000
 
             # --- Only the container is required; model identity is derived below ---
             if not container_id:
@@ -3051,7 +3062,7 @@ class RegisterExternalModelView(APIView):
                     rec.device_id = device_id
                     rec.device_ids = device_ids
                     rec.model_name = model_name
-                    rec.port = int(service_port) if service_port else 7000
+                    rec.port = int(service_port) if service_port else 20000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
@@ -3070,7 +3081,7 @@ class RegisterExternalModelView(APIView):
                         device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
-                        port=int(service_port) if service_port else 7000,
+                        port=int(service_port) if service_port else 20000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
                         model_type=model_type,

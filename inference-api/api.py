@@ -2167,7 +2167,7 @@ class RunRequest(BaseModel):
     docker_server: Optional[bool] = False
     interactive: Optional[bool] = False
     workflow_args: Optional[str] = None
-    service_port: Optional[str] = "7000"
+    service_port: Optional[str] = "20000"
     disable_trace_capture: Optional[bool] = False
     dev_mode: Optional[bool] = False
     override_docker_image: Optional[str] = None
@@ -2441,10 +2441,18 @@ async def stream_run_progress(job_id: str):
         }
     )
 
-def sync_tokens_from_tt_studio():
+def sync_tokens_from_tt_studio(
+    request_hf_token: Optional[str] = None,
+    request_jwt_secret: Optional[str] = None,
+):
     """
-    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env 
+    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env
     to inference server's .env file if they differ.
+
+    request_hf_token / request_jwt_secret are the current deploy's own secrets
+    (from RunRequest). They're consulted as a fallback, before deciding there's
+    nothing to sync, so a token that only exists on this request still lands in
+    the artifact .env instead of leaving it permanently empty (see below).
     """
     from workflows.utils import load_dotenv
     
@@ -2487,9 +2495,15 @@ def sync_tokens_from_tt_studio():
     if ui_hf:
         tt_studio_hf = ui_hf
 
-    # Last resort: the process environment. run.py hands its shell's HF_TOKEN /
-    # JWT_SECRET to this server, so a token exported in the terminal still
-    # reaches the model container even when neither .env nor Settings has one.
+    # Consulting the request's own value first stops this job from
+    # writing another job's transient HF_TOKEN/JWT_SECRET into the artifact .env.
+    if not tt_studio_hf:
+        tt_studio_hf = (request_hf_token or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (request_jwt_secret or "").strip() or None
+
+    # Last resort: the process environment so a token exported in the terminal still
+    # reaches the model container even when neither .env, Settings, nor the request itself has one.
     if not tt_studio_hf:
         tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
     if not tt_studio_jwt:
@@ -2633,7 +2647,10 @@ async def run_inference(request: RunRequest):
         
         # Sync tokens from TT Studio before setting environment variables
         try:
-            sync_tokens_from_tt_studio()
+            sync_tokens_from_tt_studio(
+                request_hf_token=request.hf_token,
+                request_jwt_secret=request.jwt_secret,
+            )
         except Exception as e:
             logger.warning(f"Failed to sync tokens from TT Studio: {e}")
             # Continue anyway - tokens might be set via request or environment
@@ -2672,7 +2689,7 @@ async def run_inference(request: RunRequest):
             "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
@@ -2694,13 +2711,14 @@ async def run_inference(request: RunRequest):
         base_argv.extend(["--workflow", request.workflow])
         base_argv.extend(["--device", normalized_device])
         base_argv.extend(["--docker-server"])
+        base_argv.append("--no-auth")   # No auth required for local deployment
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
             base_argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
             base_argv.extend(["--skip-system-sw-validation"])
-        base_argv.extend(["--service-port", request.service_port or "7000"])
+        base_argv.extend(["--service-port", request.service_port or "20000"])
         
         # Add optional arguments if they are set
         if request.impl:
