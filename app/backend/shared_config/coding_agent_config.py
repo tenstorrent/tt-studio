@@ -15,6 +15,7 @@ CODING_AGENT_ELIGIBLE_MODELS = {
     "Llama-3.1-8B",
     "Llama-3.1-8B-Instruct",
     "Llama-3.3-70B-Instruct",
+    "Qwen3.5-9B",
     "Qwen3.6-27B",
     "Qwen3.8-27B",
     "gemma-4-31B-it",
