@@ -67,6 +67,41 @@ MULTI_CHIP_BOARD_SLOTS = {
 STARTING_DEPLOYMENT_GRACE_PERIOD = timedelta(minutes=3)
 
 
+# Container name prefixes that belong to the TT-Studio infrastructure itself. These
+# containers may bind /dev/tenstorrent (the backend does, for tt-smi) without
+# running a model on it.
+INFRA_CONTAINER_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+
+# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
+_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
+
+
+def _detect_device_ids_from_mounts(container_info: dict):
+    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
+
+    This is the ground truth: the launcher binds exactly the chip nodes the model
+    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
+    works regardless of how or where the container was started. Returns a sorted
+    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
+    directory is bound (no per-chip granularity), or None if no TT device is bound.
+    """
+    hc = container_info.get("HostConfig") or {}
+    ids = []
+    whole = False
+    for d in (hc.get("Devices") or []):
+        if not isinstance(d, dict):
+            continue
+        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
+        m = _TT_DEVICE_NODE.match(path)
+        if m:
+            ids.append(int(m.group(1)))
+        elif path == "/dev/tenstorrent":
+            whole = True
+    if ids:
+        return sorted(set(ids))
+    return "whole" if whole else None
+
+
 class ChipSlotAllocator:
     """
     Manages automatic chip slot allocation.
