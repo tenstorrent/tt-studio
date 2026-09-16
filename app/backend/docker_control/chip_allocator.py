@@ -526,6 +526,12 @@ class ChipSlotAllocator:
             return {}
 
         if isinstance(response, dict):
+            if response.get("status") == "error":
+                logger.warning(
+                    "Docker control returned an error while listing containers: %s",
+                    response.get("message", "unknown error"),
+                )
+                return {}
             containers = response.get("containers", []) or []
         else:
             containers = response or []
