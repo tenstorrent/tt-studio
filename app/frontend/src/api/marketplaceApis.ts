@@ -24,6 +24,11 @@ export interface MarketplaceApp {
   first_run_note: string | null;
   status: MarketplaceAppStatus;
   blocked_reason?: string | null;
+  // True for apps that can be wired to a deployed embedding/STT/TTS model
+  // instead of their own built-in one -- the UI offers a picker before launching.
+  embedding_choice?: boolean;
+  stt_choice?: boolean;
+  tts_choice?: boolean;
   message?: string;
   progress?: { downloaded_bytes: number; total_bytes: number };
   container_id?: string;
@@ -47,8 +52,15 @@ export const fetchMarketplaceApps = async (): Promise<MarketplaceInfo> => {
   return response.data;
 };
 
-export const launchMarketplaceApp = async (appId: string): Promise<void> => {
-  await axios.post(`${marketplaceURL}${appId}/launch/`);
+export const launchMarketplaceApp = async (
+  appId: string,
+  options?: { embeddingModel?: string; sttModel?: string; ttsModel?: string }
+): Promise<void> => {
+  await axios.post(`${marketplaceURL}${appId}/launch/`, {
+    embedding_model: options?.embeddingModel,
+    stt_model: options?.sttModel,
+    tts_model: options?.ttsModel,
+  });
 };
 
 export const stopMarketplaceApp = async (appId: string): Promise<void> => {

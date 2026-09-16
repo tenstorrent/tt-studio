@@ -24,7 +24,7 @@ from tt_setup.switch import switch_checkout
 from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
-from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
+from tt_setup.inference_server import _catalog_missing_generated_specs, _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -846,7 +846,8 @@ def _run(args):
                     args.resync or
                     args.reconfigure_inference_server or
                     args.pull_branch or
-                    not os.path.exists(models_json_path)
+                    not os.path.exists(models_json_path) or
+                    _catalog_missing_generated_specs(models_json_path)
                 )
                 if should_sync:
                     with step("Syncing model catalog", spinner=True):

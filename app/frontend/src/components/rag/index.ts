@@ -51,19 +51,28 @@ export const fetchCollections = async () => {
 
 export const createCollection = async ({
   collectionName,
+  ttEmbeddingModel,
 }: {
   collectionName: string;
+  /** HF id (or model_name) of a deployed embedding model to back this collection
+   * with, instead of the default local ONNX MiniLM. Locked in for the
+   * collection's lifetime -- see EmbeddingDemo's Documents tab. */
+  ttEmbeddingModel?: string;
 }) => {
   try {
     const response = await axios.post(`${collectionsAPIURL}/`, {
       name: collectionName,
+      ...(ttEmbeddingModel ? { tt_embedding_model: ttEmbeddingModel } : {}),
     });
     return response.data;
   } catch (error) {
     console.error("Error creating collection:", error);
     // Extract error message from the response if available
+    // Surface the backend's actual reason (name collision, or -- new -- the
+    // chosen TT embedding model isn't currently deployed) instead of a fixed
+    // "already exists" message that would be wrong for the latter.
     if (axios.isAxiosError(error) && error.response?.data?.error) {
-      customToast.error("Collection name already exists");
+      customToast.error(error.response.data.error);
       throw new Error(error.response.data.error);
     }
     throw error;
@@ -107,6 +116,33 @@ export const uploadDocument = async ({
   } catch (error) {
     console.error("Error uploading document:", error);
     // Surface the backend's reason (e.g. "Unsupported file type") to callers
+    if (axios.isAxiosError(error) && error.response?.data?.error) {
+      throw new Error(error.response.data.error);
+    }
+    throw error;
+  }
+};
+
+export interface CollectionQueryResult {
+  ids: string[][];
+  documents: string[][];
+  metadatas: (Record<string, unknown> | null)[][];
+  distances: number[][];
+}
+
+export const queryCollection = async (
+  collectionName: string,
+  queryText: string
+): Promise<CollectionQueryResult> => {
+  try {
+    // n_results isn't caller-configurable server-side (fixed at query_results_limit).
+    const response = await axios.get(
+      `${collectionsAPIURL}/${collectionName}/query`,
+      { params: { query_text: queryText } }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("Error querying collection:", error);
     if (axios.isAxiosError(error) && error.response?.data?.error) {
       throw new Error(error.response.data.error);
     }
