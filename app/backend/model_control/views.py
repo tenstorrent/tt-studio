@@ -137,6 +137,10 @@ from model_control.model_utils import (
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
+    embed_text,
+    find_deployed_embedding_model,
+    find_deployed_speech_model,
+    find_deployed_tts_model,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
@@ -1224,6 +1228,24 @@ def speech_recognition_options(data):
     }
 
 
+def _ensure_multipart_content_length(request) -> None:
+    """Work around a Django/DRF gap with chunked-encoded multipart uploads.
+
+    A client streaming a file with `Transfer-Encoding: chunked` correctly
+    sends no Content-Length -- the body's length isn't known ahead of time --
+    and ASGI still buffers the whole body regardless. But DRF's
+    Request._load_stream reads META['CONTENT_LENGTH'] before ever looking at
+    that buffered body: missing/zero makes it set the parse stream to None,
+    so request.data silently comes back empty (no error) for every such
+    request. Reading .body forces the already-buffered bytes to be measured
+    and cached, so the real length lands in META before DRF's parser runs.
+    Companion apps (e.g. Open WebUI) stream audio chunks exactly this way.
+    """
+    django_request = getattr(request, "_request", request)
+    if not django_request.META.get("CONTENT_LENGTH"):
+        django_request.META["CONTENT_LENGTH"] = str(len(django_request.body))
+
+
 def post_audio_for_transcription(internal_url, file, headers, options, view_name):
     """Proxy audio to a model server, turning transport failures into real errors.
 
@@ -1386,9 +1408,50 @@ class TtsInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class OpenAIAudioSpeechView(APIView):
-    """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
+class EmbeddingInferenceView(APIView):
+    """Text embedding inference: proxies to tt-media-server's OpenAI-compatible /v1/embeddings."""
     def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        text = data.get("input") or data.get("text")
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        dimensions = data.get("dimensions")
+
+        try:
+            result = embed_text(deploy, text, dimensions=dimensions)
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"Embedding HTTP error: {http_err}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Could not reach the embedding model: {exc}")
+            return Response(
+                {"error": f"Could not reach the embedding model: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class OpenAIAudioSpeechView(APIView):
+    """OpenAI-compatible POST /v1/audio/speech for companion apps (e.g.
+    AnythingLLM, Open WebUI) using a deployed TTS model.
+
+    Resolves the OpenAI `model` field to a running TTS deployment by name or
+    hf_model_id -- the same lookup OpenAIEmbeddingsView uses for embeddings.
+    """
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
         data = request.data
         model_name = data.get("model")
         text = data.get("input") or data.get("text")
@@ -1397,16 +1460,10 @@ class OpenAIAudioSpeechView(APIView):
         if not text:
             return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Find a running TTS deployment matching the requested model name
-        deploy = None
-        for entry in get_deploy_cache().values():
-            impl = entry.get("model_impl")
-            if impl and getattr(impl, "model_name", None) == model_name:
-                deploy = entry
-                break
+        deploy = find_deployed_tts_model(model_name)
         if deploy is None:
             return Response(
-                {"error": f"No running deployment found for model '{model_name}'"},
+                {"error": f"No running TTS model named '{model_name}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1414,22 +1471,22 @@ class OpenAIAudioSpeechView(APIView):
         try:
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
-            
+
             if inference_engine == "media":
                 headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                 payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
             else:
                 headers = auth_headers(deploy)
                 payload = {"model": model_name, "input": text, "voice": data.get("voice", "default")}
-            
+
             audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
-            
+
             # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
             if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
                 logger.info(f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech")
                 fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
                 audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
-            
+
             audio_resp.raise_for_status()
 
             content_type = audio_resp.headers.get("Content-Type", "audio/wav")
@@ -1440,6 +1497,55 @@ class OpenAIAudioSpeechView(APIView):
         except requests.exceptions.HTTPError as http_err:
             logger.error(f"OpenAI audio/speech HTTP error: {http_err}")
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"OpenAI audio/speech error: {exc}")
+            return Response(
+                {"error": {"message": f"Could not reach the TTS model: {exc}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+class OpenAIAudioTranscriptionsView(APIView):
+    """OpenAI-compatible POST /v1/audio/transcriptions for companion apps (e.g.
+    AnythingLLM, Open WebUI) using a deployed speech-recognition model.
+
+    Resolves the OpenAI `model` field to a running speech deployment and
+    proxies to it via post_audio_for_transcription, same lookup pattern
+    OpenAIEmbeddingsView uses but for audio.
+    """
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        _ensure_multipart_content_length(request)
+        data = request.data
+        model_name = data.get("model")
+        audio_file = data.get("file")
+        if not model_name:
+            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not audio_file:
+            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = find_deployed_speech_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": f"No running speech-recognition model named '{model_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        internal_url = "http://" + deploy["internal_url"]
+        model_impl = deploy.get("model_impl")
+        inference_engine = getattr(model_impl, "inference_engine", None)
+        if inference_engine == "media":
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+        else:
+            headers = auth_headers(deploy)
+
+        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
+        return post_audio_for_transcription(
+            internal_url, file, headers, speech_recognition_options(data), self.__class__.__name__
+        )
 
 
 class ContainerLogsView(View):
@@ -1742,6 +1848,7 @@ class ModelAPIInfoView(APIView):
             "object_detection": "/object-detection/",
             "speech_recognition": "/speech-recognition/",
             "tts": "/tts/",
+            "embedding": "/embedding/",
         }
         return endpoint_map.get(model_type)
 
@@ -2081,6 +2188,75 @@ class OpenAIModelsView(APIView):
         return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
 
 
+class OpenAIEmbeddingsView(APIView):
+    """OpenAI-compatible POST /v1/embeddings for companion apps (e.g. AnythingLLM,
+    Open WebUI).
+
+    Resolves the OpenAI `model` field to a running embedding deployment and
+    proxies to it via embed_text, same lookup EmbeddingInferenceView uses but
+    by model name instead of deploy_id -- the shape a generic OpenAI-compatible
+    client expects. The OpenAI API lets `input` be a batch (a list of strings),
+    which RAG apps use when embedding a document's chunks in one call, but the
+    TT inference server's /v1/embeddings takes one string per request -- so a
+    batch is fanned out into one call per item and stitched back together.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data
+        model_name = data.get("model")
+        raw_input = data.get("input")
+        if not model_name or not raw_input:
+            return Response(
+                {"error": {"message": "model and input are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inputs = raw_input if isinstance(raw_input, list) else [raw_input]
+        if not inputs or not all(isinstance(item, str) for item in inputs):
+            return Response(
+                {"error": {"message": "input must be a string or a list of strings",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deploy = find_deployed_embedding_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": {"message": f"No running embedding model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            embeddings = [
+                embed_text(deploy, item, dimensions=data.get("dimensions"))["data"][0]["embedding"]
+                for item in inputs
+            ]
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"OpenAIEmbeddingsView error: {exc}")
+            return Response(
+                {"error": {"message": f"Could not reach the embedding model: {exc}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": i, "embedding": embedding}
+                    for i, embedding in enumerate(embeddings)
+                ],
+                "model": model_name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class CodingAgentsView(APIView):
     """Info for the frontend 'Coding Agents' page: gateway health, key, models.
 
@@ -2228,6 +2404,24 @@ class MarketplaceLaunchView(APIView):
                 }
             )
 
+        # Apps that offer an embedding/STT/TTS picker (app.embedding_choice,
+        # app.stt_choice, app.tts_choice) may be told which deployed model to
+        # wire up instead of the app's own native/cloud one.
+        payload = request.data or {}
+        embedding_model = payload.get("embedding_model") or None
+        stt_model = payload.get("stt_model") or None
+        tts_model = payload.get("tts_model") or None
+        for label, model, finder in (
+            ("embedding", embedding_model, find_deployed_embedding_model),
+            ("speech-recognition", stt_model, find_deployed_speech_model),
+            ("TTS", tts_model, find_deployed_tts_model),
+        ):
+            if model and finder(model) is None:
+                return Response(
+                    {"error": f"No running {label} model named '{model}'."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         host_port = marketplace.claim_host_port(app, containers)
         if host_port is None:
             return Response(
@@ -2235,7 +2429,13 @@ class MarketplaceLaunchView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        marketplace.start_launch(app, host_port)
+        marketplace.start_launch(
+            app,
+            host_port,
+            embedding_model=embedding_model,
+            stt_model=stt_model,
+            tts_model=tts_model,
+        )
         return Response(
             {"status": "starting", "host_port": host_port},
             status=status.HTTP_202_ACCEPTED,
