@@ -103,25 +103,23 @@ class TestTtsInferenceFallback:
         assert response.status_code == 200
 
 
+@patch('model_control.views.LITELLM_UPSTREAM_KEY', "")
 class TestOpenAIAudioSpeechFallback:
     """Test OpenAI audio/speech view with fallback to /v1/audio/speech on 404."""
-    
-    @patch('model_control.views.get_deploy_cache')
+
+    @patch('model_control.views.find_deployed_tts_model')
     @patch('model_control.views.requests.post')
-    def test_openai_audio_fallback_on_404(self, mock_post, mock_cache):
+    def test_openai_audio_fallback_on_404(self, mock_post, mock_find):
         """OpenAI endpoint should also retry with /v1/audio/speech on 404."""
-        # Setup mock deploy cache
         mock_impl = Mock()
         mock_impl.model_name = "speecht5_tts"
         mock_impl.inference_engine = "media"
-        
-        mock_cache.return_value = {
-            "deploy_1": {
-                "internal_url": "speecht5_tts:7000/enqueue",
-                "model_impl": mock_impl
-            }
+
+        mock_find.return_value = {
+            "internal_url": "speecht5_tts:7000/enqueue",
+            "model_impl": mock_impl,
         }
-        
+
         # First call returns 404, second call succeeds
         mock_resp_404 = Mock()
         mock_resp_404.status_code = 404
