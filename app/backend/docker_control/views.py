@@ -28,6 +28,7 @@ import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
+    get_next_service_port,
     get_container_status,
     get_canonical_deployments,
     serialize_canonical_entry_for_http,
@@ -534,8 +535,7 @@ class DeployView(APIView):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            # Allocate a chip slot for all model types so device_id and service_port
-            # are always set correctly (port = 20000 + device_id).
+            # Allocate a chip slot for all model types so device_id is always set correctly.
             try:
                 allocator = ChipSlotAllocator()
                 # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
@@ -634,11 +634,11 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            BASE_SERVICE_PORT = 20000
-            if whole_board_deploy:
-                service_port = BASE_SERVICE_PORT
-            else:
-                service_port = BASE_SERVICE_PORT + device_id
+            # First free port from 20000, independent of chip slot -- a model
+            # still needs only one port whether it's whole-board or single-chip,
+            # and this reuses a port freed by a stopped deployment before it
+            # ever grows past the lowest few ports in the block.
+            service_port = get_next_service_port()
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,

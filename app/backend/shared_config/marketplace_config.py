@@ -20,9 +20,8 @@ from typing import Dict, Optional, Tuple
 CONTAINER_NAME_PREFIX = "tt_studio_app_"
 
 # Host ports for marketplace apps. Deliberately disjoint from the model
-# deployment ranges: 20000+device_id for chat models (docker_utils.py,
-# views.py BASE_SERVICE_PORT) and 21003-21102 for legacy direct-container
-# models (docker_utils.get_host_port).
+# deployment ranges: 20000+ for chat models (docker_utils.get_next_service_port)
+# and 21003-21102 for legacy direct-container models (docker_utils.get_host_port).
 APP_PORT_RANGE = range(3080, 3100)
 
 # Host ports the TT-Studio services themselves bind: frontend, LiteLLM gateway,

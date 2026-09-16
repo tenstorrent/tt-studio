@@ -548,8 +548,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             f"(board={board_type}, chips_required={chips_required})"
         )
 
-        BASE_SERVICE_PORT = 20000
-
         # Create payload for the API call
         payload = {
             "model": impl.model_name,
@@ -558,12 +556,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip).
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
-        # single-card deployments; use the first slot for the service port.
+        # single-card deployments; use the first slot for chip pinning below.
         primary_device_id = int(str(device_id).split(",")[0].strip())
-        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
-        service_port = BASE_SERVICE_PORT + primary_device_id
+        service_port = get_next_service_port()
+        payload["service_port"] = str(service_port)
 
         # Pin to a specific chip slot only for single-chip models. For multi-chip
         # single-card mode (chips_required == 1 with an explicit slot list) this is a
@@ -861,9 +858,9 @@ def get_port_mounts(impl, host_port=None):
 def get_host_port(impl):
     # Reserve ports used by TT-Studio services on the host:
     #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
-    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003 --
-    # kept disjoint from BASE_SERVICE_PORT's 20000+device_id block (docker_utils.py,
-    # views.py) by the same 1003-port gap the two ranges have always had.
+    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003.
+    # A live scan of used ports (below) means this can never actually collide
+    # with get_next_service_port()'s 20000+ block even though both can grow.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
@@ -875,6 +872,28 @@ def get_host_port(impl):
         if str(port) not in used_host_ports:
             return port
     logger.warning("Could not find an unused port in block: 21003-21102")
+    return None
+
+
+def get_next_service_port(start_port=20000, max_tries=1000):
+    """First free host port at/after start_port, across all currently running
+    managed containers.
+
+    Deliberately independent of chip/device_id: a model still needs only one
+    port no matter how many chip slots it occupies, and scanning live usage
+    (rather than deriving the port from a slot number) means a port freed by
+    a stopped deployment gets reused before this ever has to grow past the
+    lowest few ports in the block.
+    """
+    managed_containers = get_managed_containers()
+    port_mappings = get_port_mappings(managed_containers)
+    used_host_ports = get_used_host_ports(port_mappings)
+    for port in range(start_port, start_port + max_tries):
+        if str(port) not in used_host_ports:
+            return port
+    logger.warning(
+        f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
+    )
     return None
 
 
