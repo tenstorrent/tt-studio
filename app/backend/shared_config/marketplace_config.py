@@ -19,8 +19,10 @@ from typing import Dict, Optional, Tuple
 # `docker ps` and can never be confused with model containers.
 CONTAINER_NAME_PREFIX = "tt_studio_app_"
 
-# Host ports for marketplace apps. Deliberately disjoint from the 8003-8102
-# block that model containers use (docker_utils.get_host_port).
+# Host ports for marketplace apps. Deliberately disjoint from the model
+# deployment ranges: 20000+device_id for chat models (docker_utils.py,
+# views.py BASE_SERVICE_PORT) and 21003-21102 for legacy direct-container
+# models (docker_utils.get_host_port).
 APP_PORT_RANGE = range(3080, 3100)
 
 # Host ports the TT-Studio services themselves bind: frontend, LiteLLM gateway,

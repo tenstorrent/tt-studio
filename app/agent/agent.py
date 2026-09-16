@@ -208,8 +208,8 @@ def setup_cloud_llm() -> CustomLLM:
 def setup_local_container_llm(container_name: str) -> CustomLLM:
     """Setup LLM using environment-specified container"""
     llm = CustomLLM(
-        server_url=f"http://{container_name}:7000", 
-        encoded_jwt=_auth_token(), 
+        server_url=f"http://{container_name}:{AgentConfig.LOCAL_PORT}",
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False
     )

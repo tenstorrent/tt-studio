@@ -244,7 +244,7 @@ export default function ExamplesTab({
     }
 
     const modelIdValue = apiInfo.hf_model_id || modelId;
-    // Use backend-provided endpoints which include correct host:port (e.g., :7000)
+    // Use backend-provided endpoints which include correct host:port (e.g., :20000)
     const chatEndpoint = apiInfo.endpoints.chat_completions;
     const completionsEndpoint = apiInfo.endpoints.completions;
 

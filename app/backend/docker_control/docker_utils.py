@@ -548,7 +548,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             f"(board={board_type}, chips_required={chips_required})"
         )
 
-        BASE_SERVICE_PORT = 7000
+        BASE_SERVICE_PORT = 20000
 
         # Create payload for the API call
         payload = {
@@ -861,18 +861,20 @@ def get_port_mounts(impl, host_port=None):
 def get_host_port(impl):
     # Reserve ports used by TT-Studio services on the host:
     #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
-    # Model containers start at 8003.
+    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003 --
+    # kept disjoint from BASE_SERVICE_PORT's 20000+device_id block (docker_utils.py,
+    # views.py) by the same 1003-port gap the two ranges have always had.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     RESERVED_PORTS = ["8000", "8001", "8002"]
     used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8003
+    BASE_MODEL_PORT = 21003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8003-8102")
+    logger.warning("Could not find an unused port in block: 21003-21102")
     return None
 
 
@@ -1087,7 +1089,7 @@ def _external_model_impl(con_id, con):
         model_name=dep.model_name or con["name"],
         model_type=dep.model_type,
         hf_model_id=dep.hf_model_id,
-        service_port=dep.port or 7000,
+        service_port=dep.port or 20000,
         tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
         service_route=getattr(dep, "service_route", None),
     )

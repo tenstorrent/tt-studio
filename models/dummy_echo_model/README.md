@@ -13,7 +13,7 @@ docker build -t dummy_echo_model:v0.0.1 .
 Run the model service using gunicorn as configured in the Dockerfile CMD:
 ```bash
 docker run \
-    -p 7000:7000 \
+    -p 20000:20000 \
     -e JWT_SECRET=test-secret-456 \
     -e CACHE_ROOT=/home/user/cache_root \
     dummy_echo_model:v0.0.1

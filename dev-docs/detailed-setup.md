@@ -101,7 +101,7 @@ TT-Studio composes from a base file plus zero or more **overlays**. `run.py` pic
 | `tt_studio_agent` | 8080 | FastAPI agent — chat orchestration, voice, canvas, pipelines, search | [app/agent/README.md](../app/agent/README.md) |
 | `tt_studio_chroma` | — | ChromaDB vector store for RAG | (no README) |
 | `docker-control-service` | 8002 (host, not containerized) | JWT-secured Docker daemon proxy — the backend talks to **this**, not `docker.sock` | [docker-control-service/README.md](../docker-control-service/README.md) |
-| Deployed models | 7000+ | One port per model container (echo, Llama, YOLO, Whisper, Stable Diffusion, etc.) | [models/README.md](../models/README.md) |
+| Deployed models | 20000+ | One port per model container (echo, Llama, YOLO, Whisper, Stable Diffusion, etc.) | [models/README.md](../models/README.md) |
 
 The `docker-control-service` is a recent security change — see [DOCKER_SOCKET_MIGRATION.md](DOCKER_SOCKET_MIGRATION.md) for the before/after architecture and rationale.
 
@@ -224,7 +224,7 @@ When TT-Studio runs on a remote machine, forward the relevant ports over SSH:
 ssh -L 3000:localhost:3000 \
     -L 8001:localhost:8001 \
     -L 8002:localhost:8002 \
-    -L 7000-7010:localhost:7000-7010 \
+    -L 20000-20010:localhost:20000-20010 \
     <user>@<remote>
 ```
 

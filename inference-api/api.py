@@ -2167,7 +2167,7 @@ class RunRequest(BaseModel):
     docker_server: Optional[bool] = False
     interactive: Optional[bool] = False
     workflow_args: Optional[str] = None
-    service_port: Optional[str] = "7000"
+    service_port: Optional[str] = "20000"
     disable_trace_capture: Optional[bool] = False
     dev_mode: Optional[bool] = False
     override_docker_image: Optional[str] = None
@@ -2683,7 +2683,7 @@ async def run_inference(request: RunRequest):
             "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "20000",  # Use requested port (per-slot)
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
@@ -2712,7 +2712,7 @@ async def run_inference(request: RunRequest):
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
             base_argv.extend(["--skip-system-sw-validation"])
-        base_argv.extend(["--service-port", request.service_port or "7000"])
+        base_argv.extend(["--service-port", request.service_port or "20000"])
         
         # Add optional arguments if they are set
         if request.impl:

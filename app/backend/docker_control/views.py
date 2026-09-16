@@ -535,7 +535,7 @@ class DeployView(APIView):
                 )
 
             # Allocate a chip slot for all model types so device_id and service_port
-            # are always set correctly (port = 7000 + device_id).
+            # are always set correctly (port = 20000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
                 # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
@@ -634,7 +634,7 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            BASE_SERVICE_PORT = 7000
+            BASE_SERVICE_PORT = 20000
             if whole_board_deploy:
                 service_port = BASE_SERVICE_PORT
             else:
@@ -2717,9 +2717,9 @@ class RegisterExternalModelView(APIView):
             except (TypeError, ValueError):
                 chips_required = 1
             try:
-                service_port = int(data.get("service_port", 7000))
+                service_port = int(data.get("service_port", 20000))
             except (TypeError, ValueError):
-                service_port = 7000
+                service_port = 20000
 
             # --- Only the container is required; model identity is derived below ---
             if not container_id:
@@ -2986,7 +2986,7 @@ class RegisterExternalModelView(APIView):
                     rec.device_id = device_id
                     rec.device_ids = device_ids
                     rec.model_name = model_name
-                    rec.port = int(service_port) if service_port else 7000
+                    rec.port = int(service_port) if service_port else 20000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
@@ -3005,7 +3005,7 @@ class RegisterExternalModelView(APIView):
                         device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
-                        port=int(service_port) if service_port else 7000,
+                        port=int(service_port) if service_port else 20000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
                         model_type=model_type,
