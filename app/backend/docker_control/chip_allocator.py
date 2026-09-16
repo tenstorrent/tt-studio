@@ -198,7 +198,7 @@ class ChipSlotAllocator:
 
         # Chips held by containers TT-Studio did not deploy (another launcher, a
         # manual docker run, ...). A TT-Studio record wins when both claim a slot.
-        for slot_id, info in self._get_external_occupancy().items():
+        for slot_id, info in self._get_external_occupancy(active_deployments).items():
             occupied_map.setdefault(slot_id, info)
 
         # Build slot status list
@@ -498,10 +498,10 @@ class ChipSlotAllocator:
                     if deployment_slot < self.total_slots:
                         occupied.add(deployment_slot)
 
-        occupied.update(self._get_external_occupancy().keys())
+        occupied.update(self._get_external_occupancy(active).keys())
         return occupied
 
-    def _get_external_occupancy(self) -> Dict[int, Dict]:
+    def _get_external_occupancy(self, active_deployments: Optional[List[ModelDeployment]] = None) -> Dict[int, Dict]:
         """
         Chips held by running containers that TT-Studio did not deploy.
 
@@ -537,7 +537,12 @@ class ChipSlotAllocator:
             containers = response or []
 
         tracked_ids: Set[str] = set()
-        for deployment in self._get_active_deployments():
+        deployments = (
+            active_deployments
+            if active_deployments is not None
+            else self._get_active_deployments()
+        )
+        for deployment in deployments:
             container_id = getattr(deployment, "container_id", None) or ""
             if container_id:
                 tracked_ids.update({container_id, container_id[:12]})

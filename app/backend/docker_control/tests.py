@@ -212,6 +212,26 @@ class ChipAllocatorExternalContainerTests(TestCase):
         self.assertNotIn("source", slot)
         self.assertEqual(allocator._get_occupied_slots(), {0})
 
+    def test_get_chip_status_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            status = allocator.get_chip_status()
+
+        self.assertTrue(all(slot["status"] == "available" for slot in status["slots"]))
+        self.assertEqual(active_mock.call_count, 1)
+
+    def test_get_occupied_slots_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            occupied = allocator._get_occupied_slots()
+
+        self.assertEqual(occupied, set())
+        self.assertEqual(active_mock.call_count, 1)
+
     def test_docker_listing_failure_falls_back_to_deployment_records(self):
         allocator = self._make_allocator()
         deployment = _FakeDeployment(id=3, model_name="bge-m3", device_id=1, device_ids=[1], port=7001)
