@@ -54,6 +54,7 @@ import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import VoiceAgentPage from "../pages/VoiceAgentPage";
 import SpeechToTextPage from "../pages/SpeechToTextPage";
+import OcrPage from "../pages/OcrPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
@@ -140,6 +141,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/speech-to-text",
       element: <SpeechToTextPage />,
+      condition: true,
+    },
+    {
+      path: "/ocr",
+      element: <OcrPage />,
       condition: true,
     },
     {

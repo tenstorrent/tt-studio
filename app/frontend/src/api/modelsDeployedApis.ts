@@ -421,7 +421,10 @@ export const handleModelNavigationClick = (
   modelType?: string
 ): void => {
   const resolvedModelType = modelType ?? getModelTypeFromName(modelName);
-  const destination = getDestinationFromModelType(resolvedModelType);
+  const destination = getDestinationFromModelType(
+    resolvedModelType,
+    modelName
+  );
   console.log(`${resolvedModelType} button clicked for model: ${modelID}`);
   console.log(`Opening ${resolvedModelType} for model: ${modelName}`);
   customToast.success(`${destination.slice(1)} page opened!`);
@@ -433,12 +436,46 @@ export const handleModelNavigationClick = (
   console.log(`Navigated to ${destination} page`);
 };
 
-export const getDestinationFromModelType = (modelType: string): string => {
+/**
+ * Model families that read text off images and answer on /v1/chat/completions.
+ *
+ * Deliberately family names rather than a bare "ocr" substring: the OCR page
+ * sends a fixed transcription instruction ("OCR:") that is specific to these
+ * models, so matching any VLM that merely has "ocr" in its name would send it
+ * a prompt it was never trained on and produce plausible-looking nonsense with
+ * nothing on screen to explain it. Adding a new family is a one-line change.
+ */
+const OCR_MODEL_PATTERNS = [
+  "paddleocr",
+  "got-ocr",
+  "dots.ocr",
+  "dots-ocr",
+  "olmocr",
+  "nanonets-ocr",
+  "ocrflux",
+];
+
+/** True for a VLM that belongs on the OCR page rather than the chat page. */
+export const isOcrCapableModel = (
+  modelName?: string,
+  image?: string
+): boolean => {
+  const combined = `${modelName ?? ""} ${image ?? ""}`.toLowerCase();
+  return OCR_MODEL_PATTERNS.some((pattern) => combined.includes(pattern));
+};
+
+export const getDestinationFromModelType = (
+  modelType: string,
+  modelName?: string,
+  image?: string
+): string => {
   switch (modelType) {
     case ModelType.ChatModel:
       return "/chat";
     case ModelType.VLM:
-      return "/chat"; // VLM reuses the chat UI (supports image content)
+      // Most VLMs reuse the chat UI (it supports image content); the OCR
+      // families get the purpose-built drop-photos-get-text page instead.
+      return isOcrCapableModel(modelName, image) ? "/ocr" : "/chat";
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.VideoGeneration:
