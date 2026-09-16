@@ -206,7 +206,28 @@ def setup_cloud_llm() -> CustomLLM:
     return llm
 
 def setup_local_container_llm(container_name: str) -> CustomLLM:
-    """Setup LLM using environment-specified container"""
+    """Setup LLM using environment-specified container name.
+
+    Deployments no longer bind a fixed port (see AgentConfig.LOCAL_PORT), so
+    LOCAL_PORT is only correct for whichever deployment happened to get it.
+    Resolve the container's actual port via the backend's deployed-models
+    list first, falling back to LOCAL_PORT only if that lookup fails.
+    """
+    try:
+        local_llms = discovery_service.discover_local_llms()
+        for llm_info in local_llms:
+            if llm_info.container_name == container_name:
+                return setup_discovered_llm(llm_info)
+        print(
+            f"[WARNING] LLM_CONTAINER_NAME={container_name} not found among "
+            f"deployed models; falling back to LOCAL_PORT={AgentConfig.LOCAL_PORT}"
+        )
+    except Exception as e:
+        print(
+            f"[WARNING] Could not resolve {container_name}'s port via discovery: "
+            f"{e}; falling back to LOCAL_PORT={AgentConfig.LOCAL_PORT}"
+        )
+
     llm = CustomLLM(
         server_url=f"http://{container_name}:{AgentConfig.LOCAL_PORT}",
         encoded_jwt=_auth_token(),

@@ -2682,7 +2682,7 @@ async def run_inference(request: RunRequest):
             "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "20000",  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
