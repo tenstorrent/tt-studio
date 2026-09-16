@@ -193,9 +193,8 @@ export default function OcrApp() {
           </Select>
 
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Every image is sent with the instruction{" "}
-            <code className="font-mono">{OCR_PROMPT_LABEL}</code>, which asks the
-            model for a plain transcription.
+            Prompt sent with every image:{" "}
+            <code className="font-mono">{OCR_PROMPT_LABEL}</code>
           </p>
 
           {isWarming && (
