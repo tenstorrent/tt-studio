@@ -68,18 +68,14 @@ function makeDiagnosticsRef(): string {
 
 function currentSupportAssignee(): string {
   const today = new Date();
-  const firstThursday = new Date(Date.UTC(today.getUTCFullYear(), 0, 4));
-  const dayOffset = (firstThursday.getUTCDay() || 7) - 1;
-  firstThursday.setUTCDate(firstThursday.getUTCDate() - dayOffset);
-  const dayDiff =
-    (Date.UTC(
-      today.getUTCFullYear(),
-      today.getUTCMonth(),
-      today.getUTCDate()
-    ) -
-      firstThursday.getTime()) /
-    86_400_000;
-  const isoWeek = 1 + Math.floor(dayDiff / 7);
+  const isoDate = new Date(
+    Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+  );
+  const isoDay = isoDate.getUTCDay() || 7;
+  isoDate.setUTCDate(isoDate.getUTCDate() + 4 - isoDay);
+  const yearStart = new Date(Date.UTC(isoDate.getUTCFullYear(), 0, 1));
+  const isoWeek =
+    Math.ceil((1 + (isoDate.getTime() - yearStart.getTime()) / 86_400_000) / 7);
   const assignee = SUPPORT_ROTATION[isoWeek % SUPPORT_ROTATION.length];
   return `${assignee.name} <${assignee.email}>`;
 }
