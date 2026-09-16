@@ -42,17 +42,13 @@ import {
 } from "../../api/trainingApi";
 import { customToast } from "../CustomToaster";
 
-// Custom datasets share the dataset dropdown with the built-in catalog entries.
-// Prefixing their select value lets us distinguish them at submit time so we can
-// send the custom-dataset contract (dataset_loader="Custom" + the uploaded file)
-// instead of a built-in loader id.
+// Prefix marking custom datasets in the shared dropdown, so we can tell them
+// apart at submit time and send the custom-dataset contract.
 const CUSTOM_DATASET_PREFIX = "custom:";
 
-// Prompt templates the training server's custom-dataset loader supports, and the
-// fields each one expects. The server exposes no API to list these, so they are
-// duplicated here — keep in sync with blacksmith's AvailableTemplates/TEMPLATE_KEYS
-// (blacksmith/datasets/torch/custom/custom_dataset_utils.py). `key` is the field
-// the server reads from each row; the user maps it to a column in their dataset.
+// Prompt templates the custom-dataset loader supports. No API lists these, so
+// keep in sync with blacksmith's custom_dataset_utils.py. `key` is the field the
+// server reads from each row; the user maps it to a column in their dataset.
 const DATASET_TEMPLATES = [
   {
     id: "alpaca",
@@ -72,14 +68,11 @@ const DEFAULT_TEMPLATE = DATASET_TEMPLATES[0].id;
 const formSchema = z.object({
   model: z.string().min(1, "Select a model"),
   dataset: z.string().min(1, "Select a dataset"),
-  // Custom-dataset fields; only used when a custom dataset is selected. `template`
-  // is the prompt format the server applies (e.g. Alpaca-style); `column_mapping`
-  // optionally maps the template's expected fields to the dataset's own columns.
+  // Custom-dataset fields, only used when a custom dataset is selected.
+  // `template` is the prompt format; `column_mapping` maps its fields to columns.
   template: z.string().default(DEFAULT_TEMPLATE),
-  // One entry per selected-template field (see DATASET_TEMPLATES), aligned by
-  // index. Only `value` (the user's column name) is captured; the template field
-  // key is fixed by the template. A blank value means "use the identically named
-  // column" — the server's identity fallback in resolve_column_mapping.
+  // One entry per template field (see DATASET_TEMPLATES), aligned by index. Only
+  // the column name is captured; blank means "use the identically named column".
   column_mapping: z
     .array(z.object({ value: z.string().default("") }))
     .default([]),
@@ -170,12 +163,11 @@ export function TrainingConfigDialog({
     form.setValue("dataset", "");
   }, [selectedModel, form]);
 
-  // A custom (user-uploaded) dataset is selected — reveal the template and
-  // column-mapping inputs and submit the custom-dataset contract.
+  // Custom dataset selected — reveal the template and column-mapping inputs.
   const selectedDataset = form.watch("dataset");
   const isCustomDataset = selectedDataset.startsWith(CUSTOM_DATASET_PREFIX);
 
-  // Fields to map for the selected template; drives the fixed column-mapping rows.
+  // Fields to map for the selected template; drives the column-mapping rows.
   const selectedTemplate = form.watch("template");
   const templateFields =
     DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
@@ -190,13 +182,9 @@ export function TrainingConfigDialog({
     setSubmitting(true);
     try {
       const isCustom = values.dataset.startsWith(CUSTOM_DATASET_PREFIX);
-      // Map form fields to the container's `TrainingRequest` schema. Field names
-      // must match exactly (e.g. `dataset_loader`, `lora_r`) or they are dropped.
-      // Send these through as-is. They are `0`-meaningful to the container
-      // (`max_steps: 0` = uncapped, `val_steps_freq: 0` = skip validation,
-      // `save_interval: 0` = checkpoint at the end only), so coalescing a
-      // falsy 0 to `undefined` would drop the key and let the container's
-      // own defaults silently override the user's choice.
+      // Keys must match the container's `TrainingRequest` schema exactly or they
+      // are dropped. Pass 0-meaningful fields (max_steps/val_steps_freq/
+      // save_interval) as-is — coalescing a falsy 0 would drop them.
       const params: Parameters<typeof createTrainingJob>[0] = {
         dataset_loader: isCustom ? CUSTOM_DATASET_LOADER : values.dataset,
         device_type: device,
@@ -217,15 +205,13 @@ export function TrainingConfigDialog({
       };
 
       if (isCustom) {
-        // The backend stages the named upload into the container's volume and
-        // rewrites it into `train_dataset_path`. Custom uploads are JSON arrays
-        // of objects, so `file_type` is "json".
+        // Backend stages the named upload into `train_dataset_path`. Uploads are
+        // JSON arrays of objects, so `file_type` is "json".
         params.custom_dataset = values.dataset.slice(CUSTOM_DATASET_PREFIX.length);
         params.file_type = "json";
         params.template = values.template || DEFAULT_TEMPLATE;
-        // Keys are the selected template's fixed fields; the user only supplies
-        // the column name (value), aligned by index. Blank values are omitted so
-        // the server applies its identity fallback (field name == column name).
+        // Map each template field to a column; blanks are omitted so the server
+        // falls back to the identically named column.
         const fields =
           DATASET_TEMPLATES.find((t) => t.id === values.template)?.fields ?? [];
         const mapping: Record<string, string> = {};

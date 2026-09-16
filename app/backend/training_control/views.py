@@ -38,17 +38,14 @@ MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 ORG_ID_HEADER = "X-TT-Organization"
 ORG_ID = "tenstorrent"
 
-# dataset_loader value the training server expects for user-supplied datasets.
-# When set, the server reads `train_dataset_path`/`file_type`/`template` instead
-# of a built-in recipe (see tt-media-server domain/training_request.py).
+# dataset_loader value that makes the server read train_dataset_path/file_type/
+# template instead of a built-in recipe.
 CUSTOM_DATASET_LOADER = "Custom"
 DEFAULT_CUSTOM_FILE_TYPE = "json"
 DEFAULT_CUSTOM_TEMPLATE = "alpaca"
 
-# The training container bind-mounts its per-model data volume
-# (`{training_host_volume}/volume_id_*`) at this path — tt-inference-server's
-# CACHE_ROOT. A dataset copied into the matching host-side volume dir is visible
-# to the container under here, so custom datasets are staged there at job submit.
+# The container mounts its per-model volume (`volume_id_*`) here, so datasets
+# staged into that host dir are readable at this path.
 CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
 CONTAINER_CUSTOM_DATASETS_DIR = f"{CONTAINER_CACHE_ROOT}/custom_datasets"
 
@@ -223,14 +220,11 @@ def _resolve_dataset_path(directory, name):
 
 
 def _resolve_training_volume_dir(impl):
-    """Backend-internal path of the per-model volume dir the training container
-    bind-mounts at :data:`CONTAINER_CACHE_ROOT`.
+    """Host path of the ``volume_id_*`` dir the training container mounts at
+    :data:`CONTAINER_CACHE_ROOT`.
 
-    Only TRAINING deploys use the training host volume, so every ``volume_id_*``
-    dir under it belongs to a training model (the same layout the merged-checkpoint
-    scan relies on). When several exist — multiple training models deployed over
-    time — prefer the one whose name carries the deployed model's name, then the
-    most recently modified. Returns ``None`` if none are present yet.
+    Only training deploys use this volume. When several exist, prefer the one
+    matching the model's name, then the most recently modified. ``None`` if none.
     """
     internal_root = os.path.join(
         backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
@@ -253,13 +247,11 @@ def _resolve_training_volume_dir(impl):
 
 
 def _stage_custom_dataset(impl, name):
-    """Copy an uploaded custom dataset into the training container's mounted
-    volume and return its container-side path.
+    """Copy an uploaded dataset into the container's mounted volume and return
+    its container-side path.
 
-    The upload lives at ``training_volume/custom_datasets/`` (a sibling of the
-    per-model ``volume_id_*`` dir), which the container does not mount. Copying it
-    into ``<volume_id_*>/custom_datasets/`` places it under the mounted
-    :data:`CONTAINER_CACHE_ROOT`, so training can read it.
+    The upload isn't in a mounted dir, so it's copied into
+    ``<volume_id_*>/custom_datasets/`` where the container can read it.
 
     Returns ``(container_path, error_response)`` – exactly one is ``None``.
     """
@@ -287,8 +279,7 @@ def _stage_custom_dataset(impl, name):
     dest = os.path.join(dest_dir, base)
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        # The backend runs as root but the training container runs as uid 1000,
-        # so the staged file and its dir must be world-readable/traversable.
+        # Backend runs as root, container as uid 1000 — make it world-readable.
         os.chmod(dest_dir, 0o755)
         shutil.copyfile(src, dest)
         os.chmod(dest, 0o644)
@@ -515,10 +506,8 @@ class TrainingJobsListView(View):
         if err:
             return err
 
-        # A custom dataset selection sends the uploaded file's name; stage it into
-        # the container's mounted volume and translate the request into the
-        # training server's custom-dataset contract. Popped unconditionally so the
-        # helper field never leaks to the server.
+        # Stage the named upload and rewrite it into the server's custom-dataset
+        # fields. Popped unconditionally so the helper field never reaches the server.
         custom_name = body.pop("custom_dataset", None)
         if body.get("dataset_loader") == CUSTOM_DATASET_LOADER:
             if not custom_name:

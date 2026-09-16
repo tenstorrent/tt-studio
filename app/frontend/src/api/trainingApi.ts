@@ -76,11 +76,9 @@ export interface TrainingCheckpoint {
 export interface CreateTrainingJobParams {
   dataset_loader: string;
   device_type: string;
-  // Custom-dataset fields. `custom_dataset` is a TT-Studio-only helper the
-  // backend consumes: it names an uploaded dataset file, which the backend stages
-  // into the container's volume and rewrites into `train_dataset_path`. The
-  // others map straight onto the container's custom-dataset contract and are only
-  // sent when `dataset_loader` is "Custom".
+  // Custom-dataset fields, sent only when `dataset_loader` is "Custom".
+  // `custom_dataset` names an uploaded file the backend stages and rewrites into
+  // `train_dataset_path`; the rest map onto the container's custom-dataset contract.
   custom_dataset?: string;
   file_type?: string;
   template?: string;
@@ -141,10 +139,8 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
 // Custom (user-uploaded) datasets
 // ---------------------------------------------------------------------------
 
-// A dataset JSON file the user uploaded, stored under the shared training volume
-// at training_volume/custom_datasets/. These are offered as choices in the New
-// Training Job dialog; selecting one trains on that dataset (the backend stages
-// the file into the container's volume — see CUSTOM_DATASET_LOADER).
+// A user-uploaded dataset file, offered as a choice in the New Training Job
+// dialog. Selecting one trains on it (see CUSTOM_DATASET_LOADER).
 export interface CustomDataset {
   id: string;
   name: string;
@@ -152,9 +148,8 @@ export interface CustomDataset {
   modified_at?: number | null;
 }
 
-// `dataset_loader` value that tells the training server to use a user-supplied
-// dataset (via train_dataset_path/file_type/template) instead of a built-in
-// recipe. Distinct from the built-in loader ids in the /v1/catalog datasets list.
+// `dataset_loader` value telling the server to use a user-supplied dataset
+// instead of a built-in recipe. Not one of the /v1/catalog loader ids.
 export const CUSTOM_DATASET_LOADER = "Custom";
 
 export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
