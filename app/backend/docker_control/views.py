@@ -639,6 +639,16 @@ class DeployView(APIView):
             # and this reuses a port freed by a stopped deployment before it
             # ever grows past the lowest few ports in the block.
             service_port = get_next_service_port()
+            if service_port is None:
+                logger.error(f"No free service port available for {impl.model_name}")
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "allocation_failed",
+                        "message": "No free host port available for the model server. Stop an unused deployment and try again.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,

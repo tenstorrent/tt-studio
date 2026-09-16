@@ -2488,20 +2488,19 @@ def sync_tokens_from_tt_studio(
     if ui_hf:
         tt_studio_hf = ui_hf
 
-    # Last resort: the process environment. run.py hands its shell's HF_TOKEN /
-    # JWT_SECRET to this server, so a token exported in the terminal still
-    # reaches the model container even when neither .env nor Settings has one.
-    if not tt_studio_hf:
-        tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
-    if not tt_studio_jwt:
-        tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
-
-    # Last resort: the current request's own secrets. On a
-    # fresh deploy, get the secrets from the request.
+    # Consulting the request's own value first stops this job from
+    # writing another job's transient HF_TOKEN/JWT_SECRET into the artifact .env.
     if not tt_studio_hf:
         tt_studio_hf = (request_hf_token or "").strip() or None
     if not tt_studio_jwt:
         tt_studio_jwt = (request_jwt_secret or "").strip() or None
+
+    # Last resort: the process environment so a token exported in the terminal still
+    # reaches the model container even when neither .env, Settings, nor the request itself has one.
+    if not tt_studio_hf:
+        tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
 
     if not tt_studio_jwt and not tt_studio_hf:
         # Nothing to sync, but the model launcher still passes this file to

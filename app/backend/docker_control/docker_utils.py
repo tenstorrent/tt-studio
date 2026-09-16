@@ -560,6 +560,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # single-card deployments; use the first slot for chip pinning below.
         primary_device_id = int(str(device_id).split(",")[0].strip())
         service_port = get_next_service_port()
+        if service_port is None:
+            raise RuntimeError(
+                "No free host port available for the model server. "
+                "Stop an unused deployment and try again."
+            )
         payload["service_port"] = str(service_port)
 
         # Pin to a specific chip slot only for single-chip models. For multi-chip
