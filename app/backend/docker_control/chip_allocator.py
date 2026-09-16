@@ -531,14 +531,10 @@ class ChipSlotAllocator:
             containers = response or []
 
         tracked_ids: Set[str] = set()
-        tracked_names: Set[str] = set()
         for deployment in self._get_active_deployments():
             container_id = getattr(deployment, "container_id", None) or ""
             if container_id:
                 tracked_ids.update({container_id, container_id[:12]})
-            container_name = getattr(deployment, "container_name", None)
-            if container_name:
-                tracked_names.add(container_name)
 
         occupancy: Dict[int, Dict] = {}
         for container in containers:
@@ -548,7 +544,7 @@ class ChipSlotAllocator:
             container_id = container.get("id") or ""
             if any(name.lower().startswith(prefix) for prefix in INFRA_CONTAINER_PREFIXES):
                 continue
-            if container_id in tracked_ids or container_id[:12] in tracked_ids or name in tracked_names:
+            if container_id in tracked_ids or container_id[:12] in tracked_ids:
                 continue
 
             bound = _detect_device_ids_from_mounts(container)
