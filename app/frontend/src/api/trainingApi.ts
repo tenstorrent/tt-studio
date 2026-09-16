@@ -77,8 +77,6 @@ export interface CreateTrainingJobParams {
   dataset_loader: string;
   device_type: string;
   // Custom-dataset fields, sent only when `dataset_loader` is "Custom".
-  // `custom_dataset` names an uploaded file the backend stages and rewrites into
-  // `train_dataset_path`; the rest map onto the container's custom-dataset contract.
   custom_dataset?: string;
   file_type?: string;
   template?: string;
@@ -139,8 +137,6 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
 // Custom (user-uploaded) datasets
 // ---------------------------------------------------------------------------
 
-// A user-uploaded dataset file, offered as a choice in the New Training Job
-// dialog. Selecting one trains on it (see CUSTOM_DATASET_LOADER).
 export interface CustomDataset {
   id: string;
   name: string;
@@ -384,7 +380,7 @@ export interface MergedCheckpoint {
 export async function promoteCheckpoint(
   jobId: string,
   ckptId: string,
-): Promise<{ id?: string; status?: string; [key: string]: unknown }> {
+): Promise<{ id?: string; status?: string;[key: string]: unknown }> {
   const { data } = await axios.post(
     `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
   );

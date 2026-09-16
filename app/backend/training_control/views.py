@@ -38,8 +38,6 @@ MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 ORG_ID_HEADER = "X-TT-Organization"
 ORG_ID = "tenstorrent"
 
-# dataset_loader value that makes the server read train_dataset_path/file_type/
-# template instead of a built-in recipe.
 CUSTOM_DATASET_LOADER = "Custom"
 DEFAULT_CUSTOM_FILE_TYPE = "json"
 DEFAULT_CUSTOM_TEMPLATE = "alpaca"

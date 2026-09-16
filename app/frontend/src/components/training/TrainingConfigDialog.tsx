@@ -68,11 +68,7 @@ const DEFAULT_TEMPLATE = DATASET_TEMPLATES[0].id;
 const formSchema = z.object({
   model: z.string().min(1, "Select a model"),
   dataset: z.string().min(1, "Select a dataset"),
-  // Custom-dataset fields, only used when a custom dataset is selected.
-  // `template` is the prompt format; `column_mapping` maps its fields to columns.
   template: z.string().default(DEFAULT_TEMPLATE),
-  // One entry per template field (see DATASET_TEMPLATES), aligned by index. Only
-  // the column name is captured; blank means "use the identically named column".
   column_mapping: z
     .array(z.object({ value: z.string().default("") }))
     .default([]),
@@ -163,11 +159,9 @@ export function TrainingConfigDialog({
     form.setValue("dataset", "");
   }, [selectedModel, form]);
 
-  // Custom dataset selected — reveal the template and column-mapping inputs.
   const selectedDataset = form.watch("dataset");
   const isCustomDataset = selectedDataset.startsWith(CUSTOM_DATASET_PREFIX);
 
-  // Fields to map for the selected template; drives the column-mapping rows.
   const selectedTemplate = form.watch("template");
   const templateFields =
     DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
@@ -182,9 +176,6 @@ export function TrainingConfigDialog({
     setSubmitting(true);
     try {
       const isCustom = values.dataset.startsWith(CUSTOM_DATASET_PREFIX);
-      // Keys must match the container's `TrainingRequest` schema exactly or they
-      // are dropped. Pass 0-meaningful fields (max_steps/val_steps_freq/
-      // save_interval) as-is — coalescing a falsy 0 would drop them.
       const params: Parameters<typeof createTrainingJob>[0] = {
         dataset_loader: isCustom ? CUSTOM_DATASET_LOADER : values.dataset,
         device_type: device,
