@@ -45,7 +45,10 @@ export function DatasetUploadField({
     disabled,
     noClick: true,
     noKeyboard: true,
-    accept: { "application/json": [".json"] },
+    accept: {
+      "application/json": [".json"],
+      "application/jsonl": [".jsonl"],
+    },
   });
 
   if (file) {
@@ -96,11 +99,12 @@ export function DatasetUploadField({
       <UploadCloud className="mb-3 h-8 w-8 text-gray-400 dark:text-gray-500" />
       <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
         {isDragActive
-          ? "Drop the JSON file here"
-          : "Drag & drop a dataset JSON file here"}
+          ? "Drop the dataset file here"
+          : "Drag & drop a dataset file here"}
       </p>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-        or click to browse. Expected: a JSON array of objects (.json)
+        or click to browse. Accepts a JSON array of objects, JSON Lines, or a
+        Hugging Face datasets export (.json / .jsonl)
       </p>
     </div>
   );

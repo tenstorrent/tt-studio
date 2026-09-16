@@ -26,8 +26,10 @@ PROXY_TIMEOUT = 120
 
 TRAINING_VOLUME_SUBDIR = "training_volume"
 CUSTOM_DATASETS_SUBDIR = os.path.join(TRAINING_VOLUME_SUBDIR, "custom_datasets")
-MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_DATASET_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
+# Leading slice served for datasets over the preview limit.
+DATASET_PREVIEW_SAMPLE_BYTES = 2 * 1024 * 1024
 
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
 # Not the JWT used for vLLM/LLM inference endpoints. The key is resolved
@@ -180,14 +182,14 @@ def _custom_datasets_dir():
 def _safe_dataset_filename(name):
     """
     Strips any directory components to prevent path traversal and requires a
-    ``.json`` extension (the only format the preview/loader understands).
+    ``.json``/``.jsonl`` extension.
     """
     if not name:
         return None
     base = os.path.basename(name.replace("\\", "/")).strip()
     if not base or base in (".", "..") or base.startswith("."):
         return None
-    if not base.lower().endswith(".json"):
+    if not base.lower().endswith((".json", ".jsonl")):
         return None
     return base
 
@@ -215,6 +217,89 @@ def _resolve_dataset_path(directory, name):
     if real_path != os.path.join(real_dir, filename):
         return None
     return path
+
+
+def _extract_rows_from_envelope(value):
+    """Pull the record list out of a ``{"rows"|"data": [..]}`` wrapper, including
+    the HF datasets-server envelope. Returns ``None`` if there is no such list."""
+    if not isinstance(value, dict):
+        return None
+    container = value.get("rows")
+    if not isinstance(container, list):
+        container = value.get("data")
+    if not isinstance(container, list):
+        return None
+    # HF wraps each record as {"row_idx": .., "row": {..}}; unwrap it.
+    return [
+        item["row"]
+        if isinstance(item, dict) and isinstance(item.get("row"), dict)
+        else item
+        for item in container
+    ]
+
+
+def _parse_jsonl(text):
+    """Parse JSON Lines (one object per line). Returns ``None`` if invalid."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        rows.append(obj)
+    return rows or None
+
+
+def _normalize_dataset_rows(text):
+    """Normalize uploaded dataset *text* into the flat list of object rows the
+    trainer expects. Accepts a JSON array, a ``{"rows"|"data": [..]}`` wrapper
+    (incl. HF datasets exports), or JSON Lines.
+
+    Returns ``(rows, None)`` on success or ``(None, error_message)``.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None, "The file is empty."
+
+    parsed = None
+    parse_error = None
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError as e:
+        parse_error = e
+
+    if parse_error is None:
+        if isinstance(parsed, list):
+            rows = parsed
+        else:
+            rows = _extract_rows_from_envelope(parsed)
+            if rows is None:
+                return None, (
+                    "Expected a JSON array of objects, a JSON Lines file "
+                    "(one object per line), or a Hugging Face datasets export "
+                    'with a top-level "rows" array.'
+                )
+    else:
+        # Not a single JSON value; try JSON Lines.
+        rows = _parse_jsonl(stripped)
+        if rows is None:
+            return None, f"File is not valid JSON or JSON Lines: {parse_error.msg}."
+
+    if not rows:
+        return None, "The dataset is empty."
+
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return None, (
+                f"Every item must be an object. Item at index {i} is not an object."
+            )
+
+    return rows, None
 
 
 def _resolve_training_volume_dir(impl):
@@ -337,7 +422,7 @@ class CustomDatasetsView(View):
         filename = _safe_dataset_filename(upload.name)
         if filename is None:
             return JsonResponse(
-                {"error": "Invalid filename. Only .json dataset files are accepted."},
+                {"error": "Invalid filename. Only .json/.jsonl dataset files are accepted."},
                 status=400,
             )
 
@@ -350,11 +435,17 @@ class CustomDatasetsView(View):
 
         raw = upload.read()
         try:
-            json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
             return JsonResponse(
-                {"error": "File is not valid JSON."}, status=400
+                {"error": "File is not valid UTF-8 text."}, status=400
             )
+
+        # Store the normalized flat array the trainer consumes.
+        rows, norm_err = _normalize_dataset_rows(text)
+        if norm_err is not None:
+            return JsonResponse({"error": norm_err}, status=400)
+        normalized = json.dumps(rows, ensure_ascii=False).encode("utf-8")
 
         directory = _custom_datasets_dir()
         dest = os.path.join(directory, filename)
@@ -370,7 +461,7 @@ class CustomDatasetsView(View):
             )
         try:
             with open(dest, "wb") as f:
-                f.write(raw)
+                f.write(normalized)
         except OSError as e:
             logger.exception("Could not save custom dataset to %s", dest)
             return JsonResponse({"error": str(e)}, status=500)
@@ -380,7 +471,7 @@ class CustomDatasetsView(View):
             size_bytes = stat.st_size
             modified_at = int(stat.st_mtime)
         except OSError:
-            size_bytes = len(raw)
+            size_bytes = len(normalized)
             modified_at = None
 
         return JsonResponse(
@@ -409,7 +500,7 @@ class CustomDatasetDetailView(View):
     def get(self, request, name, *args, **kwargs):
         if _safe_dataset_filename(name) is None:
             return JsonResponse(
-                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                {"error": "Invalid dataset name. Only .json/.jsonl datasets are supported."},
                 status=400,
             )
 
@@ -424,31 +515,30 @@ class CustomDatasetDetailView(View):
             logger.exception("Could not stat custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
 
-        if size > MAX_DATASET_PREVIEW_BYTES:
-            limit_mb = MAX_DATASET_PREVIEW_BYTES // (1024 * 1024)
-            return JsonResponse(
-                {
-                    "error": (
-                        f"Dataset is too large to preview. The limit is {limit_mb} MB."
-                    )
-                },
-                status=413,
-            )
+        # Oversized datasets are served as a leading slice (sampled preview)
+        # rather than rejected; smaller files are returned whole.
+        sampled = size > MAX_DATASET_PREVIEW_BYTES
+        read_bytes = DATASET_PREVIEW_SAMPLE_BYTES if sampled else size
 
         try:
             with open(path, "rb") as f:
-                raw = f.read()
+                raw = f.read(read_bytes)
         except OSError as e:
             logger.exception("Could not read custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
 
-        return HttpResponse(raw, content_type="application/json")
+        response = HttpResponse(raw, content_type="application/json")
+        if sampled:
+            # Tell the frontend to sample-parse the partial body (exposed via CORS).
+            response["X-Dataset-Sampled"] = "true"
+            response["Access-Control-Expose-Headers"] = "X-Dataset-Sampled"
+        return response
 
     def delete(self, request, name, *args, **kwargs):
         filename = _safe_dataset_filename(name)
         if filename is None:
             return JsonResponse(
-                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                {"error": "Invalid dataset name. Only .json/.jsonl datasets are supported."},
                 status=400,
             )
 

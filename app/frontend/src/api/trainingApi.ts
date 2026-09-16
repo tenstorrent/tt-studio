@@ -155,16 +155,25 @@ export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
   return [];
 }
 
-// Fetch the raw JSON contents of a previously uploaded custom dataset so it can
-// be parsed and previewed client-side (same path as a freshly selected file).
-// Returns the file text; `responseType: "text"` + a passthrough transform keep
-// axios from parsing/normalizing the JSON so the shared parser sees it verbatim.
-export async function fetchCustomDatasetContent(id: string): Promise<string> {
-  const { data } = await axios.get<string>(
+export interface CustomDatasetContent {
+  text: string;
+  // True when the server returned only a leading slice (file too large).
+  sampled: boolean;
+}
+
+// Fetch a stored dataset's raw contents for client-side preview. The passthrough
+// transform keeps axios from parsing the JSON so the shared parser sees it
+// verbatim. Large files come back as a truncated slice with `sampled: true`.
+export async function fetchCustomDatasetContent(
+  id: string,
+): Promise<CustomDatasetContent> {
+  const { data, headers } = await axios.get<string>(
     `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
     { responseType: "text", transformResponse: [(value) => value] },
   );
-  return typeof data === "string" ? data : JSON.stringify(data);
+  const sampled =
+    String(headers?.["x-dataset-sampled"] ?? "").toLowerCase() === "true";
+  return { text: typeof data === "string" ? data : JSON.stringify(data), sampled };
 }
 
 export async function uploadCustomDataset(
