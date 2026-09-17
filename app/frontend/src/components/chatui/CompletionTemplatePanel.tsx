@@ -41,19 +41,15 @@ export function renderTemplate(
 }
 
 /**
- * Derive stop sequences so completion generation halts at the next record
- * boundary instead of the model hallucinating a fresh example. Any markdown-
- * style header (e.g. "### Instruction:") that appears before the last
- * placeholder is a record delimiter; headers after it are the generation cue
- * (e.g. "### Response:") and must NOT be used as stops.
+ * Parse the user's stop-sequences input (one per line) into a clean list.
+ * Whitespace-only lines are dropped; each remaining line is trimmed and used as
+ * a literal stop string sent to vLLM.
  */
-export function deriveStops(template: string): string[] {
-  const matches = [...template.matchAll(PLACEHOLDER_RE)];
-  const last = matches[matches.length - 1];
-  const cutoff = last ? (last.index ?? 0) + last[0].length : template.length;
-  const before = template.slice(0, cutoff);
-  const headers = before.match(/^\s*#{1,6}[^\n]*$/gm) ?? [];
-  return [...new Set(headers.map((h) => h.trim()))];
+export function parseStops(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 interface CompletionTemplatePanelProps {
@@ -69,14 +65,17 @@ export default function CompletionTemplatePanel({
 }: CompletionTemplatePanelProps) {
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
   const [values, setValues] = useState<Record<string, string>>({});
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [stopText, setStopText] = useState("");
+  // Template editor and preview are two views of the same thing (raw template vs
+  // filled result), so they expand/collapse together under one state.
+  const [expanded, setExpanded] = useState(false);
 
   const fields = useMemo(() => parseFields(template), [template]);
   const rendered = useMemo(
     () => renderTemplate(template, values),
     [template, values],
   );
+  const stops = useMemo(() => parseStops(stopText), [stopText]);
 
   const canSend =
     !isStreaming &&
@@ -85,7 +84,7 @@ export default function CompletionTemplatePanel({
 
   const handleSend = () => {
     if (!canSend) return;
-    onSend(rendered, deriveStops(template));
+    onSend(rendered, stops);
   };
 
   return (
@@ -115,34 +114,61 @@ export default function CompletionTemplatePanel({
         </div>
       </div>
 
-      {/* Template editor (collapsed by default — most turns only touch fields) */}
-      <div className="rounded-md border border-gray-200 dark:border-gray-800">
-        <button
-          type="button"
-          onClick={() => setTemplateOpen((v) => !v)}
-          className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
-        >
-          {templateOpen ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
+      {/* Template editor + live preview, side by side (each half width on wider
+          screens, stacked on mobile). The divider separates this working area
+          from the informational header above. Both are collapsed by default —
+          most turns only touch the fields below. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-200 dark:border-gray-800 pt-4">
+        <div className="rounded-md border border-gray-200 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
+          >
+            {expanded ? (
+              <ChevronDown className="w-4 h-4 shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            )}
+            Prompt template
+            <span className="ml-1 font-normal text-gray-400 truncate">
+              {"use {placeholders} to create fields"}
+            </span>
+          </button>
+          {expanded && (
+            <div className="px-3 pb-3">
+              <Textarea
+                value={template}
+                onChange={(e) => setTemplate(e.target.value)}
+                rows={8}
+                spellCheck={false}
+                className="font-mono text-sm resize-y"
+              />
+            </div>
           )}
-          Prompt template
-          <span className="ml-1 font-normal text-gray-400">
-            {"use {placeholders} to create fields"}
-          </span>
-        </button>
-        {templateOpen && (
-          <div className="px-3 pb-3">
-            <Textarea
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              rows={8}
-              spellCheck={false}
-              className="font-mono text-sm"
-            />
-          </div>
-        )}
+        </div>
+
+        {/* Rendered-prompt preview — the exact string sent to /v1/completions,
+            so the user can verify it matches the training format byte-for-byte. */}
+        <div className="rounded-md border border-gray-200 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
+          >
+            {expanded ? (
+              <ChevronDown className="w-4 h-4 shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            )}
+            Preview sent prompt
+          </button>
+          {expanded && (
+            <pre className="px-3 pb-3 max-h-50 overflow-auto text-left whitespace-pre-wrap break-words font-mono text-sm text-gray-700 dark:text-gray-300">
+              {rendered}
+            </pre>
+          )}
+        </div>
       </div>
 
       {/* Field inputs — one per placeholder */}
@@ -173,26 +199,28 @@ export default function CompletionTemplatePanel({
         </div>
       )}
 
-      {/* Rendered-prompt preview — the exact string sent to /v1/completions, so
-          the user can verify it matches the training format byte-for-byte. */}
-      <div className="rounded-md border border-gray-200 dark:border-gray-800">
-        <button
-          type="button"
-          onClick={() => setPreviewOpen((v) => !v)}
-          className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
-        >
-          {previewOpen ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
-          )}
-          Preview sent prompt
-        </button>
-        {previewOpen && (
-          <pre className="px-3 pb-3 text-left whitespace-pre-wrap break-words font-mono text-sm text-gray-700 dark:text-gray-300">
-            {rendered}
-          </pre>
-        )}
+      {/* Stop sequences — literal strings that halt generation when the model
+          emits them. Needed because a raw completion won't stop on its own
+          unless the fine-tune reliably emits EOS; add the delimiter that starts
+          the next record (e.g. the header/label preceding a new example). Set
+          off with a divider since it's a decoding control, not part of the
+          prompt itself. */}
+      <div className="space-y-1.5 border-t border-gray-200 dark:border-gray-800 pt-4">
+        <label className="block text-left text-sm font-medium text-gray-700 dark:text-gray-200">
+          Stop sequences{" "}
+          <span className="font-normal text-gray-400">(optional)</span>
+        </label>
+        <Textarea
+          value={stopText}
+          onChange={(e) => setStopText(e.target.value)}
+          rows={1}
+          spellCheck={false}
+          placeholder={"One per line, e.g. ### Instruction:"}
+          className="font-mono text-sm min-h-0 resize-y"
+        />
+        <p className="text-xs text-gray-400">
+          Generation stops when the model outputs any of these. One per line.
+        </p>
       </div>
 
       <div className="flex items-center justify-end gap-2">
