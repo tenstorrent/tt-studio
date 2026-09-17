@@ -106,6 +106,13 @@ export default function CompletionTemplatePanel({
             context.
           </span>
         </div>
+        <div className="flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>
+            Temperature is set to 0 for deterministic output. You can change it
+            in settings.
+          </span>
+        </div>
       </div>
 
       {/* Template editor (collapsed by default — most turns only touch fields) */}

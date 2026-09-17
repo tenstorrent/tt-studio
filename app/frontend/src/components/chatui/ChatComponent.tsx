@@ -320,6 +320,20 @@ export default function ChatComponent() {
     });
   }, [modelID]);
 
+  // Template mode is for deterministic testing of a fine-tune, so force greedy
+  // decoding (temperature 0) each time we enter it. Switching back to chat
+  // leaves the value untouched (the user can adjust it in settings), and
+  // re-entering template mode resets it to 0 again.
+  const prevTemplateActiveRef = useRef(false);
+  useEffect(() => {
+    const templateActive = isFineTuned && templateModeOn;
+    const entering = templateActive && !prevTemplateActiveRef.current;
+    prevTemplateActiveRef.current = templateActive;
+    if (entering) {
+      setModelSettings((prev) => ({ ...prev, temperature: 0 }));
+    }
+  }, [isFineTuned, templateModeOn]);
+
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
