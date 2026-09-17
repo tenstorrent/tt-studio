@@ -406,6 +406,87 @@ class TestImplAmbiguity:
         assert by_name["some-model"]["impl"] is None
 
 
+class TestEngineSplit:
+    """One model_name can span engines (vLLM CHAT + forge TRAINING both named
+    "Llama-3.1-8B-Instruct"); normalize() emits one entry per engine. Merging by
+    name let the higher-versioned training spec clobber the chat image."""
+
+    def _spec(self, model_name, engine, model_type, version, image, impl_id):
+        leaf = _leaf(model_name, impl_id, model_type=model_type, engine=engine)
+        leaf["version"] = version
+        leaf["docker_image"] = image
+        return leaf
+
+    def test_chat_and_training_stay_separate_entries(self, tmp_path):
+        # Training version is higher: a name-only merge would give the chat row
+        # the training image.
+        model_specs = {
+            "org/Llama-3.1-8B-Instruct": {
+                "P150": {
+                    "vLLM": {
+                        "tt_transformers": self._spec(
+                            "Llama-3.1-8B-Instruct", "vLLM", "LLM",
+                            "0.19.0", "ghcr.io/x/vllm:0.19.0", "tt_transformers",
+                        )
+                    },
+                    "forge": {
+                        "trainer_training_lora": self._spec(
+                            "Llama-3.1-8B-Instruct", "forge", "TRAINING",
+                            "0.22.0", "ghcr.io/x/forge:0.22.0", "trainer_training_lora",
+                        )
+                    },
+                }
+            }
+        }
+        src = tmp_path / "model_spec.json"
+        for by_device in model_specs.values():
+            for device_type, by_engine in by_device.items():
+                for by_impl in by_engine.values():
+                    for leaf in by_impl.values():
+                        leaf.setdefault("device_type", device_type)
+        src.write_text(json.dumps({"schema_version": "0.1.0", "model_specs": model_specs}))
+
+        entries = [m for m in normalize(src) if m["model_name"] == "Llama-3.1-8B-Instruct"]
+        by_engine = {m["inference_engine"]: m for m in entries}
+
+        assert set(by_engine) == {"vLLM", "forge"}, "one entry per engine, not merged"
+
+        chat = by_engine["vLLM"]
+        assert chat["model_type"] == "CHAT"
+        assert chat["docker_image"] == "ghcr.io/x/vllm:0.19.0"
+        assert chat["service_route"] == "/v1/chat/completions"
+
+        training = by_engine["forge"]
+        assert training["model_type"] == "TRAINING"
+        assert training["docker_image"] == "ghcr.io/x/forge:0.22.0"
+        assert training["service_route"] == "/v1/jobs"
+
+        # Each entry keeps its own impl so deploy resolves the right spec.
+        assert chat["impl"] == "tt-transformers"
+        assert training["impl"] == "trainer-training-lora"
+
+    def test_identity_is_unique_across_the_split(self, tmp_path):
+        model_specs = {
+            "org/Llama-3.1-8B-Instruct": {
+                "P150": {
+                    "vLLM": {"tt_transformers": _leaf("Llama-3.1-8B-Instruct", "tt_transformers")},
+                    "forge": {"training": _leaf("Llama-3.1-8B-Instruct", "training",
+                                                model_type="TRAINING", engine="forge")},
+                }
+            }
+        }
+        for by_device in model_specs.values():
+            for device_type, by_engine in by_device.items():
+                for by_impl in by_engine.values():
+                    for leaf in by_impl.values():
+                        leaf.setdefault("device_type", device_type)
+        src = tmp_path / "model_spec.json"
+        src.write_text(json.dumps({"schema_version": "0.1.0", "model_specs": model_specs}))
+
+        idents = [_entry_identity(m) for m in normalize(src)]
+        assert len(idents) == len(set(idents))
+
+
 class TestLoadExistingCatalog:
     def test_missing_file_is_not_fatal(self, tmp_path):
         assert load_existing_catalog(tmp_path / "nope.json") == {}
