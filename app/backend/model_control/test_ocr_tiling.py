@@ -42,15 +42,28 @@ def _photo_of_a_page(
     """
     img = Image.new("RGB", size, (26, 24, 22))  # desk
     d = ImageDraw.Draw(img)
-    d.rectangle([page_margin, page_margin, size[0] - page_margin, size[1] - page_margin],
-                fill=(246, 245, 242))
+    d.rectangle(
+        [page_margin, page_margin, size[0] - page_margin, size[1] - page_margin],
+        fill=(246, 245, 242),
+    )
     if ruled:
         for y in range(text_top - 60, size[1] - page_margin - 20, 40):
-            d.line([(page_margin + 20, y), (size[0] - page_margin - 20, y)], fill=(203, 208, 214))
+            d.line(
+                [(page_margin + 20, y), (size[0] - page_margin - 20, y)],
+                fill=(203, 208, 214),
+            )
     for y in range(text_top, text_bottom, 40):
-        d.line([(page_margin + 40, y), (size[0] - page_margin - 60, y)], fill=(30, 30, 40), width=5)
+        d.line(
+            [(page_margin + 40, y), (size[0] - page_margin - 60, y)],
+            fill=(30, 30, 40),
+            width=5,
+        )
     if page_number:
-        d.text((size[0] - page_margin - 60, size[1] - page_margin - 40), "123", fill=(60, 60, 60))
+        d.text(
+            (size[0] - page_margin - 60, size[1] - page_margin - 40),
+            "123",
+            fill=(60, 60, 60),
+        )
     return img
 
 
@@ -162,9 +175,12 @@ class TestMergeTileTexts:
 
     def test_matching_ignores_case(self):
         """Four words is the minimum seam, so the overlap here is four."""
-        assert merge_tile_texts(
-            ["alpha beta gamma delta epsilon", "Beta Gamma Delta Epsilon zeta"]
-        ) == "alpha beta gamma delta epsilon zeta"
+        assert (
+            merge_tile_texts(
+                ["alpha beta gamma delta epsilon", "Beta Gamma Delta Epsilon zeta"]
+            )
+            == "alpha beta gamma delta epsilon zeta"
+        )
 
     def test_empty_and_blank_strips_are_skipped(self):
         assert merge_tile_texts([]) == ""

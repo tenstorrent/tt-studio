@@ -58,7 +58,9 @@ def _bootstrap_django():
             "docker_control",
             "model_control",
         ],
-        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+        DATABASES={
+            "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
+        },
         ROOT_URLCONF="model_control.test_ocr_view",
     )
     django.setup()
@@ -101,8 +103,14 @@ class _Resp:
 
     def json(self):
         return {
-            "choices": [{"message": {"content": self._text}, "finish_reason": self._finish}],
-            "usage": {"prompt_tokens": 269, "completion_tokens": 7, "total_tokens": 276},
+            "choices": [
+                {"message": {"content": self._text}, "finish_reason": self._finish}
+            ],
+            "usage": {
+                "prompt_tokens": 269,
+                "completion_tokens": 7,
+                "total_tokens": 276,
+            },
         }
 
 
@@ -125,7 +133,9 @@ def deployed(monkeypatch):
             }
         },
     )
-    monkeypatch.setattr(views, "auth_headers", lambda deploy: {"Authorization": "Bearer test"})
+    monkeypatch.setattr(
+        views, "auth_headers", lambda deploy: {"Authorization": "Bearer test"}
+    )
     return DEPLOY_ID
 
 
@@ -137,7 +147,9 @@ def test_requires_at_least_one_image(client, deployed):
 
 def test_unknown_deploy_id_is_404(client, monkeypatch):
     monkeypatch.setattr(views, "get_deploy_cache", lambda: {})
-    resp = client.post(OCR_URL, {"deploy_id": "nope", "images": _png(56, 56)}, format="multipart")
+    resp = client.post(
+        OCR_URL, {"deploy_id": "nope", "images": _png(56, 56)}, format="multipart"
+    )
     assert resp.status_code == 404
 
 
@@ -173,7 +185,9 @@ def test_request_shape_is_a_vision_chat_completion(client, deployed, monkeypatch
         return _Resp()
 
     monkeypatch.setattr(views.requests, "post", fake_post)
-    client.post(OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart")
+    client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart"
+    )
 
     assert captured["url"] == "http://ocr-container:7000/v1/chat/completions"
     body = captured["body"]
@@ -192,7 +206,9 @@ def test_request_shape_is_a_vision_chat_completion(client, deployed, monkeypatch
 def test_prompt_and_max_tokens_are_overridable(client, deployed, monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1]
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1],
     )
     client.post(
         OCR_URL,
@@ -211,7 +227,9 @@ def test_prompt_and_max_tokens_are_overridable(client, deployed, monkeypatch):
 def test_max_tokens_is_clamped_to_the_context_window(client, deployed, monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1]
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1],
     )
     client.post(
         OCR_URL,
@@ -241,9 +259,13 @@ def test_a_page_too_large_for_one_pass_is_read_in_strips(client, deployed, monke
     """
     captured = []
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.append(json), _Resp())[1]
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.append(json), _Resp())[1],
     )
-    client.post(OCR_URL, {"deploy_id": deployed, "images": _png(3000, 3000)}, format="multipart")
+    client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(3000, 3000)}, format="multipart"
+    )
 
     sent = _sent_images(captured)
     assert len(sent) > 1, "a 9 MP page should not be read in a single pass"
@@ -253,13 +275,19 @@ def test_a_page_too_large_for_one_pass_is_read_in_strips(client, deployed, monke
     assert all(img.size[0] > img.size[1] for img in sent)
 
 
-def test_an_image_that_fits_is_sent_whole_and_unstretched(client, deployed, monkeypatch):
+def test_an_image_that_fits_is_sent_whole_and_unstretched(
+    client, deployed, monkeypatch
+):
     """Anything inside the cap goes in one request with its aspect ratio intact."""
     captured = []
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.append(json), _Resp())[1]
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.append(json), _Resp())[1],
     )
-    client.post(OCR_URL, {"deploy_id": deployed, "images": _png(1000, 1000)}, format="multipart")
+    client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(1000, 1000)}, format="multipart"
+    )
 
     sent = _sent_images(captured)
     assert len(sent) == 1
@@ -282,9 +310,13 @@ def test_undersized_image_is_left_alone(client, deployed, monkeypatch):
 
     captured = {}
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1]
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1],
     )
-    client.post(OCR_URL, {"deploy_id": deployed, "images": _png(448, 448)}, format="multipart")
+    client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(448, 448)}, format="multipart"
+    )
 
     url = captured["body"]["messages"][0]["content"][0]["image_url"]["url"]
     sent = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1])))
@@ -296,7 +328,9 @@ def test_upstream_timeout_is_504(client, deployed, monkeypatch):
         raise views.requests.exceptions.Timeout()
 
     monkeypatch.setattr(views.requests, "post", boom)
-    resp = client.post(OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart")
+    resp = client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart"
+    )
     assert resp.status_code == 504
 
 
@@ -305,7 +339,9 @@ def test_unreachable_model_is_502(client, deployed, monkeypatch):
         raise views.requests.exceptions.ConnectionError("refused")
 
     monkeypatch.setattr(views.requests, "post", boom)
-    resp = client.post(OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart")
+    resp = client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart"
+    )
     assert resp.status_code == 502
 
 
@@ -319,7 +355,9 @@ def test_upstream_error_body_is_surfaced(client, deployed, monkeypatch):
             raise err
 
     monkeypatch.setattr(views.requests, "post", lambda *a, **kw: Failing())
-    resp = client.post(OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart")
+    resp = client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(56, 56)}, format="multipart"
+    )
     assert resp.status_code == 400
     # The upstream message is what tells a caller which limit they hit.
     assert "limit-mm-per-prompt" in resp.json()["error"]
@@ -333,7 +371,9 @@ def test_no_deploy_id_without_cloud_url_is_503(client, monkeypatch):
 
 def test_no_deploy_id_uses_the_cloud_endpoint(client, monkeypatch):
     captured = {}
-    monkeypatch.setattr(views, "CLOUD_OCR_URL", "http://external:8100/v1/chat/completions")
+    monkeypatch.setattr(
+        views, "CLOUD_OCR_URL", "http://external:8100/v1/chat/completions"
+    )
     monkeypatch.setattr(views, "CLOUD_OCR_AUTH_TOKEN", "tok")
     monkeypatch.setattr(
         views.requests,
@@ -356,7 +396,9 @@ def test_an_unreadable_upload_does_not_fail_the_batch(client, deployed, monkeypa
     junk = io.BytesIO(b"this is not an image")
     junk.name = "junk.png"
     resp = client.post(
-        OCR_URL, {"deploy_id": deployed, "images": [junk, _png(56, 56)]}, format="multipart"
+        OCR_URL,
+        {"deploy_id": deployed, "images": [junk, _png(56, 56)]},
+        format="multipart",
     )
     assert resp.status_code == 200
     pages = resp.json()["pages"]
