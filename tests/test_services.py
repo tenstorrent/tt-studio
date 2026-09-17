@@ -615,3 +615,23 @@ class TestPortFreeingOnlyTargetsTheListener(unittest.TestCase):
         for cmd in lsof_calls:
             self.assertIn("-sTCP:LISTEN", cmd,
                           f"lsof must only report the listening process, got {cmd}")
+
+    def test_docker_guard_falls_back_to_sudo_ps_when_the_process_is_hidden(self):
+        # /proc mounted with hidepid hides root's docker-proxy from a plain ps,
+        # which used to make the guard return False and the proxy get killed.
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "sudo":
+                return MagicMock(returncode=0, stdout="docker-proxy\n")
+            return MagicMock(returncode=1, stdout="")
+
+        with patch.object(_ports_mod.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(_ports_mod._process_is_docker(4242))
+            self.assertEqual(calls[-1][:2], ["sudo", "ps"])
+
+            calls.clear()
+            self.assertFalse(_ports_mod._process_is_docker(4242, no_sudo=True))
+            self.assertFalse(any(c[0] == "sudo" for c in calls),
+                             "no_sudo must not fall back to sudo ps")

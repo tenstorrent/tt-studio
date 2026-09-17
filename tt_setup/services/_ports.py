@@ -204,7 +204,7 @@ def check_and_free_ports(ports, no_sudo=False):
     return (len(failed_ports) == 0, failed_ports)
 
 
-def _process_is_docker(pid):
+def _process_is_docker(pid, no_sudo=False):
     """True if `pid` belongs to Docker itself (Docker Desktop backend, docker-proxy,
     dockerd, containerd, vpnkit). On macOS/Docker Desktop a *published* container
     port is held by `com.docker.backend`, so killing the port's holder would take
@@ -212,9 +212,18 @@ def _process_is_docker(pid):
     try:
         r = subprocess.run(["ps", "-p", str(pid), "-o", "comm="],
                            capture_output=True, text=True, check=False)
+        name = (r.stdout or "").strip()
+        if not name and not no_sudo:
+            # With /proc mounted hidepid=..., a plain ps cannot see other users'
+            # processes, root's docker-proxy included. The pid itself came from
+            # a sudo lsof/ss pass, so identify it the same way before deciding
+            # it is safe to kill.
+            r = subprocess.run(["sudo", "ps", "-p", str(pid), "-o", "comm="],
+                               capture_output=True, text=True, check=False)
+            name = (r.stdout or "").strip()
     except Exception:
         return False
-    name = (r.stdout or "").strip().lower()
+    name = name.lower()
     return any(tok in name for tok in ("docker", "vpnkit", "containerd"))
 
 
@@ -404,7 +413,7 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     # com.docker.backend; killing it crashes the engine and the build then fails
     # with "Cannot connect to the Docker daemon". A TT Studio container holding
     # the port is recreated by `docker compose up` anyway.
-    if _process_is_docker(pid):
+    if _process_is_docker(pid, no_sudo=no_sudo):
         return "docker"
 
     use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
