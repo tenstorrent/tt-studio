@@ -7,18 +7,11 @@ import { Link } from "react-router-dom";
 
 import {
   Breadcrumb,
-  BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "../ui/breadcrumb";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -83,37 +76,56 @@ interface RagDataSource {
     last_uploaded_document?: string;
   };
 }
+// The current model, shown as a plain label when there's nothing to switch
+// to, or as a compact dropdown (name + chevron) once more than one chat model
+// is deployed -- previously that dropdown existed but was tucked behind a
+// bare "..." ellipsis with no visible affordance, so it went unnoticed.
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
   {
     modelsDeployed: HeaderProps["modelsDeployed"];
+    modelName: HeaderProps["modelName"];
     setModelID: HeaderProps["setModelID"];
     setModelName: HeaderProps["setModelName"];
   }
->(({ modelsDeployed, setModelID, setModelName }, ref) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger
-      ref={ref}
-      className="flex items-center gap-1 focus:outline-none"
+>(({ modelsDeployed, modelName, setModelID, setModelName }, ref) => {
+  if (modelsDeployed.length <= 1) {
+    return (
+      <BreadcrumbPage
+        ref={ref as React.Ref<HTMLSpanElement>}
+        className="text-[#7C68FA] dark:text-[#7C68FA] font-bold truncate max-w-[80px] sm:max-w-full"
+      >
+        {modelName}
+      </BreadcrumbPage>
+    );
+  }
+  return (
+    <Select
+      value={modelName ?? ""}
+      onValueChange={(v) => {
+        const model = modelsDeployed.find((m) => m.name === v);
+        if (model) {
+          setModelID(model.id);
+          setModelName(model.name);
+        }
+      }}
     >
-      <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
-      <span className="sr-only">Toggle menu</span>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start">
-      {modelsDeployed.map((model) => (
-        <DropdownMenuItem
-          key={model.id}
-          onClick={() => {
-            setModelID(model.id);
-            setModelName(model.name);
-          }}
-        >
-          {model.name}
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  </DropdownMenu>
-));
+      <SelectTrigger
+        ref={ref}
+        className="h-6 w-auto max-w-[160px] gap-1 border-none bg-transparent px-1.5 py-0 text-xs font-bold text-[#7C68FA] hover:bg-[#7C68FA]/10 focus:ring-0 dark:text-[#7C68FA] [&>svg]:h-3 [&>svg]:w-3"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="start">
+        {modelsDeployed.map((model) => (
+          <SelectItem key={model.id} value={model.name}>
+            {model.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+});
 
 ModelSelector.displayName = "ModelSelector";
 
@@ -367,38 +379,31 @@ export default function Header({
                     <BreadcrumbSeparator className="mx-1 md:mx-2 text-white/40 dark:text-white/40 hidden sm:block">
                       /
                     </BreadcrumbSeparator>
-                    <BreadcrumbItem className="hidden sm:block">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <ModelSelector
-                              modelsDeployed={modelsDeployed}
-                              setModelID={setModelID}
-                              setModelName={setModelName}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                            <p>Select a different model</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator className="mx-1 md:mx-2 text-white/40 dark:text-white/40 hidden sm:block">
-                      /
-                    </BreadcrumbSeparator>
                     <BreadcrumbItem>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <BreadcrumbPage className="text-[#7C68FA] dark:text-[#7C68FA] font-bold hover:text-[#7C68FA]/80 dark:hover:text-[#7C68FA]/80 transition-colors duration-300 truncate max-w-[80px] sm:max-w-full">
-                              {modelName}
-                            </BreadcrumbPage>
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                            <p>Current selected model</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      {modelsDeployed.length > 1 ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <ModelSelector
+                                modelsDeployed={modelsDeployed}
+                                modelName={modelName}
+                                setModelID={setModelID}
+                                setModelName={setModelName}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                              <p>Switch to a different deployed model</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <ModelSelector
+                          modelsDeployed={modelsDeployed}
+                          modelName={modelName}
+                          setModelID={setModelID}
+                          setModelName={setModelName}
+                        />
+                      )}
                     </BreadcrumbItem>
                   </>
                 )}

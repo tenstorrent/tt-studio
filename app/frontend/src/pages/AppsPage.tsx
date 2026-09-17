@@ -25,6 +25,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -35,7 +42,11 @@ import CodeBlock from "../components/chatui/CodeBlock";
 import { customToast } from "../components/CustomToaster";
 import {
   fetchCodingAgentsInfo,
+  fetchEmbeddingModels,
+  fetchSttModels,
+  fetchTtsModels,
   type CodingAgentsInfo,
+  type DeployedModelSummary,
   type UnavailableCodingAgentModel,
 } from "../api/modelsDeployedApis";
 import {
@@ -51,6 +62,10 @@ import { cn } from "../lib/utils";
 
 const POLL_INTERVAL_MS = 3000;
 const PLACEHOLDER_MODEL = "your-model-name";
+// Sentinel for "use the app's own built-in embedder/STT/TTS" in a launch
+// picker -- never sent to the backend as embedding_model/stt_model/tts_model
+// (see launchApp below).
+const NATIVE_CHOICE = "native";
 
 const formatBytes = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
@@ -92,18 +107,35 @@ export default function AppsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [guideApp, setGuideApp] = useState<MarketplaceApp | null>(null);
+  const [embeddingModels, setEmbeddingModels] = useState<
+    DeployedModelSummary[]
+  >([]);
+  const [sttModels, setSttModels] = useState<DeployedModelSummary[]>([]);
+  const [ttsModels, setTtsModels] = useState<DeployedModelSummary[]>([]);
+  // Per-app inline model choices, keyed by app id. Default to native.
+  const [embeddingChoices, setEmbeddingChoices] = useState<
+    Record<string, string>
+  >({});
+  const [sttChoices, setSttChoices] = useState<Record<string, string>>({});
+  const [ttsChoices, setTtsChoices] = useState<Record<string, string>>({});
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES);
   // Apps with a launch/stop request in flight, so buttons can't be double-fired.
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
-    const [marketplace, gatewayInfo] = await Promise.all([
+    const [marketplace, gatewayInfo, embeddings, stt, tts] = await Promise.all([
       fetchMarketplaceApps(),
       fetchCodingAgentsInfo().catch(() => null),
+      fetchEmbeddingModels().catch(() => []),
+      fetchSttModels().catch(() => []),
+      fetchTtsModels().catch(() => []),
     ]);
     setApps(marketplace.apps);
     setGatewayConfigured(marketplace.gateway_configured);
     if (gatewayInfo) setGateway(gatewayInfo);
+    setEmbeddingModels(embeddings);
+    setSttModels(stt);
+    setTtsModels(tts);
   }, []);
 
   useEffect(() => {
@@ -191,6 +223,21 @@ export default function AppsPage() {
     } finally {
       setPending((p) => ({ ...p, [app.id]: false }));
     }
+  };
+
+  const launchApp = (app: MarketplaceApp) => {
+    const resolve = (choices: Record<string, string>, enabled?: boolean) => {
+      if (!enabled) return undefined;
+      const choice = choices[app.id] ?? NATIVE_CHOICE;
+      return choice === NATIVE_CHOICE ? undefined : choice;
+    };
+    return runAction(app, (id) =>
+      launchMarketplaceApp(id, {
+        embeddingModel: resolve(embeddingChoices, app.embedding_choice),
+        sttModel: resolve(sttChoices, app.stt_choice),
+        ttsModel: resolve(ttsChoices, app.tts_choice),
+      })
+    );
   };
 
   const guide: Guide | null = useMemo(() => {
@@ -296,7 +343,22 @@ export default function AppsPage() {
                   app={app}
                   disabled={!!pending[app.id] || !gatewayConfigured}
                   url={app.host_port ? appUrl(app) : null}
-                  onLaunch={() => runAction(app, launchMarketplaceApp)}
+                  embeddingModels={embeddingModels}
+                  embeddingChoice={embeddingChoices[app.id] ?? NATIVE_CHOICE}
+                  onEmbeddingChoiceChange={(value) =>
+                    setEmbeddingChoices((c) => ({ ...c, [app.id]: value }))
+                  }
+                  sttModels={sttModels}
+                  sttChoice={sttChoices[app.id] ?? NATIVE_CHOICE}
+                  onSttChoiceChange={(value) =>
+                    setSttChoices((c) => ({ ...c, [app.id]: value }))
+                  }
+                  ttsModels={ttsModels}
+                  ttsChoice={ttsChoices[app.id] ?? NATIVE_CHOICE}
+                  onTtsChoiceChange={(value) =>
+                    setTtsChoices((c) => ({ ...c, [app.id]: value }))
+                  }
+                  onLaunch={() => launchApp(app)}
                   onStop={() => runAction(app, stopMarketplaceApp)}
                   onConnect={() => setGuideApp(app)}
                 />
@@ -609,10 +671,59 @@ function AppLogo({ app }: { app: MarketplaceApp }) {
   );
 }
 
+// Inline "native vs. one of my deployed models" dropdown shown on a card
+// before launch -- one instance each for embedding, STT and TTS pickers.
+function CompanionModelPicker({
+  label,
+  nativeLabel,
+  models,
+  value,
+  onChange,
+}: {
+  label: string;
+  nativeLabel: string;
+  models: DeployedModelSummary[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] uppercase tracking-wide text-gray-500">
+        {label}
+      </div>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NATIVE_CHOICE}>{nativeLabel}</SelectItem>
+          {models.map((model) => (
+            <SelectItem
+              key={model.id}
+              value={model.hfModelId ?? model.modelName}
+            >
+              {model.modelName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function AppCard({
   app,
   url,
   disabled,
+  embeddingModels,
+  embeddingChoice,
+  onEmbeddingChoiceChange,
+  sttModels,
+  sttChoice,
+  onSttChoiceChange,
+  ttsModels,
+  ttsChoice,
+  onTtsChoiceChange,
   onLaunch,
   onStop,
   onConnect,
@@ -620,6 +731,15 @@ function AppCard({
   app: MarketplaceApp;
   url: string | null;
   disabled: boolean;
+  embeddingModels: DeployedModelSummary[];
+  embeddingChoice: string;
+  onEmbeddingChoiceChange: (value: string) => void;
+  sttModels: DeployedModelSummary[];
+  sttChoice: string;
+  onSttChoiceChange: (value: string) => void;
+  ttsModels: DeployedModelSummary[];
+  ttsChoice: string;
+  onTtsChoiceChange: (value: string) => void;
   onLaunch: () => void;
   onStop: () => void;
   onConnect: () => void;
@@ -627,6 +747,12 @@ function AppCard({
   const busy = app.status === "pulling" || app.status === "starting";
   const running = app.status === "running";
   const reachable = useAppReachable(running ? url : null);
+  // Only a real decision when at least one matching model is deployed --
+  // otherwise native is the only option and asking is pointless.
+  const showEmbeddingPicker =
+    !running && app.embedding_choice && embeddingModels.length > 0;
+  const showSttPicker = !running && app.stt_choice && sttModels.length > 0;
+  const showTtsPicker = !running && app.tts_choice && ttsModels.length > 0;
 
   return (
     // A launched app is the one thing on this page the user is likely to act on,
@@ -770,6 +896,33 @@ function AppCard({
           </div>
         ) : (
           <div className="space-y-2">
+            {showEmbeddingPicker && (
+              <CompanionModelPicker
+                label="Embedding model"
+                nativeLabel="Native (built-in embedder)"
+                models={embeddingModels}
+                value={embeddingChoice}
+                onChange={onEmbeddingChoiceChange}
+              />
+            )}
+            {showSttPicker && (
+              <CompanionModelPicker
+                label="Speech-to-text model"
+                nativeLabel="Native (built-in speech-to-text)"
+                models={sttModels}
+                value={sttChoice}
+                onChange={onSttChoiceChange}
+              />
+            )}
+            {showTtsPicker && (
+              <CompanionModelPicker
+                label="Text-to-speech model"
+                nativeLabel="Native (built-in text-to-speech)"
+                models={ttsModels}
+                value={ttsChoice}
+                onChange={onTtsChoiceChange}
+              />
+            )}
             <Button
               className="w-full"
               onClick={onLaunch}

@@ -23,6 +23,21 @@ def list_collections(filter_func=None):
     return chroma_collections
 
 
+def embedding_func_name_for(collection_name: str, default: str) -> str:
+    """The embedding_func_name a collection was actually created with, from its
+    stored metadata -- not necessarily the caller's own default. Collections can
+    now be created with different embedding functions (e.g. a TT-hardware model
+    instead of the local ONNX default), so every subsequent get/query/insert on
+    an existing collection must reuse whatever it was created with, or it lands
+    in the wrong vector space. Falls back to `default` if the collection can't be
+    found or predates this field.
+    """
+    for collection in list_collections():
+        if collection.name == collection_name:
+            return (collection.metadata or {}).get("embedding_func_name") or default
+    return default
+
+
 def get_collection(collection_name: str, embedding_func_name: str):
     embedding_func = get_embedding_function(model_name=embedding_func_name)
     return ChromaClient().get_collection(
