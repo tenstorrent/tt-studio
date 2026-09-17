@@ -657,6 +657,19 @@ class MediaImageOverrideTests(SimpleTestCase):
         self.assertIsNone(media_image_override("whisper-large-v3", "p150"))
         self.assertIsNone(media_image_override("Llama-3.1-8B-Instruct", "p150x4"))
 
+    def test_mochi_on_p300x2_is_pinned_to_the_patched_studio_image(self):
+        """The spec's 0.10.0 image rejects the P300x2 2x2 mesh, and stock 0.18.0
+        still carries the pre-refactor runner; only the studio_images build runs."""
+        self.assertEqual(
+            media_image_override("mochi-1-preview", "p300x2"),
+            "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76",
+        )
+
+    def test_mochi_on_other_boards_keeps_the_spec_image(self):
+        """The patched build was only verified on p300x2; the other boards are untested on it."""
+        for device in ("t3k", "galaxy", "p150x4", "p150x8"):
+            self.assertIsNone(media_image_override("mochi-1-preview", device))
+
 
 class MediaTraceRegionOverrideTests(SimpleTestCase):
     def test_both_flux_variants_reserve_p300x2_trace_region_on_p150x4(self):

@@ -98,16 +98,6 @@ vLLM container never reaches a healthy state. Verified broken on a P300x2 \
 available there."""
 
 [[unavailable]]
-model = "mochi-1-preview"
-device = "P300x2"
-reason = "known_broken"
-details = """
-Deploy fails with the catalog-pinned image; needs a newer media image plus a \
-spec-level env override the artifact does not carry. Verified broken on a \
-P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it \
-stays available there."""
-
-[[unavailable]]
 model = "DeepSeek-R1-Distill-Llama-70B"
 device = "P150X4"
 reason = "known_broken"
@@ -216,6 +206,19 @@ details = """
 0.17.0 carries the MODEL_WEIGHTS_DIR fix (tt-inference-server#4107), so the \
 container reads the mounted host HF cache instead of re-downloading ~118GB. \
 Applies on every board."""
+
+[[serve_override]]
+model = "mochi-1-preview"
+device = "p300x2"
+docker_image = "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76"
+details = """
+The spec pins 0.10.0-555f240, whose bundled tt-metal predates the Mochi \
+Blackhole mesh fixes and rejects the P300x2 2x2 mesh outright; stock \
+0.18.0-c49bb76 fixes the mesh but still carries the pre-refactor Mochi \
+runner. This studio_images build layers tt-inference-server#4940 on \
+0.18.0-c49bb76. Verified on a P300x2 (4x p300c Blackhole) box: deploy, \
+warmup, 12-step generation, valid MP4. Drop once an artifact release \
+carries #4940 and the spec re-pin (#4941)."""
 
 [[serve_override]]
 model = "FLUX.1-dev"
