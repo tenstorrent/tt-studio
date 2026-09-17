@@ -255,12 +255,17 @@ def _normalize_dataset_rows(text):
         parse_error = e
 
     if parse_error is None:
-        if not isinstance(parsed, list):
+        if isinstance(parsed, list):
+            rows = parsed
+        elif isinstance(parsed, dict):
+            # A single JSON object is a valid one-row dataset (also covers a
+            # one-line JSON Lines file, which parses as a bare object).
+            rows = [parsed]
+        else:
             return None, (
                 "Expected a JSON array of objects or a JSON Lines file "
                 "(one object per line)."
             )
-        rows = parsed
     else:
         # Not a single JSON value; try JSON Lines.
         rows = _parse_jsonl(stripped)
@@ -292,17 +297,28 @@ def _resolve_training_volume_dir(impl):
         backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
     )
 
+    # A candidate volume dir must be a real directory whose resolved path stays
+    # inside internal_root — a symlink could otherwise redirect staged datasets
+    # outside the training volume.
+    real_root = os.path.realpath(internal_root)
+
+    def _is_safe_volume_dir(path):
+        if os.path.islink(path) or not os.path.isdir(path):
+            return False
+        real_path = os.path.realpath(path)
+        return real_path == real_root or real_path.startswith(real_root + os.sep)
+
     # Exact, version-aware match: impl.volume_name is `volume_id_<impl>-<name>-v<ver>`.
     volume_name = getattr(impl, "volume_name", None)
     if volume_name:
         exact = os.path.join(internal_root, volume_name)
-        if os.path.isdir(exact):
+        if _is_safe_volume_dir(exact):
             return exact
 
     candidates = [
         d
         for d in glob.glob(os.path.join(internal_root, "volume_id_*"))
-        if os.path.isdir(d)
+        if _is_safe_volume_dir(d)
     ]
     if not candidates:
         return None
@@ -358,6 +374,25 @@ def _stage_custom_dataset(impl, name):
         return None, JsonResponse({"error": str(e)}, status=500)
 
     return f"{CONTAINER_CUSTOM_DATASETS_DIR}/{base}", None
+
+
+def _remove_staged_copies(filename):
+    """Best-effort removal of a dataset's staged copies from every training
+    volume, so deleting a dataset doesn't leave large orphans behind.
+
+    Note: a job actively training on the file would lose it; in practice the
+    trainer reads the dataset at job start, so this is safe between runs.
+    """
+    internal_root = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
+    )
+    pattern = os.path.join(internal_root, "volume_id_*", "custom_datasets", filename)
+    for staged in glob.glob(pattern):
+        try:
+            if os.path.isfile(staged) and not os.path.islink(staged):
+                os.remove(staged)
+        except OSError as e:
+            logger.warning("Could not remove staged dataset copy %s: %s", staged, e)
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +575,8 @@ class CustomDatasetDetailView(View):
             logger.exception("Could not delete custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
 
+        _remove_staged_copies(filename)
+
         return JsonResponse({"id": filename, "name": filename, "deleted": True}, status=200)
 
 
@@ -585,10 +622,10 @@ class TrainingJobsListView(View):
         # fields. Popped unconditionally so the helper field never reaches the server.
         custom_name = body.pop("custom_dataset", None)
         if body.get("dataset_loader") == CUSTOM_DATASET_LOADER:
-            if not custom_name:
+            if not custom_name or not isinstance(custom_name, str):
                 return JsonResponse(
                     {
-                        "error": "custom_dataset is required when dataset_loader is 'Custom'."
+                        "error": "custom_dataset (a dataset name) is required when dataset_loader is 'Custom'."
                     },
                     status=400,
                 )

@@ -175,6 +175,10 @@ export function TrainingConfigDialog({
     setSubmitting(true);
     try {
       const isCustom = values.dataset.startsWith(CUSTOM_DATASET_PREFIX);
+      const loraTargetModules = values.lora_target_modules
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const params: Parameters<typeof createTrainingJob>[0] = {
         dataset_loader: isCustom ? CUSTOM_DATASET_LOADER : values.dataset,
         device_type: device,
@@ -184,15 +188,15 @@ export function TrainingConfigDialog({
         dataset_max_sequence_length: values.max_length,
         lora_alpha: values.lora_alpha,
         lora_r: values.lora_rank,
-        lora_target_modules: values.lora_target_modules
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
         max_steps: values.max_steps,
         steps_freq: values.steps_freq,
         val_steps_freq: values.val_steps_freq,
         save_interval: values.save_interval,
       };
+      // Omit when blank so the server keeps its own default instead of getting [].
+      if (loraTargetModules.length > 0) {
+        params.lora_target_modules = loraTargetModules;
+      }
 
       if (isCustom) {
         // Backend stages the named upload into `train_dataset_path`. Uploads are
@@ -397,6 +401,7 @@ export function TrainingConfigDialog({
                       </span>
                       <span className="text-gray-400">→</span>
                       <Input
+                        aria-label={`Dataset column for the "${f.key}" field`}
                         placeholder={`your column (defaults to "${f.key}")`}
                         {...form.register(`column_mapping.${index}.value`)}
                       />

@@ -69,6 +69,9 @@ function extractRows(trimmed: string): unknown[] {
 
   if (jsonError === undefined) {
     if (Array.isArray(parsed)) return parsed;
+    // A single JSON object is a valid one-row dataset (also covers a one-line
+    // JSON Lines file, which parses as a bare object).
+    if (isPlainObject(parsed)) return [parsed];
     throw new DatasetParseError(
       "Expected a JSON array of objects (e.g. [{ ... }, { ... }]) or a JSON " +
         "Lines file (one object per line).",
