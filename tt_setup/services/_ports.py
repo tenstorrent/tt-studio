@@ -301,8 +301,9 @@ def _find_supervisor_wrapper_pid(pid, max_depth=5):
     return found
 
 
-def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False):
-    """Send SIGTERM (-15), wait 2s, escalate to SIGKILL (-9) if still alive."""
+def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout=7.0, poll_interval=0.25):
+    """Send SIGTERM (-15), poll every `poll_interval`s up to `timeout`s,
+    and escalate to SIGKILL (-9) only if still alive."""
     try:
         pid_int = int(pid)
     except (ValueError, TypeError):
@@ -323,10 +324,17 @@ def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False):
 
     try:
         run_command(kill_cmd_graceful, check=False, capture_output=True)
-        time.sleep(2)
 
-        result = run_command(check_alive_cmd, check=False, capture_output=True)
-        if result.returncode == 0:
+        deadline = time.time() + timeout
+        alive = True
+        while time.time() < deadline:
+            time.sleep(poll_interval)
+            result = run_command(check_alive_cmd, check=False, capture_output=True)
+            if result.returncode != 0:
+                alive = False
+                break
+
+        if alive:
             if not quiet:
                 print(f"⚠️  Process {pid_str} still alive. Forcing termination...")
             run_command(kill_cmd_force, check=True, capture_output=True)

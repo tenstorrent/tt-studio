@@ -476,6 +476,41 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
             self.assertEqual(cmd, "/bin/bash script.sh")
             mock_run_cmd.assert_called_with(["ps", "-o", "command=", "-p", "456"], check=False, capture_output=True)
 
+    def test_terminate_pid_graceful_then_force_graceful_exit(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            if cmd[:2] == ["kill", "-0"]:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [["kill", "-15", "999"], ["kill", "-0", "999"]])
+
+    def test_terminate_pid_graceful_then_force_escalates_to_force_kill(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            if cmd[:2] == ["kill", "-0"]:
+                return MagicMock(returncode=0)
+            return MagicMock(returncode=0)
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"), \
+             patch.object(_ports_mod.time, "time", side_effect=[100.0, 100.0, 108.0]):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, timeout=7.0, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [
+            ["kill", "-15", "999"],
+            ["kill", "-0", "999"],
+            ["kill", "-9", "999"],
+        ])
+
     def test_kill_port_holder_terminates_supervisor_first(self):
         terminated = []
         with patch.object(_ports_mod, "shutil") as mock_shutil, \
