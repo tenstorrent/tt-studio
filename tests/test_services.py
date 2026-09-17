@@ -590,3 +590,28 @@ class TestStrictSupervisorReaping(unittest.TestCase):
             result = _dc_mod.start_docker_control_service()
 
         self.assertFalse(result, "start_docker_control_service must abort if previous supervisor is alive")
+
+
+class TestPortFreeingOnlyTargetsTheListener(unittest.TestCase):
+    """`lsof -ti tcp:<port>` also lists processes that merely hold a *client*
+    connection to the port. When the listener is invisible to the non-sudo pass
+    (docker-proxy runs as root), that made the launcher kill whatever user
+    process had a connection open, including the previous `run.py --dev`
+    launcher and any curl/IDE client. Only the LISTEN socket may be targeted."""
+
+    def test_lsof_is_restricted_to_listening_sockets(self):
+        lsof_calls = []
+
+        def fake_run_command(cmd, **kwargs):
+            if "lsof" in cmd:
+                lsof_calls.append(cmd)
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch("shutil.which", return_value="/usr/bin/lsof"):
+            _ports_mod._kill_port_holder(8000, no_sudo=True, quiet=True)
+
+        self.assertTrue(lsof_calls, "lsof must be consulted")
+        for cmd in lsof_calls:
+            self.assertIn("-sTCP:LISTEN", cmd,
+                          f"lsof must only report the listening process, got {cmd}")

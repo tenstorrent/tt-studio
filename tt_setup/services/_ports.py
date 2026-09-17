@@ -357,8 +357,11 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
 
     # --- macOS and Linux logic ---
 
-    # Define commands to try
-    lsof_cmd = ["lsof", "-ti", f"tcp:{port}"]
+    # Define commands to try. Restrict lsof to the LISTEN socket: without
+    # -sTCP:LISTEN it also lists processes that merely have a client
+    # connection to the port (a curl, an IDE, or the previous run.py launcher
+    # with a lingering socket to the frontend), and those must not be killed.
+    lsof_cmd = ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"]
     ss_cmd = ["ss", "-lptn", f"sport = :{port}"]
 
     # Function to run a command and extract PID
