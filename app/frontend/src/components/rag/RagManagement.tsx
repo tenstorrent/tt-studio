@@ -23,6 +23,10 @@ import {
   isSystemKnowledgeCollection,
 } from "@/src/components/rag";
 import {
+  fetchEmbeddingModels,
+  type DeployedEmbeddingModel,
+} from "@/src/api/modelsDeployedApis";
+import {
   FileType,
   Trash2,
   Upload,
@@ -37,6 +41,13 @@ import {
   GentleFileUpload,
   type UploadFileItem,
 } from "@/src/components/ui/gentle-file-upload";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/src/components/ui/select";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
 import type { JSX } from "react";
@@ -153,6 +164,12 @@ export default function RagManagement() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadBoxKey, setUploadBoxKey] = useState(0);
 
+  // Embedding model for newly-created datasources: "" is the default local
+  // model, otherwise a deployed embedding model's stable identity (see
+  // EmbeddingDemo, which introduced TT-hardware-backed collections).
+  const [embeddingModels, setEmbeddingModels] = useState<DeployedEmbeddingModel[]>([]);
+  const [embeddingModel, setEmbeddingModel] = useState("");
+
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
@@ -242,6 +259,33 @@ export default function RagManagement() {
     getBrowserId();
   }, []);
 
+  // Offer any deployed embedding model as an alternative to the default local
+  // one for datasources created from here on. Polls like the health checks
+  // elsewhere on this page do, so deploying/removing a model is reflected
+  // without a refresh.
+  useEffect(() => {
+    let cancelled = false;
+    const loadEmbeddingModels = async () => {
+      const models = await fetchEmbeddingModels();
+      if (cancelled) return;
+      setEmbeddingModels(models);
+      // A model the picker was set to got undeployed -- fall back to default
+      // rather than silently keep sending a now-invalid identity. Reads the
+      // latest selection via the updater fn since this effect never re-runs.
+      setEmbeddingModel((current) =>
+        current && !models.some((m) => (m.hfModelId || m.modelName) === current)
+          ? ""
+          : current
+      );
+    };
+    loadEmbeddingModels();
+    const id = setInterval(loadEmbeddingModels, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   // Load data effect similar to ModelsDeployedTable approach
   useEffect(() => {
     const loadCollections = async () => {
@@ -324,13 +368,15 @@ export default function RagManagement() {
       file,
       collectionName,
       uploadId,
+      ttEmbeddingModel,
     }: {
       file: File;
       collectionName: string;
       uploadId?: string;
+      ttEmbeddingModel?: string;
     }) => {
       // First create the collection
-      await createCollection({ collectionName });
+      await createCollection({ collectionName, ttEmbeddingModel });
 
       // Then upload the document; if that fails, roll back the collection so
       // we don't leave behind an empty datasource that can't be retried.
@@ -777,11 +823,19 @@ export default function RagManagement() {
         (rds) => rds.name === collectionName
       );
       if (existingCollection) {
-        // Upload to existing collection
+        // Upload to existing collection -- its embedding function is already
+        // fixed from when it was created, so there's nothing to pass here.
         uploadDocumentMutation.mutate({ file, collectionName, uploadId });
       } else {
-        // Create new collection and upload
-        autoCreateAndUploadMutation.mutate({ file, collectionName, uploadId });
+        // Create new collection and upload. embeddingModel is "" for the
+        // default local model, or a deployed model's identity to back this
+        // new datasource with it instead (see the picker above the dropzone).
+        autoCreateAndUploadMutation.mutate({
+          file,
+          collectionName,
+          uploadId,
+          ttEmbeddingModel: embeddingModel || undefined,
+        });
       }
     });
   };
@@ -1143,6 +1197,32 @@ export default function RagManagement() {
           ref={inputFile}
           style={{ display: "none" }}
         />
+
+        {/* Embedding model picker: only shown once something is deployed to
+            offer as an alternative to the default local model. Applies to
+            datasources created from here on -- an existing one keeps whatever
+            it was created with, since a collection can't change embedding
+            functions after the fact. */}
+        {embeddingModels.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 text-sm">
+            <span className="font-medium text-gray-600 dark:text-gray-400 shrink-0">
+              Embed new datasources with:
+            </span>
+            <Select value={embeddingModel || "__default__"} onValueChange={(v) => setEmbeddingModel(v === "__default__" ? "" : v)}>
+              <SelectTrigger className="h-9 w-auto min-w-[220px] text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Default (local model)</SelectItem>
+                {embeddingModels.map((m) => (
+                  <SelectItem key={m.id} value={m.hfModelId || m.modelName}>
+                    {m.modelName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* File Upload Area */}
         <Card

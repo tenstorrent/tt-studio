@@ -2167,7 +2167,7 @@ class RunRequest(BaseModel):
     docker_server: Optional[bool] = False
     interactive: Optional[bool] = False
     workflow_args: Optional[str] = None
-    service_port: Optional[str] = "7000"
+    service_port: Optional[str] = "20000"
     disable_trace_capture: Optional[bool] = False
     dev_mode: Optional[bool] = False
     override_docker_image: Optional[str] = None
@@ -2179,6 +2179,13 @@ class RunRequest(BaseModel):
     device_id: Optional[str] = None
     override_tt_config: Optional[str] = None
     vllm_override_args: Optional[str] = None
+    # Hand-authored ModelSpec JSON path for a (model, device) pair the artifact
+    # doesn't declare a spec for -- taken as-is by run.py, bypassing its normal
+    # spec resolution/matching entirely (see run.py's own resolve_runtime()).
+    # Set by TT-Studio for catalog entries with a runtime_model_spec_overrides
+    # entry (shared_config/model_config.py); mutually exclusive with
+    # --custom-weights (enforced by run.py itself).
+    runtime_model_spec_json: Optional[str] = None
     # Optional secrets - can be passed through API if not set in environment
     jwt_secret: Optional[str] = None
     hf_token: Optional[str] = None
@@ -2434,10 +2441,18 @@ async def stream_run_progress(job_id: str):
         }
     )
 
-def sync_tokens_from_tt_studio():
+def sync_tokens_from_tt_studio(
+    request_hf_token: Optional[str] = None,
+    request_jwt_secret: Optional[str] = None,
+):
     """
-    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env 
+    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env
     to inference server's .env file if they differ.
+
+    request_hf_token / request_jwt_secret are the current deploy's own secrets
+    (from RunRequest). They're consulted as a fallback, before deciding there's
+    nothing to sync, so a token that only exists on this request still lands in
+    the artifact .env instead of leaving it permanently empty (see below).
     """
     from workflows.utils import load_dotenv
     
@@ -2480,9 +2495,15 @@ def sync_tokens_from_tt_studio():
     if ui_hf:
         tt_studio_hf = ui_hf
 
-    # Last resort: the process environment. run.py hands its shell's HF_TOKEN /
-    # JWT_SECRET to this server, so a token exported in the terminal still
-    # reaches the model container even when neither .env nor Settings has one.
+    # Consulting the request's own value first stops this job from
+    # writing another job's transient HF_TOKEN/JWT_SECRET into the artifact .env.
+    if not tt_studio_hf:
+        tt_studio_hf = (request_hf_token or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (request_jwt_secret or "").strip() or None
+
+    # Last resort: the process environment so a token exported in the terminal still
+    # reaches the model container even when neither .env, Settings, nor the request itself has one.
     if not tt_studio_hf:
         tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
     if not tt_studio_jwt:
@@ -2626,7 +2647,10 @@ async def run_inference(request: RunRequest):
         
         # Sync tokens from TT Studio before setting environment variables
         try:
-            sync_tokens_from_tt_studio()
+            sync_tokens_from_tt_studio(
+                request_hf_token=request.hf_token,
+                request_jwt_secret=request.jwt_secret,
+            )
         except Exception as e:
             logger.warning(f"Failed to sync tokens from TT Studio: {e}")
             # Continue anyway - tokens might be set via request or environment
@@ -2665,7 +2689,7 @@ async def run_inference(request: RunRequest):
             "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
@@ -2687,13 +2711,14 @@ async def run_inference(request: RunRequest):
         base_argv.extend(["--workflow", request.workflow])
         base_argv.extend(["--device", normalized_device])
         base_argv.extend(["--docker-server"])
+        base_argv.append("--no-auth")   # No auth required for local deployment
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
             base_argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
             base_argv.extend(["--skip-system-sw-validation"])
-        base_argv.extend(["--service-port", request.service_port or "7000"])
+        base_argv.extend(["--service-port", request.service_port or "20000"])
         
         # Add optional arguments if they are set
         if request.impl:
@@ -2714,6 +2739,20 @@ async def run_inference(request: RunRequest):
             base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
             base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+        if request.runtime_model_spec_json:
+            # This path comes straight from the request body, so it must be
+            # constrained to TT_STUDIO_ROOT and checked to actually exist
+            # before being handed to run.py -- otherwise a caller could point
+            # this host process at an arbitrary file.
+            spec_path = Path(request.runtime_model_spec_json).resolve()
+            if _tt_studio_root not in spec_path.parents:
+                raise ValueError(
+                    f"runtime_model_spec_json must be under {_tt_studio_root}, "
+                    f"got {spec_path}"
+                )
+            if not spec_path.is_file():
+                raise ValueError(f"runtime_model_spec_json does not exist: {spec_path}")
+            base_argv.extend(["--runtime-model-spec-json", str(spec_path)])
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
 

@@ -17,7 +17,7 @@ import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import { DatasetUploadField } from "./DatasetUploadField";
-import { DatasetPreview } from "./DatasetPreview";
+import { DatasetPreview } from "./DatasetPreview.tsx";
 import {
   parseDatasetFile,
   buildSampledPreview,
@@ -246,51 +246,51 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
   // Clicking the dataset that is already being previewed collapses the preview.
   const handleSelectExisting = useCallback(
     async (dataset: CustomDataset) => {
-    if (selectedId === dataset.id) {
-      reset();
-      return;
-    }
-    readerRef.current?.abort();
-    readerRef.current = null;
-    setFile(null);
-    setUploaded(false);
-    setError(null);
-    setProgress(0);
-    setPreview(null);
-    setPreviewSource(null);
-    setPreviewName(dataset.name);
-    setSelectedId(dataset.id);
-    setPhase("parsing");
-
-    try {
-      const { text, sampled } = await fetchCustomDatasetContent(dataset.id);
-      const parsed = sampled
-        ? buildSampledPreview(text)
-        : parseDatasetFile(text);
-      setPreview(parsed);
-      setPreviewSource("existing");
-      setPhase("ready");
-    } catch (err) {
-      let message = "Could not load the dataset.";
-      if (err instanceof DatasetParseError) {
-        message = err.message;
-      } else {
-        // Fetched as text, so an error body may arrive as a JSON string; handle both.
-        const data = (err as { response?: { data?: unknown } })?.response?.data;
-        if (typeof data === "string") {
-          try {
-            message = (JSON.parse(data) as { error?: string })?.error || message;
-          } catch {
-            /* keep generic message */
-          }
-        } else {
-          const apiError = (data as { error?: string })?.error;
-          if (apiError) message = apiError;
-        }
+      if (selectedId === dataset.id) {
+        reset();
+        return;
       }
-      setPhase("error");
-      setError(message);
-    }
+      readerRef.current?.abort();
+      readerRef.current = null;
+      setFile(null);
+      setUploaded(false);
+      setError(null);
+      setProgress(0);
+      setPreview(null);
+      setPreviewSource(null);
+      setPreviewName(dataset.name);
+      setSelectedId(dataset.id);
+      setPhase("parsing");
+
+      try {
+        const { text, sampled } = await fetchCustomDatasetContent(dataset.id);
+        const parsed = sampled
+          ? buildSampledPreview(text)
+          : parseDatasetFile(text);
+        setPreview(parsed);
+        setPreviewSource("existing");
+        setPhase("ready");
+      } catch (err) {
+        let message = "Could not load the dataset.";
+        if (err instanceof DatasetParseError) {
+          message = err.message;
+        } else {
+          // Fetched as text, so an error body may arrive as a JSON string; handle both.
+          const data = (err as { response?: { data?: unknown } })?.response?.data;
+          if (typeof data === "string") {
+            try {
+              message = (JSON.parse(data) as { error?: string })?.error || message;
+            } catch {
+              /* keep generic message */
+            }
+          } else {
+            const apiError = (data as { error?: string })?.error;
+            if (apiError) message = apiError;
+          }
+        }
+        setPhase("error");
+        setError(message);
+      }
     },
     [selectedId, reset],
   );
@@ -452,7 +452,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
                         "hover:bg-gray-100 dark:hover:bg-gray-800",
                         "disabled:cursor-not-allowed disabled:opacity-60",
                         isSelected &&
-                          "bg-gray-100 ring-1 ring-inset ring-gray-300 dark:bg-gray-800 dark:ring-gray-600",
+                        "bg-gray-100 ring-1 ring-inset ring-gray-300 dark:bg-gray-800 dark:ring-gray-600",
                       )}
                     >
                       <FileJson className="h-4 w-4 shrink-0 text-gray-400" />
