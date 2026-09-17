@@ -284,21 +284,25 @@ def _is_supervisor_wrapper(cmd_str):
 
 
 def _find_supervisor_wrapper_pid(pid, use_sudo=False, max_depth=5):
-    """Walk up the process tree to find any ancestor bash supervisor wrapper.
+    """Walk up the process tree and return the topmost ancestor that is one of our
+    bash supervisor wrappers, or None.
 
     Handles dev mode where `uvicorn --reload` spawns intermediate reloader
-    processes between the bash wrapper and the socket listener.
+    processes between the bash wrapper and the socket listener. Keeps climbing
+    after a match so the walk can't stop at an intermediate process regardless
+    of which pid lsof/ss reported for the port.
     """
     curr = pid
+    found = None
     for _ in range(max_depth):
         ppid = _get_parent_pid(curr, use_sudo=use_sudo)
         if not ppid or ppid <= 1:
             break
         cmd = _get_process_command(ppid, use_sudo=use_sudo)
         if _is_supervisor_wrapper(cmd):
-            return ppid
+            found = ppid
         curr = ppid
-    return None
+    return found
 
 
 def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False):

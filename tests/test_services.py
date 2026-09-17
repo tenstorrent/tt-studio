@@ -455,7 +455,7 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
         tree = {300: 200, 200: 100, 100: 1}
         cmds = {
             300: "python uvicorn api:app",
-            200: "python -m uvicorn --reload",
+            200: "/path/to/docker-control-service/.venv/bin/python .venv/bin/uvicorn api:app --reload",
             100: "/bin/bash /tmp/tmp_supervisor.sh /path/to/docker-control-service",
             1: "init",
         }
