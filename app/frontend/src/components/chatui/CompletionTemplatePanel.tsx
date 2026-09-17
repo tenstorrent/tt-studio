@@ -77,10 +77,14 @@ export default function CompletionTemplatePanel({
   );
   const stops = useMemo(() => parseStops(stopText), [stopText]);
 
+  // Allow empty individual fields (e.g. Alpaca's {input} is often blank). Block
+  // only when there's nothing to send: with placeholders, require at least one
+  // filled; without placeholders, require some template text.
   const canSend =
     !isStreaming &&
-    fields.length > 0 &&
-    fields.every((f) => (values[f] ?? "").trim() !== "");
+    (fields.length > 0
+      ? fields.some((f) => (values[f] ?? "").trim() !== "")
+      : template.trim() !== "");
 
   const handleSend = () => {
     if (!canSend) return;
@@ -122,6 +126,8 @@ export default function CompletionTemplatePanel({
         <div className="rounded-md border border-gray-200 dark:border-gray-800">
           <button
             type="button"
+            aria-expanded={expanded}
+            aria-controls="template-editor-region"
             onClick={() => setExpanded((v) => !v)}
             className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
           >
@@ -136,7 +142,7 @@ export default function CompletionTemplatePanel({
             </span>
           </button>
           {expanded && (
-            <div className="px-3 pb-3">
+            <div id="template-editor-region" className="px-3 pb-3">
               <Textarea
                 value={template}
                 onChange={(e) => setTemplate(e.target.value)}
@@ -153,6 +159,8 @@ export default function CompletionTemplatePanel({
         <div className="rounded-md border border-gray-200 dark:border-gray-800">
           <button
             type="button"
+            aria-expanded={expanded}
+            aria-controls="template-preview-region"
             onClick={() => setExpanded((v) => !v)}
             className="flex w-full items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300"
           >
@@ -164,7 +172,10 @@ export default function CompletionTemplatePanel({
             Preview sent prompt
           </button>
           {expanded && (
-            <pre className="px-3 pb-3 max-h-50 overflow-auto text-left whitespace-pre-wrap break-words font-mono text-sm text-gray-700 dark:text-gray-300">
+            <pre
+              id="template-preview-region"
+              className="px-3 pb-3 max-h-50 overflow-auto text-left whitespace-pre-wrap break-words font-mono text-sm text-gray-700 dark:text-gray-300"
+            >
               {rendered}
             </pre>
           )}

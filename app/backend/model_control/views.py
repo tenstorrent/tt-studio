@@ -215,12 +215,15 @@ class InferenceView(View):
         # Route base/completion models to /v1/completions with a plain prompt
         service_route = deploy["model_impl"].service_route
         logger.info(f"service_route:= {service_route}")
-        if data.get("prompt"):
+        if "prompt" in data:
             # Raw completion mode: the client authored the exact prompt string
-            # (e.g. fine-tuned model template testing). Send it straight to the
-            # container's /v1/completions endpoint instead of chat-completions,
-            # bypassing any chat-template wrapping. The container's URL has the
-            # chat route baked in, so swap just the trailing path.
+            # (e.g. fine-tuned model template testing). Keyed on the presence of
+            # the "prompt" key (not its truthiness) so an intentional empty
+            # prompt still routes here instead of falling back to chat.
+            # Send it straight to the container's /v1/completions endpoint instead
+            # of chat-completions, bypassing any chat-template wrapping. The
+            # container's URL has the chat route baked in, so swap just the
+            # trailing path.
             internal_url = internal_url.replace(
                 "/v1/chat/completions", "/v1/completions"
             )

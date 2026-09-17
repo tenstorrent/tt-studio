@@ -1484,6 +1484,7 @@ export default function ChatComponent() {
                 <div className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-800 p-0.5 text-sm">
                   <button
                     type="button"
+                    aria-pressed={templateModeOn}
                     onClick={() => setTemplateModeOn(true)}
                     className={cn(
                       "px-3 py-1 rounded-md transition-colors",
@@ -1496,6 +1497,7 @@ export default function ChatComponent() {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={!templateModeOn}
                     onClick={() => setTemplateModeOn(false)}
                     className={cn(
                       "px-3 py-1 rounded-md transition-colors",
