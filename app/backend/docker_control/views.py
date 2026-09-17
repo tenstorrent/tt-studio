@@ -28,6 +28,7 @@ import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
+    get_next_service_port,
     get_container_status,
     get_canonical_deployments,
     serialize_canonical_entry_for_http,
@@ -58,6 +59,10 @@ from .docker_control_client import (
     get_docker_client,
     http_status_of,
     is_service_unreachable,
+)
+from docker_control.chip_allocator import (
+    INFRA_CONTAINER_PREFIXES,
+    _detect_device_ids_from_mounts,
 )
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
@@ -571,8 +576,7 @@ class DeployView(APIView):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            # Allocate a chip slot for all model types so device_id and service_port
-            # are always set correctly (port = 7000 + device_id).
+            # Allocate a chip slot for all model types so device_id is always set correctly.
             try:
                 allocator = ChipSlotAllocator()
                 # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
@@ -672,11 +676,21 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            BASE_SERVICE_PORT = 7000
-            if whole_board_deploy:
-                service_port = BASE_SERVICE_PORT
-            else:
-                service_port = BASE_SERVICE_PORT + device_id
+            # First free port from 20000, independent of chip slot -- a model
+            # still needs only one port whether it's whole-board or single-chip,
+            # and this reuses a port freed by a stopped deployment before it
+            # ever grows past the lowest few ports in the block.
+            service_port = get_next_service_port()
+            if service_port is None:
+                logger.error(f"No free service port available for {impl.model_name}")
+                return Response(
+                    {
+                        "status": "error",
+                        "error_type": "allocation_failed",
+                        "message": "No free host port available for the model server. Stop an unused deployment and try again.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
@@ -933,6 +947,7 @@ class DeployView(APIView):
                     "message": result.message or "Deployment started",
                     "api_response": result.api_response or {},
                     "allocated_device_id": device_id,
+                    "service_port": service_port,
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
@@ -2485,7 +2500,7 @@ class DiscoverContainersView(APIView):
     """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
-    _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+    _INFRA_PREFIXES = INFRA_CONTAINER_PREFIXES
 
     def get(self, request, *args, **kwargs):
         try:
@@ -2567,8 +2582,6 @@ _SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
 # vLLM auto tool-choice, in the forms it can appear in a launch command.
 _TOOL_CHOICE_ARG = re.compile(r"^--?enable[-_]auto[-_]tool[-_]choice$", re.IGNORECASE)
 _TOOL_PARSER_ARG = re.compile(r"^--?tool[-_]call[-_]parser$", re.IGNORECASE)
-# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
-_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
 
 
 def _parse_device_ids_token(value) -> list:
@@ -2651,32 +2664,6 @@ def _container_env(container_info: dict) -> dict:
         for k, v in extra.items():
             env.setdefault(k, v)
     return env
-
-
-def _detect_device_ids_from_mounts(container_info: dict):
-    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
-
-    This is the ground truth: the launcher binds exactly the chip nodes the model
-    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
-    works regardless of how or where the container was started. Returns a sorted
-    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
-    directory is bound (no per-chip granularity), or None if no TT device is bound.
-    """
-    hc = container_info.get("HostConfig") or {}
-    ids = []
-    whole = False
-    for d in (hc.get("Devices") or []):
-        if not isinstance(d, dict):
-            continue
-        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
-        m = _TT_DEVICE_NODE.match(path)
-        if m:
-            ids.append(int(m.group(1)))
-        elif path == "/dev/tenstorrent":
-            whole = True
-    if ids:
-        return sorted(set(ids))
-    return "whole" if whole else None
 
 
 def _detect_device_ids_from_command(container_info: dict):
@@ -2762,9 +2749,9 @@ class RegisterExternalModelView(APIView):
             except (TypeError, ValueError):
                 chips_required = 1
             try:
-                service_port = int(data.get("service_port", 7000))
+                service_port = int(data.get("service_port", 20000))
             except (TypeError, ValueError):
-                service_port = 7000
+                service_port = 20000
 
             # --- Only the container is required; model identity is derived below ---
             if not container_id:
@@ -3051,7 +3038,7 @@ class RegisterExternalModelView(APIView):
                     rec.device_id = device_id
                     rec.device_ids = device_ids
                     rec.model_name = model_name
-                    rec.port = int(service_port) if service_port else 7000
+                    rec.port = int(service_port) if service_port else 20000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
@@ -3070,7 +3057,7 @@ class RegisterExternalModelView(APIView):
                         device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
-                        port=int(service_port) if service_port else 7000,
+                        port=int(service_port) if service_port else 20000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
                         model_type=model_type,
