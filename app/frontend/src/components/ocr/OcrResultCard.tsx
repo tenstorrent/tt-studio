@@ -96,6 +96,10 @@ export function OcrResultCard({
               {item.usage?.completion_tokens != null
                 ? ` • ${item.usage.completion_tokens} tokens`
                 : ""}
+              {/* A large page is read in strips, which is why it takes longer. */}
+              {item.tiles != null && item.tiles > 1
+                ? ` • read in ${item.tiles} strips`
+                : ""}
             </p>
           </div>
         </div>

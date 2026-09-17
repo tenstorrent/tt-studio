@@ -44,6 +44,8 @@ export interface OcrPageResult {
   text?: string;
   finish_reason?: string | null;
   usage?: Record<string, number> | null;
+  /** Strips the server read the page in; >1 explains a slower read. */
+  tiles?: number;
   error?: string;
 }
 
