@@ -31,6 +31,7 @@ import type {
 } from "./types";
 import { runInference } from "./runInference";
 import { buildDefaultSystemPrompt } from "./templateRenderer";
+import { cn } from "../../lib/utils";
 import { useDeviceState } from "../../hooks/useDeviceState";
 import { useAgentAvailability } from "../../hooks/useAgentAvailability";
 import { v4 as uuidv4 } from "uuid";
@@ -104,6 +105,10 @@ export default function ChatComponent() {
   // True when the selected model was deployed with merged fine-tuned weights.
   // Switches the composer to raw-completion/template testing mode.
   const [isFineTuned, setIsFineTuned] = useState<boolean>(false);
+  // For a fine-tuned model, whether the template/completion composer is active.
+  // Defaults on when a fine-tune is detected; a toggle lets the user fall back
+  // to the normal chat composer.
+  const [templateModeOn, setTemplateModeOn] = useState<boolean>(true);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
   const [modelHealthById, setModelHealthById] = useState<Record<string, string>>({});
@@ -300,7 +305,10 @@ export default function ChatComponent() {
     }
     fetchDeployedModelsInfo().then((deployedModels) => {
       const match = deployedModels.find((m) => m.id === modelID);
-      setIsFineTuned(!!match?.host_weights_dir);
+      const finetuned = !!match?.host_weights_dir;
+      setIsFineTuned(finetuned);
+      // Default to template mode whenever a fine-tuned model becomes active.
+      if (finetuned) setTemplateModeOn(true);
       const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
         match?.model_impl?.param_count,
         match?.max_model_len
@@ -1380,8 +1388,9 @@ export default function ChatComponent() {
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
-            {/* System prompt active indicator */}
-            {modelSettings.systemPrompt && (
+            {/* System prompt active indicator — hidden in template mode, where the
+                system prompt is not applied (raw completion sends the prompt as-is). */}
+            {modelSettings.systemPrompt && !(isFineTuned && templateModeOn) && (
               <div className="flex justify-center pt-3 pb-1">
                 <button
                   type="button"
@@ -1408,6 +1417,7 @@ export default function ChatComponent() {
               modelName={modelName}
               toggleableInlineStats={modelSettings.toggleableInlineStats}
               isAgentSelected={isAgentSelected}
+              hideExamples={isFineTuned && templateModeOn}
             />
             {/* Scroll to bottom button */}
             <AnimatePresence>
@@ -1452,7 +1462,40 @@ export default function ChatComponent() {
                 : undefined,
             }}
           >
-            {isFineTuned ? (
+            {/* Composer mode toggle — only for fine-tuned models. Lets the user
+                switch between the training-template completion composer and the
+                normal chat input. */}
+            {isFineTuned && (
+              <div className="flex justify-center pt-2 pb-1">
+                <div className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-800 p-0.5 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setTemplateModeOn(true)}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition-colors",
+                      templateModeOn
+                        ? "bg-white dark:bg-gray-700 text-[#7C68FA] shadow-sm font-medium"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    )}
+                  >
+                    Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTemplateModeOn(false)}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition-colors",
+                      !templateModeOn
+                        ? "bg-white dark:bg-gray-700 text-[#7C68FA] shadow-sm font-medium"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    )}
+                  >
+                    Chat
+                  </button>
+                </div>
+              </div>
+            )}
+            {isFineTuned && templateModeOn ? (
               <CompletionTemplatePanel
                 isStreaming={isStreaming}
                 onSend={(prompt, stop) =>
@@ -1491,6 +1534,7 @@ export default function ChatComponent() {
         onSettingsChange={handleSettingsChange}
         defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
         maxTokensSliderMax={maxTokensSliderMax}
+        hideSystemPrompt={isFineTuned && templateModeOn}
       />
     </div>
   );
