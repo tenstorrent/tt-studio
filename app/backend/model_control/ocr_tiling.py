@@ -10,12 +10,13 @@ DPI, and small or handwritten text stops being legible before the model sees it.
 Raising the model's own limit does not fix this: past ~1.2 MP it starts
 transcribing a page and then transcribing it a second time.
 
-Two cheap preprocessing steps recover most of the loss, measured on a 9.1 MP
-photo of a handwritten page against the words a human can read off it:
+Two cheap preprocessing steps recover most of the loss, measured on a 9 MP photo
+of a handwritten page against the words a human can read off it, end to end
+through the endpoint:
 
     full frame, one pass          2/8 words correct, repeat count wrong
     cropped to the writing        4/8 words correct, repeat count right
-    cropped + 3 strips           6/8 words correct, repeat count right
+    cropped + 3 strips            7/8 words correct, repeat count right
 
 The crop matters because blank paper costs the same pixels as text: on that page
 the writing was 34% of the frame, so cropping was worth 1.7x linear resolution
