@@ -265,18 +265,22 @@ def _get_process_command(pid, use_sudo=False):
 
 
 def _is_supervisor_wrapper(cmd_str):
-    """True if `cmd_str` matches a TT Studio bash supervisor wrapper."""
-    cmd = cmd_str.lower()
-    is_bash = "bash" in cmd or "sh" in cmd
-    has_script = ".sh" in cmd
-    targets_service = (
-        "docker-control-service" in cmd
-        or "inference-api" in cmd
-        or "docker_control" in cmd
+    """True if `cmd_str` is one of *our* bash supervisor wrappers.
+
+    The wrapper is always launched as `bash <tmpfile>.sh <service-dir> <pid-file> .venv <log>`,
+    so require a bash interpreter, a .sh script, and one of our service dirs as an argument.
+    Deliberately does not match `uvicorn --reload` (whose venv path also contains the service
+    dir) or arbitrary user scripts living under /tmp.
+    """
+    parts = cmd_str.split()
+    if len(parts) < 3 or not parts[0].endswith(("bash", "/sh", "sh")):
+        return False
+    if not parts[1].endswith(".sh"):
+        return False
+    return any(
+        p.rstrip("/").endswith(("docker-control-service", "inference-api"))
+        for p in parts[2:]
     )
-    if is_bash and (targets_service or (has_script and ("tmp" in cmd or "/var/folders" in cmd))):
-        return True
-    return False
 
 
 def _find_supervisor_wrapper_pid(pid, use_sudo=False, max_depth=5):

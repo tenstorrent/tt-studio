@@ -441,10 +441,14 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
         self.assertTrue(_ports_mod._is_supervisor_wrapper(
             "/bin/bash /tmp/tmp12345.sh /path/to/inference-api"
         ))
-        # Does not match regular processes
+        # Does not match regular processes or arbitrary user scripts in /tmp
         self.assertFalse(_ports_mod._is_supervisor_wrapper("/usr/bin/python3 app.py"))
         self.assertFalse(_ports_mod._is_supervisor_wrapper("com.docker.backend"))
         self.assertFalse(_ports_mod._is_supervisor_wrapper("node server.js"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash /tmp/ci_job_step.sh"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash /var/folders/zb/T/my_launcher.sh"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash -c source /tmp/session-snapshot.sh && eval 'ls /tmp'"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/home/user/docker-control-service/.venv/bin/python3.12 .venv/bin/uvicorn api:app --reload"))
 
     def test_find_supervisor_wrapper_pid_climbs_tree(self):
         # Simulate worker (300) -> reloader (200) -> supervisor (100) -> init (1)
