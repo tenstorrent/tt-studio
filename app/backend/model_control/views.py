@@ -1351,11 +1351,18 @@ class SpeechRecognitionInferenceCloudView(APIView):
 # the pages in order.
 OCR_DEFAULT_PROMPT = "OCR:"
 OCR_DEFAULT_MAX_TOKENS = 4096
-# PaddleOCR-VL's processor caps an image at 1280 merged tokens (28*28 pixels
-# each). Downscaling to that bound here means the model sees the same pixels it
-# would anyway, while the upload and the base64 body shrink, and the vision
-# tower stays inside its largest compiled bucket.
-OCR_MAX_PIXELS = 1280 * 28 * 28
+# The deployment serves PaddleOCR-VL with max_pixels raised to 1536 merged
+# tokens (28*28 pixels each) from the checkpoint's own 1280, which is worth
+# about 4.9 points of character error on a dense page of small print.
+# Downscaling to that same bound here means the model sees the pixels it would
+# anyway, while the upload and the base64 body shrink, and the vision tower
+# stays inside its largest compiled bucket.
+#
+# This has to track the deployment's max_pixels. Sending more just wastes
+# bandwidth, since the processor would shrink it again. Do not raise it on its
+# own: above this the model starts transcribing a page and then transcribing it
+# a second time.
+OCR_MAX_PIXELS = 1536 * 28 * 28
 OCR_PAGE_SEPARATOR = "\n\n---\n\n"
 
 
