@@ -464,6 +464,18 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
             supervisor_pid = _ports_mod._find_supervisor_wrapper_pid(300)
         self.assertEqual(supervisor_pid, 100)
 
+    def test_process_inspection_does_not_use_sudo(self):
+        with patch.object(_ports_mod, "run_command") as mock_run_cmd:
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="123\n", stderr="")
+            ppid = _ports_mod._get_parent_pid(456)
+            self.assertEqual(ppid, 123)
+            mock_run_cmd.assert_called_with(["ps", "-o", "ppid=", "-p", "456"], check=False, capture_output=True)
+
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="/bin/bash script.sh\n", stderr="")
+            cmd = _ports_mod._get_process_command(456)
+            self.assertEqual(cmd, "/bin/bash script.sh")
+            mock_run_cmd.assert_called_with(["ps", "-o", "command=", "-p", "456"], check=False, capture_output=True)
+
     def test_kill_port_holder_terminates_supervisor_first(self):
         terminated = []
         with patch.object(_ports_mod, "shutil") as mock_shutil, \

@@ -241,11 +241,9 @@ def kill_process_on_port(port, no_sudo=False, quiet=False, attempts=3):
     return check_port_available(port)
 
 
-def _get_parent_pid(pid, use_sudo=False):
+def _get_parent_pid(pid):
     """Return parent PID of `pid`, or None."""
     cmd = ["ps", "-o", "ppid=", "-p", str(pid)]
-    if use_sudo:
-        cmd.insert(0, "sudo")
     result = run_command(cmd, check=False, capture_output=True)
     if result.returncode == 0 and result.stdout.strip():
         val = result.stdout.strip()
@@ -253,11 +251,9 @@ def _get_parent_pid(pid, use_sudo=False):
     return None
 
 
-def _get_process_command(pid, use_sudo=False):
+def _get_process_command(pid):
     """Return command string of `pid`, or empty string."""
     cmd = ["ps", "-o", "command=", "-p", str(pid)]
-    if use_sudo:
-        cmd.insert(0, "sudo")
     result = run_command(cmd, check=False, capture_output=True)
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
@@ -283,7 +279,7 @@ def _is_supervisor_wrapper(cmd_str):
     )
 
 
-def _find_supervisor_wrapper_pid(pid, use_sudo=False, max_depth=5):
+def _find_supervisor_wrapper_pid(pid, max_depth=5):
     """Walk up the process tree and return the topmost ancestor that is one of our
     bash supervisor wrappers, or None.
 
@@ -295,10 +291,10 @@ def _find_supervisor_wrapper_pid(pid, use_sudo=False, max_depth=5):
     curr = pid
     found = None
     for _ in range(max_depth):
-        ppid = _get_parent_pid(curr, use_sudo=use_sudo)
+        ppid = _get_parent_pid(curr)
         if not ppid or ppid <= 1:
             break
-        cmd = _get_process_command(ppid, use_sudo=use_sudo)
+        cmd = _get_process_command(ppid)
         if _is_supervisor_wrapper(cmd):
             found = ppid
         curr = ppid
@@ -405,7 +401,7 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     # Stop supervisor wrapper first if one exists in the process tree.
     # Killing only the socket holder leaves the supervisor loop alive to respawn
     # its child 3 seconds later and recapture the port (Issue #1307).
-    supervisor_pid = _find_supervisor_wrapper_pid(pid, use_sudo=use_sudo_for_kill)
+    supervisor_pid = _find_supervisor_wrapper_pid(pid)
     if supervisor_pid and supervisor_pid != pid:
         if not quiet:
             print(f"🛑 Found parent supervisor wrapper with PID {supervisor_pid}. Stopping it first...")
