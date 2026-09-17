@@ -19,8 +19,9 @@ from typing import Dict, Optional, Tuple
 # `docker ps` and can never be confused with model containers.
 CONTAINER_NAME_PREFIX = "tt_studio_app_"
 
-# Host ports for marketplace apps. Deliberately disjoint from the 8003-8102
-# block that model containers use (docker_utils.get_host_port).
+# Host ports for marketplace apps. Deliberately disjoint from the model
+# deployment ranges: 20000+ for chat models (docker_utils.get_next_service_port)
+# and 21003-21102 for legacy direct-container models (docker_utils.get_host_port).
 APP_PORT_RANGE = range(3080, 3100)
 
 # Host ports the TT-Studio services themselves bind: frontend, LiteLLM gateway,
@@ -69,6 +70,21 @@ class MarketplaceApp:
     env: Dict[str, str] = field(default_factory=dict)
     # Env vars wired to the model endpoint at launch. Values are templates rendered with {base_url}, {api_key}, {model} and {context_window}.
     gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed EMBEDDING model, only rendered when the user
+    # picks one at launch time instead of the app's own native embedder. Values
+    # are templates rendered with {base_url}, {api_key} and {model}; always
+    # point at TT-Studio's backend directly (not the LiteLLM gateway), since
+    # embeddings aren't part of the gateway's OpenAI surface.
+    embedding_gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed SPEECH_RECOGNITION model, only rendered when
+    # the user picks one at launch time instead of the app's own native/cloud
+    # STT. Same template variables and BACKEND_OPENAI_URL rationale as
+    # embedding_gateway_env.
+    stt_gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed TTS model, only rendered when the user picks
+    # one at launch time instead of the app's own native/cloud TTS. Same
+    # template variables and BACKEND_OPENAI_URL rationale as embedding_gateway_env.
+    tts_gateway_env: Dict[str, str] = field(default_factory=dict)
     upstream: Upstream = Upstream.GATEWAY
     # True for apps that must be given one concrete model name up front rather than choosing from a list, so launching without a deployed model is refused.
     requires_model: bool = False
@@ -112,6 +128,42 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "OPENAI_API_BASE_URL": "{base_url}",
             "OPENAI_API_KEY": "{api_key}",
         },
+        # Rendered instead of Open WebUI's default local sentence-transformers
+        # embedder when the user picks a deployed embedding model at launch
+        # (see marketplace_utils.embedding_model_env). Token-based splitting
+        # with a chunk size sized off the picked model's own max sequence
+        # length -- Open WebUI's character-based default can chunk well past
+        # what a small embedding model (e.g. 128-token bge-m3) actually accepts.
+        embedding_gateway_env={
+            "RAG_EMBEDDING_ENGINE": "openai",
+            "RAG_OPENAI_API_BASE_URL": "{base_url}",
+            "RAG_OPENAI_API_KEY": "{api_key}",
+            "RAG_EMBEDDING_MODEL": "{model}",
+            "RAG_TEXT_SPLITTER": "token",
+            "CHUNK_SIZE": "{max_chunk_tokens}",
+            "CHUNK_OVERLAP": "{chunk_overlap_tokens}",
+        },
+        # Rendered instead of Open WebUI's default (browser-native or cloud)
+        # speech engines when the user picks a deployed model at launch.
+        stt_gateway_env={
+            "AUDIO_STT_ENGINE": "openai",
+            "AUDIO_STT_OPENAI_API_BASE_URL": "{base_url}",
+            "AUDIO_STT_OPENAI_API_KEY": "{api_key}",
+            "AUDIO_STT_MODEL": "{model}",
+            # Pinned explicitly: Open WebUI's alternate "json" request format
+            # sends base64 input_audio instead of a multipart file field, which
+            # TT's inference server (like real OpenAI) rejects at this route --
+            # and a stale persisted value from earlier UI toggling can stick
+            # even with ENABLE_PERSISTENT_CONFIG=false, since only settings
+            # backed by an env var are forced back to it.
+            "AUDIO_STT_OPENAI_API_REQUEST_FORMAT": "multipart",
+        },
+        tts_gateway_env={
+            "AUDIO_TTS_ENGINE": "openai",
+            "AUDIO_TTS_OPENAI_API_BASE_URL": "{base_url}",
+            "AUDIO_TTS_OPENAI_API_KEY": "{api_key}",
+            "AUDIO_TTS_MODEL": "{model}",
+        },
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,
         health_path="/health",
@@ -145,6 +197,33 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "GENERIC_OPEN_AI_MODEL_PREF": "{model}",
             "GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT": "{context_window}",
         },
+        # Rendered instead of the "native" defaults in `env` when the user picks
+        # a deployed embedding model at launch (see marketplace_utils.embedding_model_env).
+        # AnythingLLM's chunk length is a character cap on its text splitter,
+        # clamped to this value -- sized off the picked model's own max
+        # sequence length, not a flat 8192 that could be many times too large
+        # for a small deployed embedder (e.g. 128-token bge-m3).
+        embedding_gateway_env={
+            "EMBEDDING_ENGINE": "generic-openai",
+            "EMBEDDING_BASE_PATH": "{base_url}",
+            "EMBEDDING_MODEL_PREF": "{model}",
+            "GENERIC_OPEN_AI_EMBEDDING_API_KEY": "{api_key}",
+            "EMBEDDING_MODEL_MAX_CHUNK_LENGTH": "{max_chunk_chars}",
+        },
+        # Rendered instead of AnythingLLM's default (browser-native or cloud)
+        # speech engines when the user picks a deployed model at launch.
+        stt_gateway_env={
+            "STT_PROVIDER": "generic-openai",
+            "STT_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "STT_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "STT_OPEN_AI_COMPATIBLE_MODEL": "{model}",
+        },
+        tts_gateway_env={
+            "TTS_PROVIDER": "generic-openai",
+            "TTS_OPEN_AI_COMPATIBLE_ENDPOINT": "{base_url}",
+            "TTS_OPEN_AI_COMPATIBLE_KEY": "{api_key}",
+            "TTS_OPEN_AI_COMPATIBLE_MODEL": "{model}",
+        },
         requires_model=True,
         # Required by AnythingLLM's document collector.
         cap_add=("SYS_ADMIN",),
@@ -170,6 +249,18 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         kind=AppKind.GUIDE,
         docs_url="https://docs.claude.com/en/docs/claude-code/overview",
     ),
+    # TODO: Add RAGFlow once we want to support it
+    # MarketplaceApp(
+    #     id="ragflow",
+    #     name="RAGFlow",
+    #     tagline="Deep document understanding and agentic RAG workflows.",
+    #     category="Chat",
+    #     kind=AppKind.GUIDE,
+    #     # Ships as its own Elasticsearch/MySQL/MinIO/Redis compose stack, so it
+    #     # is set up from its own compose file rather than launched here (same
+    #     # shape as Dify below).
+    #     docs_url="https://ragflow.io/docs/dev/",
+    # ),
     MarketplaceApp(
         id="dify",
         name="Dify",

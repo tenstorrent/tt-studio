@@ -10,6 +10,7 @@ import re
 import signal
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,11 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.external_model_config import build_external_model_impl
 from shared_config.logger_config import get_logger
 from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_overrides import (
+    MEDIA_IMAGE_OVERRIDES as _MEDIA_IMAGE_OVERRIDES,
+    TRACE_REGION_OVERRIDES as _TRACE_REGION_OVERRIDES,
+    VLLM_MESH_SPEC_FALLBACK as _VLLM_MESH_SPEC_FALLBACK,
+)
 from shared_config.model_type_config import ModelTypes
 from docker_control.artifact_resolution import (
     resolve_artifact_ref,
@@ -172,44 +178,6 @@ WHOLE_BOARD_DEFAULT_BOARDS = {"T3K", "T3000", "N300x4", "N150X4", "GALAXY", "GAL
 # mesh deployments let the inference server claim the full board itself.
 _SINGLE_CHIP_DEVICE_NAMES = {"n150", "n300", "e150", "p100", "p150", "p300"}
 
-# vLLM spec-name fallback between four-chip Blackhole meshes. The vLLM plugin
-# maps both labels to a (1, 4) mesh, so a chat model that only publishes a
-# p300x2 spec can still be asked for on p150x4 hardware (and vice versa) by
-# sending the other name.
-_VLLM_MESH_SPEC_FALLBACK = {
-    "p150x4": ("p300x2",),
-    "p300x2": ("p150x4",),
-}
-
-# Trace region size (bytes) to force where a model_spec under-allocates it, which
-# stops the deploy during traced warmup with a TT_FATAL error.
-_TRACE_REGION_OVERRIDES = {
-    # p150x4 spec is stale at 0.10.x with 30000000; traced decode needs 56557568.
-    # Value matches the maintained p300x2 spec for the same four-chip mesh.
-    ("Llama-3.3-70B-Instruct", "p150x4"): 402653184,
-    # Both P150X4 FLUX configs omit this setting and inherit 34.5 MB. Traced
-    # warmup needs 50,724,864 bytes; 51 MB matches their maintained P300X2 specs.
-    ("FLUX.1-dev", "p150x4"): 51_000_000,
-    ("FLUX.1-schnell", "p150x4"): 51_000_000,
-}
-
-# Docker images to force where the per-device model_spec resolves to one whose API
-# this backend can no longer drive. Keyed by (model_name, device); a device of "*"
-# applies to every device for that model.
-_MEDIA_IMAGE_OVERRIDES = {
-    # Wan T2V on every board: 0.17.0 carries the MODEL_WEIGHTS_DIR fix (#4107), so
-    # it reads the mounted host HF cache instead of re-downloading ~118GB.
-    ("Wan2.2-T2V-A14B-Diffusers", "*"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
-    ),
-    # FLUX on p150x4: that spec resolves to 0.10.0-555f240, so override to the newer image.
-    ("FLUX.1-dev", "p150x4"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
-    ),
-    ("FLUX.1-schnell", "p150x4"): (
-        "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76"
-    ),
-}
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
@@ -521,11 +489,22 @@ def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
     return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, host_weights_dir=None):
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, force_full_board=False, host_weights_dir=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
     For all other model types, uses TT Inference Server API.
+
+    force_full_board: opt-in whole-board mesh deploy for a model whose default is
+    single-chip via a runtime_model_spec_overrides entry (see
+    shared_config.model_config.ModelImpl and
+    sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS), but which
+    also has a genuine, already-working whole-board spec upstream (e.g.
+    Qwen3-Embedding-0.6B/4B and bge-m3 on P300x2, at 4x throughput). Set by
+    docker_control.views.DeployView from the request's force_full_board flag,
+    gated to models it actually applies to. Bypasses the single-chip override
+    entirely: device resolves to the board mesh name, so runtime_model_spec_json
+    is never set below and normal (already-working) spec resolution runs instead.
     """
     # Face recognition bypasses TT Inference Server — deploy via docker-control-service
     if impl.model_type == ModelTypes.FACE_RECOGNITION:
@@ -541,14 +520,31 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # ("t3k"). We use chips_required + board_type to pick the right name.
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
-        chips_required = infer_chips_required(impl.device_configurations)
-        device = infer_inference_server_device(impl, board_type, device_ids=device_id)
+        if force_full_board:
+            chips_required = 4
+            device = map_board_type_to_device_name(board_type)
+        else:
+            chips_required = infer_chips_required(impl.device_configurations)
+            device = infer_inference_server_device(impl, board_type, device_ids=device_id)
+            # Card-pair promotion: a model with a P300 (2-chip) override spec that's
+            # asked for an explicit 2-slot device_id forming one physical P300 card
+            # ((0,1) or (2,3)) runs as that one card, not two independent p150 chips.
+            # Gated on the override existing so this never touches ordinary
+            # single-chip models -- see STUDIO_CHIP_TIER_MODELS.
+            requested_ids = [x.strip() for x in str(device_id).split(",") if x.strip() != ""]
+            if (
+                device == "p150"
+                and board_type == "P300x2"
+                and len(requested_ids) == 2
+                and sorted(int(x) for x in requested_ids) in ([0, 1], [2, 3])
+                and "p300" in {k.lower() for k in (impl.runtime_model_spec_overrides or {})}
+            ):
+                device = "p300"
+                chips_required = 2
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
-            f"(board={board_type}, chips_required={chips_required})"
+            f"(board={board_type}, chips_required={chips_required}, force_full_board={force_full_board})"
         )
-
-        BASE_SERVICE_PORT = 7000
 
         # Create payload for the API call
         payload = {
@@ -558,12 +554,16 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip).
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
-        # single-card deployments; use the first slot for the service port.
+        # single-card deployments; use the first slot for chip pinning below.
         primary_device_id = int(str(device_id).split(",")[0].strip())
-        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
-        service_port = BASE_SERVICE_PORT + primary_device_id
+        service_port = get_next_service_port()
+        if service_port is None:
+            raise RuntimeError(
+                "No free host port available for the model server. "
+                "Stop an unused deployment and try again."
+            )
+        payload["service_port"] = str(service_port)
 
         # Pin to a specific chip slot only for single-chip models. For multi-chip
         # single-card mode (chips_required == 1 with an explicit slot list) this is a
@@ -579,12 +579,29 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if device in _SINGLE_CHIP_DEVICE_NAMES:
             payload["device_id"] = str(device_id)
 
-        # The inference server merges override_tt_config over the spec's, key by key.
-        trace_region_size = trace_region_override(impl.model_name, device)
-        if trace_region_size:
-            payload["override_tt_config"] = json.dumps(
-                {"trace_region_size": trace_region_size}
+        # A model with no upstream ModelConfigs entry for this device (e.g. it only
+        # ships a multi-chip mesh spec, but genuinely runs on one chip -- see
+        # sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS) needs a
+        # hand-authored spec file: run.py's own spec resolution hard-rejects an
+        # undeclared (model, device) pair before any override flag ever runs, and
+        # --runtime-model-spec-json is the documented bypass -- it's used as-is, so
+        # override_tt_config below would be silently ignored and is skipped.
+        spec_overrides = {
+            k.lower(): v for k, v in (impl.runtime_model_spec_overrides or {}).items()
+        }
+        spec_path = spec_overrides.get(device)
+        if spec_path:
+            payload["runtime_model_spec_json"] = str(
+                Path(backend_config.host_tt_studio_root) / spec_path
             )
+            logger.info(f"Using hand-authored runtime model spec for {impl.model_name} on {device}: {spec_path}")
+        else:
+            # The inference server merges override_tt_config over the spec's, key by key.
+            trace_region_size = trace_region_override(impl.model_name, device)
+            if trace_region_size:
+                payload["override_tt_config"] = json.dumps(
+                    {"trace_region_size": trace_region_size}
+                )
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -732,6 +749,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 "status": "success",
                 "job_id": job_id,
                 "message": "Deployment started",
+                "service_port": service_port,
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"
@@ -861,19 +879,61 @@ def get_port_mounts(impl, host_port=None):
 def get_host_port(impl):
     # Reserve ports used by TT-Studio services on the host:
     #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
-    # Model containers start at 8003.
+    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003.
+    # A live scan of used ports (below) means this can never actually collide
+    # with get_next_service_port()'s 20000+ block even though both can grow.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     RESERVED_PORTS = ["8000", "8001", "8002"]
     used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8003
+    BASE_MODEL_PORT = 21003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8003-8102")
+    logger.warning("Could not find an unused port in block: 21003-21102")
     return None
+
+
+_service_port_lock = threading.Lock()
+
+
+def get_next_service_port(start_port=20000, max_tries=1000):
+    """First free host port at/after start_port, across all currently running
+    managed containers and any deployment still starting up.
+
+    Deliberately independent of chip/device_id: a model still needs only one
+    port no matter how many chip slots it occupies, and scanning live usage
+    (rather than deriving the port from a slot number) means a port freed by
+    a stopped deployment gets reused before this ever has to grow past the
+    lowest few ports in the block.
+
+    A deploy's container can take a while to actually start (image pull,
+    etc.), so live Docker port mappings alone would let two near-simultaneous
+    deploys both pick the same free port before either container exists.
+    Also treating any "starting"/"running" ModelDeployment's port as taken
+    closes most of that window; the lock closes the rest (two callers
+    literally scanning at the same instant), though full atomicity would
+    still need the caller's deployment record created inside this same lock.
+    """
+    with _service_port_lock:
+        managed_containers = get_managed_containers()
+        port_mappings = get_port_mappings(managed_containers)
+        used_host_ports = set(get_used_host_ports(port_mappings))
+        in_flight_ports = {
+            str(dep.port)
+            for dep in ModelDeployment.objects.filter(status__in=["starting", "running"])
+            if dep.port is not None
+        }
+        used_host_ports |= in_flight_ports
+        for port in range(start_port, start_port + max_tries):
+            if str(port) not in used_host_ports:
+                return port
+        logger.warning(
+            f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
+        )
+        return None
 
 
 
@@ -1087,7 +1147,7 @@ def _external_model_impl(con_id, con):
         model_name=dep.model_name or con["name"],
         model_type=dep.model_type,
         hf_model_id=dep.hf_model_id,
-        service_port=dep.port or 7000,
+        service_port=dep.port or 20000,
         tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
         service_route=getattr(dep, "service_route", None),
     )
