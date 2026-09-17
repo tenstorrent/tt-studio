@@ -18,6 +18,8 @@ import datetime
 import json
 import jwt
 
+from .ocr_tiling import find_content_box, merge_tile_texts, plan_tiles
+
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -1366,24 +1368,42 @@ OCR_MAX_PIXELS = 1536 * 28 * 28
 OCR_PAGE_SEPARATOR = "\n\n---\n\n"
 
 
-def _ocr_image_to_data_url(upload) -> str:
-    """Normalize one uploaded image and return it as a data URL.
+def _load_ocr_image(upload) -> Image.Image:
+    """Decode one upload and trim it to the part that has writing on it.
 
     EXIF orientation is applied rather than ignored: phone photos routinely
-    carry a rotation flag, and a sideways page reads as gibberish. Line art and
-    screenshots keep PNG so text edges stay crisp; photographs go to JPEG, where
-    the size saving is large and the artefacts are below what the tower resolves.
+    carry a rotation flag, and a sideways page reads as gibberish.
+
+    The crop is what makes a photo usable. Blank paper costs the same pixels as
+    text, so on a 9 MP photo whose writing filled a third of the frame, cropping
+    was worth 1.7x linear resolution at the same budget and was enough on its own
+    to fix a miscounted repeated line. find_content_box declines when there is no
+    clear margin to remove, which is the right answer for a screenshot or an
+    already-cropped scan.
     """
     img = Image.open(upload)
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
 
+    box = find_content_box(img)
+    if box is not None:
+        img = img.crop(box)
+    return img
+
+
+def _ocr_image_to_data_url(img: Image.Image, source_type: str = "") -> str:
+    """Encode one image, or one tile of one, as a data URL within the pixel cap.
+
+    Line art and screenshots keep PNG so text edges stay crisp; photographs go
+    to JPEG, where the size saving is large and the artefacts are below what the
+    vision tower resolves.
+    """
     w, h = img.size
     if w * h > OCR_MAX_PIXELS:
         scale = math.sqrt(OCR_MAX_PIXELS / (w * h))
         img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
 
-    source_type = (getattr(upload, "content_type", "") or "").lower()
+    source_type = (source_type or "").lower()
     fmt = "JPEG" if "jpeg" in source_type or "jpg" in source_type else "PNG"
     buf = io.BytesIO()
     img.save(buf, format=fmt, **({"quality": 92} if fmt == "JPEG" else {}))
@@ -1453,61 +1473,104 @@ class OcrInferenceView(APIView):
         pages = []
         for index, upload in enumerate(images):
             filename = getattr(upload, "name", f"image-{index}")
+            source_type = getattr(upload, "content_type", "") or ""
             try:
-                data_url = _ocr_image_to_data_url(upload)
+                img = _load_ocr_image(upload)
             except Exception as exc:  # noqa: BLE001 - a bad upload should not fail the batch
                 logger.warning(f"{self.__class__.__name__}: cannot decode {filename}: {exc}")
                 pages.append({"index": index, "filename": filename, "error": f"unreadable image: {exc}"})
                 continue
 
-            body = {
-                "temperature": 0,
-                "max_tokens": max_tokens,
-                "stream": False,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
-                ],
-            }
-            if model_name:
-                body["model"] = model_name
+            # A page too large for one pass is read in overlapping strips, each
+            # of which fits the model at native resolution. On a handwritten
+            # photo this moved 4 of 8 tracked words to 6 of 8; see ocr_tiling.
+            boxes = plan_tiles(img.size[0], img.size[1], OCR_MAX_PIXELS)
+            # The whole upload keeps one read budget however many strips it
+            # needs, so tiling cannot push a request past nginx's 1200s ceiling.
+            per_tile_read = max(60, 900 // len(boxes))
 
-            try:
-                # Read timeout sits inside nginx's proxy_read_timeout (1200s); a
-                # dense page can take a while on the largest vision bucket.
-                upstream = requests.post(internal_url, json=body, headers=headers, timeout=(10, 900))
-                upstream.raise_for_status()
-            except requests.exceptions.Timeout:
-                return Response(
-                    {"error": "OCR model timed out", "pages": pages},
-                    status=status.HTTP_504_GATEWAY_TIMEOUT,
-                )
-            except requests.exceptions.HTTPError as exc:
-                detail = (getattr(exc.response, "text", "") or str(exc))[:500]
-                code = getattr(exc.response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
-                # Prefer the upstream body: a 400 here is usually
-                # limit-mm-per-prompt or a pixel bound, and the message says which.
-                return Response({"error": detail, "pages": pages}, status=code)
-            except requests.exceptions.RequestException as exc:
-                return Response(
-                    {"error": f"cannot reach OCR model: {exc}", "pages": pages},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
+            tile_texts: list[str] = []
+            finish_reasons: list[str] = []
+            usage_total: dict[str, int] = {}
 
-            payload = upstream.json()
-            choice = (payload.get("choices") or [{}])[0]
+            for box in boxes:
+                tile = img.crop(box) if len(boxes) > 1 else img
+                try:
+                    data_url = _ocr_image_to_data_url(tile, source_type)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"{self.__class__.__name__}: cannot encode {filename}: {exc}")
+                    pages.append(
+                        {"index": index, "filename": filename, "error": f"unreadable image: {exc}"}
+                    )
+                    tile_texts = []
+                    break
+
+                body = {
+                    "temperature": 0,
+                    "max_tokens": max_tokens,
+                    "stream": False,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                                {"type": "text", "text": prompt},
+                            ],
+                        }
+                    ],
+                }
+                if model_name:
+                    body["model"] = model_name
+
+                try:
+                    # Read timeout sits inside nginx's proxy_read_timeout (1200s); a
+                    # dense page can take a while on the largest vision bucket.
+                    upstream = requests.post(
+                        internal_url, json=body, headers=headers, timeout=(10, per_tile_read)
+                    )
+                    upstream.raise_for_status()
+                except requests.exceptions.Timeout:
+                    return Response(
+                        {"error": "OCR model timed out", "pages": pages},
+                        status=status.HTTP_504_GATEWAY_TIMEOUT,
+                    )
+                except requests.exceptions.HTTPError as exc:
+                    detail = (getattr(exc.response, "text", "") or str(exc))[:500]
+                    code = getattr(exc.response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    # Prefer the upstream body: a 400 here is usually
+                    # limit-mm-per-prompt or a pixel bound, and the message says which.
+                    return Response({"error": detail, "pages": pages}, status=code)
+                except requests.exceptions.RequestException as exc:
+                    return Response(
+                        {"error": f"cannot reach OCR model: {exc}", "pages": pages},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
+
+                payload = upstream.json()
+                choice = (payload.get("choices") or [{}])[0]
+                tile_texts.append((choice.get("message") or {}).get("content", "") or "")
+                if choice.get("finish_reason"):
+                    finish_reasons.append(choice["finish_reason"])
+                for key, value in (payload.get("usage") or {}).items():
+                    if isinstance(value, int):
+                        usage_total[key] = usage_total.get(key, 0) + value
+
+            if not tile_texts:
+                # Either the encode failed above (already recorded) or the image
+                # produced no strips at all.
+                continue
+
             pages.append(
                 {
                     "index": index,
                     "filename": filename,
-                    "text": (choice.get("message") or {}).get("content", ""),
-                    "finish_reason": choice.get("finish_reason"),
-                    "usage": payload.get("usage"),
+                    "text": merge_tile_texts(tile_texts),
+                    # Truncation anywhere truncates the page.
+                    "finish_reason": "length" if "length" in finish_reasons else (
+                        finish_reasons[0] if finish_reasons else None
+                    ),
+                    "usage": usage_total or None,
+                    "tiles": len(boxes),
                 }
             )
 
