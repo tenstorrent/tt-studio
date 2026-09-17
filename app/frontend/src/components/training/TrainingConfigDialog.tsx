@@ -63,7 +63,6 @@ const DATASET_TEMPLATES = [
 
 const DEFAULT_TEMPLATE = DATASET_TEMPLATES[0].id;
 
-// Default hyperparameters mirror the reference gemma_sst2 single-chip recipe:
 // https://github.com/tenstorrent/tt-blacksmith/blob/main/blacksmith/experiments/torch/gemma/single_chip/gemma_sst2.yaml
 const formSchema = z.object({
   model: z.string().min(1, "Select a model"),
@@ -75,7 +74,7 @@ const formSchema = z.object({
   learning_rate: z.coerce.number().positive().default(6e-5),
   batch_size: z.coerce.number().int().positive().default(8),
   num_epochs: z.coerce.number().int().positive().default(1),
-  max_length: z.coerce.number().int().positive().default(32),
+  max_length: z.coerce.number().int().positive().default(128),
   max_steps: z.coerce.number().int().nonnegative().default(100),
   lora_rank: z.coerce.number().int().positive().default(4),
   lora_alpha: z.coerce.number().int().positive().default(8),
@@ -122,7 +121,7 @@ export function TrainingConfigDialog({
       learning_rate: 6e-5,
       batch_size: 8,
       num_epochs: 1,
-      max_length: 32,
+      max_length: 128,
       max_steps: 100,
       lora_rank: 4,
       lora_alpha: 8,

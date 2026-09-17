@@ -283,12 +283,22 @@ def _resolve_training_volume_dir(impl):
     """Host path of the ``volume_id_*`` dir the training container mounts at
     :data:`CONTAINER_CACHE_ROOT`.
 
-    Only training deploys use this volume. When several exist, prefer the one
-    matching the model's name, then the most recently modified. ``None`` if none.
+    ``impl.volume_name`` names the deploy's exact per-version dir, so prefer it
+    when present — it disambiguates multiple versions of the same model. Fall back
+    to a heuristic (name match, then most recently modified) otherwise. ``None``
+    if no training volume exists yet.
     """
     internal_root = os.path.join(
         backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
     )
+
+    # Exact, version-aware match: impl.volume_name is `volume_id_<impl>-<name>-v<ver>`.
+    volume_name = getattr(impl, "volume_name", None)
+    if volume_name:
+        exact = os.path.join(internal_root, volume_name)
+        if os.path.isdir(exact):
+            return exact
+
     candidates = [
         d
         for d in glob.glob(os.path.join(internal_root, "volume_id_*"))
