@@ -31,17 +31,24 @@ export function useWakeWord({ enabled, onWake }: UseWakeWordOptions) {
       cancelled = true;
       try {
         workletNode?.disconnect();
-      } catch { }
+      } catch {
+        /* ignore */
+      }
       try {
         source?.disconnect();
-      } catch { }
-      if (ctx && ctx.state !== "closed") ctx.close().catch(() => { });
+      } catch {
+        /* ignore */
+      }
+      if (ctx && ctx.state !== "closed") ctx.close().catch(() => {});
       stream?.getTracks().forEach((t) => t.stop());
       if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
     };
 
     (async () => {
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          return;
+        }
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (cancelled) return cleanup();
 
