@@ -38,6 +38,8 @@ export interface OcrItem {
   error?: string;
   finishReason?: string | null;
   usage?: Record<string, number> | null;
+  /** How many strips the server needed; >1 is why a big page takes longer. */
+  tiles?: number;
   elapsedMs?: number;
 }
 
@@ -71,6 +73,7 @@ function applyResult(result: OcrRequestResult): Partial<OcrItem> {
       text: page.text,
       finishReason: page.finish_reason ?? null,
       usage: page.usage ?? null,
+      tiles: page.tiles,
       error: undefined,
     };
   }
