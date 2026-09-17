@@ -198,6 +198,15 @@ serve_as = "p150x4"
 #
 #   docker_image       -> override_docker_image
 #   trace_region_size  -> override_tt_config's trace_region_size (bytes)
+#   env_vars           -> the model container's environment. run.py has no env
+#                         override flag, so sync_models_from_inference_server.py
+#                         derives a runtime model spec for that model/device
+#                         from the real upstream spec with these merged in and
+#                         points runtime_model_spec_overrides at the file -- the
+#                         same mechanism [[chip_tier]] uses. run.py loads a
+#                         runtime spec JSON as-is (no apply_overrides), so the
+#                         derived file also carries this entry's docker_image.
+#                         Needs a concrete `device`.
 
 [[serve_override]]
 model = "Wan2.2-T2V-A14B-Diffusers"
@@ -211,14 +220,21 @@ Applies on every board."""
 model = "mochi-1-preview"
 device = "p300x2"
 docker_image = "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76"
+env_vars = { TT_DIT_CACHE_DIR = "/home/container_app_user/cache_root/tt_dit_cache" }
 details = """
 The spec pins 0.10.0-555f240, whose bundled tt-metal predates the Mochi \
 Blackhole mesh fixes and rejects the P300x2 2x2 mesh outright; stock \
 0.18.0-c49bb76 fixes the mesh but still carries the pre-refactor Mochi \
 runner. This studio_images build layers tt-inference-server#4940 on \
-0.18.0-c49bb76. Verified on a P300x2 (4x p300c Blackhole) box: deploy, \
-warmup, 12-step generation, valid MP4. Drop once an artifact release \
-carries #4940 and the spec re-pin (#4941)."""
+0.18.0-c49bb76. That runner reloads the DiT model (reload_dit_model=True) \
+and refuses to start without a cache dir -- "RuntimeError: Cache must be \
+enabled when DiT model reloading is enabled ... set TT_DIT_CACHE_DIR" -- and \
+the mochi spec carries no env_vars, so set the same path the Wan2.2 spec \
+uses, under the mounted cache_root so the cache survives redeploys. The image \
+was verified on a P300x2 (4x p300c Blackhole) box (deploy, warmup, 12-step \
+generation, valid MP4); the env override answers the RuntimeError a later \
+review deploy hit on the same board. Drop once an artifact release carries \
+#4940, the env var and the spec re-pin (#4941)."""
 
 [[serve_override]]
 model = "FLUX.1-dev"

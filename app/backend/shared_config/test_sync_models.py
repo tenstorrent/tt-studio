@@ -8,6 +8,7 @@ Tests for sync_models_from_inference_server.py route derivation logic.
 import json
 
 import pytest
+import sync_models_from_inference_server as sync
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
     STUDIO_UNAVAILABLE_DEVICES,
@@ -616,3 +617,93 @@ class TestDeviceAvailability:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestServeEnvOverrides:
+    """A [[serve_override]] env_vars entry becomes a derived runtime model spec
+    (the same channel chip tiers use), since run.py has no env override flag."""
+
+    PIN = "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76"
+
+    def _base(self):
+        return {
+            "model_name": "m",
+            "hf_model_repo": "org/m",
+            "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
+            "version": "0.10.0",
+            "tt_metal_commit": "555f240",
+            "env_vars": {"KEEP": "1"},
+            "device_model_spec": {"device": "P300X2", "env_vars": {"ALSO_KEEP": "2"}},
+        }
+
+    def _model(self, devices=("P150X4", "P300x2")):
+        return {"model_name": "m", "hf_model_id": "org/m", "device_configurations": list(devices)}
+
+    def _run(self, monkeypatch, tmp_path, models, base, images=None):
+        monkeypatch.setattr(sync, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(sync, "RUNTIME_MODEL_SPECS_DIR", tmp_path / "runtime_model_specs")
+        monkeypatch.setattr(sync, "_load_upstream_model_spec", lambda hf, dev: base)
+        monkeypatch.setattr(
+            sync, "STUDIO_SERVE_ENV_OVERRIDES", {("m", "p300x2"): {"TT_DIT_CACHE_DIR": "/cache"}}
+        )
+        monkeypatch.setattr(sync, "STUDIO_MEDIA_IMAGE_OVERRIDES", images or {})
+        return sync.apply_serve_env_overrides(models)
+
+    def _derived(self, tmp_path):
+        return json.loads((tmp_path / "runtime_model_specs" / "m-p300x2.json").read_text())
+
+    def test_env_lands_in_both_env_dicts_and_the_spec_is_recorded(self, monkeypatch, tmp_path):
+        models = [self._model()]
+        touched = self._run(monkeypatch, tmp_path, models, self._base())
+        assert touched == [("m", "p300x2")]
+        derived = self._derived(tmp_path)
+        assert derived["env_vars"] == {"KEEP": "1", "TT_DIT_CACHE_DIR": "/cache"}
+        assert derived["device_model_spec"]["env_vars"] == {"ALSO_KEEP": "2", "TT_DIT_CACHE_DIR": "/cache"}
+        assert models[0]["runtime_model_spec_overrides"] == {
+            "P300x2": "runtime_model_specs/m-p300x2.json"
+        }
+        assert models[0]["device_configurations"] == ["P150X4", "P300x2"], "no device added or removed"
+
+    def test_image_pin_is_baked_in_since_runtime_specs_skip_apply_overrides(self, monkeypatch, tmp_path):
+        self._run(monkeypatch, tmp_path, [self._model()], self._base(), images={("m", "p300x2"): self.PIN})
+        derived = self._derived(tmp_path)
+        assert derived["docker_image"] == self.PIN
+        assert derived["version"] == "0.18.0"
+        assert derived["tt_metal_commit"] == "c49bb76"
+
+    def test_model_wide_pin_also_applies(self, monkeypatch, tmp_path):
+        self._run(monkeypatch, tmp_path, [self._model()], self._base(), images={("m", "*"): self.PIN})
+        assert self._derived(tmp_path)["docker_image"] == self.PIN
+
+    def test_without_a_pin_the_upstream_image_stays(self, monkeypatch, tmp_path):
+        self._run(monkeypatch, tmp_path, [self._model()], self._base())
+        derived = self._derived(tmp_path)
+        assert derived["docker_image"].endswith(":0.10.0-555f240")
+        assert derived["version"] == "0.10.0"
+
+    def test_device_the_spec_does_not_claim_is_loud_and_skipped(self, monkeypatch, tmp_path, capsys):
+        models = [self._model(devices=["P150X4"])]
+        assert self._run(monkeypatch, tmp_path, models, self._base()) == []
+        assert "runtime_model_spec_overrides" not in models[0]
+        assert "not one of its devices" in capsys.readouterr().out
+
+    def test_offline_keeps_an_existing_file(self, monkeypatch, tmp_path):
+        (tmp_path / "runtime_model_specs").mkdir()
+        (tmp_path / "runtime_model_specs" / "m-p300x2.json").write_text("{}")
+        models = [self._model()]
+        assert self._run(monkeypatch, tmp_path, models, base=None) == [("m", "p300x2")]
+        assert models[0]["runtime_model_spec_overrides"]["P300x2"] == "runtime_model_specs/m-p300x2.json"
+
+    def test_offline_without_a_file_is_loud_and_skipped(self, monkeypatch, tmp_path, capsys):
+        models = [self._model()]
+        assert self._run(monkeypatch, tmp_path, models, base=None) == []
+        assert "runtime_model_spec_overrides" not in models[0]
+        assert "TT_DIT_CACHE_DIR" in capsys.readouterr().out
+
+    def test_unparseable_tag_pins_only_the_image(self):
+        assert sync._pinned_image_fields("ghcr.io/x/img:latest") == {"docker_image": "ghcr.io/x/img:latest"}
+        assert sync._pinned_image_fields("ghcr.io/x/img:0.17.0-8c48a10") == {
+            "docker_image": "ghcr.io/x/img:0.17.0-8c48a10",
+            "version": "0.17.0",
+            "tt_metal_commit": "8c48a10",
+        }

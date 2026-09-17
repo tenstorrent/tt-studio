@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-17T16:56:04.509852+00:00"
+    "generated_at": "2026-09-17T18:13:11.223466+00:00"
   },
   "total_models": 73,
   "models": [
@@ -346,7 +346,10 @@
       "service_route": "/v1/videos/generations",
       "health_route": "/health",
       "env_vars": {},
-      "param_count": null
+      "param_count": null,
+      "runtime_model_spec_overrides": {
+        "P300x2": "app/backend/shared_config/runtime_model_specs/mochi-1-preview-p300x2.json"
+      }
     },
     {
       "model_name": "Motif-Image-6B-Preview",

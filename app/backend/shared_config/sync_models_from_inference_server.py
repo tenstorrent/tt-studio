@@ -14,6 +14,7 @@ Run from any directory:
 import copy
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,6 +80,8 @@ HAND_OWNED_MARKER = "hand_owned"
 from model_overrides import (
     CHIP_TIER_MODELS as STUDIO_CHIP_TIER_MODELS,
     CHIP_TIERS as STUDIO_CHIP_TIERS,
+    MEDIA_IMAGE_OVERRIDES as STUDIO_MEDIA_IMAGE_OVERRIDES,
+    SERVE_ENV_OVERRIDES as STUDIO_SERVE_ENV_OVERRIDES,
     STUDIO_UNAVAILABLE_DEVICES,
     STUDIO_UNAVAILABLE_MODELS,
     STUDIO_UNAVAILABLE_REASONS,
@@ -204,6 +207,98 @@ def apply_chip_tier_overrides(models: list) -> list:
         model["device_configurations"] = devices
         model["runtime_model_spec_overrides"] = specs
         touched.append(model_name)
+    return touched
+
+
+# A media image tag ends in <semver>-<tt-metal sha>, both for the stock
+# tt-media-inference-server tags and for the studio_images convention
+# (<model>-<board>-<builddate>-<stock-tag>).
+_IMAGE_TAG_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)-([0-9a-f]{7,40})$")
+
+
+def _pinned_image_fields(image: str) -> dict:
+    """The spec fields run.py's apply_overrides sets for --override-docker-image.
+
+    A runtime spec JSON is loaded as-is (run.py skips apply_overrides for it), so
+    a derived spec has to carry the pin itself. version/tt_metal_commit are
+    re-parsed from the tag the way apply_overrides does; an unparseable tag
+    (":dev", ":latest") leaves them untouched, also like apply_overrides.
+    """
+    fields = {"docker_image": image}
+    match = _IMAGE_TAG_VERSION_RE.search(image)
+    if match:
+        fields["version"] = match.group(1)
+        fields["tt_metal_commit"] = match.group(2)
+    return fields
+
+
+def _derive_env_override_spec(base: dict, env_vars: dict, docker_image: str | None) -> dict:
+    """`base` (a real upstream spec dict for the same model and device) with
+    `env_vars` merged into both env dicts run_docker_server reads, and the
+    studio's image pin baked in when there is one."""
+    spec = copy.deepcopy(base)
+    for env in (spec["device_model_spec"]["env_vars"], spec["env_vars"]):
+        env.update({k: str(v) for k, v in env_vars.items()})
+    if docker_image:
+        spec.update(_pinned_image_fields(docker_image))
+    return spec
+
+
+def apply_serve_env_overrides(models: list) -> list:
+    """For each [[serve_override]] that sets env_vars, regenerate
+    runtime_model_specs/<model>-<device>.json from the real, current upstream
+    spec for that (model, device) with the env merged in, and point
+    runtime_model_spec_overrides at it so run_container deploys through
+    --runtime-model-spec-json. Returns the [(model_name, device)] touched.
+
+    run.py has no flag to add a container env var, and the inference server's
+    media/forge runners read their configuration from the environment, so this
+    is the only sanctioned channel -- the same one [[chip_tier]] uses. Same
+    offline behaviour too: the file is rebuilt from the live artifact every
+    run, and an existing file is kept when the artifact can't be read. Unlike
+    a chip tier, though, a missing override is not a missing option but a
+    deploy that fails at pipeline creation, so every skip is printed.
+    """
+    RUNTIME_MODEL_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+    by_name = {m["model_name"]: m for m in models}
+    touched = []
+    for (model_name, device), env_vars in STUDIO_SERVE_ENV_OVERRIDES.items():
+        model = by_name.get(model_name)
+        if not model:
+            print(
+                f"WARNING: serve_override env_vars for {model_name}: not in the "
+                "catalog, so nothing was applied."
+            )
+            continue
+        device_config = DEVICE_TYPE_TO_CONFIG.get(device.upper())
+        devices = list(model.get("device_configurations") or [])
+        if device_config not in devices:
+            print(
+                f"WARNING: {model_name}: '{device}' is not one of its devices "
+                f"{devices}, so its env override was not applied."
+            )
+            continue
+        spec_path = RUNTIME_MODEL_SPECS_DIR / f"{model_name.lower()}-{device}.json"
+        base = _load_upstream_model_spec(model["hf_model_id"], device)
+        if base is not None:
+            image = STUDIO_MEDIA_IMAGE_OVERRIDES.get(
+                (model_name, device)
+            ) or STUDIO_MEDIA_IMAGE_OVERRIDES.get((model_name, "*"))
+            derived = _derive_env_override_spec(base, env_vars, image)
+            with open(spec_path, "w") as f:
+                json.dump(derived, f, indent=2)
+                f.write("\n")
+        elif not spec_path.exists():
+            print(
+                f"WARNING: {model_name} on {device}: upstream spec unavailable and "
+                f"no {spec_path.name} on disk, so deploys there run without "
+                f"{', '.join(sorted(env_vars))}."
+            )
+            continue
+        specs = dict(model.get("runtime_model_spec_overrides") or {})
+        specs[device_config] = str(spec_path.relative_to(_REPO_ROOT.resolve()))
+        model["runtime_model_spec_overrides"] = specs
+        touched.append((model_name, device))
     return touched
 
 
@@ -736,6 +831,12 @@ def main():
     chip_tiers = apply_chip_tier_overrides(models)
     if chip_tiers:
         print(f"Applied chip-tier overrides: {', '.join(sorted(chip_tiers))}")
+    env_specs = apply_serve_env_overrides(models)
+    if env_specs:
+        print(
+            "Applied serve-time env overrides: "
+            + ", ".join(f"{m} on {d}" for m, d in sorted(env_specs))
+        )
 
     # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
     # the next resync doesn't silently reintroduce them and the reason travels
