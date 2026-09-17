@@ -222,21 +222,59 @@ def test_max_tokens_is_clamped_to_the_context_window(client, deployed, monkeypat
     assert captured["body"]["max_tokens"] == int(8192 * 0.75)
 
 
-def test_oversized_image_is_scaled_under_the_pixel_cap(client, deployed, monkeypatch):
+def _sent_images(captured) -> list:
     import base64
 
-    captured = {}
+    out = []
+    for body in captured:
+        url = body["messages"][0]["content"][0]["image_url"]["url"]
+        out.append(Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))))
+    return out
+
+
+def test_a_page_too_large_for_one_pass_is_read_in_strips(client, deployed, monkeypatch):
+    """The cap is honoured per request, and a big page is split rather than shrunk.
+
+    Shrinking a 9 MP page to fit costs about 3x linear resolution, which is
+    enough to make small text unreadable before the model sees it. Strips keep
+    each request inside the cap without throwing pixels away.
+    """
+    captured = []
     monkeypatch.setattr(
-        views.requests, "post", lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1]
+        views.requests, "post", lambda url, json=None, **kw: (captured.append(json), _Resp())[1]
     )
     client.post(OCR_URL, {"deploy_id": deployed, "images": _png(3000, 3000)}, format="multipart")
 
-    url = captured["body"]["messages"][0]["content"][0]["image_url"]["url"]
-    raw = base64.b64decode(url.split(",", 1)[1])
-    sent = Image.open(io.BytesIO(raw))
-    assert sent.size[0] * sent.size[1] <= views.OCR_MAX_PIXELS
-    # Aspect ratio survives the scale.
-    assert abs(sent.size[0] / sent.size[1] - 1.0) < 0.05
+    sent = _sent_images(captured)
+    assert len(sent) > 1, "a 9 MP page should not be read in a single pass"
+    for img in sent:
+        assert img.size[0] * img.size[1] <= views.OCR_MAX_PIXELS
+    # Strips run the full width, so they are wider than they are tall.
+    assert all(img.size[0] > img.size[1] for img in sent)
+
+
+def test_an_image_that_fits_is_sent_whole_and_unstretched(client, deployed, monkeypatch):
+    """Anything inside the cap goes in one request with its aspect ratio intact."""
+    captured = []
+    monkeypatch.setattr(
+        views.requests, "post", lambda url, json=None, **kw: (captured.append(json), _Resp())[1]
+    )
+    client.post(OCR_URL, {"deploy_id": deployed, "images": _png(1000, 1000)}, format="multipart")
+
+    sent = _sent_images(captured)
+    assert len(sent) == 1
+    assert sent[0].size[0] * sent[0].size[1] <= views.OCR_MAX_PIXELS
+    assert abs(sent[0].size[0] / sent[0].size[1] - 1.0) < 0.05
+
+
+def test_strip_count_is_reported_per_page(client, deployed, monkeypatch):
+    """A caller can tell how a page was read, which explains an odd seam."""
+    monkeypatch.setattr(views.requests, "post", lambda *a, **kw: _Resp(text="x"))
+    resp = client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(3000, 3000)}, format="multipart"
+    )
+    assert resp.status_code == 200
+    assert resp.json()["pages"][0]["tiles"] > 1
 
 
 def test_undersized_image_is_left_alone(client, deployed, monkeypatch):
