@@ -1882,7 +1882,7 @@
       "inference_engine": "vLLM",
       "status": "EXPERIMENTAL",
       "version": "0.0.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:paddleocr-vl-1.6-p150-20260916-0.20.0-1008b25bae67ad7ee3757798558a60ae9080992e-6d3bb28",
+      "docker_image": "ghcr.io/tenstorrent/tt-studio/studio_images:paddleocr-vl-1.6-p150-20260917-0.22.0-2970d1be41080a847bbb662065f0045370386d95-6d3bb28",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
       "env_vars": {
