@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -44,7 +44,8 @@ import {
 import {
   parseDatasetFile,
   buildSampledPreview,
-  estimateMaxRowTokens,
+  estimateRowTokenLengths,
+  MAX_ROWS_FOR_TOKEN_ESTIMATE,
   type DatasetRow,
 } from "./datasetPreview";
 import { customToast } from "../CustomToaster";
@@ -69,6 +70,32 @@ const DATASET_TEMPLATES = [
 ] as const;
 
 const DEFAULT_TEMPLATE = DATASET_TEMPLATES[0].id;
+
+// Fixed Alpaca wrapper text (mirrors blacksmith's alpaca template) so the token
+// estimate counts template boilerplate, not just the field values.
+const ALPACA_HEADER_WITH_INPUT =
+  "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.";
+const ALPACA_HEADER_NO_INPUT =
+  "Below is an instruction that describes a task. Write a response that appropriately completes the request.";
+
+// Render a row as the full prompt a template produces, for the token estimate.
+// Unknown templates fall back to concatenating the field values.
+function renderTemplatePrompt(
+  templateId: string,
+  fields: Record<string, string>,
+): string {
+  if (templateId === "alpaca") {
+    const instruction = fields.instruction ?? "";
+    const input = fields.input ?? "";
+    const output = fields.output ?? "";
+    const header = input.trim()
+      ? ALPACA_HEADER_WITH_INPUT
+      : ALPACA_HEADER_NO_INPUT;
+    const inputBlock = input.trim() ? `\n\n### Input:\n${input}` : "";
+    return `${header}\n\n### Instruction:\n${instruction}${inputBlock}\n\n### Response:\n${output}`;
+  }
+  return Object.values(fields).join(" ");
+}
 
 // https://github.com/tenstorrent/tt-blacksmith/blob/main/blacksmith/experiments/torch/gemma/single_chip/gemma_sst2.yaml
 const formSchema = z.object({
@@ -188,8 +215,10 @@ export function TrainingConfigDialog({
     fetchCustomDatasetContent(datasetId)
       .then(({ text, sampled }) => {
         if (cancelled) return;
+        // Extract up to the estimate cap (not the preview default of 50) so the
+        // sampled path still gives a representative sample for the token warning.
         const preview = sampled
-          ? buildSampledPreview(text)
+          ? buildSampledPreview(text, MAX_ROWS_FOR_TOKEN_ESTIMATE)
           : parseDatasetFile(text);
         setDatasetSampleRows(preview.rows);
       })
@@ -202,22 +231,39 @@ export function TrainingConfigDialog({
     };
   }, [open, isCustomDataset, selectedDataset]);
 
-  // Longest estimated example (tokens) over the mapped columns (or the field's
-  // own name when unmapped).
-  const estimatedMaxTokens = useMemo(() => {
-    if (datasetSampleRows.length === 0) return 0;
+  // Estimated token length (template boilerplate included) of each example in
+  // the sample, over the mapped columns (or each field's own name when unmapped).
+  const sampleTokenLengths = useMemo(() => {
+    if (datasetSampleRows.length === 0) return [];
     const columns = templateFields.map(
       (f, i) => (columnMapping[i]?.value ?? "").trim() || f.key,
     );
-    return estimateMaxRowTokens(datasetSampleRows, columns);
-  }, [datasetSampleRows, templateFields, columnMapping]);
+    return estimateRowTokenLengths(datasetSampleRows, (row) => {
+      const fields: Record<string, string> = {};
+      templateFields.forEach((f, i) => {
+        const v = row[columns[i]];
+        fields[f.key] = v === null || v === undefined ? "" : String(v);
+      });
+      return renderTemplatePrompt(selectedTemplate, fields);
+    });
+  }, [datasetSampleRows, templateFields, columnMapping, selectedTemplate]);
+
+  // How much of the sample the trainer would keep at the configured max_length
+  // (examples longer than it are silently dropped). Recomputes as max_length edits.
+  const validMaxLength = Number.isFinite(maxLength) && maxLength > 0;
+  const sampleTotal = sampleTokenLengths.length;
+  const sampleKept = useMemo(() => {
+    if (!validMaxLength) return sampleTotal;
+    return sampleTokenLengths.filter((len) => len <= maxLength).length;
+  }, [sampleTokenLengths, maxLength, validMaxLength, sampleTotal]);
+
+  // Rounded, but never round a non-zero share down to "0%" (shown as "<1%").
+  const rawPercent = sampleTotal > 0 ? (sampleKept / sampleTotal) * 100 : 100;
+  const includedPercentLabel =
+    sampleKept > 0 && rawPercent < 1 ? "<1" : String(Math.round(rawPercent));
 
   const lengthWarning =
-    isCustomDataset &&
-    estimatedMaxTokens > 0 &&
-    Number.isFinite(maxLength) &&
-    maxLength > 0 &&
-    estimatedMaxTokens > maxLength;
+    isCustomDataset && sampleTotal > 0 && validMaxLength && sampleKept < sampleTotal;
 
   const onSubmit = async (values: FormValues) => {
     if (!device) {
@@ -526,19 +572,31 @@ export function TrainingConfigDialog({
               </div>
 
               {lengthWarning && (
-                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/60 dark:bg-amber-900/20">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                  <p className="text-amber-800 dark:text-amber-200">
-                    Some examples in this dataset are roughly{" "}
-                    <span className="font-semibold">
-                      ~{estimatedMaxTokens.toLocaleString()} tokens
-                    </span>{" "}
-                    long (estimated), which exceeds the Sequence Length of{" "}
-                    <span className="font-semibold">{maxLength}</span>. The
-                    trainer silently drops examples longer than this limit — if
-                    every example is over it, the dataset becomes empty and
-                    training fails. Consider raising Sequence Length.
-                  </p>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/60 dark:bg-amber-900/20">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <p className="text-amber-800 dark:text-amber-200">
+                      At a Sequence Length of{" "}
+                      <span className="font-semibold">{maxLength}</span>, only
+                      about{" "}
+                      <span className="font-semibold">
+                        {includedPercentLabel}%
+                      </span>{" "}
+                      of examples would be used for training (estimated, template
+                      included) — examples longer than the limit are silently
+                      dropped.{" "}
+                      {sampleKept === 0
+                        ? "Every sampled example exceeds the limit, so training would fail with an empty dataset."
+                        : "Raise Sequence Length to include more examples."}
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                    <p className="text-blue-800 dark:text-blue-200">
+                      Raising Sequence Length increases memory use — you may need
+                      to lower Batch Size to avoid out-of-memory (OOM) errors.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

@@ -35,27 +35,22 @@ export function estimateTokenCount(text: string): number {
   return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN);
 }
 
-/**
- * Longest estimated example (tokens) across a sample, over `columns` (the
- * template-mapped fields; empty means all values). 0 for an empty sample.
- */
-export function estimateMaxRowTokens(
+// Cap how many rows feed the estimate so a huge dataset never stalls the UI;
+// this sample is representative enough for a warning.
+export const MAX_ROWS_FOR_TOKEN_ESTIMATE = 1000;
+
+// Estimated token length of each example (first MAX_ROWS_FOR_TOKEN_ESTIMATE
+// rows). `toText` renders a row to the full prompt (template boilerplate incl.).
+export function estimateRowTokenLengths(
   rows: DatasetRow[],
-  columns: string[],
-): number {
-  let max = 0;
-  for (const row of rows) {
-    const values =
-      columns.length > 0
-        ? columns.map((c) => row[c])
-        : Object.values(row);
-    const text = values
-      .map((v) => (v === null || v === undefined ? "" : String(v)))
-      .join(" ");
-    const tokens = estimateTokenCount(text);
-    if (tokens > max) max = tokens;
+  toText: (row: DatasetRow) => string,
+): number[] {
+  const count = Math.min(rows.length, MAX_ROWS_FOR_TOKEN_ESTIMATE);
+  const lengths: number[] = [];
+  for (let i = 0; i < count; i++) {
+    lengths.push(estimateTokenCount(toText(rows[i])));
   }
-  return max;
+  return lengths;
 }
 
 // Only include object rows when deriving columns; scan at most this many rows so
