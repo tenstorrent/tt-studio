@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -35,28 +35,80 @@ import { Button } from "../ui/button";
 import {
   fetchTrainingCatalogFull,
   fetchCustomDatasets,
+  fetchCustomDatasetContent,
   createTrainingJob,
-  DEFAULT_DATASET_LOADER,
+  CUSTOM_DATASET_LOADER,
   type CatalogEntry,
   type CustomDataset,
 } from "../../api/trainingApi";
+import {
+  parseDatasetFile,
+  buildSampledPreview,
+  estimateRowTokenLengths,
+  MAX_ROWS_FOR_TOKEN_ESTIMATE,
+  type DatasetRow,
+} from "./datasetPreview";
 import { customToast } from "../CustomToaster";
 
-// Custom datasets share the dataset dropdown with the built-in catalog entries.
-// Prefixing their select value lets us distinguish them at submit time so we can
-// fall back to the default recipe (the training server can't consume arbitrary
-// datasets yet) while still showing the user's selection.
+// Prefix marking custom datasets in the shared dropdown, so we can tell them
+// apart at submit time and send the custom-dataset contract.
 const CUSTOM_DATASET_PREFIX = "custom:";
 
-// Default hyperparameters mirror the reference gemma_sst2 single-chip recipe:
+// Prompt templates the custom-dataset loader supports. No API lists these, so
+// keep in sync with blacksmith's custom_dataset_utils.py. `key` is the field the
+// server reads from each row; the user maps it to a column in their dataset.
+const DATASET_TEMPLATES = [
+  {
+    id: "alpaca",
+    label: "Alpaca",
+    fields: [
+      { key: "instruction", required: true },
+      { key: "input", required: false },
+      { key: "output", required: true },
+    ],
+  },
+] as const;
+
+const DEFAULT_TEMPLATE = DATASET_TEMPLATES[0].id;
+
+// Fixed Alpaca wrapper text (mirrors blacksmith's alpaca template) so the token
+// estimate counts template boilerplate, not just the field values.
+const ALPACA_HEADER_WITH_INPUT =
+  "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.";
+const ALPACA_HEADER_NO_INPUT =
+  "Below is an instruction that describes a task. Write a response that appropriately completes the request.";
+
+// Render a row as the full prompt a template produces, for the token estimate.
+// Unknown templates fall back to concatenating the field values.
+function renderTemplatePrompt(
+  templateId: string,
+  fields: Record<string, string>,
+): string {
+  if (templateId === "alpaca") {
+    const instruction = fields.instruction ?? "";
+    const input = fields.input ?? "";
+    const output = fields.output ?? "";
+    const header = input.trim()
+      ? ALPACA_HEADER_WITH_INPUT
+      : ALPACA_HEADER_NO_INPUT;
+    const inputBlock = input.trim() ? `\n\n### Input:\n${input}` : "";
+    return `${header}\n\n### Instruction:\n${instruction}${inputBlock}\n\n### Response:\n${output}`;
+  }
+  return Object.values(fields).join(" ");
+}
+
 // https://github.com/tenstorrent/tt-blacksmith/blob/main/blacksmith/experiments/torch/gemma/single_chip/gemma_sst2.yaml
 const formSchema = z.object({
   model: z.string().min(1, "Select a model"),
   dataset: z.string().min(1, "Select a dataset"),
+  template: z.string().default(DEFAULT_TEMPLATE),
+  column_mapping: z
+    .array(z.object({ value: z.string().default("") }))
+    .default([]),
   learning_rate: z.coerce.number().positive().default(6e-5),
   batch_size: z.coerce.number().int().positive().default(8),
   num_epochs: z.coerce.number().int().positive().default(1),
-  max_length: z.coerce.number().int().positive().default(32),
+  max_length: z.coerce.number().int().positive().default(128),
   max_steps: z.coerce.number().int().nonnegative().default(100),
   lora_rank: z.coerce.number().int().positive().default(4),
   lora_alpha: z.coerce.number().int().positive().default(8),
@@ -98,10 +150,12 @@ export function TrainingConfigDialog({
     defaultValues: {
       model: "",
       dataset: "",
+      template: DEFAULT_TEMPLATE,
+      column_mapping: [],
       learning_rate: 6e-5,
       batch_size: 8,
       num_epochs: 1,
-      max_length: 32,
+      max_length: 128,
       max_steps: 100,
       lora_rank: 4,
       lora_alpha: 8,
@@ -138,6 +192,79 @@ export function TrainingConfigDialog({
     form.setValue("dataset", "");
   }, [selectedModel, form]);
 
+  const selectedDataset = form.watch("dataset");
+  const isCustomDataset = selectedDataset.startsWith(CUSTOM_DATASET_PREFIX);
+
+  const selectedTemplate = form.watch("template");
+  const templateFields =
+    DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
+
+  // Sample of the selected custom dataset, used to warn before submit when
+  // examples exceed max_length (the trainer silently drops over-length rows).
+  const [datasetSampleRows, setDatasetSampleRows] = useState<DatasetRow[]>([]);
+  const maxLength = form.watch("max_length");
+  const columnMapping = form.watch("column_mapping");
+
+  useEffect(() => {
+    if (!open || !isCustomDataset) {
+      setDatasetSampleRows([]);
+      return;
+    }
+    const datasetId = selectedDataset.slice(CUSTOM_DATASET_PREFIX.length);
+    let cancelled = false;
+    fetchCustomDatasetContent(datasetId)
+      .then(({ text, sampled }) => {
+        if (cancelled) return;
+        // Extract up to the estimate cap (not the preview default of 50) so the
+        // sampled path still gives a representative sample for the token warning.
+        const preview = sampled
+          ? buildSampledPreview(text, MAX_ROWS_FOR_TOKEN_ESTIMATE)
+          : parseDatasetFile(text);
+        setDatasetSampleRows(preview.rows);
+      })
+      // Best-effort: a fetch/parse failure just skips the warning.
+      .catch(() => {
+        if (!cancelled) setDatasetSampleRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isCustomDataset, selectedDataset]);
+
+  // Estimated token length (template boilerplate included) of each example in
+  // the sample, over the mapped columns (or each field's own name when unmapped).
+  const sampleTokenLengths = useMemo(() => {
+    if (datasetSampleRows.length === 0) return [];
+    const columns = templateFields.map(
+      (f, i) => (columnMapping[i]?.value ?? "").trim() || f.key,
+    );
+    return estimateRowTokenLengths(datasetSampleRows, (row) => {
+      const fields: Record<string, string> = {};
+      templateFields.forEach((f, i) => {
+        const v = row[columns[i]];
+        fields[f.key] = v === null || v === undefined ? "" : String(v);
+      });
+      return renderTemplatePrompt(selectedTemplate, fields);
+    });
+  }, [datasetSampleRows, templateFields, columnMapping, selectedTemplate]);
+
+  // How much of the sample the trainer would keep at the configured max_length
+  // (examples longer than it are silently dropped). Recomputes as max_length edits.
+  const validMaxLength = Number.isFinite(maxLength) && maxLength > 0;
+  const sampleTotal = sampleTokenLengths.length;
+  const sampleKept = useMemo(() => {
+    if (!validMaxLength) return sampleTotal;
+    return sampleTokenLengths.filter((len) => len <= maxLength).length;
+  }, [sampleTokenLengths, maxLength, validMaxLength, sampleTotal]);
+
+  // Rounded, but never round a non-zero share down to "0%" (shown as "<1%").
+  const rawPercent = sampleTotal > 0 ? (sampleKept / sampleTotal) * 100 : 100;
+  const includedPercentLabel =
+    sampleKept > 0 && rawPercent < 1 ? "<1" : String(Math.round(rawPercent));
+
+  const lengthWarning =
+    isCustomDataset && sampleTotal > 0 && validMaxLength && sampleKept < sampleTotal;
+
   const onSubmit = async (values: FormValues) => {
     if (!device) {
       customToast.error(
@@ -147,36 +274,49 @@ export function TrainingConfigDialog({
     }
     setSubmitting(true);
     try {
-      // Custom datasets can't be consumed by the training server yet, so a job
-      // that selects one still trains on the default (sst2) recipe. The UI keeps
-      // showing the user's custom selection regardless.
       const isCustom = values.dataset.startsWith(CUSTOM_DATASET_PREFIX);
-      const datasetLoader = isCustom ? DEFAULT_DATASET_LOADER : values.dataset;
-      // Map form fields to the container's `TrainingRequest` schema. Field names
-      // must match exactly (e.g. `dataset_loader`, `lora_r`) or they are dropped.
-      await createTrainingJob({
-        dataset_loader: datasetLoader,
+      const loraTargetModules = values.lora_target_modules
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const params: Parameters<typeof createTrainingJob>[0] = {
+        dataset_loader: isCustom ? CUSTOM_DATASET_LOADER : values.dataset,
         device_type: device,
         learning_rate: values.learning_rate,
         batch_size: values.batch_size,
         num_epochs: values.num_epochs,
-        max_length: values.max_length,
+        dataset_max_sequence_length: values.max_length,
         lora_alpha: values.lora_alpha,
         lora_r: values.lora_rank,
-        lora_target_modules: values.lora_target_modules
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        // Send these through as-is. They are `0`-meaningful to the container
-        // (`max_steps: 0` = uncapped, `val_steps_freq: 0` = skip validation,
-        // `save_interval: 0` = checkpoint at the end only), so coalescing a
-        // falsy 0 to `undefined` would drop the key and let the container's
-        // own defaults silently override the user's choice.
         max_steps: values.max_steps,
         steps_freq: values.steps_freq,
         val_steps_freq: values.val_steps_freq,
         save_interval: values.save_interval,
-      });
+      };
+      // Omit when blank so the server keeps its own default instead of getting [].
+      if (loraTargetModules.length > 0) {
+        params.lora_target_modules = loraTargetModules;
+      }
+
+      if (isCustom) {
+        // Backend stages the named upload into `train_dataset_path`. Uploads are
+        // JSON arrays of objects, so `file_type` is "json".
+        params.custom_dataset = values.dataset.slice(CUSTOM_DATASET_PREFIX.length);
+        params.file_type = "json";
+        params.template = values.template || DEFAULT_TEMPLATE;
+        // Map each template field to a column; blanks are omitted so the server
+        // falls back to the identically named column.
+        const fields =
+          DATASET_TEMPLATES.find((t) => t.id === values.template)?.fields ?? [];
+        const mapping: Record<string, string> = {};
+        fields.forEach((f, i) => {
+          const v = (values.column_mapping[i]?.value ?? "").trim();
+          if (v) mapping[f.key] = v;
+        });
+        if (Object.keys(mapping).length > 0) params.column_mapping = mapping;
+      }
+
+      await createTrainingJob(params);
       form.reset();
       onJobCreated();
     } catch (err) {
@@ -301,6 +441,76 @@ export function TrainingConfigDialog({
               />
             </div>
 
+            {/* Custom dataset options (only for user-uploaded datasets) */}
+            {isCustomDataset && (
+              <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+                <h4 className="mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Custom Dataset
+                </h4>
+                <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                  Choose how the training server formats your data.
+                </p>
+                <FormField
+                  control={form.control}
+                  name="template"
+                  render={({ field }) => (
+                    <FormItem className="mb-4 max-w-xs">
+                      <FormLabel className="text-xs">Prompt Template</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select template" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {DATASET_TEMPLATES.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="space-y-2">
+                  <FormLabel className="text-xs">
+                    Column Mapping{" "}
+                    <span className="font-normal text-gray-400">(optional)</span>
+                  </FormLabel>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Map each template field to a column in your dataset.
+                  </p>
+                  {templateFields.map((f, index) => (
+                    <div key={f.key} className="flex items-center gap-2">
+                      <span className="w-36 shrink-0 text-sm text-gray-700 dark:text-gray-300">
+                        {f.key}
+                        {f.required ? (
+                          <span className="text-red-500"> *</span>
+                        ) : (
+                          <span className="font-normal text-gray-400">
+                            {" "}
+                            (optional)
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-gray-400">→</span>
+                      <Input
+                        aria-label={`Dataset column for the "${f.key}" field`}
+                        placeholder={`your column (defaults to "${f.key}")`}
+                        {...form.register(`column_mapping.${index}.value`)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Hyperparameters */}
             <div>
               <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -314,7 +524,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Learning Rate</FormLabel>
                       <FormControl>
-                        <Input type="number" step="any" disabled {...field} />
+                        <Input type="number" step="any" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -327,7 +537,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Batch Size</FormLabel>
                       <FormControl>
-                        <Input type="number" disabled {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -340,7 +550,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Epochs</FormLabel>
                       <FormControl>
-                        <Input type="number" disabled {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -353,13 +563,42 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Sequence Length</FormLabel>
                       <FormControl>
-                        <Input type="number" disabled {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
+
+              {lengthWarning && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/60 dark:bg-amber-900/20">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <p className="text-amber-800 dark:text-amber-200">
+                      At a Sequence Length of{" "}
+                      <span className="font-semibold">{maxLength}</span>, only
+                      about{" "}
+                      <span className="font-semibold">
+                        {includedPercentLabel}%
+                      </span>{" "}
+                      of examples would be used for training (estimated, template
+                      included) — examples longer than the limit are silently
+                      dropped.{" "}
+                      {sampleKept === 0
+                        ? "Every sampled example exceeds the limit, so training would fail with an empty dataset."
+                        : "Raise Sequence Length to include more examples."}
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                    <p className="text-blue-800 dark:text-blue-200">
+                      Raising Sequence Length increases memory use — you may need
+                      to lower Batch Size to avoid out-of-memory (OOM) errors.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* LoRA Config */}
@@ -375,7 +614,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Rank</FormLabel>
                       <FormControl>
-                        <Input type="number" disabled {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -388,7 +627,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Alpha</FormLabel>
                       <FormControl>
-                        <Input type="number" disabled {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -401,7 +640,7 @@ export function TrainingConfigDialog({
                     <FormItem>
                       <FormLabel className="text-xs">Target Modules</FormLabel>
                       <FormControl>
-                        <Input placeholder="q_proj,v_proj" disabled {...field} />
+                        <Input placeholder="q_proj,v_proj" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

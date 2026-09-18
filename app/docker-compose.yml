@@ -78,7 +78,6 @@ services:
       - TEAM_ID
       - TOKEN_ID
       - GITHUB_USERNAME
-      - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
       - WAKEWORD_MODEL
       - WAKEWORD_THRESHOLD

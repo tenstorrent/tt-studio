@@ -112,7 +112,7 @@ export default React.memo(function ManageCell({
               : modelType === ModelType.Embedding
                 ? "Embed"
                 : modelType === ModelType.Training
-                  ? "Training Dashboard"
+                  ? "Training Dashboard (Beta)"
                   : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration

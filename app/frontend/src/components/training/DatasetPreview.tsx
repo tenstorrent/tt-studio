@@ -38,9 +38,19 @@ export function DatasetPreview({ preview, maxRows = 5 }: DatasetPreviewProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Showing {shownCount.toLocaleString()} of{" "}
-          {preview.totalRows.toLocaleString()} rows &middot;{" "}
-          {preview.columns.length.toLocaleString()} columns
+          {preview.sampled ? (
+            <>
+              Previewing the first {shownCount.toLocaleString()} rows sampled from
+              a large file &middot; {preview.columns.length.toLocaleString()}{" "}
+              columns
+            </>
+          ) : (
+            <>
+              Showing {shownCount.toLocaleString()} of{" "}
+              {preview.totalRows.toLocaleString()} rows &middot;{" "}
+              {preview.columns.length.toLocaleString()} columns
+            </>
+          )}
         </p>
         <div className="flex items-center rounded-md border border-gray-200 p-0.5 dark:border-gray-700">
           <Button
