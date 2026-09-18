@@ -21,7 +21,7 @@ from rich.text import Text
 
 from tt_setup.console import _fmt_duration
 from tt_setup.monitor import SERVICES, _APP_DIR, _compose_base
-from tt_setup.services import snapshot_health
+from tt_setup.services import snapshot_container_health, snapshot_health
 
 
 class MonitorApp(App):
@@ -81,14 +81,25 @@ class MonitorApp(App):
     # ── health polling ─────────────────────────────────────────────────────────
     @work(thread=True, exclusive=True, group="probe")
     def _refresh_health(self) -> None:
-        health = snapshot_health([s["health"] for s in SERVICES])
+        http_health = snapshot_health([s["health"] for s in SERVICES if s.get("health")])
+        container_health = snapshot_container_health(
+            [s["health_container"] for s in SERVICES if s.get("health_container")]
+        )
+        health = {
+            s["name"]: (
+                http_health.get(s["health"], False)
+                if s.get("health")
+                else container_health.get(s.get("health_container"), False)
+            )
+            for s in SERVICES
+        }
         self.call_from_thread(self._apply_health, health)
 
     def _apply_health(self, health) -> None:
         table = self.query_one("#services", DataTable)
         now = time.monotonic()
         for s in SERVICES:
-            up = health.get(s["health"], False)
+            up = health.get(s["name"], False)
             if up:
                 self._up_since.setdefault(s["name"], now)
                 uptime = _fmt_duration(now - self._up_since[s["name"]])
@@ -179,7 +190,7 @@ class MonitorApp(App):
 
     def action_open(self) -> None:
         svc = self._current_service()
-        if svc:
+        if svc and svc.get("health"):
             url = f"http://localhost:{svc['port']}"
             webbrowser.open(url)
             self.notify(f"Opening {url}")

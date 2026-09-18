@@ -5,8 +5,9 @@
 Docker Control Service - FastAPI Application
 
 Secure Docker operations API for TT-Studio.
-Runs on host (not containerized) with direct access to docker.sock.
-Port: 8002
+Runs as the internal Compose service with direct access to the mounted
+Docker socket. It is reachable by backend containers at docker-control:8002;
+the port is not published on the host.
 Authentication: JWT
 """
 

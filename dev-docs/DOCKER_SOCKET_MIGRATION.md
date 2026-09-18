@@ -4,7 +4,7 @@
 
 ## Overview
 
-TT-Studio has migrated from directly mounting `/var/run/docker.sock` into the Django backend container to using a secure FastAPI service (`docker-control-service`) for Docker operations.
+TT-Studio has migrated from directly mounting `/var/run/docker.sock` into the Django backend container to using a secure FastAPI service (`docker-control-service`) for Docker operations. Docker Control is now containerized as part of the Compose stack and is reachable only through `tt_studio_network`.
 
 ## Security Improvements
 
@@ -42,37 +42,19 @@ Django Backend (non-root) → HTTP API (JWT auth) → docker-control-service →
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ Host System                                                     │
-│                                                                 │
-│  ┌──────────────────────┐          ┌─────────────────────────┐ │
-│  │ docker-control-      │          │ /var/run/docker.sock    │ │
-│  │ service              │◄─────────│ (Docker Daemon)         │ │
-│  │ (FastAPI)            │          └─────────────────────────┘ │
-│  │                      │                                      │
-│  │ Port: 8002           │                                      │
-│  │ Auth: JWT            │                                      │
-│  │ Security: Whitelist  │                                      │
-│  └──────────────────────┘                                      │
-│           ▲                                                    │
-│           │ HTTP API                                           │
-│           │ (JWT Token)                                        │
-└───────────┼────────────────────────────────────────────────────┘
-            │
-            │ Network: tt_studio_network
-            │
-┌───────────┼────────────────────────────────────────────────────┐
-│ Docker    │                                                    │
-│           │                                                    │
-│  ┌────────▼──────────┐                                        │
-│  │ tt_studio_backend │                                        │
-│  │ (Django)          │                                        │
-│  │                   │                                        │
-│  │ user: <non-root>  │                                        │
-│  │ NO docker.sock    │                                        │
-│  └───────────────────┘                                        │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────── Docker: tt_studio_network ──────────────────────┐
+│                                                                        │
+│  ┌──────────────────────┐       HTTP + JWT       ┌───────────────────┐ │
+│  │ tt_studio_backend   │ ─────────────────────► │ docker-control    │ │
+│  │ Django, non-root    │                         │ FastAPI :8002     │ │
+│  │ NO docker.sock      │                         │ Docker socket     │ │
+│  └──────────────────────┘                         └─────────┬─────────┘ │
+│                                                             │           │
+└─────────────────────────────────────────────────────────────┼───────────┘
+                                                              ▼
+                                                   Docker daemon socket
+
+Host port :8002 is not published.
 ```
 
 ---
@@ -91,15 +73,17 @@ volumes:
 **Added:**
 ```yaml
 environment:
-  - DOCKER_CONTROL_SERVICE_URL=http://127.0.0.1:8002
+  - DOCKER_CONTROL_SERVICE_URL=http://docker-control:8002
   - DOCKER_CONTROL_JWT_SECRET=<secret>
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock  # Docker Control only
 ```
 
-### 2. Backend Code Migration (TODO)
+### 2. Backend Code Migration
 
-The following backend files need to be updated to use the docker-control-service API instead of direct Docker SDK:
+The backend Docker operation surface uses the docker-control-service API instead of a direct Docker SDK connection:
 
-#### Files to Update:
+#### Main integration points:
 ```
 app/backend/docker_control/views.py         - Main Docker operations
 app/backend/docker_control/health_monitor.py - Container health checks
@@ -165,13 +149,14 @@ class DockerControlClient:
 - [x] Updated `.env.default` with docker-control-service config
 - [x] Integrated docker-control-service startup into `run.py`
 
-### 🔄 In Progress
-- [ ] Create `app/backend/docker_control/docker_control_client.py` wrapper
-- [ ] Update `app/backend/docker_control/views.py` to use API
-- [ ] Update `app/backend/docker_control/health_monitor.py` to use API
-- [ ] Update `app/backend/docker_control/docker_utils.py` to use API
-- [ ] Add retry logic and error handling
-- [ ] Update tests to mock docker-control-service API
+### ✅ Completed
+- [x] Created `app/backend/docker_control/docker_control_client.py` wrapper
+- [x] Updated backend Docker operations to use the API
+- [x] Added retry/error handling and service health checks
+- [x] Containerized Docker Control on `tt_studio_network`
+- [x] Removed the host `:8002` publication and host-side service lifecycle
+- [x] Pointed backend traffic at `http://docker-control:8002`
+- [x] Preserved `--skip-docker-control` through the Compose profile
 
 ### 📋 Testing Required
 - [ ] Test container deployment via API
@@ -191,7 +176,7 @@ class DockerControlClient:
 **List Containers:**
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8002/api/v1/containers
+  http://docker-control:8002/api/v1/containers
 ```
 
 **Run Container:**
@@ -205,13 +190,13 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
     "network": "tt_studio_network",
     "environment": {"MODEL_TYPE": "llm"}
   }' \
-  http://localhost:8002/api/v1/containers/run
+  http://docker-control:8002/api/v1/containers/run
 ```
 
 **Stop Container:**
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8002/api/v1/containers/{container_id}/stop
+  http://docker-control:8002/api/v1/containers/{container_id}/stop
 ```
 
 ### Image Operations
@@ -223,13 +208,13 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "tenstorrent/model:latest"
   }' \
-  http://localhost:8002/api/v1/images/pull
+  http://docker-control:8002/api/v1/images/pull
 ```
 
 **List Images:**
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8002/api/v1/images
+  http://docker-control:8002/api/v1/images
 ```
 
 ### Network Operations
@@ -242,7 +227,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
     "name": "tt_studio_network",
     "driver": "bridge"
   }' \
-  http://localhost:8002/api/v1/networks/create
+  http://docker-control:8002/api/v1/networks/create
 ```
 
 **Connect Container to Network:**
@@ -252,7 +237,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{
     "container": "my_model"
   }' \
-  http://localhost:8002/api/v1/networks/tt_studio_network/connect
+  http://docker-control:8002/api/v1/networks/tt_studio_network/connect
 ```
 
 ---
@@ -329,7 +314,7 @@ MAX_CPUS = 8
   "detail": "Docker Control Service not reachable"
 }
 ```
-**Solution:** Check if docker-control-service is running (`ps aux | grep docker-control`).
+**Solution:** Check if the Compose service is running (`docker compose --profile docker-control ps tt_studio_docker_control`).
 
 ---
 
@@ -337,14 +322,15 @@ MAX_CPUS = 8
 
 ### Manual Testing
 
-**1. Start docker-control-service:**
+**1. Start Docker Control with the stack:**
 ```bash
-python3 run.py  # Automatically starts service
+python3 run.py
 ```
 
-**2. Test health endpoint (no auth):**
+**2. Test health from the backend network (no host port):**
 ```bash
-curl http://localhost:8002/api/v1/health
+docker compose --profile docker-control exec tt_studio_backend \
+  python -c "import urllib.request; print(urllib.request.urlopen('http://docker-control:8002/api/v1/health').read().decode())"
 # Expected: {"status":"healthy"}
 ```
 
@@ -363,7 +349,7 @@ print(token)
 ```bash
 TOKEN="<token-from-step-3>"
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8002/api/v1/containers
+  http://docker-control:8002/api/v1/containers
 ```
 
 ### Automated Testing
