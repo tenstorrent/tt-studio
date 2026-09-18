@@ -14,6 +14,8 @@ export interface DatasetPreview {
   columns: string[];
   /** Total number of rows in the file. */
   totalRows: number;
+  /** True when the preview was built from a sampled slice, not the whole file. */
+  sampled?: boolean;
 }
 
 /** A parse failure with a user-facing message. */
@@ -22,6 +24,33 @@ export class DatasetParseError extends Error {
     super(message);
     this.name = "DatasetParseError";
   }
+}
+
+// Rough chars/token ratio: the real tokenizer only runs in the training
+// container, so this cheap proxy is used only to warn the user, never to block.
+const APPROX_CHARS_PER_TOKEN = 4;
+
+/** Coarse token-count estimate for a piece of text (see APPROX_CHARS_PER_TOKEN). */
+export function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN);
+}
+
+// Cap how many rows feed the estimate so a huge dataset never stalls the UI;
+// this sample is representative enough for a warning.
+export const MAX_ROWS_FOR_TOKEN_ESTIMATE = 1000;
+
+// Estimated token length of each example (first MAX_ROWS_FOR_TOKEN_ESTIMATE
+// rows). `toText` renders a row to the full prompt (template boilerplate incl.).
+export function estimateRowTokenLengths(
+  rows: DatasetRow[],
+  toText: (row: DatasetRow) => string,
+): number[] {
+  const count = Math.min(rows.length, MAX_ROWS_FOR_TOKEN_ESTIMATE);
+  const lengths: number[] = [];
+  for (let i = 0; i < count; i++) {
+    lengths.push(estimateTokenCount(toText(rows[i])));
+  }
+  return lengths;
 }
 
 // Only include object rows when deriving columns; scan at most this many rows so
@@ -36,11 +65,60 @@ function isPlainObject(value: unknown): value is DatasetRow {
   );
 }
 
+// Parse JSON Lines (one object per line). Returns null if invalid.
+function parseJsonl(trimmed: string): unknown[] | null {
+  const rows: unknown[] = [];
+  for (const rawLine of trimmed.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (!isPlainObject(obj)) return null;
+    rows.push(obj);
+  }
+  return rows.length > 0 ? rows : null;
+}
+
+// Turn the raw file text into a flat list of record candidates (see
+// parseDatasetFile for the accepted shapes).
+function extractRows(trimmed: string): unknown[] {
+  let parsed: unknown;
+  let jsonError: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    jsonError = err;
+  }
+
+  if (jsonError === undefined) {
+    if (Array.isArray(parsed)) return parsed;
+    // A single JSON object is a valid one-row dataset (also covers a one-line
+    // JSON Lines file, which parses as a bare object).
+    if (isPlainObject(parsed)) return [parsed];
+    throw new DatasetParseError(
+      "Expected a JSON array of objects (e.g. [{ ... }, { ... }]) or a JSON " +
+        "Lines file (one object per line).",
+    );
+  }
+
+  // Not a single JSON value; try JSON Lines.
+  const jsonl = parseJsonl(trimmed);
+  if (jsonl) return jsonl;
+
+  const detail = jsonError instanceof Error ? jsonError.message : String(jsonError);
+  throw new DatasetParseError(`The file is not valid JSON or JSON Lines: ${detail}`);
+}
+
 /**
  * Parse the text contents of a dataset file into a preview.
  *
- * Supported shape (per the current feature scope): a JSON array of objects,
- * e.g. `[{ "prompt": "...", "completion": "..." }, ...]`.
+ * Accepts, all normalized to a flat list of object rows:
+ *  - a JSON array of objects, e.g. `[{ "instruction": "...", "output": "..." }, ...]`
+ *  - JSON Lines (one JSON object per line)
  *
  * Throws {@link DatasetParseError} with a friendly message for anything else.
  */
@@ -50,35 +128,86 @@ export function parseDatasetFile(text: string): DatasetPreview {
     throw new DatasetParseError("The file is empty.");
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new DatasetParseError(`The file is not valid JSON: ${detail}`);
+  const rawRows = extractRows(trimmed);
+
+  if (rawRows.length === 0) {
+    throw new DatasetParseError("The dataset is empty.");
   }
 
-  if (!Array.isArray(parsed)) {
-    throw new DatasetParseError(
-      "Expected a JSON array of objects at the top level (e.g. [{ ... }, { ... }]).",
-    );
-  }
-
-  if (parsed.length === 0) {
-    throw new DatasetParseError("The dataset array is empty.");
-  }
-
-  const nonObjectIndex = parsed.findIndex((row) => !isPlainObject(row));
+  const nonObjectIndex = rawRows.findIndex((row) => !isPlainObject(row));
   if (nonObjectIndex !== -1) {
     throw new DatasetParseError(
       `Every item must be an object. Item at index ${nonObjectIndex} is not an object.`,
     );
   }
 
-  const rows = parsed as DatasetRow[];
+  const rows = rawRows as DatasetRow[];
   const columns = deriveColumns(rows);
 
   return { rows, columns, totalRows: rows.length };
+}
+
+/**
+ * Extract up to `maxRows` complete record objects from a leading (possibly
+ * truncated) chunk of a large file, for a sampled preview. Scans for balanced
+ * top-level `{ ... }` objects, honoring string/escape state, so it handles both
+ * a JSON array and JSON Lines. A trailing partial record is ignored; returns
+ * `[]` when nothing complete can be extracted.
+ */
+export function extractSampleRows(chunk: string, maxRows: number): DatasetRow[] {
+  const rows: DatasetRow[] = [];
+  const n = chunk.length;
+  let i = 0;
+
+  while (i < n && rows.length < maxRows) {
+    while (i < n && chunk[i] !== "{") i++;
+    if (i >= n) break;
+
+    const start = i;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+
+    for (; i < n; i++) {
+      const ch = chunk[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i + 1;
+          i++;
+          break;
+        }
+      }
+    }
+
+    // Truncated trailing record; stop.
+    if (end === -1) break;
+
+    try {
+      const obj = JSON.parse(chunk.slice(start, end));
+      if (isPlainObject(obj)) rows.push(obj);
+    } catch {
+      break;
+    }
+  }
+
+  return rows;
+}
+
+/** Build a sampled {@link DatasetPreview} from a leading slice of a large file. */
+export function buildSampledPreview(chunk: string, maxRows = 50): DatasetPreview {
+  const rows = extractSampleRows(chunk, maxRows);
+  const columns = deriveColumns(rows);
+  return { rows, columns, totalRows: rows.length, sampled: true };
 }
 
 /** Collect column keys in first-seen order across the sampled rows. */

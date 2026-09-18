@@ -60,6 +60,10 @@ from .docker_control_client import (
     http_status_of,
     is_service_unreachable,
 )
+from docker_control.chip_allocator import (
+    INFRA_CONTAINER_PREFIXES,
+    _detect_device_ids_from_mounts,
+)
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
@@ -2498,7 +2502,7 @@ class DiscoverContainersView(APIView):
     """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
-    _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+    _INFRA_PREFIXES = INFRA_CONTAINER_PREFIXES
 
     def get(self, request, *args, **kwargs):
         try:
@@ -2580,8 +2584,6 @@ _SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
 # vLLM auto tool-choice, in the forms it can appear in a launch command.
 _TOOL_CHOICE_ARG = re.compile(r"^--?enable[-_]auto[-_]tool[-_]choice$", re.IGNORECASE)
 _TOOL_PARSER_ARG = re.compile(r"^--?tool[-_]call[-_]parser$", re.IGNORECASE)
-# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
-_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
 
 
 def _parse_device_ids_token(value) -> list:
@@ -2664,32 +2666,6 @@ def _container_env(container_info: dict) -> dict:
         for k, v in extra.items():
             env.setdefault(k, v)
     return env
-
-
-def _detect_device_ids_from_mounts(container_info: dict):
-    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
-
-    This is the ground truth: the launcher binds exactly the chip nodes the model
-    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
-    works regardless of how or where the container was started. Returns a sorted
-    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
-    directory is bound (no per-chip granularity), or None if no TT device is bound.
-    """
-    hc = container_info.get("HostConfig") or {}
-    ids = []
-    whole = False
-    for d in (hc.get("Devices") or []):
-        if not isinstance(d, dict):
-            continue
-        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
-        m = _TT_DEVICE_NODE.match(path)
-        if m:
-            ids.append(int(m.group(1)))
-        elif path == "/dev/tenstorrent":
-            whole = True
-    if ids:
-        return sorted(set(ids))
-    return "whole" if whole else None
 
 
 def _detect_device_ids_from_command(container_info: dict):

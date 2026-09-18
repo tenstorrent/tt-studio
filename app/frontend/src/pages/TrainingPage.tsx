@@ -133,7 +133,9 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
-      customToast.success("Cancellation requested");
+      customToast.success(
+        "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
+      );
       loadJobs();
     } catch {
       customToast.error("Failed to cancel job");
@@ -148,18 +150,23 @@ export default function TrainingPage() {
 
   return (
     <div className="min-h-screen w-full px-6 py-8 lg:px-12">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6 bg-white dark:bg-black rounded-2xl border border-gray-200/80 dark:border-gray-800/70 p-6 sm:p-8 shadow-sm dark:shadow-none">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-              Training Jobs
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Training Jobs
+              </h1>
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                Beta
+              </span>
+            </div>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Fine-tune models on Tenstorrent hardware
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-shrink-0 items-center gap-3">
             <Button variant="outline" size="sm" onClick={loadJobs}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh

@@ -20,12 +20,12 @@ export interface CatalogEntry {
 export interface TrainingJob {
   id: string;
   status:
-    | "queued"
-    | "in_progress"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "cancelling";
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "cancelling";
   model: string;
   // The dataset is not a top-level field on the container's job object; it lives
   // inside `request_parameters.dataset_loader`. Use `getJobDataset()` to read it.
@@ -76,10 +76,15 @@ export interface TrainingCheckpoint {
 export interface CreateTrainingJobParams {
   dataset_loader: string;
   device_type: string;
+  // Custom-dataset fields, sent only when `dataset_loader` is "Custom".
+  custom_dataset?: string;
+  file_type?: string;
+  template?: string;
+  column_mapping?: Record<string, string>;
   learning_rate?: number;
   batch_size?: number;
   num_epochs?: number;
-  max_length?: number;
+  dataset_max_sequence_length?: number;
   max_steps?: number;
   lora_r?: number;
   lora_alpha?: number;
@@ -132,11 +137,6 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
 // Custom (user-uploaded) datasets
 // ---------------------------------------------------------------------------
 
-// A dataset JSON file the user uploaded, stored under the shared training volume
-// at training_volume/custom_datasets/. These are offered as choices in the New
-// Training Job dialog. The training server does not yet accept arbitrary
-// datasets, so selecting one still trains on the default (sst2) recipe — see
-// DEFAULT_DATASET_LOADER.
 export interface CustomDataset {
   id: string;
   name: string;
@@ -144,11 +144,9 @@ export interface CustomDataset {
   modified_at?: number | null;
 }
 
-// Dataset the training server actually uses when a custom dataset is selected.
-// Custom datasets aren't supported by the inference/training server yet, so jobs
-// fall back to this built-in recipe while still showing the user's choice. Value
-// matches the dataset `id` exposed by the training container's /v1/catalog.
-export const DEFAULT_DATASET_LOADER = "SST2";
+// `dataset_loader` value telling the server to use a user-supplied dataset
+// instead of a built-in recipe. Not one of the /v1/catalog loader ids.
+export const CUSTOM_DATASET_LOADER = "Custom";
 
 export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
   const { data } = await axios.get(`${TRAINING_API}/datasets/custom/`);
@@ -157,16 +155,25 @@ export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
   return [];
 }
 
-// Fetch the raw JSON contents of a previously uploaded custom dataset so it can
-// be parsed and previewed client-side (same path as a freshly selected file).
-// Returns the file text; `responseType: "text"` + a passthrough transform keep
-// axios from parsing/normalizing the JSON so the shared parser sees it verbatim.
-export async function fetchCustomDatasetContent(id: string): Promise<string> {
-  const { data } = await axios.get<string>(
+export interface CustomDatasetContent {
+  text: string;
+  // True when the server returned only a leading slice (file too large).
+  sampled: boolean;
+}
+
+// Fetch a stored dataset's raw contents for client-side preview. The passthrough
+// transform keeps axios from parsing the JSON so the shared parser sees it
+// verbatim. Large files come back as a truncated slice with `sampled: true`.
+export async function fetchCustomDatasetContent(
+  id: string,
+): Promise<CustomDatasetContent> {
+  const { data, headers } = await axios.get<string>(
     `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
     { responseType: "text", transformResponse: [(value) => value] },
   );
-  return typeof data === "string" ? data : JSON.stringify(data);
+  const sampled =
+    String(headers?.["x-dataset-sampled"] ?? "").toLowerCase() === "true";
+  return { text: typeof data === "string" ? data : JSON.stringify(data), sampled };
 }
 
 export async function uploadCustomDataset(
@@ -382,7 +389,7 @@ export interface MergedCheckpoint {
 export async function promoteCheckpoint(
   jobId: string,
   ckptId: string,
-): Promise<{ id?: string; status?: string; [key: string]: unknown }> {
+): Promise<{ id?: string; status?: string;[key: string]: unknown }> {
   const { data } = await axios.post(
     `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
   );
