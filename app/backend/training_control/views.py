@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import re
+import shutil
 
 import requests
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -25,8 +26,10 @@ PROXY_TIMEOUT = 120
 
 TRAINING_VOLUME_SUBDIR = "training_volume"
 CUSTOM_DATASETS_SUBDIR = os.path.join(TRAINING_VOLUME_SUBDIR, "custom_datasets")
-MAX_DATASET_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_DATASET_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
+# Leading slice served for datasets over the preview limit.
+DATASET_PREVIEW_SAMPLE_BYTES = 2 * 1024 * 1024
 
 # tt-media-server authenticates with `Authorization: Bearer <API_KEY>`.
 # Not the JWT used for vLLM/LLM inference endpoints. The key is resolved
@@ -36,6 +39,15 @@ MAX_DATASET_PREVIEW_BYTES = 25 * 1024 * 1024
 # for multi-tenant scoping. TT Studio is single-tenant, so we send a fixed value.
 ORG_ID_HEADER = "X-TT-Organization"
 ORG_ID = "tenstorrent"
+
+CUSTOM_DATASET_LOADER = "Custom"
+DEFAULT_CUSTOM_FILE_TYPE = "json"
+DEFAULT_CUSTOM_TEMPLATE = "alpaca"
+
+# The container mounts its per-model volume (`volume_id_*`) here, so datasets
+# staged into that host dir are readable at this path.
+CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
+CONTAINER_CUSTOM_DATASETS_DIR = f"{CONTAINER_CACHE_ROOT}/custom_datasets"
 
 
 def _find_training_container(deploy_id=None):
@@ -170,14 +182,14 @@ def _custom_datasets_dir():
 def _safe_dataset_filename(name):
     """
     Strips any directory components to prevent path traversal and requires a
-    ``.json`` extension (the only format the preview/loader understands).
+    ``.json``/``.jsonl`` extension.
     """
     if not name:
         return None
     base = os.path.basename(name.replace("\\", "/")).strip()
     if not base or base in (".", "..") or base.startswith("."):
         return None
-    if not base.lower().endswith(".json"):
+    if not base.lower().endswith((".json", ".jsonl")):
         return None
     return base
 
@@ -205,6 +217,214 @@ def _resolve_dataset_path(directory, name):
     if real_path != os.path.join(real_dir, filename):
         return None
     return path
+
+
+def _parse_jsonl(text):
+    """Parse JSON Lines (one object per line). Returns ``None`` if invalid."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        rows.append(obj)
+    return rows or None
+
+
+def _looks_like_hf_datasets_server_export(obj):
+    """Detect a raw HF ``datasets-server`` ``/rows`` export, whose real examples
+    are nested under ``rows[i].row`` next to ``features``/``num_rows_total``."""
+    if not isinstance(obj, dict):
+        return False
+    inner = obj.get("rows")
+    if not isinstance(inner, list) or not inner:
+        return False
+    # Require each entry's `row` dict so a column named "rows" isn't a false hit.
+    if not all(isinstance(r, dict) and isinstance(r.get("row"), dict) for r in inner):
+        return False
+    return any(k in obj for k in ("features", "num_rows_total", "num_rows_per_page"))
+
+
+def _normalize_dataset_rows(text):
+    """Normalize uploaded dataset *text* into the flat list of object rows the
+    trainer expects. Accepts a JSON array of objects or JSON Lines (one object
+    per line).
+
+    Returns ``(rows, None)`` on success or ``(None, error_message)``.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None, "The file is empty."
+
+    parsed = None
+    parse_error = None
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError as e:
+        parse_error = e
+
+    if parse_error is None:
+        if isinstance(parsed, list):
+            rows = parsed
+        elif isinstance(parsed, dict):
+            # A single JSON object is a valid one-row dataset (also covers a
+            # one-line JSON Lines file, which parses as a bare object).
+            rows = [parsed]
+        else:
+            return None, (
+                "Expected a JSON array of objects or a JSON Lines file "
+                "(one object per line)."
+            )
+    else:
+        # Not a single JSON value; try JSON Lines.
+        rows = _parse_jsonl(stripped)
+        if rows is None:
+            return None, f"File is not valid JSON or JSON Lines: {parse_error.msg}."
+
+    if not rows:
+        return None, "The dataset is empty."
+
+    # A raw HF datasets-server export looks like a valid one-row dataset; reject
+    # it upfront instead of letting the trainer fail on the wrapper's columns.
+    if any(_looks_like_hf_datasets_server_export(row) for row in rows):
+        return None, (
+            "This looks like a raw Hugging Face datasets-server export "
+            "(the examples are nested under \"rows\"[i].\"row\", alongside "
+            "\"features\"/\"num_rows_total\" metadata). Please reformat it into "
+            "a flat JSON array of example objects — e.g. extract each entry's "
+            "\"row\" value into a top-level array like [{...}, {...}] — before "
+            "uploading."
+        )
+
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return None, (
+                f"Every item must be an object. Item at index {i} is not an object."
+            )
+        # The trainer calls `.strip()` on field values, which crashes on a null
+        # (common for optional fields like Alpaca `input`). Coerce top-level
+        # nulls to "" — non-null and nested values are left untouched.
+        for key, value in row.items():
+            if value is None:
+                row[key] = ""
+
+    return rows, None
+
+
+def _resolve_training_volume_dir(impl):
+    """Host path of the ``volume_id_*`` dir the training container mounts at
+    :data:`CONTAINER_CACHE_ROOT`.
+
+    ``impl.volume_name`` names the deploy's exact per-version dir, so prefer it
+    when present — it disambiguates multiple versions of the same model. Fall back
+    to a heuristic (name match, then most recently modified) otherwise. ``None``
+    if no training volume exists yet.
+    """
+    internal_root = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
+    )
+
+    # A candidate volume dir must be a real directory whose resolved path stays
+    # inside internal_root — a symlink could otherwise redirect staged datasets
+    # outside the training volume.
+    real_root = os.path.realpath(internal_root)
+
+    def _is_safe_volume_dir(path):
+        if os.path.islink(path) or not os.path.isdir(path):
+            return False
+        real_path = os.path.realpath(path)
+        return real_path == real_root or real_path.startswith(real_root + os.sep)
+
+    # Exact, version-aware match: impl.volume_name is `volume_id_<impl>-<name>-v<ver>`.
+    volume_name = getattr(impl, "volume_name", None)
+    if volume_name:
+        exact = os.path.join(internal_root, volume_name)
+        if _is_safe_volume_dir(exact):
+            return exact
+
+    candidates = [
+        d
+        for d in glob.glob(os.path.join(internal_root, "volume_id_*"))
+        if _is_safe_volume_dir(d)
+    ]
+    if not candidates:
+        return None
+
+    model_name = getattr(impl, "model_name", None)
+    if model_name:
+        matched = [d for d in candidates if model_name in os.path.basename(d)]
+        if matched:
+            candidates = matched
+
+    return max(candidates, key=os.path.getmtime)
+
+
+def _stage_custom_dataset(impl, name):
+    """Copy an uploaded dataset into the container's mounted volume and return
+    its container-side path.
+
+    The upload isn't in a mounted dir, so it's copied into
+    ``<volume_id_*>/custom_datasets/`` where the container can read it.
+
+    Returns ``(container_path, error_response)`` – exactly one is ``None``.
+    """
+    directory = _custom_datasets_dir()
+    src = _resolve_dataset_path(directory, name)
+    if src is None or not os.path.isfile(src):
+        return None, JsonResponse(
+            {"error": f"Custom dataset {name!r} not found."}, status=404
+        )
+
+    volume_dir = _resolve_training_volume_dir(impl)
+    if volume_dir is None:
+        return None, JsonResponse(
+            {
+                "error": (
+                    "Could not locate the training container's data volume to "
+                    "stage the custom dataset. Is a training model deployed?"
+                )
+            },
+            status=502,
+        )
+
+    base = os.path.basename(src)
+    dest_dir = os.path.join(volume_dir, "custom_datasets")
+    dest = os.path.join(dest_dir, base)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        # Backend runs as root, container as uid 1000 — make it world-readable.
+        os.chmod(dest_dir, 0o755)
+        shutil.copyfile(src, dest)
+        os.chmod(dest, 0o644)
+    except OSError as e:
+        logger.exception("Could not stage custom dataset %s into %s", src, dest_dir)
+        return None, JsonResponse({"error": str(e)}, status=500)
+
+    return f"{CONTAINER_CUSTOM_DATASETS_DIR}/{base}", None
+
+
+def _remove_staged_copies(filename):
+    """Best-effort removal of a dataset's staged copies from every training
+    volume, so deleting a dataset doesn't leave large orphans behind.
+
+    Note: a job actively training on the file would lose it; in practice the
+    trainer reads the dataset at job start, so this is safe between runs.
+    """
+    internal_root = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_VOLUME_SUBDIR
+    )
+    pattern = os.path.join(internal_root, "volume_id_*", "custom_datasets", filename)
+    for staged in glob.glob(pattern):
+        try:
+            if os.path.isfile(staged) and not os.path.islink(staged):
+                os.remove(staged)
+        except OSError as e:
+            logger.warning("Could not remove staged dataset copy %s: %s", staged, e)
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +476,7 @@ class CustomDatasetsView(View):
         filename = _safe_dataset_filename(upload.name)
         if filename is None:
             return JsonResponse(
-                {"error": "Invalid filename. Only .json dataset files are accepted."},
+                {"error": "Invalid filename. Only .json/.jsonl dataset files are accepted."},
                 status=400,
             )
 
@@ -269,11 +489,17 @@ class CustomDatasetsView(View):
 
         raw = upload.read()
         try:
-            json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
             return JsonResponse(
-                {"error": "File is not valid JSON."}, status=400
+                {"error": "File is not valid UTF-8 text."}, status=400
             )
+
+        # Store the normalized flat array the trainer consumes.
+        rows, norm_err = _normalize_dataset_rows(text)
+        if norm_err is not None:
+            return JsonResponse({"error": norm_err}, status=400)
+        normalized = json.dumps(rows, ensure_ascii=False).encode("utf-8")
 
         directory = _custom_datasets_dir()
         dest = os.path.join(directory, filename)
@@ -289,7 +515,7 @@ class CustomDatasetsView(View):
             )
         try:
             with open(dest, "wb") as f:
-                f.write(raw)
+                f.write(normalized)
         except OSError as e:
             logger.exception("Could not save custom dataset to %s", dest)
             return JsonResponse({"error": str(e)}, status=500)
@@ -299,7 +525,7 @@ class CustomDatasetsView(View):
             size_bytes = stat.st_size
             modified_at = int(stat.st_mtime)
         except OSError:
-            size_bytes = len(raw)
+            size_bytes = len(normalized)
             modified_at = None
 
         return JsonResponse(
@@ -328,7 +554,7 @@ class CustomDatasetDetailView(View):
     def get(self, request, name, *args, **kwargs):
         if _safe_dataset_filename(name) is None:
             return JsonResponse(
-                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                {"error": "Invalid dataset name. Only .json/.jsonl datasets are supported."},
                 status=400,
             )
 
@@ -343,31 +569,30 @@ class CustomDatasetDetailView(View):
             logger.exception("Could not stat custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
 
-        if size > MAX_DATASET_PREVIEW_BYTES:
-            limit_mb = MAX_DATASET_PREVIEW_BYTES // (1024 * 1024)
-            return JsonResponse(
-                {
-                    "error": (
-                        f"Dataset is too large to preview. The limit is {limit_mb} MB."
-                    )
-                },
-                status=413,
-            )
+        # Oversized datasets are served as a leading slice (sampled preview)
+        # rather than rejected; smaller files are returned whole.
+        sampled = size > MAX_DATASET_PREVIEW_BYTES
+        read_bytes = DATASET_PREVIEW_SAMPLE_BYTES if sampled else size
 
         try:
             with open(path, "rb") as f:
-                raw = f.read()
+                raw = f.read(read_bytes)
         except OSError as e:
             logger.exception("Could not read custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
 
-        return HttpResponse(raw, content_type="application/json")
+        response = HttpResponse(raw, content_type="application/json")
+        if sampled:
+            # Tell the frontend to sample-parse the partial body (exposed via CORS).
+            response["X-Dataset-Sampled"] = "true"
+            response["Access-Control-Expose-Headers"] = "X-Dataset-Sampled"
+        return response
 
     def delete(self, request, name, *args, **kwargs):
         filename = _safe_dataset_filename(name)
         if filename is None:
             return JsonResponse(
-                {"error": "Invalid dataset name. Only .json datasets are supported."},
+                {"error": "Invalid dataset name. Only .json/.jsonl datasets are supported."},
                 status=400,
             )
 
@@ -381,6 +606,8 @@ class CustomDatasetDetailView(View):
         except OSError as e:
             logger.exception("Could not delete custom dataset %s", path)
             return JsonResponse({"error": str(e)}, status=500)
+
+        _remove_staged_copies(filename)
 
         return JsonResponse({"id": filename, "name": filename, "deleted": True}, status=200)
 
@@ -422,6 +649,27 @@ class TrainingJobsListView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
+
+        # Stage the named upload and rewrite it into the server's custom-dataset
+        # fields. Popped unconditionally so the helper field never reaches the server.
+        custom_name = body.pop("custom_dataset", None)
+        if body.get("dataset_loader") == CUSTOM_DATASET_LOADER:
+            if not custom_name or not isinstance(custom_name, str):
+                return JsonResponse(
+                    {
+                        "error": "custom_dataset (a dataset name) is required when dataset_loader is 'Custom'."
+                    },
+                    status=400,
+                )
+            container_path, stage_err = _stage_custom_dataset(
+                entry.get("model_impl"), custom_name
+            )
+            if stage_err:
+                return stage_err
+            body["train_dataset_path"] = container_path
+            body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
+            body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
+
         url = f"{_base_url(entry)}/v1/jobs"
         return _proxy_post(url, body=body)
 

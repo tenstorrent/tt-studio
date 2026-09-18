@@ -20,6 +20,7 @@ import { DatasetUploadField } from "./DatasetUploadField";
 import { DatasetPreview } from "./DatasetPreview.tsx";
 import {
   parseDatasetFile,
+  buildSampledPreview,
   DatasetParseError,
   type DatasetPreview as DatasetPreviewData,
 } from "./datasetPreview";
@@ -33,9 +34,12 @@ import {
 } from "../../api/trainingApi";
 import { customToast } from "../CustomToaster";
 
-// Guard against reading arbitrarily large files into memory for a client-side
-// preview. 25 MB is generous for a JSON dataset sample.
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
+// Upload cap, mirrors the backend's MAX_DATASET_UPLOAD_BYTES.
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+// Files at or below this size are read in full for an exact preview.
+const PREVIEW_FULL_READ_BYTES = 25 * 1024 * 1024;
+// Larger files: only this leading slice is read for a sampled preview.
+const PREVIEW_SAMPLE_BYTES = 2 * 1024 * 1024;
 
 type Phase = "idle" | "reading" | "parsing" | "ready" | "error";
 
@@ -140,11 +144,33 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
     setProgress(0);
     setUploaded(false);
 
-    if (selected.size > MAX_FILE_BYTES) {
+    if (selected.size > MAX_UPLOAD_BYTES) {
       setPhase("error");
       setError(
-        `File is too large to preview (${(selected.size / (1024 * 1024)).toFixed(1)} MB). The limit is ${MAX_FILE_BYTES / (1024 * 1024)} MB.`,
+        `File is too large (${(selected.size / (1024 * 1024)).toFixed(1)} MB). The limit is ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`,
       );
+      return;
+    }
+
+    // Large files: preview a leading slice; the whole file is still uploaded.
+    if (selected.size > PREVIEW_FULL_READ_BYTES) {
+      setPhase("reading");
+      selected
+        .slice(0, PREVIEW_SAMPLE_BYTES)
+        .text()
+        .then((chunk) => {
+          setProgress(100);
+          setPhase("parsing");
+          setTimeout(() => {
+            setPreview(buildSampledPreview(chunk));
+            setPreviewSource("file");
+            setPhase("ready");
+          }, 0);
+        })
+        .catch(() => {
+          setPhase("error");
+          setError("Failed to read the file.");
+        });
       return;
     }
 
@@ -237,8 +263,10 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
       setPhase("parsing");
 
       try {
-        const text = await fetchCustomDatasetContent(dataset.id);
-        const parsed = parseDatasetFile(text);
+        const { text, sampled } = await fetchCustomDatasetContent(dataset.id);
+        const parsed = sampled
+          ? buildSampledPreview(text)
+          : parseDatasetFile(text);
         setPreview(parsed);
         setPreviewSource("existing");
         setPhase("ready");
@@ -247,9 +275,18 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
         if (err instanceof DatasetParseError) {
           message = err.message;
         } else {
-          const apiError = (err as { response?: { data?: { error?: string } } })
-            ?.response?.data?.error;
-          if (apiError) message = apiError;
+          // Fetched as text, so an error body may arrive as a JSON string; handle both.
+          const data = (err as { response?: { data?: unknown } })?.response?.data;
+          if (typeof data === "string") {
+            try {
+              message = (JSON.parse(data) as { error?: string })?.error || message;
+            } catch {
+              /* keep generic message */
+            }
+          } else {
+            const apiError = (data as { error?: string })?.error;
+            if (apiError) message = apiError;
+          }
         }
         setPhase("error");
         setError(message);
@@ -298,7 +335,14 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
               <span className="truncate">{previewName}</span>
             </div>
           )}
-          <DatasetPreview preview={preview} />
+          {preview.sampled && preview.rows.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              A preview sample could not be extracted from the start of this large
+              file. It can still be used for training in full.
+            </p>
+          ) : (
+            <DatasetPreview preview={preview} />
+          )}
         </>
       )}
 
