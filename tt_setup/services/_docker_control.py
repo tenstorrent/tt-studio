@@ -10,6 +10,8 @@ small to remove a legacy host process left by an older TT-Studio install.
 """
 
 import os
+import re
+import shutil
 import subprocess
 
 from tt_setup.constants import DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_SERVICE_DIR
@@ -36,11 +38,17 @@ def _legacy_pid_command(pid):
 
 
 def _is_legacy_docker_control_process(pid):
-    """Avoid killing a different process if an old PID file was recycled."""
+    """Avoid killing a different process if an old PID file was recycled.
+
+    Matches if the process command references docker-control-service, or if any
+    ancestor in its process tree is a supervisor wrapper for docker-control-service.
+    """
     command = _legacy_pid_command(pid).lower()
-    if not command:
-        return False
-    return "docker-control-service" in command or DOCKER_CONTROL_SERVICE_DIR.lower() in command
+    if command and ("docker-control-service" in command or DOCKER_CONTROL_SERVICE_DIR.lower() in command):
+        return True
+    if _find_supervisor_wrapper_pid(pid):
+        return True
+    return False
 
 
 def _legacy_docker_control_listener_pids():
@@ -49,7 +57,9 @@ def _legacy_docker_control_listener_pids():
     A missing or stale PID file is common after an upgrade, so the migration
     path also checks the old public port.  It deliberately validates every PID
     before returning it: port 8002 may belong to an unrelated local service.
+    Supports both lsof and ss (Linux) to ensure listeners are discovered.
     """
+    pids = set()
     try:
         result = subprocess.run(
             ["lsof", "-nP", "-tiTCP:8002", "-sTCP:LISTEN"],
@@ -57,10 +67,23 @@ def _legacy_docker_control_listener_pids():
             text=True,
             check=False,
         )
+        pids.update(int(raw_pid) for raw_pid in (result.stdout or "").split() if raw_pid.isdigit())
     except (FileNotFoundError, OSError):
-        return []
+        pass
 
-    pids = {int(raw_pid) for raw_pid in (result.stdout or "").split() if raw_pid.isdigit()}
+    # Fall back to ss on Linux systems where lsof is missing or returned nothing
+    if not pids and shutil.which("ss"):
+        try:
+            result = subprocess.run(
+                ["ss", "-lptn", "sport = :8002"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            pids.update(int(m) for m in re.findall(r"pid=(\d+)", result.stdout or ""))
+        except (FileNotFoundError, OSError):
+            pass
+
     return [pid for pid in pids if _is_legacy_docker_control_process(pid)]
 
 

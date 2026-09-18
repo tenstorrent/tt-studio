@@ -234,6 +234,88 @@ class TestLegacyDockerControlCleanup(unittest.TestCase):
         self.assertEqual(terminated, [1111, 4242],
                          "Supervisor wrapper (1111) must be terminated before listener child (4242)")
 
+    def test_cleanup_identifies_via_parent_supervisor_when_child_is_plain_python(self):
+        worker_command = "/usr/bin/python3.12 -c from multiprocessing.spawn import spawn_main"
+        supervisor_command = f"/bin/bash /tmp/tmp_supervisor.sh {M.DOCKER_CONTROL_SERVICE_DIR} /path/to/pid .venv log"
+
+        terminated = []
+
+        def fake_run_command(cmd, **kwargs):
+            if cmd[0] == "lsof":
+                if 747888 in terminated:
+                    return MagicMock(stdout="", returncode=1)
+                return MagicMock(stdout="747888\n", returncode=0)
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747888":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="537390\n", returncode=0)
+                    return MagicMock(stdout=worker_command, returncode=0)
+                if p == "537390":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1\n", returncode=0)
+                    return MagicMock(stdout=supervisor_command, returncode=0)
+                return MagicMock(stdout="", returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-15":
+                terminated.append(int(cmd[2]))
+                return MagicMock(returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-0":
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=fake_run_command), \
+             patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        self.assertEqual(terminated, [537390, 747888],
+                         "Supervisor (537390) must be terminated before plain python child (747888)")
+
+    def test_cleanup_discovers_listener_via_ss_when_lsof_fails(self):
+        supervisor_command = f"/bin/bash /tmp/tmp_supervisor.sh {M.DOCKER_CONTROL_SERVICE_DIR} /path/to/pid .venv log"
+        terminated = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            if cmd[0] == "lsof":
+                raise FileNotFoundError("lsof not found")
+            if cmd[0] == "ss":
+                return MagicMock(stdout='users:(("uvicorn",pid=747886))\n', returncode=0)
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747886":
+                    return MagicMock(stdout="uvicorn api:app", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        def fake_ports_run_command(cmd, **kwargs):
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747886":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="537390\n", returncode=0)
+                    return MagicMock(stdout="uvicorn api:app", returncode=0)
+                if p == "537390":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1\n", returncode=0)
+                    return MagicMock(stdout=supervisor_command, returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-15":
+                terminated.append(int(cmd[2]))
+                return MagicMock(returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-0":
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod.shutil, "which", return_value="/usr/bin/ss"), \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=fake_subprocess_run), \
+             patch.object(_ports_mod, "run_command", side_effect=fake_ports_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        self.assertEqual(terminated, [537390, 747886])
+
 class TestGetBackendPort(unittest.TestCase):
     def test_default_is_8000(self):
         with patch.dict(os.environ, {}, clear=True), \
