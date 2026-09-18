@@ -124,6 +124,26 @@ docker network prune
 
 Then restart TT-Studio.
 
+### Slow model weight downloads (Hugging Face Xet)
+
+Model weight downloads run through Hugging Face's Xet transfer, which fetches
+each file as many parallel chunks. On a gigabit link Xet saturates the NIC at
+about 115 MB/s, while a plain HTTPS stream tops out around 20 MB/s, so a 47 GB
+checkpoint takes about 7 minutes instead of 40. If a download stalls or exits
+before the weights are complete, fall back to the old single-stream HTTPS path
+by setting in `.env`:
+
+```bash
+TT_STUDIO_DISABLE_HF_XET=true
+```
+
+then restart with `python run.py`. The launcher forwards the flag to the
+inference server, which adds `HF_HUB_DISABLE_XET=1` to the weight download it
+runs for each deploy (the tt-inference-server `run.py` / `hf download` path).
+Downloads will be slower but use a single connection per file. Media models
+that download inside their own container (for example whisper or TTS) do not
+go through this path and are unaffected by the flag.
+
 ### FastAPI Server Fails to Start
 
 Check the logs in `logs/model_run.log` for specific errors. Common causes include:

@@ -1153,7 +1153,7 @@ def _execute_dev_mode_subprocess(
     argv = [sys.executable, str(script_dir / "run.py")] + argv_for_attempt[1:]
 
     child_env = os.environ.copy()       # per-call snapshot; never mutates api.py's own os.environ
-    child_env.update(env_vars_to_set)   # AUTOMATIC_HOST_SETUP, SERVICE_PORT, HF_HUB_DISABLE_XET,
+    child_env.update(env_vars_to_set)   # AUTOMATIC_HOST_SETUP, SERVICE_PORT, HF_HUB_DISABLE_XET (opt-out only),
                                          # and -- a nice side benefit -- JWT_SECRET/HF_TOKEN now
                                          # flow ONLY into this dict, never into the shared process env
     child_env["MODEL_SPECS_ENV"] = "dev"  # belt-and-braces; run.py's own argv scan already does this
@@ -1389,6 +1389,45 @@ def _default_hf_home() -> Path:
     )
 
 
+# Spellings accepted as "true" for TT_STUDIO_DISABLE_HF_XET (.env.default ships it as false).
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _hf_xet_env_overrides(environ: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Env additions for the deploy (run.py / `hf download`) process that govern
+    Hugging Face Xet transfer.
+
+    History: commit 1b0eb0f (June 2026) hard-coded HF_HUB_DISABLE_XET=1 into
+    env_vars_to_set because the hf_xet client of the day let `hf download` exit 0
+    before every blob had finished landing on disk, so setup_host carried on with
+    truncated weights. The price was steep: with Xet off, each file is a single
+    plain-HTTPS stream, which caps a single-file checkpoint (Motif-Image-6B-Preview's
+    47.6 GB .bin, for instance) at ~17-25 MB/s on a gigabit link.
+
+    Re-verified Sept 2026 with huggingface_hub 1.32 / hf_xet 1.6 (what the artifact's
+    requirements/constraints.txt resolves to): a full 47.6 GB `hf download` exits 0
+    only once the blob is complete and its sha256 matches the LFS oid, and it runs at
+    ~118 MB/s -- about 6x faster. Xet is therefore on by default, and the old
+    HTTPS-only path is an opt-out: TT_STUDIO_DISABLE_HF_XET=true in the repo .env
+    (the launcher forwards it, like HF_TOKEN) or in this process's environment.
+
+    HF_HUB_DISABLE_SHARED_BLOBS=1 is always set. huggingface_hub 1.32 dedupes Xet
+    downloads through a cache-wide store at `$HF_HOME/hub/blobs/<xx>/<xet-hash>` and
+    leaves only a relative symlink in the per-repo `blobs/` dir. setup_host's
+    --host-hf-cache path bind-mounts just `hub/models--<repo>` into the model
+    container, so those symlinks dangle inside it and the model fails to load
+    ("does not appear to have a file named .../transformer/...safetensors" on
+    FLUX.1-schnell). With the shared store off, blobs are regular files inside the
+    repo dir again -- the same layout as an HTTPS download -- and Xet stays on.
+    """
+    env = os.environ if environ is None else environ
+    overrides = {"HF_HUB_DISABLE_SHARED_BLOBS": "1"}
+    raw = env.get("TT_STUDIO_DISABLE_HF_XET", "")
+    if str(raw).strip().lower() in _TRUTHY_ENV_VALUES:
+        overrides["HF_HUB_DISABLE_XET"] = "1"
+    return overrides
+
+
 def _hf_cache_repo_root(hf_home: Path, repo_id: str) -> Optional[Path]:
     """Return the repo cache root under HF_HOME (supports both 'hub/' and legacy layouts)."""
     local_repo = repo_id.replace("/", "--")
@@ -1404,7 +1443,14 @@ def _hf_cache_repo_root(hf_home: Path, repo_id: str) -> Optional[Path]:
 
 
 def _dir_size_bytes(path: Path) -> int:
-    """Fast, non-recursive size sum for a directory of files."""
+    """Fast, non-recursive size sum for a directory of files.
+
+    Symlinks are followed. Deploys set HF_HUB_DISABLE_SHARED_BLOBS=1 so blobs are
+    regular files, but a cache populated by a bare `hf download` (huggingface_hub
+    >= 1.32 with Xet) holds only a symlink per blob into the shared store at
+    `$HF_HOME/hub/blobs/<xx>/<xet-hash>`; skipping those would make a finished
+    download read as 0 B and defeat the pre-cached-weights detection.
+    """
     try:
         total = 0
         if not path.exists() or not path.is_dir():
@@ -1412,10 +1458,10 @@ def _dir_size_bytes(path: Path) -> int:
         with os.scandir(path) as it:
             for entry in it:
                 try:
-                    if entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
+                    if entry.is_file():
+                        total += entry.stat().st_size
                 except FileNotFoundError:
-                    # File may disappear mid-scan; ignore.
+                    # File (or a symlink's target) may disappear mid-scan; ignore.
                     continue
         return total
     except Exception:
@@ -1635,6 +1681,42 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
         return None
 
 
+class _ThroughputWindow:
+    """Time-weighted download rate over a sliding window of (time, bytes) samples.
+
+    Replaces the per-poll EMA of instantaneous rates that the weights monitor used
+    to keep. That EMA weighted every 1 s poll equally, which was fine for a plain
+    HTTPS stream (bytes arrive smoothly) but breaks down with Xet transfer: hf_xet
+    materialises each file in multi-GB bursts separated by 10-20 s plateaus, so the
+    burst polls (GB/s instantaneous) dominated the average while the plateau polls
+    were skipped as "stagnant". Measured on a gigabit box: 220-500 MB/s displayed
+    against 123 MB/s on the wire. Bytes-over-elapsed-time across a window that
+    spans several bursts is immune to that, and it decays to 0 by itself when a
+    download stalls (no separate stagnant-poll bookkeeping needed).
+    """
+
+    def __init__(self, window_seconds: float = 60.0, min_span_seconds: float = 5.0):
+        self.window_seconds = window_seconds
+        self.min_span_seconds = min_span_seconds
+        self._samples: deque = deque()  # (timestamp, downloaded_bytes)
+
+    def update(self, now: float, downloaded_bytes: int) -> Optional[float]:
+        """Record a sample; return bytes/s over the window, or None until enough
+        time has elapsed for the estimate to mean anything."""
+        self._samples.append((now, downloaded_bytes))
+        # Drop samples older than the window, but always keep one sample at or
+        # before the cutoff so the span stays close to window_seconds.
+        while len(self._samples) >= 2 and now - self._samples[1][0] >= self.window_seconds:
+            self._samples.popleft()
+        oldest_t, oldest_bytes = self._samples[0]
+        span = now - oldest_t
+        if span < self.min_span_seconds:
+            return None
+        # A transient dip (huggingface_hub renames a finished blob into the shared
+        # store a moment before it drops the symlink in) must not go negative.
+        return max(0.0, (downloaded_bytes - oldest_bytes) / span)
+
+
 def _weights_progress_monitor(
     job_id: str,
     stop_event: threading.Event,
@@ -1651,13 +1733,8 @@ def _weights_progress_monitor(
     Docker named volume (or host bind-mount path) the deployment writes to.
     Otherwise we fall back to log-scraped HF_HOME (legacy path).
     """
-    last_bytes = 0
-    last_t = time.time()
-    ema_speed_bps: Optional[float] = None
-    stable_speed_bps: Optional[float] = None
-    stagnant_polls = 0
-    MAX_STAGNANT_POLLS = 15  # 15s grace period
-    MIN_SPEED_BPS = 64 * 1024  # Ignore tiny fluctuations under 64KB/s
+    speed_bps: Optional[float] = None
+    throughput = _ThroughputWindow()
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
     total_bytes: Optional[int] = None
@@ -1739,37 +1816,9 @@ def _weights_progress_monitor(
                 first_size_check = False
                 if downloaded >= total_bytes:
                     weights_already_cached = True
-            now = time.time()
-            dt = max(1e-3, now - last_t)
-            delta = downloaded - last_bytes
-           
-            if delta > MIN_SPEED_BPS:
-                stagnant_polls = 0
-
-                inst_speed = delta / dt
-
-                # Faster convergence early, slower later
-                alpha = 0.35 if ema_speed_bps is None else 0.15
-
-                if ema_speed_bps is None:
-                    ema_speed_bps = inst_speed
-                else:
-                    ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
-
-                stable_speed_bps = ema_speed_bps
-
-                last_bytes = downloaded
-                last_t = now
-            else:
-                stagnant_polls += 1
-
-                # Hold previous speed briefly during shard verification/unpacking
-                if stagnant_polls < MAX_STAGNANT_POLLS:
-                    ema_speed_bps = stable_speed_bps
-                else:
-                    # Slowly decay speed instead of hard-dropping
-                    if ema_speed_bps is not None:
-                        ema_speed_bps *= 0.92
+            # Time-weighted rate across a sliding window (see _ThroughputWindow for
+            # why a per-poll EMA over-reports 2-3x with Xet's bursty writes).
+            speed_bps = throughput.update(time.time(), downloaded)
 
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
@@ -1789,7 +1838,7 @@ def _weights_progress_monitor(
                     # slightly so users can tell we're alive (cap below host-setup completion).
                     progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
-                    speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
+                    speed_txt = _format_bytes(speed_bps) + "/s" if speed_bps else "—"
                     
                     if total_bytes and downloaded >= total_bytes:
                         msg = "Finalizing model weights and cache..."
@@ -1800,11 +1849,11 @@ def _weights_progress_monitor(
                     eta_seconds: Optional[float] = None
                     if (
                         total_bytes is not None
-                        and ema_speed_bps is not None
-                        and ema_speed_bps > 0
+                        and speed_bps is not None
+                        and speed_bps > 0
                         and total_bytes > downloaded
                     ):
-                        raw_eta = (total_bytes - downloaded) / ema_speed_bps
+                        raw_eta = (total_bytes - downloaded) / speed_bps
                         # Clamp unrealistic spikes/jitter
                         if eta_seconds is None:
                             eta_seconds = raw_eta
@@ -1821,7 +1870,7 @@ def _weights_progress_monitor(
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
                             "total_bytes": int(total_bytes) if total_bytes is not None else None,
-                            "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                            "speed_bps": float(speed_bps) if speed_bps is not None else None,
                             "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
                             "weights_cached": weights_already_cached,
                         }
@@ -2690,8 +2739,12 @@ async def run_inference(request: RunRequest):
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
             "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
-            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
+        # Hugging Face Xet transfer stays enabled unless TT_STUDIO_DISABLE_HF_XET opts
+        # out (adds HF_HUB_DISABLE_XET=1); the hub's shared blob store is always off so
+        # the per-repo cache dir stays self-contained for the container bind-mount.
+        # See _hf_xet_env_overrides() for the history.
+        env_vars_to_set.update(_hf_xet_env_overrides())
         
         # Handle secrets. See _resolve_secret_env_vars() for why these must not be
         # conditioned on the current os.environ.
