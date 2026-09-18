@@ -20,7 +20,7 @@ from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.env_config import get_env_var
 from tt_setup.docker import check_docker_access
 from tt_setup.console import console, progress_status, show_detail
-from tt_setup.services._ports import check_port_available, kill_process_on_port
+from tt_setup.services._ports import check_port_available, kill_process_on_port, _pid_is_zombie
 
 
 def archive_docker_control_log():
@@ -91,7 +91,9 @@ def _service_is_healthy(timeout=2):
 
 
 def _process_is_alive(pid, no_sudo=False):
-    """True if `pid` exists. Falls back to sudo when the process isn't ours."""
+    """True if `pid` exists and is not a zombie. Falls back to sudo when the process isn't ours."""
+    if _pid_is_zombie(pid):
+        return False
     try:
         os.kill(int(pid), 0)
         return True
