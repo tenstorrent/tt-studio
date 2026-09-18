@@ -657,6 +657,19 @@ class MediaImageOverrideTests(SimpleTestCase):
         self.assertIsNone(media_image_override("whisper-large-v3", "p150"))
         self.assertIsNone(media_image_override("Llama-3.1-8B-Instruct", "p150x4"))
 
+    def test_motif_on_p300x2_is_pinned_to_the_patched_studio_image(self):
+        """The spec's 0.9.0 image cannot run Motif at all, and stock 0.18.0 has
+        no (2, 2) mesh preset; only the studio_images build runs on p300x2."""
+        self.assertEqual(
+            media_image_override("Motif-Image-6B-Preview", "p300x2"),
+            "ghcr.io/tenstorrent/tt-studio/studio_images:motif-image-6b-p300x2-20260814-0.18.0-c49bb76",
+        )
+
+    def test_motif_on_other_boards_keeps_the_spec_image(self):
+        """The patch is a p300x2 mesh preset; the other boards are untested on it."""
+        for device in ("t3k", "galaxy", "p150x8"):
+            self.assertIsNone(media_image_override("Motif-Image-6B-Preview", device))
+
 
 class MediaTraceRegionOverrideTests(SimpleTestCase):
     def test_both_flux_variants_reserve_p300x2_trace_region_on_p150x4(self):
