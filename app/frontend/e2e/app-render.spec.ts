@@ -34,6 +34,7 @@ const ROUTES = [
   "/image-generation",
   "/voice-agent",
   "/speech-to-text",
+  "/ocr",
   "/api-info/test-model",
   "/deployment-history",
   "/tts",
