@@ -9,8 +9,13 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APIClient
 
-from docker_control.chip_allocator import ChipSlotAllocator
+from docker_control.chip_allocator import (
+    AllocationError,
+    ChipSlotAllocator,
+    MultiChipConflictError,
+)
 from docker_control.deployment_sync import _classify_failure
+from docker_control.artifact_resolution import _LLAMA_V014_IMAGE, training_image_override
 from docker_control.docker_utils import (
     claims_whole_board,
     deploys_whole_board,
@@ -21,7 +26,6 @@ from docker_control.docker_utils import (
     vllm_mesh_fallback_fits,
 )
 from docker_control.views import (
-    _LLAMA_V014_IMAGE,
     _resolve_artifact_ref,
     _resolve_override_docker_image,
 )
@@ -102,6 +106,147 @@ class ChipAllocatorDeviceIdsTests(TestCase):
         self.assertEqual(occupied_slots, {2})
 
 
+def _container(name, devices, container_id="0123456789abcdef"):
+    """A container entry as the docker-control service lists it."""
+    return {
+        "id": container_id,
+        "name": name,
+        "HostConfig": {
+            "Devices": [{"PathOnHost": d, "PathInContainer": d} for d in devices],
+        },
+    }
+
+
+class _FakeDockerClient:
+    def __init__(self, containers=None, error=None):
+        self._containers = containers or []
+        self._error = error
+
+    def list_containers(self, all=False):
+        if self._error:
+            raise self._error
+        return {"status": "success", "containers": self._containers}
+
+
+class ChipAllocatorExternalContainerTests(TestCase):
+    """Chips held by containers TT-Studio did not deploy must read as occupied."""
+
+    def _make_allocator(self) -> ChipSlotAllocator:
+        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
+            return ChipSlotAllocator()
+
+    def _with_docker(self, allocator, containers=None, error=None, deployments=None):
+        client = _FakeDockerClient(containers=containers, error=error)
+        return (
+            patch("docker_control.docker_control_client.get_docker_client", return_value=client),
+            patch.object(allocator, "_get_active_deployments", return_value=deployments or []),
+            patch.object(allocator, "_get_chips_required", return_value=1),
+        )
+
+    def _enter(self, patches):
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_single_chip_bound_by_foreign_container_is_occupied_and_not_allocatable(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("tt-model-devstral", ["/dev/tenstorrent/2"])]))
+
+        status = allocator.get_chip_status()
+        slot = status["slots"][2]
+        self.assertEqual(slot["status"], "occupied")
+        self.assertEqual(slot["model_name"], "tt-model-devstral")
+        self.assertIsNone(slot["deployment_id"])
+        self.assertEqual(slot["source"], "external")
+        self.assertEqual([s["status"] for s in status["slots"]], ["available", "available", "occupied", "available"])
+
+        # Auto placement skips the held chip, manual placement on it is refused by name.
+        self.assertEqual(allocator.allocate_chip_slot("bge-m3"), 0)
+        with self.assertRaises(AllocationError) as ctx:
+            allocator.allocate_chip_slot("bge-m3", manual_override=2)
+        self.assertIn("tt-model-devstral", str(ctx.exception))
+        self.assertIn("not deployed by TT-Studio", str(ctx.exception))
+
+    def test_whole_device_directory_bound_by_foreign_container_holds_every_chip(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("tt-model-devstral", ["/dev/tenstorrent"])]))
+
+        status = allocator.get_chip_status()
+        self.assertTrue(all(s["status"] == "occupied" for s in status["slots"]))
+        self.assertTrue(all(s["is_multi_chip"] for s in status["slots"]))
+
+        with self.assertRaises(AllocationError):
+            allocator.allocate_chip_slot("bge-m3")
+        with patch.object(allocator, "_get_chips_required", return_value=4):
+            with self.assertRaises(MultiChipConflictError) as ctx:
+                allocator.allocate_chip_slot("Llama-3.3-70B")
+        self.assertEqual(
+            [(c["model"], c["deployment_id"], c["source"]) for c in ctx.exception.conflicts],
+            [("tt-model-devstral", None, "external")],
+        )
+
+    def test_tt_studio_infrastructure_containers_are_ignored(self):
+        allocator = self._make_allocator()
+        infra = [
+            _container("tt_studio_backend_api_dev", ["/dev/tenstorrent"], container_id="aaa"),
+            _container("docker-control-service", ["/dev/tenstorrent"], container_id="bbb"),
+        ]
+        self._enter(self._with_docker(allocator, infra))
+
+        status = allocator.get_chip_status()
+        self.assertTrue(all(s["status"] == "available" for s in status["slots"]))
+        self.assertEqual(allocator._get_occupied_slots(), set())
+
+    def test_container_tracked_as_a_deployment_is_counted_once_from_its_record(self):
+        allocator = self._make_allocator()
+        deployment = _FakeDeployment(id=7, model_name="bge-m3", device_id=0, device_ids=[0], port=7000)
+        deployment.container_id = "feedfacefeedfacefeedface"
+        deployment.container_name = "bge-m3"
+        containers = [_container("bge-m3", ["/dev/tenstorrent/0"], container_id="feedfacefeedfacefeedface")]
+        self._enter(self._with_docker(allocator, containers, deployments=[deployment]))
+
+        status = allocator.get_chip_status()
+        slot = status["slots"][0]
+        self.assertEqual(slot["status"], "occupied")
+        self.assertEqual(slot["deployment_id"], 7)
+        self.assertNotIn("source", slot)
+        self.assertEqual(allocator._get_occupied_slots(), {0})
+
+    def test_get_chip_status_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            status = allocator.get_chip_status()
+
+        self.assertTrue(all(slot["status"] == "available" for slot in status["slots"]))
+        self.assertEqual(active_mock.call_count, 1)
+
+    def test_get_occupied_slots_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            occupied = allocator._get_occupied_slots()
+
+        self.assertEqual(occupied, set())
+        self.assertEqual(active_mock.call_count, 1)
+
+    def test_docker_listing_failure_falls_back_to_deployment_records(self):
+        allocator = self._make_allocator()
+        deployment = _FakeDeployment(id=3, model_name="bge-m3", device_id=1, device_ids=[1], port=7001)
+        self._enter(self._with_docker(allocator, error=RuntimeError("docker-control unreachable"), deployments=[deployment]))
+
+        status = allocator.get_chip_status()
+        self.assertEqual([s["status"] for s in status["slots"]], ["available", "occupied", "available", "available"])
+        self.assertEqual(allocator.allocate_chip_slot("whisper"), 0)
+
+    def test_containers_without_tenstorrent_devices_are_ignored(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("chromadb", ["/dev/fuse"]), _container("plain", [])]))
+        self.assertEqual(allocator._get_occupied_slots(), set())
+
+
 class ClassifyFailureTests(SimpleTestCase):
     def test_hf_auth_sentinel(self):
         msg = (
@@ -109,6 +254,18 @@ class ClassifyFailureTests(SimpleTestCase):
             "invalid, expired, or does not have access to this model."
         )
         self.assertEqual(_classify_failure(msg), ("hf_auth", msg))
+
+    def test_hf_model_not_found_repository_error(self):
+        msg = "huggingface_hub.utils._errors.RepositoryNotFoundError: 404 Client Error: Repository Not Found for url"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
+
+    def test_hf_model_not_found_entry_error(self):
+        msg = "EntryNotFoundError: 404 Client Error: Entry Not Found for url"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
+
+    def test_hf_model_not_found_generic_404(self):
+        msg = "Model meta-llama/non-existent could not be loaded from hugging face: 404 client error: repository not found"
+        self.assertEqual(_classify_failure(msg), ("hf_model_not_found", msg))
 
     def test_unknown_failure(self):
         msg = "CUDA out of memory"
@@ -146,6 +303,50 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        self.assertIn("does not have access", response.data.get("message", ""))
+        self.assertEqual(
+            response.data.get("hf_url"),
+            f"https://huggingface.co/{self.hf_repo}",
+        )
+        # Pre-check must short-circuit before any ModelDeployment query.
+        filter_mock.assert_not_called()
+
+    @patch("api.hf_access._check_repo", return_value=401)
+    @patch("shared_config.user_config.get_hf_token", return_value=None)
+    def test_returns_400_when_hf_access_denied_without_token(self, _token_mock, _repo_mock):
+        with patch(
+            "docker_control.models.ModelDeployment.objects.filter"
+        ) as filter_mock:
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("error_code"), "hf_access_denied")
+        self.assertIn("token is required", response.data.get("message", ""))
+        self.assertEqual(
+            response.data.get("hf_url"),
+            f"https://huggingface.co/{self.hf_repo}",
+        )
+        filter_mock.assert_not_called()
+
+    @patch("api.hf_access._check_repo", return_value=404)
+    @patch("shared_config.user_config.get_hf_token", return_value="fake-token")
+    def test_returns_400_when_hf_repo_not_found(self, _token_mock, _repo_mock):
+        with patch(
+            "docker_control.models.ModelDeployment.objects.filter"
+        ) as filter_mock:
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data.get("error_code"), "hf_model_not_found")
+        self.assertIn("could not be found", response.data.get("message", ""))
         self.assertEqual(
             response.data.get("hf_url"),
             f"https://huggingface.co/{self.hf_repo}",
@@ -178,6 +379,30 @@ class _FakeModelImpl:
     requires_dev_catalog: bool = False
     image_version: str = "ghcr.io/example/img:v1"
     inference_artifact_ref: Optional[dict] = None
+    model_type: ModelTypes = ModelTypes.CHAT
+
+
+class TrainingImageOverrideTests(SimpleTestCase):
+    """A TRAINING row's catalog docker_image is the deploy image, verbatim."""
+
+    _STUDIO_TAG = "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260908"
+
+    def test_training_row_forwards_its_catalog_image(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=self._STUDIO_TAG)
+        self.assertEqual(training_image_override(impl), self._STUDIO_TAG)
+
+    def test_local_build_tag_is_forwarded_verbatim(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version="tt-media-server-forge:local")
+        self.assertEqual(training_image_override(impl), "tt-media-server-forge:local")
+
+    def test_non_training_row_gets_no_override(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.CHAT, image_version=self._STUDIO_TAG)
+        self.assertIsNone(training_image_override(impl))
+
+    def test_training_row_without_image_leaves_server_spec_in_charge(self):
+        # model_config renders an empty catalog docker_image as ":latest".
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=":latest")
+        self.assertIsNone(training_image_override(impl))
 
 
 class OverrideDockerImageResolutionTests(SimpleTestCase):

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 
 FROM python:3.12.8-slim-bookworm
@@ -10,6 +10,7 @@ ENV VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
 ENV PYTHONUNBUFFERED=1
 # /backend is bind-mounted from the host repo; don't litter it with bytecode
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_ROOT_USER_ACTION=ignore
 
 EXPOSE 8000
 

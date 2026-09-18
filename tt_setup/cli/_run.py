@@ -15,15 +15,50 @@ from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import classify_pull_failure, handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
-from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues, prepare_docker_socket_path, remove_docker_control_container
-from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.docker import (
+    build_docker_compose_command,
+    check_docker_access,
+    check_docker_installation,
+    detect_foreign_tt_studio_stacks,
+    detect_tt_hardware,
+    fix_docker_issues,
+    prepare_docker_socket_path,
+    remove_docker_control_container,
+    stop_tt_studio_stack,
+)
+from tt_setup.env_config import (
+    configure_environment_sequentially,
+    get_env_var,
+    parse_boolean_env,
+    save_setup_config,
+    set_app_version_env,
+    write_env_var,
+)
 from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY, decide_image_source, describe_pull_fallback, frontend_config_drift, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
+from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
-from tt_setup.services import check_and_free_ports, cleanup_docker_control_service, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
-from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
+from tt_setup.services import (
+    check_and_free_ports,
+    cleanup_docker_control_service,
+    ensure_frontend_dependencies,
+    get_backend_port,
+    get_frontend_config,
+    report_service_failure,
+    resolve_backend_port,
+    setup_fastapi_environment,
+    snapshot_health,
+    start_fastapi_server,
+    wait_for_all_services,
+    wait_for_frontend_and_open_browser,
+)
+from tt_setup.inference_server import (
+    _catalog_missing_generated_specs,
+    _sync_model_catalog,
+    setup_tt_inference_server,
+)
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -306,6 +341,9 @@ def _run(args):
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
   {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}python run.py --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+  {C_CYAN}python run.py --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
+  {C_CYAN}python run.py --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -348,6 +386,15 @@ def _run(args):
 
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
+
+        if getattr(args, "make_rc_branch", None):
+            sys.exit(make_rc_branch(args.make_rc_branch))
+
+        if getattr(args, "update_rc_branch", False):
+            sys.exit(update_rc_branch())
+
+        if getattr(args, "merge_rc_branch", False):
+            sys.exit(merge_rc_branch())
 
         # Stopping one model (and resetting its chips) must never fall through
         # to the full-stack teardown either.
@@ -639,12 +686,61 @@ def _run(args):
         ph.set("ports & permissions")
         # (spinner stays suspended from the frontend-deps step above)
 
+        # Only one TT Studio can be booted per machine — the containers share
+        # names, host ports, and the Docker network — so a stack started from a
+        # different checkout must be stopped explicitly rather than letting
+        # compose silently recreate or collide with its containers. Runs before
+        # the backend-port resolution below, so any TT Studio backend still
+        # holding a port after this point is our own (a normal restart).
+        foreign_stacks = detect_foreign_tt_studio_stacks()
+        if foreign_stacks:
+            checkouts = [os.path.dirname(wd) or wd for wd in foreign_stacks]
+            console.print(notice_panel(
+                "[warning]Another TT Studio is already running[/warning]",
+                ["It was started from:"]
+                + [f"  [bold]{c}[/bold]" for c in checkouts]
+                + ["",
+                   "Only one TT Studio can run on a machine at a time — the",
+                   "containers share names, host ports, and the Docker network."],
+                border_style="warning",
+            ))
+            if sys.stdin.isatty() and confirm(
+                    "Stop that TT Studio and start this one instead?", default=False):
+                for wd in foreign_stacks:
+                    if not stop_tt_studio_stack(wd):
+                        console.print(
+                            f"[error]⛔ Could not stop the TT Studio running from "
+                            f"{os.path.dirname(wd) or wd}. Stop it there with "
+                            f"[bold]python run.py --stop[/bold], then re-run.[/error]")
+                        sys.exit(1)
+                console.print("[success]✓ Stopped the other TT Studio[/success]")
+            else:
+                console.print(
+                    "[info]Stop it with [bold]python run.py --stop[/bold] in that "
+                    "checkout (or use TT Studio from there), then re-run.[/info]")
+                sys.exit(1)
+
         # Check if all required ports are available
+
+        # Backend host port: keep the configured port (default 8000) when it is
+        # free or held by our own backend container; when another process holds
+        # it, bump to the next free port instead of failing startup. The chosen
+        # port is persisted to .env so every later compose invocation (--stop,
+        # --logs, restarts) resolves the same mapping.
+        configured_backend_port = get_backend_port()
+        backend_port, backend_port_changed = resolve_backend_port(configured_backend_port)
+        if backend_port_changed:
+            write_env_var("BACKEND_PORT", str(backend_port))
+            os.environ["BACKEND_PORT"] = str(backend_port)
+            console.print(
+                f"[warning]⚠️  Port {configured_backend_port} (Backend API) is in use — "
+                f"the backend will be published on port {backend_port} instead.[/warning]"
+            )
 
         # Define ports based on mode
         required_ports = [
             (3000, "Frontend"),
-            (8000, "Backend API"),
+            (backend_port, "Backend API"),
             (8080, "Agent Service"),
             (8111, "ChromaDB"),
         ]
@@ -788,7 +884,8 @@ def _run(args):
                     args.resync or
                     args.reconfigure_inference_server or
                     args.pull_branch or
-                    not os.path.exists(models_json_path)
+                    not os.path.exists(models_json_path) or
+                    _catalog_missing_generated_specs(models_json_path)
                 )
                 if should_sync:
                     with step("Syncing model catalog", spinner=True):

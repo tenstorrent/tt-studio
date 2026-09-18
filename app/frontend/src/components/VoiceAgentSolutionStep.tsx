@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { Fragment, useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { Fragment, useState, useEffect, useCallback, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -124,11 +124,14 @@ async function pollDeployProgress(
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
   // Genuinely terminal: the backend has decided this deploy is over.
   const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout"];
-  // "not_found" is ambiguous - a truly orphaned job, or one the backend just cannot
-  // resolve at this instant. Treating the first one as fatal failed deploys whose
-  // image was still downloading, so require it to persist before killing the card.
-  const NOT_FOUND_STRIKES = 3;
-  let notFoundCount = 0;
+  // `not_found` is NOT terminal on sight. A job can legitimately read as unknown for
+  // a short window — the record is still being registered, or a backend worker that
+  // hasn't seen it yet serves the poll. Treating the first one as fatal killed cards
+  // within seconds of a perfectly healthy deploy. useDeploymentProgress.ts and
+  // useActiveDeployments.ts both allow 90s; match them rather than inventing a
+  // third policy.
+  const NOT_FOUND_GRACE_MS = 90 * 1000;
+  const startedAt = Date.now();
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
@@ -137,13 +140,17 @@ async function pollDeployProgress(
         onUpdate?.(data);
         if (data.status === "completed") return { outcome: "done", status: data.status };
         if (data.status === "not_found") {
-          if (++notFoundCount >= NOT_FOUND_STRIKES) {
-            return { outcome: "error", status: data.status, message: data.message };
+          if (Date.now() - startedAt >= NOT_FOUND_GRACE_MS) {
+            return {
+              outcome: "error",
+              status: data.status,
+              message:
+                data.message ??
+                "Deployment could not be tracked — the job is no longer known to the server.",
+            };
           }
-        } else {
-          notFoundCount = 0;
-        }
-        if (TERMINAL_ERRORS.includes(data.status)) {
+          // Inside the grace window: keep polling.
+        } else if (TERMINAL_ERRORS.includes(data.status)) {
           return { outcome: "error", status: data.status, message: data.message };
         }
       }
@@ -175,7 +182,15 @@ function deployDetailFromProgress(
   const transfer = parts.length > 0 ? parts : undefined;
 
   if (data.stage === "pulling_image") {
-    return { detail: `Pulling Docker Image… ${pct}%`, transfer };
+    // Early in a pull the rate is measured over very few samples and the ETA can be
+    // off by 5-10x (a run that finished in 16 min was projecting 106 min at 5%).
+    // Withhold it until enough of the image has landed for the estimate to mean
+    // something, rather than showing a number that pushes people to cancel.
+    const total = data.total_bytes ?? 0;
+    const downloaded = data.downloaded_bytes ?? 0;
+    const etaStable = total > 0 && downloaded / total > 0.1;
+    const pullParts = etaStable ? parts : transferDetailParts({ ...data, eta_seconds: null });
+    return { detail: `Pulling Docker Image… ${pct}%`, transfer: pullParts.length > 0 ? pullParts : undefined };
   }
   if (data.stage === "model_preparation") {
     // weights_cached short-circuits the download, so don't imply one is running.
@@ -329,6 +344,45 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   // previous model's result.
   const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
 
+  /** Re-read which devices are in use. Deliberately callable on demand: this used to
+   *  run once on mount only, so after a deploy finished (or its containers went away)
+   *  the page kept showing minutes-old occupancy — and because that state feeds
+   *  `canDeploy`, the Deploy button stayed disabled with a generic tooltip while the
+   *  backend reported every slot free. A swallowed click is indistinguishable from a
+   *  broken app, so keep this fresh. */
+  const refreshOccupiedDevices = useCallback(
+    () =>
+      fetch("/docker-api/status/")
+        .then((r) => r.json())
+        .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
+          const occupied = Object.values(data)
+            .map((c) => {
+              const normalizedDeviceIds = Array.isArray(c.device_ids)
+                ? c.device_ids
+                    .map((slot) => Number(slot))
+                    .filter((slot) => Number.isInteger(slot))
+                : [];
+              const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
+              const resolvedDeviceIds =
+                normalizedDeviceIds.length > 0
+                  ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
+                  : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
+                    ? [fallbackDeviceId]
+                    : [];
+              if (resolvedDeviceIds.length === 0) return undefined;
+              return {
+                device_id: resolvedDeviceIds[0],
+                device_ids: resolvedDeviceIds,
+                name: c.name,
+              };
+            })
+            .filter((item): item is OccupiedDevice => item !== undefined);
+          setOccupiedDevices(occupied);
+        })
+        .catch(() => { /* non-fatal — just no pre-flight warnings */ }),
+    []
+  );
+
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
       .then((r) => r.json())
@@ -372,34 +426,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       })
       .catch(() => customToast.error("Failed to load model catalog"));
 
-    const loadSlots = fetch("/docker-api/status/")
-      .then((r) => r.json())
-      .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
-        const occupied = Object.values(data)
-          .map((c) => {
-            const normalizedDeviceIds = Array.isArray(c.device_ids)
-              ? c.device_ids
-                  .map((slot) => Number(slot))
-                  .filter((slot) => Number.isInteger(slot))
-              : [];
-            const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
-            const resolvedDeviceIds =
-              normalizedDeviceIds.length > 0
-                ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
-                : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
-                  ? [fallbackDeviceId]
-                  : [];
-            if (resolvedDeviceIds.length === 0) return undefined;
-            return {
-              device_id: resolvedDeviceIds[0],
-              device_ids: resolvedDeviceIds,
-              name: c.name,
-            };
-          })
-          .filter((item): item is OccupiedDevice => item !== undefined);
-        setOccupiedDevices(occupied);
-      })
-      .catch(() => { /* non-fatal — just no pre-flight warnings */ });
+    const loadSlots = refreshOccupiedDevices();
 
     // Board slot count for the device pre-flight check.
     const loadSlotCount = fetch("/docker-api/chip-status/")
@@ -410,7 +437,20 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       .catch(() => { /* non-fatal */ });
 
     Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
-  }, []);
+  }, [refreshOccupiedDevices]);
+
+  // Keep occupancy fresh without polling hard: refresh when the tab regains focus
+  // (the common case — the user was elsewhere while a deploy finished) and on a
+  // slow interval as a backstop.
+  useEffect(() => {
+    const onFocus = () => { void refreshOccupiedDevices(); };
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(onFocus, 30000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(timer);
+    };
+  }, [refreshOccupiedDevices]);
 
   // Auto-redirect countdown after all done
   useEffect(() => {
@@ -612,6 +652,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);
+    // Whatever the outcome, occupancy just changed — slots were taken, or a failed
+    // deploy released the ones it had reserved. Re-read it so a retry isn't blocked
+    // by stale conflicts.
+    void refreshOccupiedDevices();
     if (failures.length === 0) {
       setAllDone(true);
       customToast.success("Voice Agent pipeline submitted! Redirecting…");

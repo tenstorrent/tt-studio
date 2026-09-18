@@ -36,6 +36,77 @@ def check_port_available(port):
             return False
 
 
+DEFAULT_BACKEND_PORT = 8000
+
+# Host ports the launcher hands to the other services. The backend's
+# auto-increment must never land on one of these, even if it happens to be
+# free at check time (e.g. the inference server on 8001 starts later).
+RESERVED_SERVICE_PORTS = frozenset({3000, 4000, 8001, 8002, 8080, 8111})
+
+
+def get_backend_port():
+    """The backend's host-published port: BACKEND_PORT from the environment /
+    .env, falling back to 8000. The container-internal port is always 8000."""
+    from tt_setup.env_config import get_env_var
+    try:
+        return int(get_env_var("BACKEND_PORT", str(DEFAULT_BACKEND_PORT)) or DEFAULT_BACKEND_PORT)
+    except (TypeError, ValueError):
+        return DEFAULT_BACKEND_PORT
+
+
+def find_available_port(start_port, max_tries=50, skip_ports=RESERVED_SERVICE_PORTS):
+    """First free port >= start_port that isn't in skip_ports, or None if none
+    of the next `max_tries` candidates is free."""
+    for port in range(start_port, start_port + max_tries):
+        if port in skip_ports:
+            continue
+        if check_port_available(port):
+            return port
+    return None
+
+
+def _port_published_by_backend(port):
+    """True if `port` is published by TT Studio's own backend container. On a
+    restart that port is effectively ours — compose recreates the container —
+    so it must not trigger an increment."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=tt_studio_backend", "--format", "{{.Ports}}"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except Exception:
+        return False
+    return f":{port}->" in (result.stdout or "")
+
+
+def resolve_backend_port(configured_port=None):
+    """Pick the host port to publish the backend on.
+
+    Keeps the configured port (BACKEND_PORT, default 8000) when it is free or
+    held by TT Studio's own backend container. When another process holds it,
+    increments to the next free port instead of failing startup.
+
+    Returns (port, changed). If no free port is found within the scan window,
+    returns the configured port unchanged so the normal free-or-fail path
+    downstream reports it.
+    """
+    if configured_port is None:
+        configured_port = get_backend_port()
+
+    configured_ok = (
+        configured_port not in RESERVED_SERVICE_PORTS
+        and (check_port_available(configured_port) or _port_published_by_backend(configured_port))
+    )
+    if configured_ok:
+        return configured_port, False
+
+    start = configured_port if configured_port in RESERVED_SERVICE_PORTS else configured_port + 1
+    port = find_available_port(start)
+    if port is None:
+        return configured_port, False
+    return port, True
+
+
 def wait_for_port_release(port, timeout=6.0, interval=0.25):
     """Block until `port` is actually free, up to `timeout` seconds.
 
@@ -170,6 +241,116 @@ def kill_process_on_port(port, no_sudo=False, quiet=False, attempts=3):
     return check_port_available(port)
 
 
+def _get_parent_pid(pid):
+    """Return parent PID of `pid`, or None."""
+    cmd = ["ps", "-o", "ppid=", "-p", str(pid)]
+    result = run_command(cmd, check=False, capture_output=True)
+    if result.returncode == 0 and result.stdout.strip():
+        val = result.stdout.strip()
+        return int(val) if val.isdigit() else None
+    return None
+
+
+def _get_process_command(pid):
+    """Return command string of `pid`, or empty string."""
+    cmd = ["ps", "-o", "command=", "-p", str(pid)]
+    result = run_command(cmd, check=False, capture_output=True)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return ""
+
+
+def _is_supervisor_wrapper(cmd_str):
+    """True if `cmd_str` is one of *our* bash supervisor wrappers.
+
+    The wrapper is always launched as `bash <tmpfile>.sh <service-dir> <pid-file> .venv <log>`,
+    so require a bash interpreter, a .sh script, and one of our service dirs as an argument.
+    Deliberately does not match `uvicorn --reload` (whose venv path also contains the service
+    dir) or arbitrary user scripts living under /tmp.
+    """
+    parts = cmd_str.split()
+    if len(parts) < 3 or not parts[0].endswith(("bash", "/sh", "sh")):
+        return False
+    if not parts[1].endswith(".sh"):
+        return False
+    return any(
+        p.rstrip("/").endswith(("docker-control-service", "inference-api"))
+        for p in parts[2:]
+    )
+
+
+def _find_supervisor_wrapper_pid(pid, max_depth=5):
+    """Walk up the process tree and return the topmost ancestor that is one of our
+    bash supervisor wrappers, or None.
+
+    Handles dev mode where `uvicorn --reload` spawns intermediate reloader
+    processes between the bash wrapper and the socket listener. Keeps climbing
+    after a match so the walk can't stop at an intermediate process regardless
+    of which pid lsof/ss reported for the port.
+    """
+    curr = pid
+    found = None
+    for _ in range(max_depth):
+        ppid = _get_parent_pid(curr)
+        if not ppid or ppid <= 1:
+            break
+        cmd = _get_process_command(ppid)
+        if _is_supervisor_wrapper(cmd):
+            found = ppid
+        curr = ppid
+    return found
+
+
+def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout=7.0, poll_interval=0.25):
+    """Send SIGTERM (-15), poll every `poll_interval`s up to `timeout`s,
+    and escalate to SIGKILL (-9) only if still alive."""
+    try:
+        pid_int = int(pid)
+    except (ValueError, TypeError):
+        return True
+
+    if pid_int <= 1:
+        return True
+
+    pid_str = str(pid_int)
+    kill_cmd_graceful = ["kill", "-15", pid_str]
+    kill_cmd_force = ["kill", "-9", pid_str]
+    check_alive_cmd = ["kill", "-0", pid_str]
+
+    if use_sudo:
+        kill_cmd_graceful.insert(0, "sudo")
+        kill_cmd_force.insert(0, "sudo")
+        check_alive_cmd.insert(0, "sudo")
+
+    try:
+        run_command(kill_cmd_graceful, check=False, capture_output=True)
+
+        deadline = time.time() + timeout
+        alive = True
+        while time.time() < deadline:
+            time.sleep(poll_interval)
+            result = run_command(check_alive_cmd, check=False, capture_output=True)
+            if result.returncode != 0:
+                alive = False
+                break
+
+        if alive:
+            if not quiet:
+                print(f"⚠️  Process {pid_str} still alive. Forcing termination...")
+            run_command(kill_cmd_force, check=True, capture_output=True)
+            if not quiet:
+                print(f"{C_GREEN}✅ Process {pid_str} terminated by force.{C_RESET}")
+        else:
+            if not quiet:
+                print(f"{C_GREEN}✅ Process {pid_str} terminated gracefully.{C_RESET}")
+    except Exception as e:
+        if not quiet:
+            print(f"{C_RED}⛔ Failed to kill process {pid_str}: {e}{C_RESET}")
+            print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
+        return False
+    return True
+
+
 def _kill_port_holder(port, no_sudo=False, quiet=False):
     """One pass: find whoever holds `port` and stop it (see kill_process_on_port)."""
     pid = None
@@ -213,6 +394,9 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
             print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
         return True
 
+    if str(pid).isdigit():
+        pid = int(pid)
+
     # NEVER kill Docker itself. On macOS/Docker Desktop the port is held by
     # com.docker.backend; killing it crashes the engine and the build then fails
     # with "Cannot connect to the Docker daemon". A TT Studio container holding
@@ -220,42 +404,19 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     if _process_is_docker(pid):
         return "docker"
 
+    use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
+
+    # Stop supervisor wrapper first if one exists in the process tree.
+    # Killing only the socket holder leaves the supervisor loop alive to respawn
+    # its child 3 seconds later and recapture the port (Issue #1307).
+    supervisor_pid = _find_supervisor_wrapper_pid(pid)
+    if supervisor_pid and supervisor_pid != pid:
+        if not quiet:
+            print(f"🛑 Found parent supervisor wrapper with PID {supervisor_pid}. Stopping it first...")
+        if not _terminate_pid_graceful_then_force(supervisor_pid, use_sudo=use_sudo_for_kill, quiet=quiet):
+            return False
+
     if not quiet:
         print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
 
-    # Build kill commands
-    kill_cmd_graceful = ["kill", "-15", pid]
-    kill_cmd_force = ["kill", "-9", pid]
-    check_alive_cmd = ["kill", "-0", pid]
-    # os.geteuid() is POSIX-only; guard it so a non-POSIX host doesn't crash with
-    # AttributeError. (The kill/-15/-9 commands here are POSIX anyway.)
-    use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
-
-    if use_sudo_for_kill:
-        kill_cmd_graceful.insert(0, "sudo")
-        kill_cmd_force.insert(0, "sudo")
-        check_alive_cmd.insert(0, "sudo")
-
-    try:
-        run_command(kill_cmd_graceful, check=False, capture_output=True)
-        time.sleep(2)
-
-        result = run_command(check_alive_cmd, check=False, capture_output=True)
-        if result.returncode == 0:
-            if not quiet:
-                print(f"⚠️  Process {pid} still alive. Forcing termination...")
-            run_command(kill_cmd_force, check=True, capture_output=True)
-            if not quiet:
-                print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
-        else:
-            if not quiet:
-                print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
-
-    except Exception as e:
-        if not quiet:
-            print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
-            print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
-        return False
-
-    return True
-
+    return _terminate_pid_graceful_then_force(pid, use_sudo=use_sudo_for_kill, quiet=quiet)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useMemo } from "react";
-import { Cpu, Layers } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Cpu, Layers, LayoutGrid } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
 import {
   ModelPlacement,
@@ -11,6 +11,7 @@ import {
   fullBoardSlots,
 } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
+import { useTour } from "../hooks/useTour";
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -20,13 +21,23 @@ interface ChipConfigStepProps {
 }
 
 export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigStepProps) {
-  const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
+  const {
+    run: tourRun,
+    activeTourId,
+    stepIndex: tourStepIndex,
+    setStepIndex,
+    steps,
+  } = useTour();
+  const isDeployTour = tourRun && activeTourId === "deploy-model";
+
+  const [selectedMode, setSelectedMode] = useState<"single" | "pair" | "multi" | null>(
     null
   );
   const [selectedSlots, setSelectedSlots] = useState<number[]>([]);
 
-  const { allowsSingle, allowsFullBoard, cardGroups } = placement;
+  const { allowsSingle, allowsFullBoard, cardGroups, pairGroups = [] } = placement;
   const isGrouped = cardGroups.length > 0;
+  const hasPairTier = pairGroups.length > 0;
   // The "pick devices" card is offered for single-device and flexible (card-pair) models.
   const pickEnabled = allowsSingle || isGrouped;
 
@@ -38,36 +49,85 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         : false,
     [chipStatus]
   );
-  // Slots the "All Devices" choice sends: the full board for flexible models,
-  // or just the base slot for standard multi-chip models (backend allocates the rest).
+  // Slots the "All Devices" choice sends: the full board for flexible models
+  // (card-pair grouped) and for a model that also allows a single-device default
+  // (e.g. Qwen3-Embedding-0.6B -- picking "All Devices" must actually select all
+  // slots so the parent's allSlotsSelected/force_full_board logic fires), or just
+  // the base slot for standard multi-chip-only models (backend allocates the rest).
   const multiSlots = useMemo(
-    () => (isGrouped ? fullBoardSlots(chipStatus?.total_slots ?? 4) : [0]),
-    [isGrouped, chipStatus]
+    () => (isGrouped || allowsSingle ? fullBoardSlots(chipStatus?.total_slots ?? 4) : [0]),
+    [isGrouped, allowsSingle, chipStatus]
+  );
+
+  const slotIsAvailable = useCallback(
+    (slotId: number) => {
+      if (!chipStatus) return false;
+      // Flexible models occupy a whole card, so every slot in the group must be free.
+      const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
+      return group.every(
+        (g) =>
+          chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
+      );
+    },
+    [chipStatus, isGrouped, cardGroups]
   );
 
   // Pre-select the only valid mode for this model.
   useEffect(() => {
-    setSelectedMode(pickEnabled ? "single" : "multi");
-    setSelectedSlots([]);
-  }, [pickEnabled]);
+    const defaultMode = pickEnabled ? "single" : "multi";
+    setSelectedMode(defaultMode);
+    if (isDeployTour && defaultMode === "single") {
+      const availableSlot = chipStatus?.slots.find((s) =>
+        slotIsAvailable(s.slot_id)
+      )?.slot_id;
+      if (availableSlot !== undefined) {
+        const initialSlots = isGrouped
+          ? cardGroupFor(availableSlot, cardGroups)
+          : [availableSlot];
+        setSelectedSlots(initialSlots);
+      } else {
+        setSelectedSlots([]);
+      }
+    } else {
+      setSelectedSlots([]);
+    }
+  }, [
+    pickEnabled,
+    isDeployTour,
+    isGrouped,
+    cardGroups,
+    chipStatus,
+    slotIsAvailable,
+  ]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
   useEffect(() => {
     if (selectedMode === "multi") {
       onConfirm(multiBoardFree ? multiSlots : []);
-    } else if (selectedMode === "single") {
+    } else if (selectedMode === "single" || selectedMode === "pair") {
       onConfirm(selectedSlots);
     }
   }, [selectedMode, selectedSlots, multiBoardFree, multiSlots, onConfirm]);
 
-  const slotIsAvailable = (slotId: number) => {
-    if (!chipStatus) return false;
-    // Flexible models occupy a whole card, so every slot in the group must be free.
-    const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
-    return group.every(
-      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
-    );
+  // Ensure slot picker is open when the tour arrives at the slot picker step
+  useEffect(() => {
+    const isAtSlotPicker =
+      isDeployTour &&
+      steps[tourStepIndex]?.target === '[data-tour="chip-slot-picker"]';
+    if (isAtSlotPicker && selectedMode !== "single") {
+      setSelectedMode("single");
+    }
+  }, [isDeployTour, steps, tourStepIndex, selectedMode]);
+
+  const handleContinue = () => {
+    if (isDeployTour) {
+      setStepIndex(tourStepIndex + 1);
+    }
+    const deployEl =
+      document.querySelector('[data-tour="deploy-summary-info"]') ||
+      document.querySelector('[data-tour="deploy-button"]');
+    deployEl?.scrollIntoView({ behavior: "smooth" });
   };
 
   const toggleSlot = (slotId: number) => {
@@ -90,7 +150,15 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     chipStatus !== null &&
     chipStatus.total_slots > 1;
 
+  const pairGroupAvailable = (group: number[]) =>
+    !!chipStatus &&
+    group.every(
+      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
+    );
+  const needsPairPicker = selectedMode === "pair" && chipStatus !== null;
+
   const singleDisabled = !pickEnabled;
+  const pairDisabled = !hasPairTier || !pairGroups.some(pairGroupAvailable);
   const multiDisabled = !allowsFullBoard || !multiBoardFree;
   const multiReason = !allowsFullBoard
     ? "This model uses a single device"
@@ -118,12 +186,13 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
       </div>
 
       {/* Mode selection cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${hasPairTier ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         {/* Single / card-pick card */}
         <button
           type="button"
+          data-tour="hardware-mode-single"
           disabled={singleDisabled}
-          onClick={() => !singleDisabled && setSelectedMode("single")}
+          onClick={() => { if (!singleDisabled) { setSelectedMode("single"); setSelectedSlots([]); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${singleDisabled
@@ -156,11 +225,56 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           <p className="text-sm text-gray-400 leading-relaxed">{singleDescription}</p>
         </button>
 
+        {/* 2 Devices card — a middle tier alongside single/full-board (Qwen3-Embedding-0.6B, bge-m3) */}
+        {hasPairTier && (
+          <button
+            type="button"
+            disabled={pairDisabled}
+            onClick={() => { if (!pairDisabled) { setSelectedMode("pair"); setSelectedSlots([]); } }}
+            className={`
+              relative text-left p-6 rounded-xl border-2 transition-all duration-200
+              ${pairDisabled
+                ? "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                : selectedMode === "pair"
+                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_20px_rgba(124,104,250,0.25)] cursor-pointer"
+                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 hover:bg-TT-purple-shade/10 cursor-pointer"
+              }
+            `}
+          >
+            {selectedMode === "pair" && !pairDisabled && (
+              <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-TT-purple-accent shadow-[0_0_8px_rgba(124,104,250,0.8)]" />
+            )}
+            <div className="flex items-center gap-3 mb-3">
+              <div
+                className={`p-2 rounded-lg ${selectedMode === "pair" && !pairDisabled ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
+              >
+                <Layers
+                  className={`w-6 h-6 ${selectedMode === "pair" && !pairDisabled ? "text-TT-purple-accent" : "text-gray-400"}`}
+                />
+              </div>
+              <div>
+                <div
+                  className={`font-mono font-bold text-base ${selectedMode === "pair" && !pairDisabled ? "text-TT-purple" : "text-gray-200"}`}
+                >
+                  2 Devices
+                </div>
+                <div className="text-xs text-gray-500 font-mono">1 card, 2× devices</div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              {pairDisabled
+                ? "Needs a free card (2 devices)"
+                : "Deploy on one P300 card for roughly 2× throughput."}
+            </p>
+          </button>
+        )}
+
         {/* All Devices card */}
         <button
           type="button"
+          data-tour="hardware-mode-multi"
           disabled={multiDisabled}
-          onClick={() => !multiDisabled && setSelectedMode("multi")}
+          onClick={() => { if (!multiDisabled) { setSelectedMode("multi"); setSelectedSlots([]); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${multiDisabled
@@ -178,7 +292,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             <div
               className={`p-2 rounded-lg ${selectedMode === "multi" && !multiDisabled ? "bg-TT-purple-shade/60" : "bg-gray-800"}`}
             >
-              <Layers
+              <LayoutGrid
                 className={`w-6 h-6 ${selectedMode === "multi" && !multiDisabled ? "text-TT-purple-accent" : "text-gray-400"}`}
               />
             </div>
@@ -199,7 +313,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
       {/* Slot picker — shown when the single/card mode is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
-        <div>
+        <div data-tour="chip-slot-picker">
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
             Select Device(s)
           </h3>
@@ -265,6 +379,75 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         </div>
       )}
 
+      {/* Pair picker — shown when the "2 Devices" tier is selected */}
+      {needsPairPicker && chipStatus && (
+        <div>
+          <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
+            Select a Card
+          </h3>
+          <p className="text-xs text-gray-500 font-mono mb-3">
+            Each card is 2 devices; pick whichever card is free.
+          </p>
+          <div className="flex flex-row justify-center gap-3 flex-wrap">
+            {pairGroups.map((group) => {
+              const isAvailable = pairGroupAvailable(group);
+              const sorted = group.slice().sort((a, b) => a - b);
+              const isSelected =
+                sorted.length === selectedSlots.length &&
+                sorted.every((s) => selectedSlots.includes(s));
+              return (
+                <button
+                  key={sorted.join(",")}
+                  type="button"
+                  disabled={!isAvailable}
+                  onClick={() => setSelectedSlots(sorted)}
+                  className={`
+                    flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200 min-w-[120px]
+                    ${isSelected
+                      ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
+                      : isAvailable
+                        ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
+                        : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                    }
+                  `}
+                >
+                  <Layers
+                    className={`w-6 h-6 mb-1 ${isSelected ? "text-TT-purple-accent" : isAvailable ? "text-gray-400" : "text-gray-700"}`}
+                    strokeWidth={1.4}
+                  />
+                  <span
+                    className={`text-xs font-mono font-bold tracking-wider ${isSelected ? "text-TT-purple" : "text-gray-400"}`}
+                  >
+                    DEVICES {sorted.join("-")}
+                  </span>
+                  <span
+                    className={`text-[10px] font-mono mt-0.5 ${isSelected
+                        ? "text-TT-purple-accent"
+                        : isAvailable
+                          ? "text-gray-500"
+                          : "text-gray-700"
+                      }`}
+                  >
+                    {isAvailable ? "IDLE" : "IN USE"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedSlots.length > 0 && (
+            <p className="mt-2 text-xs font-mono text-TT-purple-accent">
+              ✓ Devices {selectedSlots.slice().sort((a, b) => a - b).join(", ")} selected
+              {" — "}
+              {selectedSlots.slice().sort((a, b) => a - b).map((s) => (
+                <code key={s} className="bg-gray-800 px-1 rounded mr-1">
+                  /dev/tenstorrent/{s}
+                </code>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Chip slot status */}
       <div>
         <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-3">
@@ -277,6 +460,18 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             Fetching hardware status...
           </div>
         )}
+      </div>
+
+      {/* Confirm / Continue button */}
+      <div className="flex justify-end pt-2">
+        <button
+          type="button"
+          data-tour="hardware-config-continue"
+          onClick={handleContinue}
+          className="px-6 py-2 rounded-lg font-mono font-semibold text-sm transition-all duration-200 bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)] cursor-pointer"
+        >
+          Continue →
+        </button>
       </div>
     </div>
   );

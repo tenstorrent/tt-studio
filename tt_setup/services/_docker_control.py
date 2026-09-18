@@ -10,12 +10,15 @@ small to remove a legacy host process left by an older TT-Studio install.
 """
 
 import os
-import signal
 import subprocess
-import time
 
 from tt_setup.constants import DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_SERVICE_DIR
 from tt_setup.console import console
+from tt_setup.services._ports import (
+    _find_supervisor_wrapper_pid,
+    _terminate_pid_graceful_then_force,
+    kill_process_on_port,
+)
 
 
 def _legacy_pid_command(pid):
@@ -62,31 +65,19 @@ def _legacy_docker_control_listener_pids():
 
 
 def _stop_legacy_docker_control_process(pid, no_sudo=False):
-    """Terminate a process already proven to be legacy Docker Control."""
-    try:
-        os.kill(pid, signal.SIGTERM)
-        time.sleep(2)
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except PermissionError:
-        if not no_sudo:
-            subprocess.run(["sudo", "kill", "-15", str(pid)], check=False)
-            time.sleep(1)
-            try:
-                os.kill(pid, 0)
-                subprocess.run(["sudo", "kill", "-9", str(pid)], check=False)
-            except (ProcessLookupError, PermissionError):
-                pass
-        else:
-            console.print(
-                f"[warning]Permission denied stopping legacy Docker Control (PID {pid}). "
-                "Re-run without --no-sudo or kill PID manually.[/warning]"
-            )
+    """Terminate a legacy Docker Control process and any parent supervisor wrapper."""
+    use_sudo = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0
+
+    # Stop supervisor wrapper first if one exists in the process tree.
+    # Killing only the socket holder leaves the supervisor loop alive to respawn
+    # its child ~2 seconds later and recapture the port (Issue #1307).
+    supervisor_pid = _find_supervisor_wrapper_pid(pid)
+    if supervisor_pid and supervisor_pid != pid:
+        console.print(f"[muted]   Stopping legacy Docker Control supervisor wrapper (pid {supervisor_pid})…[/muted]")
+        _terminate_pid_graceful_then_force(supervisor_pid, use_sudo=use_sudo, quiet=True)
+
+    # Terminate the identified listener process itself
+    _terminate_pid_graceful_then_force(pid, use_sudo=use_sudo, quiet=True)
 
 
 def cleanup_docker_control_service(no_sudo=False):
@@ -128,3 +119,8 @@ def cleanup_docker_control_service(no_sudo=False):
     for pid in _legacy_docker_control_listener_pids():
         if pid not in cleaned_pids:
             _stop_legacy_docker_control_process(pid, no_sudo=no_sudo)
+            cleaned_pids.add(pid)
+
+    # Final guard: if any legacy listener was cleaned up, ensure port 8002 is freed
+    if cleaned_pids:
+        kill_process_on_port(8002, no_sudo=no_sudo, quiet=True)
