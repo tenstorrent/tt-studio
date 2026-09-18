@@ -1,17 +1,115 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Cpu, Layers, LayoutGrid } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
-import {
-  ModelPlacement,
-  canModelFit,
-  cardGroupFor,
-  fullBoardSlots,
-} from "../utils/deviceFit";
+import { ModelPlacement, canModelFit, fullBoardSlots } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
 import { useTour } from "../hooks/useTour";
+
+// Stable empty selection: re-using one reference keeps a "cleared" selection from
+// cascading back through onConfirm into the parent and re-rendering on every pass.
+const NO_SLOTS: number[] = [];
+
+interface DeviceGroupPickerProps {
+  title: string;
+  hint: string;
+  // One entry per tile: a single device, or a card's devices claimed as a unit.
+  groups: number[][];
+  selectedSlots: number[];
+  isAvailable: (group: number[]) => boolean;
+  onSelect: (group: number[]) => void;
+  tourAnchor?: string;
+}
+
+// Device picker shared by the "pick devices" and "2 Devices" tiers: one tile per
+// unit the model can actually be placed on, so clicking a tile selects exactly
+// what gets deployed instead of silently pulling in a neighbouring device.
+function DeviceGroupPicker({
+  title,
+  hint,
+  groups,
+  selectedSlots,
+  isAvailable,
+  onSelect,
+  tourAnchor,
+}: DeviceGroupPickerProps) {
+  const sortedSelection = selectedSlots.slice().sort((a, b) => a - b);
+  return (
+    <div data-tour={tourAnchor}>
+      <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
+        {title}
+      </h3>
+      <p className="text-xs text-gray-500 font-mono mb-3">{hint}</p>
+      <div className="flex flex-row justify-center gap-3 flex-wrap">
+        {groups.map((group) => {
+          const devices = group.slice().sort((a, b) => a - b);
+          const isCard = devices.length > 1;
+          const available = isAvailable(devices);
+          const isSelected =
+            devices.length === selectedSlots.length &&
+            devices.every((d) => selectedSlots.includes(d));
+          const Icon = isCard ? Layers : Cpu;
+          return (
+            <button
+              key={devices.join(",")}
+              type="button"
+              disabled={!available}
+              onClick={() => onSelect(devices)}
+              className={`
+                flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200
+                ${isCard ? "min-w-[120px]" : "min-w-[90px]"}
+                ${isSelected
+                  ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
+                  : available
+                    ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
+                    : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
+                }
+              `}
+            >
+              <Icon
+                className={`w-6 h-6 mb-1 ${isSelected ? "text-TT-purple-accent" : available ? "text-gray-400" : "text-gray-700"}`}
+                strokeWidth={1.4}
+              />
+              <span
+                className={`text-xs font-mono font-bold tracking-wider ${isSelected ? "text-TT-purple" : "text-gray-400"}`}
+              >
+                {isCard
+                  ? `DEVICES ${devices.join("-")}`
+                  : `DEVICE ${String(devices[0]).padStart(2, "0")}`}
+              </span>
+              <span
+                className={`text-[10px] font-mono mt-0.5 ${isSelected
+                    ? "text-TT-purple-accent"
+                    : available
+                      ? "text-gray-500"
+                      : "text-gray-700"
+                  }`}
+              >
+                {available ? "IDLE" : "IN USE"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {sortedSelection.length > 0 && (
+        <p className="mt-2 text-xs font-mono text-TT-purple-accent">
+          ✓{" "}
+          {sortedSelection.length > 1
+            ? `Devices ${sortedSelection.join(", ")} selected`
+            : `Device ${sortedSelection[0]} selected`}
+          {" — "}
+          {sortedSelection.map((s) => (
+            <code key={s} className="bg-gray-800 px-1 rounded mr-1">
+              /dev/tenstorrent/{s}
+            </code>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -40,6 +138,14 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
   const hasPairTier = pairGroups.length > 0;
   // The "pick devices" card is offered for single-device and flexible (card-pair) models.
   const pickEnabled = allowsSingle || isGrouped;
+  // Content signature of the placement rules, so effects can react to a real
+  // rule change instead of the object being rebuilt on each parent render.
+  const placementKey = JSON.stringify([
+    allowsSingle,
+    allowsFullBoard,
+    cardGroups,
+    pairGroups,
+  ]);
 
   // Whether the whole board is free (required to run full-board).
   const multiBoardFree = useMemo(
@@ -59,52 +165,61 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     [isGrouped, allowsSingle, chipStatus]
   );
 
-  const slotIsAvailable = useCallback(
-    (slotId: number) => {
-      if (!chipStatus) return false;
-      // Flexible models occupy a whole card, so every slot in the group must be free.
-      const group = isGrouped ? cardGroupFor(slotId, cardGroups) : [slotId];
-      return group.every(
-        (g) =>
-          chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
-      );
-    },
-    [chipStatus, isGrouped, cardGroups]
+  const slotFree = useCallback(
+    (slotId: number) =>
+      chipStatus?.slots.find((s) => s.slot_id === slotId)?.status === "available",
+    [chipStatus]
+  );
+  // A tile is pickable only when every device behind it is free — a card is
+  // claimed as a whole.
+  const groupIsAvailable = useCallback(
+    (group: number[]) => !!chipStatus && group.every(slotFree),
+    [chipStatus, slotFree]
+  );
+  // Tiles offered by the "pick devices" mode: one per card for card-grouped models
+  // (a card is the smallest unit they can run on), one per device otherwise.
+  const pickGroups = useMemo(
+    () =>
+      isGrouped ? cardGroups : (chipStatus?.slots ?? []).map((s) => [s.slot_id]),
+    [isGrouped, cardGroups, chipStatus]
   );
 
-  // Pre-select the only valid mode for this model.
+  // Pre-select the only valid mode for this model, and drop stale picks when the
+  // model's placement rules change. Keyed on placementKey (contents) rather than
+  // the placement object: the parent rebuilds it on every render, and every pick
+  // re-renders the parent through onConfirm, so keying on identity would make each
+  // click reset the mode and clear the selection it just made.
   useEffect(() => {
-    const defaultMode = pickEnabled ? "single" : "multi";
-    setSelectedMode(defaultMode);
-    if (isDeployTour && defaultMode === "single") {
-      const availableSlot = chipStatus?.slots.find((s) =>
-        slotIsAvailable(s.slot_id)
-      )?.slot_id;
-      if (availableSlot !== undefined) {
-        const initialSlots = isGrouped
-          ? cardGroupFor(availableSlot, cardGroups)
-          : [availableSlot];
-        setSelectedSlots(initialSlots);
-      } else {
-        setSelectedSlots([]);
-      }
-    } else {
-      setSelectedSlots([]);
-    }
-  }, [
-    pickEnabled,
-    isDeployTour,
-    isGrouped,
-    cardGroups,
-    chipStatus,
-    slotIsAvailable,
-  ]);
+    setSelectedMode(pickEnabled ? "single" : "multi");
+    setSelectedSlots(NO_SLOTS);
+  }, [pickEnabled, placementKey]);
+
+  // Deploy tour: pre-pick a free device once per placement so the tour's slot-picker
+  // step highlights a real selection. The ref guard keeps it from re-applying over
+  // (or fighting) the user's own pick on later renders.
+  const tourPreselectedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isDeployTour || selectedMode !== "single") return;
+    if (tourPreselectedFor.current === placementKey) return;
+    const group = pickGroups.find(groupIsAvailable);
+    if (!group) return;
+    tourPreselectedFor.current = placementKey;
+    setSelectedSlots(group);
+  }, [isDeployTour, selectedMode, placementKey, pickGroups, groupIsAvailable]);
+
+  // Drop the pick when any of its devices stops being available (another deploy
+  // claimed a chip) so Deploy can't fire onto an occupied device.
+  useEffect(() => {
+    setSelectedSlots((prev) =>
+      prev.length > 0 && !prev.every(slotFree) ? NO_SLOTS : prev
+    );
+  }, [slotFree]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
   useEffect(() => {
     if (selectedMode === "multi") {
-      onConfirm(multiBoardFree ? multiSlots : []);
+      onConfirm(multiBoardFree ? multiSlots : NO_SLOTS);
     } else if (selectedMode === "single" || selectedMode === "pair") {
       onConfirm(selectedSlots);
     }
@@ -130,35 +245,15 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     deployEl?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const toggleSlot = (slotId: number) => {
-    if (isGrouped) {
-      const group = cardGroupFor(slotId, cardGroups);
-      setSelectedSlots((prev) => {
-        const selected = group.every((g) => prev.includes(g));
-        return selected
-          ? prev.filter((s) => !group.includes(s))
-          : Array.from(new Set([...prev, ...group]));
-      });
-      return;
-    }
-    // Single-device models pick exactly one slot.
-    setSelectedSlots([slotId]);
-  };
-
   const needsSlotPicker =
     selectedMode === "single" &&
     chipStatus !== null &&
     chipStatus.total_slots > 1;
 
-  const pairGroupAvailable = (group: number[]) =>
-    !!chipStatus &&
-    group.every(
-      (g) => chipStatus.slots.find((s) => s.slot_id === g)?.status === "available"
-    );
   const needsPairPicker = selectedMode === "pair" && chipStatus !== null;
 
   const singleDisabled = !pickEnabled;
-  const pairDisabled = !hasPairTier || !pairGroups.some(pairGroupAvailable);
+  const pairDisabled = !hasPairTier || !pairGroups.some(groupIsAvailable);
   const multiDisabled = !allowsFullBoard || !multiBoardFree;
   const multiReason = !allowsFullBoard
     ? "This model uses a single device"
@@ -170,7 +265,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     ? "This model requires all devices."
     : allowsSingle
       ? "Deploy on a single device. Best for 8B–13B parameter models."
-      : "Deploy on one card (2 devices), or pick both for the full board.";
+      : "Deploy on one card (2 devices). Pick the card below.";
 
   return (
     <div className="w-full px-8 py-6 space-y-8">
@@ -192,7 +287,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           type="button"
           data-tour="hardware-mode-single"
           disabled={singleDisabled}
-          onClick={() => { if (!singleDisabled) { setSelectedMode("single"); setSelectedSlots([]); } }}
+          onClick={() => { if (!singleDisabled) { setSelectedMode("single"); setSelectedSlots(NO_SLOTS); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${singleDisabled
@@ -230,7 +325,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           <button
             type="button"
             disabled={pairDisabled}
-            onClick={() => { if (!pairDisabled) { setSelectedMode("pair"); setSelectedSlots([]); } }}
+            onClick={() => { if (!pairDisabled) { setSelectedMode("pair"); setSelectedSlots(NO_SLOTS); } }}
             className={`
               relative text-left p-6 rounded-xl border-2 transition-all duration-200
               ${pairDisabled
@@ -274,7 +369,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           type="button"
           data-tour="hardware-mode-multi"
           disabled={multiDisabled}
-          onClick={() => { if (!multiDisabled) { setSelectedMode("multi"); setSelectedSlots([]); } }}
+          onClick={() => { if (!multiDisabled) { setSelectedMode("multi"); setSelectedSlots(NO_SLOTS); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${multiDisabled
@@ -311,141 +406,33 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
         </button>
       </div>
 
-      {/* Slot picker — shown when the single/card mode is selected on a multi-slot board */}
+      {/* Pick-devices picker — one tile per selectable unit (device, or card) */}
       {needsSlotPicker && chipStatus && (
-        <div data-tour="chip-slot-picker">
-          <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
-            Select Device(s)
-          </h3>
-          <p className="text-xs text-gray-500 font-mono mb-3">
-            {isGrouped
-              ? "Select a card (2 devices), or both cards for the full board."
-              : "Select the device to deploy on."}
-          </p>
-          <div className="flex flex-row justify-center gap-3 flex-wrap">
-            {chipStatus.slots.map((slot) => {
-              const isAvailable = slotIsAvailable(slot.slot_id);
-              const isSelected = selectedSlots.includes(slot.slot_id);
-              return (
-                <button
-                  key={slot.slot_id}
-                  type="button"
-                  disabled={!isAvailable}
-                  onClick={() => toggleSlot(slot.slot_id)}
-                  className={`
-                    flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200 min-w-[90px]
-                    ${isSelected
-                      ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
-                      : isAvailable
-                        ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
-                        : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
-                    }
-                  `}
-                >
-                  <Cpu
-                    className={`w-6 h-6 mb-1 ${isSelected ? "text-TT-purple-accent" : isAvailable ? "text-gray-400" : "text-gray-700"}`}
-                    strokeWidth={1.4}
-                  />
-                  <span
-                    className={`text-xs font-mono font-bold tracking-wider ${isSelected ? "text-TT-purple" : "text-gray-400"}`}
-                  >
-                    DEVICE {String(slot.slot_id).padStart(2, "0")}
-                  </span>
-                  <span
-                    className={`text-[10px] font-mono mt-0.5 ${isSelected
-                        ? "text-TT-purple-accent"
-                        : isAvailable
-                          ? "text-gray-500"
-                          : "text-gray-700"
-                      }`}
-                  >
-                    {isAvailable ? "IDLE" : "IN USE"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {selectedSlots.length > 0 && (
-            <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ {selectedSlots.length > 1 ? `Devices ${selectedSlots.slice().sort((a, b) => a - b).join(", ")} selected` : `Device ${selectedSlots[0]} selected`}
-              {" — "}
-              {selectedSlots.slice().sort((a, b) => a - b).map((s) => (
-                <code key={s} className="bg-gray-800 px-1 rounded mr-1">
-                  /dev/tenstorrent/{s}
-                </code>
-              ))}
-            </p>
-          )}
-        </div>
+        <DeviceGroupPicker
+          tourAnchor="chip-slot-picker"
+          title={isGrouped ? "Select a Card" : "Select a Device"}
+          hint={
+            isGrouped
+              ? "Each card is 2 devices; pick whichever card is free."
+              : "Select the device to deploy on."
+          }
+          groups={pickGroups}
+          selectedSlots={selectedSlots}
+          isAvailable={groupIsAvailable}
+          onSelect={setSelectedSlots}
+        />
       )}
 
-      {/* Pair picker — shown when the "2 Devices" tier is selected */}
+      {/* Card picker — shown when the "2 Devices" tier is selected */}
       {needsPairPicker && chipStatus && (
-        <div>
-          <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
-            Select a Card
-          </h3>
-          <p className="text-xs text-gray-500 font-mono mb-3">
-            Each card is 2 devices; pick whichever card is free.
-          </p>
-          <div className="flex flex-row justify-center gap-3 flex-wrap">
-            {pairGroups.map((group) => {
-              const isAvailable = pairGroupAvailable(group);
-              const sorted = group.slice().sort((a, b) => a - b);
-              const isSelected =
-                sorted.length === selectedSlots.length &&
-                sorted.every((s) => selectedSlots.includes(s));
-              return (
-                <button
-                  key={sorted.join(",")}
-                  type="button"
-                  disabled={!isAvailable}
-                  onClick={() => setSelectedSlots(sorted)}
-                  className={`
-                    flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200 min-w-[120px]
-                    ${isSelected
-                      ? "border-TT-purple-accent bg-TT-purple-shade/40 shadow-[0_0_14px_rgba(124,104,250,0.3)]"
-                      : isAvailable
-                        ? "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50 hover:bg-TT-purple-shade/10 cursor-pointer"
-                        : "border-gray-800 bg-[#0a0e14] opacity-40 cursor-not-allowed"
-                    }
-                  `}
-                >
-                  <Layers
-                    className={`w-6 h-6 mb-1 ${isSelected ? "text-TT-purple-accent" : isAvailable ? "text-gray-400" : "text-gray-700"}`}
-                    strokeWidth={1.4}
-                  />
-                  <span
-                    className={`text-xs font-mono font-bold tracking-wider ${isSelected ? "text-TT-purple" : "text-gray-400"}`}
-                  >
-                    DEVICES {sorted.join("-")}
-                  </span>
-                  <span
-                    className={`text-[10px] font-mono mt-0.5 ${isSelected
-                        ? "text-TT-purple-accent"
-                        : isAvailable
-                          ? "text-gray-500"
-                          : "text-gray-700"
-                      }`}
-                  >
-                    {isAvailable ? "IDLE" : "IN USE"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {selectedSlots.length > 0 && (
-            <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ Devices {selectedSlots.slice().sort((a, b) => a - b).join(", ")} selected
-              {" — "}
-              {selectedSlots.slice().sort((a, b) => a - b).map((s) => (
-                <code key={s} className="bg-gray-800 px-1 rounded mr-1">
-                  /dev/tenstorrent/{s}
-                </code>
-              ))}
-            </p>
-          )}
-        </div>
+        <DeviceGroupPicker
+          title="Select a Card"
+          hint="Each card is 2 devices; pick whichever card is free."
+          groups={pairGroups}
+          selectedSlots={selectedSlots}
+          isAvailable={groupIsAvailable}
+          onSelect={setSelectedSlots}
+        />
       )}
 
       {/* Chip slot status */}
