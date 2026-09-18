@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Cpu, Layers, LayoutGrid } from "lucide-react";
 import { ChipStatusDisplay } from "./ChipStatusDisplay";
 import {
@@ -12,6 +12,10 @@ import {
 } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
 import { useTour } from "../hooks/useTour";
+
+// Stable empty selection: re-using one reference keeps a "cleared" selection from
+// cascading back through onConfirm into the parent and re-rendering on every pass.
+const NO_SLOTS: number[] = [];
 
 interface ChipConfigStepProps {
   // Receives the exact slots the user chose; empty means no valid selection yet.
@@ -40,6 +44,14 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
   const hasPairTier = pairGroups.length > 0;
   // The "pick devices" card is offered for single-device and flexible (card-pair) models.
   const pickEnabled = allowsSingle || isGrouped;
+  // Content signature of the placement rules, so effects can react to a real
+  // rule change instead of the object being rebuilt on each parent render.
+  const placementKey = JSON.stringify([
+    allowsSingle,
+    allowsFullBoard,
+    cardGroups,
+    pairGroups,
+  ]);
 
   // Whether the whole board is free (required to run full-board).
   const multiBoardFree = useMemo(
@@ -72,39 +84,51 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     [chipStatus, isGrouped, cardGroups]
   );
 
-  // Pre-select the only valid mode for this model.
+  // Pre-select the only valid mode for this model, and drop stale picks when the
+  // model's placement rules change. Keyed on placementKey (contents) rather than
+  // the placement object: the parent rebuilds it on every render, and every pick
+  // re-renders the parent through onConfirm, so keying on identity would make each
+  // click reset the mode and clear the selection it just made.
   useEffect(() => {
-    const defaultMode = pickEnabled ? "single" : "multi";
-    setSelectedMode(defaultMode);
-    if (isDeployTour && defaultMode === "single") {
-      const availableSlot = chipStatus?.slots.find((s) =>
-        slotIsAvailable(s.slot_id)
-      )?.slot_id;
-      if (availableSlot !== undefined) {
-        const initialSlots = isGrouped
-          ? cardGroupFor(availableSlot, cardGroups)
-          : [availableSlot];
-        setSelectedSlots(initialSlots);
-      } else {
-        setSelectedSlots([]);
-      }
-    } else {
-      setSelectedSlots([]);
-    }
+    setSelectedMode(pickEnabled ? "single" : "multi");
+    setSelectedSlots(NO_SLOTS);
+  }, [pickEnabled, placementKey]);
+
+  // Deploy tour: pre-pick a free device once per placement so the tour's slot-picker
+  // step highlights a real selection. The ref guard keeps it from re-applying over
+  // (or fighting) the user's own pick on later renders.
+  const tourPreselectedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isDeployTour || selectedMode !== "single") return;
+    if (tourPreselectedFor.current === placementKey) return;
+    const slot = chipStatus?.slots.find((s) => slotIsAvailable(s.slot_id))?.slot_id;
+    if (slot === undefined) return;
+    tourPreselectedFor.current = placementKey;
+    setSelectedSlots(isGrouped ? cardGroupFor(slot, cardGroups) : [slot]);
   }, [
-    pickEnabled,
     isDeployTour,
-    isGrouped,
-    cardGroups,
+    selectedMode,
+    placementKey,
     chipStatus,
     slotIsAvailable,
+    isGrouped,
+    cardGroups,
   ]);
+
+  // Drop picks that stopped being available (another deploy claimed the chip) so
+  // Deploy can't fire onto an occupied device. Grouped picks clear as a whole,
+  // since slotIsAvailable() is false for every slot of a partly-busy card.
+  useEffect(() => {
+    setSelectedSlots((prev) =>
+      prev.some((s) => !slotIsAvailable(s)) ? prev.filter(slotIsAvailable) : prev
+    );
+  }, [slotIsAvailable]);
 
   // Keep the parent's device selection in sync; an empty selection leaves Deploy
   // disabled until a valid device is picked.
   useEffect(() => {
     if (selectedMode === "multi") {
-      onConfirm(multiBoardFree ? multiSlots : []);
+      onConfirm(multiBoardFree ? multiSlots : NO_SLOTS);
     } else if (selectedMode === "single" || selectedMode === "pair") {
       onConfirm(selectedSlots);
     }
@@ -192,7 +216,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           type="button"
           data-tour="hardware-mode-single"
           disabled={singleDisabled}
-          onClick={() => { if (!singleDisabled) { setSelectedMode("single"); setSelectedSlots([]); } }}
+          onClick={() => { if (!singleDisabled) { setSelectedMode("single"); setSelectedSlots(NO_SLOTS); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${singleDisabled
@@ -230,7 +254,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           <button
             type="button"
             disabled={pairDisabled}
-            onClick={() => { if (!pairDisabled) { setSelectedMode("pair"); setSelectedSlots([]); } }}
+            onClick={() => { if (!pairDisabled) { setSelectedMode("pair"); setSelectedSlots(NO_SLOTS); } }}
             className={`
               relative text-left p-6 rounded-xl border-2 transition-all duration-200
               ${pairDisabled
@@ -274,7 +298,7 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
           type="button"
           data-tour="hardware-mode-multi"
           disabled={multiDisabled}
-          onClick={() => { if (!multiDisabled) { setSelectedMode("multi"); setSelectedSlots([]); } }}
+          onClick={() => { if (!multiDisabled) { setSelectedMode("multi"); setSelectedSlots(NO_SLOTS); } }}
           className={`
             relative text-left p-6 rounded-xl border-2 transition-all duration-200
             ${multiDisabled

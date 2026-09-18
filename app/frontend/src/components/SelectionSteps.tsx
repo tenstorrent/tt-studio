@@ -211,12 +211,19 @@ export default function StepperDemo() {
   const selectedModelType =
     models?.find((m) => m.id === selectedModel)?.model_type ?? "";
 
+  const boardType = effectiveChipStatus?.board_type;
   // Supported device configurations for the selected model (single source of truth).
-  const placement = getModelPlacement(
-    selectedModelName ?? selectedModel ?? "",
-    selectedModelChips,
-    effectiveChipStatus?.board_type,
-    selectedModelType
+  // Memoized so re-renders hand ChipConfigStep the same placement object instead of
+  // a fresh one, which its selection effects would read as a rule change.
+  const placement = useMemo(
+    () =>
+      getModelPlacement(
+        selectedModelName ?? selectedModel ?? "",
+        selectedModelChips,
+        boardType,
+        selectedModelType
+      ),
+    [selectedModelName, selectedModel, selectedModelChips, boardType, selectedModelType]
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
