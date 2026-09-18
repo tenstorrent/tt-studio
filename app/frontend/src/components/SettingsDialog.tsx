@@ -264,6 +264,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
             </div>
           </SecretField>
 
+          {/* Tavily API key UI is currently non-functional; hidden from the UI.
           <SecretField
             id="tavily_api_key"
             label="Tavily API key"
@@ -277,6 +278,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               next search.
             </p>
           </SecretField>
+          */}
 
           <DialogFooter className="gap-2 pt-2">
             <Button
