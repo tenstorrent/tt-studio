@@ -310,6 +310,27 @@ def _find_supervisor_wrapper_pid(pid, max_depth=5):
     return found
 
 
+def _pid_is_zombie(pid):
+    """True if `pid` is a zombie: exited but not yet reaped by its parent.
+
+    `kill -0` (and os.kill(pid, 0)) still succeed for zombies, so the alive
+    checks below treat them as dead to avoid waiting on a process that is
+    already gone (e.g. a killed supervisor wrapper whose parent launcher is
+    still running)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            state = f.read().rsplit(")", 1)[-1].split()[0]
+    except FileNotFoundError:
+        if os.path.isdir("/proc"):
+            return False  # no such process
+        result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                                capture_output=True, text=True, check=False)
+        state = result.stdout.strip()
+    except (OSError, IndexError, ValueError):
+        return False
+    return state[:1] == "Z"
+
+
 def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout=7.0, poll_interval=0.25):
     """Send SIGTERM (-15), poll every `poll_interval`s up to `timeout`s,
     and escalate to SIGKILL (-9) only if still alive."""
@@ -339,7 +360,7 @@ def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout
         while time.time() < deadline:
             time.sleep(poll_interval)
             result = run_command(check_alive_cmd, check=False, capture_output=True)
-            if result.returncode != 0:
+            if result.returncode != 0 or _pid_is_zombie(pid_int):
                 alive = False
                 break
 

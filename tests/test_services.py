@@ -6,7 +6,7 @@ import os
 import signal
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 try:
     from tt_setup import services as M
@@ -635,3 +635,34 @@ class TestPortFreeingOnlyTargetsTheListener(unittest.TestCase):
             self.assertFalse(_ports_mod._process_is_docker(4242, no_sudo=True))
             self.assertFalse(any(c[0] == "sudo" for c in calls),
                              "no_sudo must not fall back to sudo ps")
+
+
+class TestZombieProcessesAreTreatedAsDead(unittest.TestCase):
+    """A zombie (state Z) still answers `kill -0`, but it is already gone: the
+    alive checks must not wait on it or refuse to start because of it."""
+
+    ZOMBIE_STAT = "999 (docker_control) Z 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+    SLEEPING_STAT = "999 (docker_control) S 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+
+    def test_process_is_alive_returns_false_for_zombie(self):
+        with patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)), \
+             patch.object(_dc_mod.os, "kill"):
+            self.assertFalse(_dc_mod._process_is_alive(999))
+        with patch("builtins.open", mock_open(read_data=self.SLEEPING_STAT)), \
+             patch.object(_dc_mod.os, "kill"):
+            self.assertTrue(_dc_mod._process_is_alive(999))
+
+    def test_terminate_pid_graceful_then_force_does_not_force_kill_zombie(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            return MagicMock(returncode=0)  # `kill -0` keeps succeeding for a zombie
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"), \
+             patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [["kill", "-15", "999"], ["kill", "-0", "999"]],
+                         "a zombie must be reported dead on the first poll, without kill -9")
