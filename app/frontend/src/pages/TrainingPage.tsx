@@ -26,8 +26,7 @@ import {
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
-// Custom dataset uploading is currently non-functional; hidden from the UI below.
-// import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
+import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
 
 const STATUS_STYLES: Record<
   string,
@@ -134,7 +133,9 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
-      customToast.success("Cancellation requested");
+      customToast.success(
+        "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
+      );
       loadJobs();
     } catch {
       customToast.error("Failed to cancel job");
@@ -299,7 +300,7 @@ export default function TrainingPage() {
           </CardContent>
         </Card>
 
-        {/* Custom dataset uploading is currently non-functional; hidden from the UI.
+        {/* Dataset management */}
         <div className="pt-2 text-left">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
             Dataset Management
@@ -309,8 +310,8 @@ export default function TrainingPage() {
           </p>
         </div>
 
+        {/* Custom dataset upload & preview */}
         <DatasetPreviewPanel />
-        */}
       </div>
 
       {/* New Job Dialog */}

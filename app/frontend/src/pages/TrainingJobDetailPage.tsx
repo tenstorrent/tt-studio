@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Clock,
   Ban,
+  Info,
   RefreshCw,
   Rocket,
 } from "lucide-react";
@@ -279,7 +280,9 @@ export default function TrainingJobDetailPage() {
       if (result?.status) {
         setJob((prev) => (prev ? { ...prev, status: result.status as TrainingJob["status"] } : prev));
       }
-      customToast.success("Cancellation requested");
+      customToast.success(
+        "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
+      );
       loadAll();
     } catch {
       setCancelRequested(false);
@@ -419,6 +422,19 @@ export default function TrainingJobDetailPage() {
             )}
           </div>
         </div>
+
+        {/* A cancel issued mid-compile only lands once compilation finishes;
+            surface this so the wait doesn't look like a broken cancel. */}
+        {displayStatus === "cancelling" && (
+          <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 p-4 dark:border-orange-700 dark:bg-orange-900/20">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
+            <p className="text-sm text-orange-800 dark:text-orange-200">
+              Cancellation requested. If the job is still compiling, it won't
+              stop until compilation finishes — this can take a few minutes. The
+              status will update to "Cancelled" once it takes effect.
+            </p>
+          </div>
+        )}
 
         {/* Connection error banner */}
         {connectionError && (
