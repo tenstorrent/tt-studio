@@ -643,62 +643,62 @@ def normalize(source_path: Path) -> list[dict]:
         by_model.setdefault(name, []).append(entry)
 
     models = []
-    for model_name, entries in by_model.items():
-        # Use first entry for genuinely model-level fields that are identical
-        # across all device entries (hf_model_repo, model_type, engine, ...).
-        first = entries[0]
-        # version/docker_image vary per device entry, so pick the highest version.
-        canonical = pick_canonical_entry(entries)
+    for model_name, name_entries in by_model.items():
+        # Split by engine: one name can span engines (vLLM CHAT + forge TRAINING
+        # both "Llama-3.1-8B-Instruct") and those are separate entries. Merging by
+        # name let the higher-versioned training spec clobber the chat image.
+        # Record an impl only for the cross-engine case (name has >1 impl); a
+        # redundant one 404s the server's (model, device, impl) lookup.
+        name_distinct_impls = {_impl_selector(e.get("impl")) for e in name_entries}
+        name_distinct_impls.discard(None)
+        needs_disambiguating_impl = len(name_distinct_impls) > 1
 
-        # Aggregate device_types (union across all entries). Lookup is
-        # case-insensitive so artifact casing drift can't silently drop a device.
-        device_configurations = sorted(
-            {
-                DEVICE_TYPE_TO_CONFIG[(e.get("device_type") or "").upper()]
-                for e in entries
-                if (e.get("device_type") or "").upper() in DEVICE_TYPE_TO_CONFIG
-            }
-        )
+        by_engine: dict[str, list[dict]] = {}
+        for e in name_entries:
+            by_engine.setdefault(e.get("inference_engine", "vLLM"), []).append(e)
 
-        # Pick highest status
-        status = None
-        for e in entries:
-            status = pick_higher_status(status, e.get("status", "EXPERIMENTAL"))
+        for inference_engine, entries in by_engine.items():
+            # Model-level fields from the first entry; take the highest version
+            # since version/docker_image vary per device.
+            first = entries[0]
+            canonical = pick_canonical_entry(entries)
 
-        # Model-level env_vars (from first entry, strip device-specific keys)
-        env_vars = filter_env_vars(first.get("env_vars") or {})
+            # Union of device_types; case-insensitive so casing drift can't drop one.
+            device_configurations = sorted(
+                {
+                    DEVICE_TYPE_TO_CONFIG[(e.get("device_type") or "").upper()]
+                    for e in entries
+                    if (e.get("device_type") or "").upper() in DEVICE_TYPE_TO_CONFIG
+                }
+            )
 
-        inference_engine = first.get("inference_engine", "vLLM")
-        raw_model_type = first.get("model_type", "LLM")
-        service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
+            status = None
+            for e in entries:
+                status = pick_higher_status(status, e.get("status", "EXPERIMENTAL"))
 
-        # Record an impl only when it actually disambiguates. The server does a
-        # stricter (model, device, impl) lookup that misses specs outside the prod
-        # tier, so an impl that buys no disambiguation turns a working resolve into
-        # a 404 (e.g. speecht5_tts on Blackhole). A future dev-catalog spec that
-        # collides on name+device won't appear in this prod artifact, so it can't be
-        # seen here; such models arrive as hand-added retained entries whose impl is
-        # preserved, or the impl can be set by hand.
-        distinct_impls = {_impl_selector(e.get("impl")) for e in entries}
-        distinct_impls.discard(None)
-        disambiguating_impl = _impl_selector(first.get("impl")) if len(distinct_impls) > 1 else None
+            env_vars = filter_env_vars(first.get("env_vars") or {})
 
-        models.append({
-            "model_name": model_name,
-            "model_type": map_model_type(raw_model_type, inference_engine),
-            "display_model_type": raw_model_type,
-            "device_configurations": device_configurations,
-            "hf_model_id": first.get("hf_model_repo"),
-            "inference_engine": inference_engine,
-            "impl": disambiguating_impl,
-            "status": status,
-            "version": canonical.get("version", "0.0.0"),
-            "docker_image": canonical.get("docker_image"),
-            "service_route": service_route,
-            "health_route": map_health_route(inference_engine, service_route),
-            "env_vars": env_vars,
-            "param_count": first.get("param_count"),
-        })
+            raw_model_type = first.get("model_type", "LLM")
+            service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
+
+            disambiguating_impl = _impl_selector(first.get("impl")) if needs_disambiguating_impl else None
+
+            models.append({
+                "model_name": model_name,
+                "model_type": map_model_type(raw_model_type, inference_engine),
+                "display_model_type": raw_model_type,
+                "device_configurations": device_configurations,
+                "hf_model_id": first.get("hf_model_repo"),
+                "inference_engine": inference_engine,
+                "impl": disambiguating_impl,
+                "status": status,
+                "version": canonical.get("version", "0.0.0"),
+                "docker_image": canonical.get("docker_image"),
+                "service_route": service_route,
+                "health_route": map_health_route(inference_engine, service_route),
+                "env_vars": env_vars,
+                "param_count": first.get("param_count"),
+            })
 
     # Sort: by status (highest first), then alphabetically by model_name
     models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
