@@ -34,11 +34,12 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import {
   fetchTrainingCatalogFull,
-  fetchCustomDatasets,
+  // Custom dataset uploading is currently non-functional; hidden from the UI below.
+  // fetchCustomDatasets,
   createTrainingJob,
   DEFAULT_DATASET_LOADER,
   type CatalogEntry,
-  type CustomDataset,
+  // type CustomDataset,
 } from "../../api/trainingApi";
 import { customToast } from "../CustomToaster";
 
@@ -88,7 +89,7 @@ export function TrainingConfigDialog({
 }: TrainingConfigDialogProps) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [datasets, setDatasets] = useState<CatalogEntry[]>([]);
-  const [customDatasets, setCustomDatasets] = useState<CustomDataset[]>([]);
+  // const [customDatasets, setCustomDatasets] = useState<CustomDataset[]>([]);
   const [device, setDevice] = useState<string | undefined>(undefined);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -115,18 +116,12 @@ export function TrainingConfigDialog({
   useEffect(() => {
     if (!open) return;
     setCatalogLoading(true);
-    Promise.all([fetchTrainingCatalogFull(), fetchCustomDatasets()])
-      .then(
-        ([
-          { models, datasets: datasetEntries, device: catalogDevice },
-          custom,
-        ]) => {
-          setCatalog(models);
-          setDatasets(datasetEntries);
-          setCustomDatasets(custom);
-          setDevice(catalogDevice);
-        },
-      )
+    Promise.all([fetchTrainingCatalogFull()])
+      .then(([{ models, datasets: datasetEntries, device: catalogDevice }]) => {
+        setCatalog(models);
+        setDatasets(datasetEntries);
+        setDevice(catalogDevice);
+      })
       .catch(() => customToast.error("Failed to load training catalog"))
       .finally(() => setCatalogLoading(false));
   }, [open]);
@@ -278,6 +273,7 @@ export function TrainingConfigDialog({
                             {entry.name}
                           </SelectItem>
                         ))}
+                        {/* Custom dataset uploading is currently non-functional; hidden from the UI.
                         {customDatasets.length > 0 && (
                           <>
                             <div className="px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -293,6 +289,7 @@ export function TrainingConfigDialog({
                             ))}
                           </>
                         )}
+                        */}
                       </SelectContent>
                     </Select>
                     <FormMessage />

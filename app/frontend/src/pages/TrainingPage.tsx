@@ -26,7 +26,8 @@ import {
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
-import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
+// Custom dataset uploading is currently non-functional; hidden from the UI below.
+// import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
 
 const STATUS_STYLES: Record<
   string,
@@ -148,18 +149,23 @@ export default function TrainingPage() {
 
   return (
     <div className="min-h-screen w-full px-6 py-8 lg:px-12">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6 bg-white dark:bg-black rounded-2xl border border-gray-200/80 dark:border-gray-800/70 p-6 sm:p-8 shadow-sm dark:shadow-none">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-              Training Jobs
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Training Jobs
+              </h1>
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                Beta
+              </span>
+            </div>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Fine-tune models on Tenstorrent hardware
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-shrink-0 items-center gap-3">
             <Button variant="outline" size="sm" onClick={loadJobs}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
@@ -293,7 +299,7 @@ export default function TrainingPage() {
           </CardContent>
         </Card>
 
-        {/* Dataset management */}
+        {/* Custom dataset uploading is currently non-functional; hidden from the UI.
         <div className="pt-2 text-left">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
             Dataset Management
@@ -303,8 +309,8 @@ export default function TrainingPage() {
           </p>
         </div>
 
-        {/* Custom dataset upload & preview */}
         <DatasetPreviewPanel />
+        */}
       </div>
 
       {/* New Job Dialog */}
