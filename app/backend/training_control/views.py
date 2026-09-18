@@ -236,6 +236,20 @@ def _parse_jsonl(text):
     return rows or None
 
 
+def _looks_like_hf_datasets_server_export(obj):
+    """Detect a raw HF ``datasets-server`` ``/rows`` export, whose real examples
+    are nested under ``rows[i].row`` next to ``features``/``num_rows_total``."""
+    if not isinstance(obj, dict):
+        return False
+    inner = obj.get("rows")
+    if not isinstance(inner, list) or not inner:
+        return False
+    # Require each entry's `row` dict so a column named "rows" isn't a false hit.
+    if not all(isinstance(r, dict) and isinstance(r.get("row"), dict) for r in inner):
+        return False
+    return any(k in obj for k in ("features", "num_rows_total", "num_rows_per_page"))
+
+
 def _normalize_dataset_rows(text):
     """Normalize uploaded dataset *text* into the flat list of object rows the
     trainer expects. Accepts a JSON array of objects or JSON Lines (one object
@@ -275,11 +289,29 @@ def _normalize_dataset_rows(text):
     if not rows:
         return None, "The dataset is empty."
 
+    # A raw HF datasets-server export looks like a valid one-row dataset; reject
+    # it upfront instead of letting the trainer fail on the wrapper's columns.
+    if any(_looks_like_hf_datasets_server_export(row) for row in rows):
+        return None, (
+            "This looks like a raw Hugging Face datasets-server export "
+            "(the examples are nested under \"rows\"[i].\"row\", alongside "
+            "\"features\"/\"num_rows_total\" metadata). Please reformat it into "
+            "a flat JSON array of example objects — e.g. extract each entry's "
+            "\"row\" value into a top-level array like [{...}, {...}] — before "
+            "uploading."
+        )
+
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             return None, (
                 f"Every item must be an object. Item at index {i} is not an object."
             )
+        # The trainer calls `.strip()` on field values, which crashes on a null
+        # (common for optional fields like Alpaca `input`). Coerce top-level
+        # nulls to "" — non-null and nested values are left untouched.
+        for key, value in row.items():
+            if value is None:
+                row[key] = ""
 
     return rows, None
 

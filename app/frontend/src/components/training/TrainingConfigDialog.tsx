@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -35,11 +35,18 @@ import { Button } from "../ui/button";
 import {
   fetchTrainingCatalogFull,
   fetchCustomDatasets,
+  fetchCustomDatasetContent,
   createTrainingJob,
   CUSTOM_DATASET_LOADER,
   type CatalogEntry,
   type CustomDataset,
 } from "../../api/trainingApi";
+import {
+  parseDatasetFile,
+  buildSampledPreview,
+  estimateMaxRowTokens,
+  type DatasetRow,
+} from "./datasetPreview";
 import { customToast } from "../CustomToaster";
 
 // Prefix marking custom datasets in the shared dropdown, so we can tell them
@@ -164,6 +171,53 @@ export function TrainingConfigDialog({
   const selectedTemplate = form.watch("template");
   const templateFields =
     DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
+
+  // Sample of the selected custom dataset, used to warn before submit when
+  // examples exceed max_length (the trainer silently drops over-length rows).
+  const [datasetSampleRows, setDatasetSampleRows] = useState<DatasetRow[]>([]);
+  const maxLength = form.watch("max_length");
+  const columnMapping = form.watch("column_mapping");
+
+  useEffect(() => {
+    if (!open || !isCustomDataset) {
+      setDatasetSampleRows([]);
+      return;
+    }
+    const datasetId = selectedDataset.slice(CUSTOM_DATASET_PREFIX.length);
+    let cancelled = false;
+    fetchCustomDatasetContent(datasetId)
+      .then(({ text, sampled }) => {
+        if (cancelled) return;
+        const preview = sampled
+          ? buildSampledPreview(text)
+          : parseDatasetFile(text);
+        setDatasetSampleRows(preview.rows);
+      })
+      // Best-effort: a fetch/parse failure just skips the warning.
+      .catch(() => {
+        if (!cancelled) setDatasetSampleRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isCustomDataset, selectedDataset]);
+
+  // Longest estimated example (tokens) over the mapped columns (or the field's
+  // own name when unmapped).
+  const estimatedMaxTokens = useMemo(() => {
+    if (datasetSampleRows.length === 0) return 0;
+    const columns = templateFields.map(
+      (f, i) => (columnMapping[i]?.value ?? "").trim() || f.key,
+    );
+    return estimateMaxRowTokens(datasetSampleRows, columns);
+  }, [datasetSampleRows, templateFields, columnMapping]);
+
+  const lengthWarning =
+    isCustomDataset &&
+    estimatedMaxTokens > 0 &&
+    Number.isFinite(maxLength) &&
+    maxLength > 0 &&
+    estimatedMaxTokens > maxLength;
 
   const onSubmit = async (values: FormValues) => {
     if (!device) {
@@ -470,6 +524,23 @@ export function TrainingConfigDialog({
                   )}
                 />
               </div>
+
+              {lengthWarning && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/60 dark:bg-amber-900/20">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <p className="text-amber-800 dark:text-amber-200">
+                    Some examples in this dataset are roughly{" "}
+                    <span className="font-semibold">
+                      ~{estimatedMaxTokens.toLocaleString()} tokens
+                    </span>{" "}
+                    long (estimated), which exceeds the Sequence Length of{" "}
+                    <span className="font-semibold">{maxLength}</span>. The
+                    trainer silently drops examples longer than this limit — if
+                    every example is over it, the dataset becomes empty and
+                    training fails. Consider raising Sequence Length.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* LoRA Config */}

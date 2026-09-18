@@ -133,7 +133,9 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
-      customToast.success("Cancellation requested");
+      customToast.success(
+        "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
+      );
       loadJobs();
     } catch {
       customToast.error("Failed to cancel job");

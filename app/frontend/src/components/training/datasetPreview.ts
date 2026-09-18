@@ -26,6 +26,38 @@ export class DatasetParseError extends Error {
   }
 }
 
+// Rough chars/token ratio: the real tokenizer only runs in the training
+// container, so this cheap proxy is used only to warn the user, never to block.
+const APPROX_CHARS_PER_TOKEN = 4;
+
+/** Coarse token-count estimate for a piece of text (see APPROX_CHARS_PER_TOKEN). */
+export function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN);
+}
+
+/**
+ * Longest estimated example (tokens) across a sample, over `columns` (the
+ * template-mapped fields; empty means all values). 0 for an empty sample.
+ */
+export function estimateMaxRowTokens(
+  rows: DatasetRow[],
+  columns: string[],
+): number {
+  let max = 0;
+  for (const row of rows) {
+    const values =
+      columns.length > 0
+        ? columns.map((c) => row[c])
+        : Object.values(row);
+    const text = values
+      .map((v) => (v === null || v === undefined ? "" : String(v)))
+      .join(" ");
+    const tokens = estimateTokenCount(text);
+    if (tokens > max) max = tokens;
+  }
+  return max;
+}
+
 // Only include object rows when deriving columns; scan at most this many rows so
 // a very wide/long file does not stall the UI thread while building headers.
 const MAX_ROWS_FOR_COLUMN_DERIVATION = 200;
