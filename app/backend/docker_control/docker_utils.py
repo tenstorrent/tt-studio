@@ -585,7 +585,10 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # hand-authored spec file: run.py's own spec resolution hard-rejects an
         # undeclared (model, device) pair before any override flag ever runs, and
         # --runtime-model-spec-json is the documented bypass -- it's used as-is, so
-        # override_tt_config below would be silently ignored and is skipped.
+        # override_tt_config below would be silently ignored and is skipped. The
+        # same channel carries a model_overrides.toml serve_override env_vars
+        # entry: its derived spec adds container env the upstream spec lacks
+        # (and bakes in the image pin, since the spec is loaded as-is).
         spec_overrides = {
             k.lower(): v for k, v in (impl.runtime_model_spec_overrides or {}).items()
         }

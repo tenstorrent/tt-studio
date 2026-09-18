@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-16T17:53:03.358710+00:00"
+    "generated_at": "2026-09-17T18:13:11.223466+00:00"
   },
   "total_models": 73,
   "models": [
@@ -334,6 +334,7 @@
         "GALAXY",
         "P150X4",
         "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "genmo/mochi-1-preview",
@@ -346,11 +347,8 @@
       "health_route": "/health",
       "env_vars": {},
       "param_count": null,
-      "unavailable_devices": {
-        "P300x2": {
-          "reason": "known_broken",
-          "details": "Deploy fails with the catalog-pinned image; needs a newer media image plus a spec-level env override the artifact does not carry. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
-        }
+      "runtime_model_spec_overrides": {
+        "P300x2": "app/backend/shared_config/runtime_model_specs/mochi-1-preview-p300x2.json"
       }
     },
     {

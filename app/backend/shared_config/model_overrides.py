@@ -18,6 +18,7 @@ dicts directly) need no changes beyond where the data now comes from:
     VLLM_MESH_SPEC_FALLBACK     {device: (alt_device, ...)}
     MEDIA_IMAGE_OVERRIDES       {(model_name, device_or_"*"): docker_image}
     TRACE_REGION_OVERRIDES      {(model_name, device): trace_region_size}
+    SERVE_ENV_OVERRIDES         {(model_name, device): {ENV_VAR: value}}
     CHIP_TIER_MODELS            {model_name: base_device}
     CHIP_TIERS                  {model_name: {device: device_ids}}
 """
@@ -94,16 +95,25 @@ def _parse_device_fallback(entries: list[dict], where: str) -> dict[str, tuple[s
 
 def _parse_serve_override(
     entries: list[dict], where: str
-) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], int]]:
+) -> tuple[
+    dict[tuple[str, str], str],
+    dict[tuple[str, str], int],
+    dict[tuple[str, str], dict[str, str]],
+]:
     images: dict[tuple[str, str], str] = {}
     trace_regions: dict[tuple[str, str], int] = {}
+    env_overrides: dict[tuple[str, str], dict[str, str]] = {}
     seen: set[tuple[str, str]] = set()
     for entry in entries:
         _require(entry, ("model",), where)
-        if not (entry.get("docker_image") or entry.get("trace_region_size")):
+        if not (
+            entry.get("docker_image")
+            or entry.get("trace_region_size")
+            or entry.get("env_vars")
+        ):
             raise OverridesError(
                 f"{where}: serve_override for {entry['model']} sets nothing; "
-                "give it a docker_image or a trace_region_size."
+                "give it a docker_image, a trace_region_size or env_vars."
             )
         device = entry.get("device", "*")
         if device != "*":
@@ -118,7 +128,22 @@ def _parse_serve_override(
             images[key] = entry["docker_image"]
         if entry.get("trace_region_size"):
             trace_regions[key] = int(entry["trace_region_size"])
-    return images, trace_regions
+        if entry.get("env_vars"):
+            env_vars = entry["env_vars"]
+            if not isinstance(env_vars, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in env_vars.items()
+            ):
+                raise OverridesError(
+                    f"{where}: serve_override env_vars for {entry['model']} must be a "
+                    "table of string values, e.g. { TT_DIT_CACHE_DIR = \"/path\" }."
+                )
+            if device == "*":
+                raise OverridesError(
+                    f"{where}: serve_override env_vars for {entry['model']} needs a "
+                    "concrete device: the derived runtime model spec is per model/device."
+                )
+            env_overrides[key] = dict(env_vars)
+    return images, trace_regions, env_overrides
 
 
 def _parse_chip_tier(
@@ -165,9 +190,11 @@ class ModelOverrides:
         self.vllm_mesh_spec_fallback = _parse_device_fallback(
             doc.get("device_fallback") or [], where
         )
-        self.media_image_overrides, self.trace_region_overrides = _parse_serve_override(
-            doc.get("serve_override") or [], where
-        )
+        (
+            self.media_image_overrides,
+            self.trace_region_overrides,
+            self.serve_env_overrides,
+        ) = _parse_serve_override(doc.get("serve_override") or [], where)
         self.chip_tier_models, self.chip_tiers = _parse_chip_tier(
             doc.get("chip_tier") or [], where
         )
@@ -189,5 +216,6 @@ STUDIO_UNAVAILABLE_DEVICES: dict[str, dict[str, tuple[str, str]]] = _overrides.u
 VLLM_MESH_SPEC_FALLBACK: dict[str, tuple[str, ...]] = _overrides.vllm_mesh_spec_fallback
 MEDIA_IMAGE_OVERRIDES: dict[tuple[str, str], str] = _overrides.media_image_overrides
 TRACE_REGION_OVERRIDES: dict[tuple[str, str], int] = _overrides.trace_region_overrides
+SERVE_ENV_OVERRIDES: dict[tuple[str, str], dict[str, str]] = _overrides.serve_env_overrides
 CHIP_TIER_MODELS: dict[str, str] = _overrides.chip_tier_models
 CHIP_TIERS: dict[str, dict[str, str]] = _overrides.chip_tiers
