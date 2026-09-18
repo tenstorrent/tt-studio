@@ -25,7 +25,7 @@ import {
   History,
   Settings as SettingsIcon,
   Workflow,
-  PanelLeft,
+  // PanelLeft, // was Canvas's nav icon; Canvas is hidden from the UI
   Plus,
   LayoutGrid,
 } from "lucide-react";
@@ -457,19 +457,19 @@ export default function NavBar() {
   // Surface the Register Model entry only when there's a stray container to adopt.
   const { hasStray } = useStrayContainers();
 
-  // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
-  // usable once a chat-capable model is healthy. Gate the navbar entries the
-  // same way we gate Voice Agent / Coding Agents.
-  const isLlmReady = useMemo(
-    () =>
-      healthyModels.some((m) => {
-        const t = m.model_type
-          ? getModelTypeFromBackendType(m.model_type)
-          : getModelTypeFromName(m.name, m.image);
-        return t === ModelType.ChatModel || t === ModelType.VLM;
-      }),
-    [healthyModels],
-  );
+  // Workflows and Canvas both drive an LLM/VLM under the hood, so they were only
+  // shown once a chat-capable model was healthy. Unused now that both nav
+  // entries below are hidden (currently non-functional).
+  // const isLlmReady = useMemo(
+  //   () =>
+  //     healthyModels.some((m) => {
+  //       const t = m.model_type
+  //         ? getModelTypeFromBackendType(m.model_type)
+  //         : getModelTypeFromName(m.name, m.image);
+  //       return t === ModelType.ChatModel || t === ModelType.VLM;
+  //     }),
+  //   [healthyModels],
+  // );
 
   // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
@@ -646,7 +646,7 @@ export default function NavBar() {
       case ModelType.Embedding:
         return "Embeddings";
       case ModelType.Training:
-        return "Training";
+        return "Training (Beta)";
       default:
         return "Model";
     }
@@ -699,26 +699,25 @@ export default function NavBar() {
         },
       ]
       : []),
-    // Workflows and Canvas both need a healthy chat-capable model to be useful,
-    // so only surface them once one is up.
-    ...(isLlmReady
-      ? [
-        {
-          type: "link" as const,
-          to: "/workflows",
-          icon: Workflow,
-          label: "Workflows",
-          tooltip: "Build and run multi-step AI pipelines",
-        },
-        {
-          type: "link" as const,
-          to: "/canvas",
-          icon: PanelLeft,
-          label: "Canvas",
-          tooltip: "AI code canvas with live preview",
-        },
-      ]
-      : []),
+    // Workflows and Canvas are currently non-functional; hidden from the nav.
+    // ...(isLlmReady
+    //   ? [
+    //     {
+    //       type: "link" as const,
+    //       to: "/workflows",
+    //       icon: Workflow,
+    //       label: "Workflows",
+    //       tooltip: "Build and run multi-step AI pipelines",
+    //     },
+    //     {
+    //       type: "link" as const,
+    //       to: "/canvas",
+    //       icon: PanelLeft,
+    //       label: "Canvas",
+    //       tooltip: "AI code canvas with live preview",
+    //     },
+    //   ]
+    //   : []),
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
@@ -840,8 +839,8 @@ export default function NavBar() {
   ];
   const toolsGroupLabels = [
     "Rag Management",
-    "Workflows",
-    "Canvas",
+    // "Workflows", // hidden from the nav; currently non-functional
+    // "Canvas", // hidden from the nav; currently non-functional
     "Connect Agents",
     "Voice Agent",
   ];
