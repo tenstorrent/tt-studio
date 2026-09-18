@@ -7,6 +7,7 @@ import os
 import pickle
 import time
 import traceback
+from typing import Optional
 
 import httpx
 import requests
@@ -17,6 +18,8 @@ from django.core.cache import caches
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
+from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tts_api_key
 from docker_control.docker_utils import update_deploy_cache
 from model_control.metrics_tracker import InferenceMetricsTracker
 
@@ -50,6 +53,74 @@ def auth_headers(deploy: dict = None) -> dict:
     default token (normal deploys share the backend secret)."""
     secret = deploy.get("jwt_secret") if isinstance(deploy, dict) else None
     return {"Authorization": f"Bearer {token_for(secret)}"}
+
+
+def find_deployed_model_by_type(model_identifier: str, model_type: ModelTypes) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running model of the given
+    type whose hf_model_id or model_name matches `model_identifier`, or None if
+    it isn't deployed.
+
+    Deploy/container ids are ephemeral across redeploys, so anything that needs to
+    keep working across them (a Chroma collection's stored embedding function, a
+    companion app's chosen speech model) has to key on the model's own identity
+    instead and re-resolve the live deploy here on every call.
+    """
+    for deploy in get_deploy_cache().values():
+        impl = deploy.get("model_impl")
+        if not impl or getattr(impl, "model_type", None) != model_type:
+            continue
+        if model_identifier in (getattr(impl, "hf_model_id", None), getattr(impl, "model_name", None)):
+            return deploy
+    return None
+
+
+def find_deployed_embedding_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running EMBEDDING model whose
+    hf_model_id or model_name matches `model_identifier`, or None if it isn't deployed.
+    """
+    return find_deployed_model_by_type(model_identifier, ModelTypes.EMBEDDING)
+
+
+def find_deployed_speech_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running SPEECH_RECOGNITION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.SPEECH_RECOGNITION)
+
+
+def find_deployed_tts_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running TTS model whose
+    hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.TTS)
+
+
+def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:
+    """POST one text to a deployed embedding model's /v1/embeddings route and
+    return the raw OpenAI-shaped response ({"data": [{"embedding": [...]}], ...}).
+    Shared by EmbeddingInferenceView and the Chroma-backed embedding function
+    (vector_db_control.tt_embedding_function) so both build the identical
+    request/auth -- see EmbeddingInferenceView for why hf_model_id (not
+    model_name) is required in the payload, and why media/forge use a static key.
+    Raises requests.exceptions.RequestException on failure; caller decides how to
+    surface it.
+    """
+    internal_url = "http://" + deploy["internal_url"]
+    model_impl = deploy.get("model_impl")
+    hf_model_id = getattr(model_impl, "hf_model_id", None) if model_impl else None
+    model_name = hf_model_id or (getattr(model_impl, "model_name", None) if model_impl else None)
+    inference_engine = getattr(model_impl, "inference_engine", None)
+
+    if inference_engine in ("media", "forge"):
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+    else:
+        headers = auth_headers(deploy)
+
+    payload = {"model": model_name, "input": text}
+    if dimensions:
+        payload["dimensions"] = dimensions
+
+    resp = requests.post(internal_url, json=payload, headers=headers, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
@@ -440,46 +511,52 @@ async def stream_response_from_external_api(url: str, json_data: dict, auth_toke
             if te != "chunked":
                 logger.warning(f"Unexpected transfer-encoding from vLLM: {te!r}")
 
-            async for chunk in response.aiter_text():
-                logger.debug(f"stream_response_from_external_api chunk:={chunk}")
-                if chunk.startswith("data: "):
-                    new_chunk = chunk[len("data: "):].strip()
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line:
+                    continue
+                logger.debug(f"stream_response_from_external_api line:={line}")
+                if line.startswith("data: "):
+                    new_chunk = line[len("data: "):].strip()
 
                     if new_chunk == "[DONE]":
-                        yield chunk
+                        yield "data: [DONE]\n\n"
                         stats = tracker.get_stats()
                         logger.info(f"ttft and tpot stats: {stats}")
                         yield "data: " + json.dumps(stats) + "\n\n"
                         break
 
                     elif new_chunk != "":
-                        chunk_dict = json.loads(new_chunk)
+                        try:
+                            chunk_dict = json.loads(new_chunk)
 
-                        # Track TTFT/TPOT from content delta chunks
-                        choices = chunk_dict.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            delta_reasoning = (
-                                delta.get("reasoning_content")
-                                or delta.get("reasoning")
-                                or delta.get("thinking")
-                            )
-                            if delta_reasoning:
-                                tracker.record_thinking_token()
-                            # chat completions: choices[0].delta.content
-                            # base/completions:  choices[0].text
-                            delta_content = delta.get("content") or choices[0].get("text") or ""
-                            if delta_content:
-                                tracker.record_content_token()
-                                logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                            # Track TTFT/TPOT from content delta chunks
+                            choices = chunk_dict.get("choices") or []
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                delta_reasoning = (
+                                    delta.get("reasoning_content")
+                                    or delta.get("reasoning")
+                                    or delta.get("thinking")
+                                )
+                                if delta_reasoning:
+                                    tracker.record_thinking_token()
+                                # chat completions: choices[0].delta.content
+                                # base/completions:  choices[0].text
+                                delta_content = delta.get("content") or choices[0].get("text") or ""
+                                if delta_content:
+                                    tracker.record_content_token()
+                                    logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
 
-                        # Capture prompt_tokens from usage chunk
-                        usage = chunk_dict.get("usage") or {}
-                        prompt_tokens = usage.get("prompt_tokens", 0)
-                        if prompt_tokens > 0:
-                            tracker.set_prompt_tokens(prompt_tokens)
+                            # Capture prompt_tokens from usage chunk
+                            usage = chunk_dict.get("usage") or {}
+                            prompt_tokens = usage.get("prompt_tokens", 0)
+                            if prompt_tokens > 0:
+                                tracker.set_prompt_tokens(prompt_tokens)
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse SSE data JSON: {e}, data: {new_chunk[:100]}")
 
-                    yield chunk
+                    yield f"data: {new_chunk}\n\n"
 
         logger.info("stream_response_from_external_api done")
 

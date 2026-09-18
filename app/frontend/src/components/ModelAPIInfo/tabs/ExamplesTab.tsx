@@ -193,6 +193,19 @@ const buildNonLlmExamples = (
   -F "image=@/path/to/image.jpg"`,
         },
       ];
+    case "embedding":
+      return [
+        {
+          name: "cURL - Embedding",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "deploy_id": "${deployId}",
+    "input": "Hello from Tenstorrent"
+  }'`,
+        },
+      ];
     default:
       return [
         {
@@ -244,7 +257,7 @@ export default function ExamplesTab({
     }
 
     const modelIdValue = apiInfo.hf_model_id || modelId;
-    // Use backend-provided endpoints which include correct host:port (e.g., :7000)
+    // Use backend-provided endpoints which include correct host:port (e.g., :20000)
     const chatEndpoint = apiInfo.endpoints.chat_completions;
     const completionsEndpoint = apiInfo.endpoints.completions;
 

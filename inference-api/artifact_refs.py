@@ -135,6 +135,29 @@ def _download(url: str, dest: Path, ref: str) -> None:
     os.replace(tmp, dest)
 
 
+def _link_safe_data_filter(member: tarfile.TarInfo, dest_path: str):
+    """The ``data`` filter, minus link members.
+
+    tt-inference-server source archives -- the pinned release and every feature
+    branch alike -- carry four relative symlinks under ``.claude/skills`` and
+    ``.cursor/skills`` whose targets begin with ``..``. Before CPython gh-107845
+    (fixed in 3.10.13, 3.11.5 and 3.12.0) ``data_filter`` resolved a symlink's
+    target against the extraction root instead of against the symlink's own
+    directory, so *any* ``..`` in a linkname read as an escape and aborted the
+    whole extraction with LinkOutsideDestinationError. inference-api runs on
+    whatever ``python3`` built its venv -- 3.10.12 on Ubuntu 22.04 -- so that
+    older filter is the common case here, not the exception.
+
+    Nothing needed to run an artifact is a link (the structural check is
+    ``workflows/utils.py``); those four are editor tooling. Dropping every link
+    member is therefore both stricter than ``data`` and identical on every
+    Python, which is what makes the fetch version-independent.
+    """
+    if member.issym() or member.islnk():
+        return None
+    return tarfile.data_filter(member, dest_path)
+
+
 def _extract(tarball: Path, refs_root: Path, dest: Path, ref: str, url: str) -> None:
     """Extract `tarball` and move the resulting tree into `dest` atomically.
 
@@ -148,9 +171,15 @@ def _extract(tarball: Path, refs_root: Path, dest: Path, ref: str, url: str) -> 
             with tarfile.open(tarball, "r:gz") as tar:
                 # "data" refuses members that would escape the destination via
                 # absolute paths, "..", or links -- worth having on an archive
-                # fetched over the network. Feature-detected because the argument
-                # only exists on newer Pythons (it becomes the default in 3.14).
-                extract_kwargs = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+                # fetched over the network. Wrapped to also drop link members, so
+                # the result does not depend on the running Python's data_filter
+                # vintage (see _link_safe_data_filter). Feature-detected because
+                # the argument only exists on newer Pythons (default in 3.14).
+                extract_kwargs = (
+                    {"filter": _link_safe_data_filter}
+                    if hasattr(tarfile, "data_filter")
+                    else {}
+                )
                 tar.extractall(staging, **extract_kwargs)
         except Exception as e:
             raise ArtifactRefError(

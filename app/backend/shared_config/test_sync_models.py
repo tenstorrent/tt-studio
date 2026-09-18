@@ -10,8 +10,15 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
+    STUDIO_UNAVAILABLE_DEVICES,
+    STUDIO_UNAVAILABLE_MODELS,
+    STUDIO_UNAVAILABLE_REASONS,
+    UNSUPPORTED_STUDIO_MODEL_TYPES,
+    _entry_identity,
     _impl_selector,
     _iter_v1_entries,
+    apply_device_availability,
+    apply_studio_availability,
     load_existing_catalog,
     map_service_route,
     merge_hand_owned,
@@ -44,9 +51,14 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
 
     def test_non_image_media_models_use_enqueue(self):
-        """Non-image/non-audio/non-video media models should use /enqueue."""
+        """Non-image/non-audio/non-video/non-embedding media models should use /enqueue."""
         assert map_service_route("media", "", "CNN") == "/enqueue"
-        assert map_service_route("media", "", "EMBEDDING") == "/enqueue"
+
+    def test_embedding_models_use_v1_embeddings_regardless_of_engine(self):
+        """Embedding models mount tt-media-server's embedding.router at /v1 on both
+        the media and forge runners, so the route must not depend on inference_engine."""
+        assert map_service_route("media", "", "EMBEDDING") == "/v1/embeddings"
+        assert map_service_route("forge", "", "EMBEDDING") == "/v1/embeddings"
 
     def test_video_gen_media_models_use_v1_videos_generations(self):
         """T2V video generation media models should use /v1/videos/generations."""
@@ -133,23 +145,25 @@ class TestHandOwnedFieldPreservation:
 
 
 class TestHandOwnedCollision:
-    """A hand-added entry whose model_name collides with a synced one must win.
+    """A hand-added row may share a model_name with a synced one as long as they
+    use different engines -- the axis the inference server disambiguates on.
 
-    The source JSON carries a vLLM CHAT "Llama-3.1-8B"; the catalog carries a
-    hand-added forge TRAINING row of the same name. Name-keyed merging replaced
-    the training row on every resync, taking fine-tuning offline (training_control
-    filters on model_type == TRAINING) while leaving the entry-name set unchanged,
-    so a count or name-set check could not see it."""
+    The source JSON carries a vLLM CHAT "Llama-3.1-8B-Instruct"; the catalog also
+    carries a hand-added forge TRAINING row of the same name. Keyed on
+    (model_name, inference_engine) they are distinct identities, so both must
+    survive a resync: drop the forge row and fine-tuning goes offline
+    (training_control filters on model_type == TRAINING); drop the vLLM row and
+    chat goes offline."""
 
     def _rows(self):
         synced = [{
-            "model_name": "Llama-3.1-8B",
+            "model_name": "Llama-3.1-8B-Instruct",
             "model_type": "CHAT",
             "inference_engine": "vLLM",
-            "service_route": "/v1/completions",
+            "service_route": "/v1/chat/completions",
         }]
-        existing = {"Llama-3.1-8B": {
-            "model_name": "Llama-3.1-8B",
+        existing = {"Llama-3.1-8B-Instruct": {
+            "model_name": "Llama-3.1-8B-Instruct",
             "hand_owned": True,
             "model_type": "TRAINING",
             "inference_engine": "forge",
@@ -158,32 +172,62 @@ class TestHandOwnedCollision:
         }}
         return synced, existing
 
-    def test_hand_owned_row_survives_name_collision(self):
+    def test_training_and_chat_rows_coexist(self):
         synced, existing = self._rows()
         merged, _, retained = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["model_type"] == "TRAINING"
-        assert by_name["Llama-3.1-8B"]["inference_engine"] == "forge"
-        assert by_name["Llama-3.1-8B"]["service_route"] == "/v1/jobs"
-        assert by_name["Llama-3.1-8B"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
-        assert retained == ["Llama-3.1-8B"]
+        by_engine = {m["inference_engine"]: m for m in merged}
+        # The synced vLLM chat row is untouched...
+        assert by_engine["vLLM"]["model_type"] == "CHAT"
+        # ...and the hand-added forge training row survives intact.
+        assert by_engine["forge"]["model_type"] == "TRAINING"
+        assert by_engine["forge"]["service_route"] == "/v1/jobs"
+        assert by_engine["forge"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
+        # The forge row is absent from source, so it comes back via retention.
+        assert retained == ["Llama-3.1-8B-Instruct"]
 
-    def test_collision_does_not_duplicate_the_name(self):
-        """model_name must stay unique: get_model_impl and the deployment->impl
-        mapping both take the first name match, so a duplicate is ambiguous."""
+    def test_identity_stays_unique(self):
+        """Rows may share a model_name but never a (model_name, engine) identity:
+        model_id and the deployment->impl mapping rely on that pair being unique."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        assert [m["model_name"] for m in merged].count("Llama-3.1-8B") == 1
+        idents = [_entry_identity(m) for m in merged]
+        assert len(idents) == len(set(idents))
+        assert ("Llama-3.1-8B-Instruct", "vllm") in idents
+        assert ("Llama-3.1-8B-Instruct", "forge") in idents
 
     def test_marker_itself_survives_the_resync(self):
         """hand_owned is in HAND_OWNED_KEYS, so the protection is not one-shot."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["hand_owned"] is True
+        forge = next(m for m in merged if m["inference_engine"] == "forge")
+        assert forge["hand_owned"] is True
+
+    def test_true_duplicate_same_engine_is_displaced(self):
+        """When a hand-owned row shares BOTH name and engine with a synced row (a
+        genuine duplicate), the hand-owned row still wins outright and the synced
+        one is dropped, so the identity stays unique."""
+        synced = [{
+            "model_name": "Qwen3.5-9B",
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/completions",
+        }]
+        existing = {"Qwen3.5-9B": {
+            "model_name": "Qwen3.5-9B",
+            "hand_owned": True,
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/chat/completions",
+        }}
+
+        merged, _, retained = merge_hand_owned(synced, existing)
+
+        assert len(merged) == 1
+        assert merged[0]["service_route"] == "/v1/chat/completions"
+        assert retained == ["Qwen3.5-9B"]
 
     def test_unmarked_existing_row_still_yields_to_source(self):
         """Only marked rows win. An ordinary catalog entry is still rebuilt from
@@ -373,18 +417,201 @@ class TestLoadExistingCatalog:
         path.write_text("{not valid json")
         assert load_existing_catalog(path) == {}
 
-    def test_indexes_models_by_name(self, tmp_path):
+    def test_indexes_models_by_identity(self, tmp_path):
+        """Indexed by (model_name, engine) so two rows sharing a name but on
+        different engines both survive; a name-keyed index would drop one."""
         path = tmp_path / "catalog.json"
         path.write_text(json.dumps({"models": [
-            {"model_name": "A", "requires_dev_catalog": True},
-            {"model_name": "B"},
+            {"model_name": "A", "inference_engine": "vLLM", "requires_dev_catalog": True},
+            {"model_name": "A", "inference_engine": "forge"},
+            {"model_name": "B", "inference_engine": "vLLM"},
             {"no_name": "skipped"},
         ]}))
 
         loaded = load_existing_catalog(path)
 
-        assert set(loaded) == {"A", "B"}
-        assert loaded["A"]["requires_dev_catalog"] is True
+        assert set(loaded) == {("A", "vllm"), ("A", "forge"), ("B", "vllm")}
+        assert loaded[("A", "vllm")]["requires_dev_catalog"] is True
+
+
+class TestStudioAvailability:
+    """Models TT-Studio won't offer are marked, never deleted."""
+
+    def test_unlisted_model_carries_no_availability_fields(self):
+        models = [{"model_name": "Llama-3.3-70B-Instruct", "model_type": "CHAT"}]
+        assert apply_studio_availability(models) == []
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+
+    def test_listed_model_is_marked_not_removed(self):
+        models = [{"model_name": "m", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "bad chat template")
+        try:
+            hidden = apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+
+        assert len(models) == 1, "the row must survive; only a mark is added"
+        assert hidden == [("m", "known_broken")]
+        assert models[0]["available_in_studio"] is False
+        assert models[0]["unavailable_details"]
+
+    def test_embeddings_are_no_longer_type_level_unsupported(self):
+        """Studio has an Embeddings UI now, so EMBEDDING carries no type-level mark;
+        only a specific STUDIO_UNAVAILABLE_MODELS/_DEVICES entry can hide one."""
+        models = [{"model_name": "some-embedder", "model_type": "EMBEDDING"}]
+        assert apply_studio_availability(models) == []
+        assert "unavailable_reason" not in models[0]
+
+    def test_per_model_override_beats_the_type_rule(self):
+        """An EMBEDDING model that is also genuinely broken reads as broken."""
+        models = [{"model_name": "m", "model_type": "EMBEDDING"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "does not run")
+        try:
+            apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["unavailable_reason"] == "known_broken"
+
+    def test_stale_mark_is_cleared_when_model_leaves_the_table(self):
+        """Deleting a table entry must actually unhide the model on resync."""
+        models = [{
+            "model_name": "now-fixed",
+            "model_type": "CHAT",
+            "available_in_studio": False,
+            "unavailable_reason": "known_broken",
+            "unavailable_details": "stale",
+        }]
+        apply_studio_availability(models)
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+        assert "unavailable_details" not in models[0]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "bge-m3", "model_type": "EMBEDDING"}]
+        first = apply_studio_availability(models)
+        snapshot = dict(models[0])
+        assert apply_studio_availability(models) == first
+        assert models[0] == snapshot
+
+    def test_model_wide_entries_justify_being_board_independent(self):
+        """A model-wide mark hides a model from boards nobody tested, so each
+        entry must say why the failure is not board-specific. Prefer fixing the
+        cause (see inference-api's cache-volume ownership fix) over masking."""
+        for name, (_reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            low = details.lower()
+            assert any(k in low for k in ("not by any board", "every board", "independent")), (
+                f"{name}: model-wide entry must state why this is not "
+                f"board-specific, or move it to STUDIO_UNAVAILABLE_DEVICES"
+            )
+
+    def test_every_table_reason_is_a_known_reason(self):
+        for name, (reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            assert reason in STUDIO_UNAVAILABLE_REASONS, name
+            assert details.strip(), f"{name} must say why"
+        for model_type, details in UNSUPPORTED_STUDIO_MODEL_TYPES.items():
+            assert details.strip(), f"{model_type} must say why"
+
+    def test_unknown_reason_is_rejected(self):
+        models = [{"model_name": "x", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["x"] = ("typo_reason", "d")
+        try:
+            with pytest.raises(ValueError, match="unknown reason"):
+                apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["x"]
+
+    def test_marks_are_script_owned_not_hand_owned(self):
+        """The tables are the single source of truth; a JSON edit must not stick."""
+        for key in ("available_in_studio", "unavailable_reason", "unavailable_details"):
+            assert key not in HAND_OWNED_KEYS
+
+
+class TestDeviceAvailability:
+    """A model can be unavailable on one board and fine on another."""
+
+    def _one(self, devices, overrides):
+        models = [{
+            "model_name": "m", "model_type": "CHAT",
+            "device_configurations": list(devices),
+        }]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = overrides
+        try:
+            return models, apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_bad_device_is_dropped_good_ones_survive(self):
+        models, removed = self._one(
+            ["N150", "P150", "P300x2"],
+            {"P300x2": ("known_broken", "hangs on Blackhole")},
+        )
+        assert models[0]["device_configurations"] == ["N150", "P150"]
+        assert removed == [("m", "P300x2", "known_broken")]
+        assert "available_in_studio" not in models[0]
+
+    def test_reason_is_recorded_for_the_dropped_device(self):
+        models, _ = self._one(
+            ["N150", "P300x2"], {"P300x2": ("known_broken", "hangs on Blackhole")}
+        )
+        assert models[0]["unavailable_devices"] == {
+            "P300x2": {"reason": "known_broken", "details": "hangs on Blackhole"}
+        }
+
+    def test_losing_every_device_hides_the_model(self):
+        """An empty device list would read as 'incompatible' with no reason."""
+        models, _ = self._one(["P300x2"], {"P300x2": ("known_broken", "hangs")})
+        assert models[0]["device_configurations"] == []
+        assert models[0]["available_in_studio"] is False
+        assert "hangs" in models[0]["unavailable_details"]
+
+    def test_untouched_model_gains_no_fields(self):
+        models = [{"model_name": "other", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        assert apply_device_availability(models) == []
+        assert "unavailable_devices" not in models[0]
+        assert models[0]["device_configurations"] == ["N150"]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150", "P300x2"]}]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "x")}
+        try:
+            apply_device_availability(models)
+            snapshot = dict(models[0])
+            second = apply_device_availability(models)
+            assert models[0] == snapshot
+            assert second == [], "device already gone, nothing left to remove"
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_stale_table_entry_is_visible_not_silent(self):
+        """A device the artifact never claimed still shows up as a mark."""
+        models, removed = self._one(["N150"], {"P150X4": ("known_broken", "old")})
+        assert removed == []
+        assert "P150X4" in models[0]["unavailable_devices"]
+
+    def test_unknown_reason_is_rejected(self):
+        with pytest.raises(ValueError, match="unknown reason"):
+            self._one(["N150"], {"N150": ("nope", "d")})
+
+    def test_every_table_reason_is_valid(self):
+        for name, overrides in STUDIO_UNAVAILABLE_DEVICES.items():
+            for device, (reason, details) in overrides.items():
+                assert reason in STUDIO_UNAVAILABLE_REASONS, f"{name}/{device}"
+                assert details.strip(), f"{name}/{device} must say why"
+
+    def test_model_wide_mark_survives_the_device_pass(self):
+        """main() runs the device pass second; it must not clobber the mark."""
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "everywhere")
+        try:
+            apply_studio_availability(models)
+            apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["available_in_studio"] is False
 
 
 if __name__ == "__main__":

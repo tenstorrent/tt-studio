@@ -194,6 +194,7 @@ class _Manager:
                 "container_id": kwargs.get("container_id", ""),
                 "container_name": kwargs.get("container_name", ""),
                 "model_name": kwargs.get("model_name", ""),
+                "model_id": kwargs.get("model_id", ""),
                 "device": kwargs.get("device", ""),
                 "deployed_at": _now().isoformat(),
                 "stopped_at": None,
@@ -207,6 +208,7 @@ class _Manager:
                 "jwt_secret": kwargs.get("jwt_secret", None),
                 "model_type": kwargs.get("model_type", None),
                 "hf_model_id": kwargs.get("hf_model_id", None),
+                "service_route": kwargs.get("service_route", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -241,6 +243,7 @@ class ModelDeployment:
         self.container_id: str = ""
         self.container_name: str = ""
         self.model_name: str = ""
+        self.model_id: str = ""
         self.device: str = ""
         self.deployed_at: Optional[datetime] = None
         self.stopped_at: Optional[datetime] = None
@@ -259,6 +262,9 @@ class ModelDeployment:
         # catalog. "unknown" means we could not identify what the container serves.
         self.model_type: Optional[str] = None
         self.hf_model_id: Optional[str] = None
+        # The route the container was observed to serve, when it differs from the
+        # per-type convention (e.g. a tt-dit image server serving /generate).
+        self.service_route: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -267,6 +273,7 @@ class ModelDeployment:
         obj.container_id = d.get("container_id", "")
         obj.container_name = d.get("container_name", "")
         obj.model_name = d.get("model_name", "")
+        obj.model_id = d.get("model_id", "")
         obj.device = d.get("device", "")
         obj.deployed_at = _parse_dt(d.get("deployed_at"))
         obj.stopped_at = _parse_dt(d.get("stopped_at"))
@@ -283,6 +290,7 @@ class ModelDeployment:
         obj.failure_reason = d.get("failure_reason")
         obj.failure_message = d.get("failure_message")
         obj.tool_calling_enabled = d.get("tool_calling_enabled", False)
+        obj.service_route = d.get("service_route")
         obj.jwt_secret = d.get("jwt_secret")
         obj.model_type = d.get("model_type")
         obj.hf_model_id = d.get("hf_model_id")
@@ -294,6 +302,7 @@ class ModelDeployment:
             "container_id": self.container_id,
             "container_name": self.container_name,
             "model_name": self.model_name,
+            "model_id": self.model_id,
             "device": self.device,
             "deployed_at": self.deployed_at.isoformat() if self.deployed_at else None,
             "stopped_at": self.stopped_at.isoformat() if self.stopped_at else None,
@@ -309,6 +318,7 @@ class ModelDeployment:
             "jwt_secret": self.jwt_secret,
             "model_type": self.model_type,
             "hf_model_id": self.hf_model_id,
+            "service_route": self.service_route,
         }
 
     def save(self) -> None:

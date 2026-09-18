@@ -59,6 +59,7 @@ db.sqlite3
 # unignore
 !requirements.txt
 !app/frontend/third-party-licenses.txt
+!LICENSE_understanding.txt
 !requirements-dev.txt
 !docker-control-service/requirements-api.txt
 

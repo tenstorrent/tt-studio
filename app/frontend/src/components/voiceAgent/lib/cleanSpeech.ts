@@ -21,6 +21,9 @@ export function cleanLlmText(text: string): string {
     .replace(/\|(?:eot_id|start_header_id)\|/g, "")
     .replace(/<think>.*?<\/think>/gis, "")
     .replace(/<think>.*$/is, "")
+    // Qwen3-style templates open <think> inside the prompt, so a thinking
+    // model's stream carries only the closing tag: drop everything before it.
+    .replace(/^.*?<\/think>/is, "")
     .replace(/<\/think>/gi, "")
     .replace(/&(lt|gt);/g, "")
     .replace(LEAKED_TOOL_CALL_RE, "")

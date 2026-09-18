@@ -25,9 +25,33 @@ export function isLlama31_8BModel(modelNameOrId?: string | null): boolean {
   return token.includes("llama-3.1-8b") || token.includes("llama3.18b");
 }
 
+export function isQwen3_8BModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("qwen3-8b") || token.includes("qwen38b");
+}
+
 export function isFluxModel(modelNameOrId?: string | null): boolean {
   if (!modelNameOrId) return false;
   return normalizeToken(modelNameOrId).includes("flux");
+}
+
+export function isQwen3Embedding06BModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("qwen3-embedding-0.6b") || token.includes("qwen3embedding0.6b");
+}
+
+export function isQwen3Embedding4BModel(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("qwen3-embedding-4b") || token.includes("qwen3embedding4b");
+}
+
+export function isBgeM3Model(modelNameOrId?: string | null): boolean {
+  if (!modelNameOrId) return false;
+  const token = normalizeToken(modelNameOrId);
+  return token.includes("bge-m3") || token.includes("bgem3");
 }
 
 export function parseDeviceIds(deviceId?: string | number): number[] {

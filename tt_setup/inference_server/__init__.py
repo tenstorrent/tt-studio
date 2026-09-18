@@ -17,7 +17,10 @@ from tt_setup.inference_server._metadata import (
     get_inference_server_version,
     validate_artifact_structure,
 )
-from tt_setup.inference_server._catalog import _sync_model_catalog
+from tt_setup.inference_server._catalog import (
+    _catalog_missing_generated_specs,
+    _sync_model_catalog,
+)
 from tt_setup.inference_server._privileges import (
     remove_artifact_with_sudo,
     request_sudo_authentication,
@@ -28,6 +31,7 @@ __all__ = [
     "configure_inference_server_artifact",
     "setup_tt_inference_server",
     "_sync_model_catalog",
+    "_catalog_missing_generated_specs",
     "_set_artifact_environment_variables",
     "_is_commit_sha",
     "fetch_branch_commit_sha",

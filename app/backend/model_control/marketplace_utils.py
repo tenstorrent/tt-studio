@@ -323,6 +323,105 @@ def _model_env(app: MarketplaceApp) -> Dict[str, str]:
     }
 
 
+# Fraction of an embedding model's own configured max sequence length left as
+# the token budget for one RAG chunk. A chunk sized right at that boundary can
+# still overflow it once the runner retokenizes: apps size chunks with their
+# own text splitter (a raw character count, or a generic tokenizer like
+# tiktoken), neither of which matches the model's actual vocabulary, and the
+# runner also needs room for any special tokens it adds server-side.
+EMBEDDING_CHUNK_SAFETY_MARGIN = 0.75
+# ~4 English characters per token is the standard estimate (used the same way
+# in LangChain's and OpenAI's own docs) -- only for apps whose splitter counts
+# characters rather than tokens; see max_chunk_chars below.
+CHARS_PER_TOKEN_ESTIMATE = 4
+# Used when a deployed embedding model doesn't report its own max sequence length.
+DEFAULT_EMBEDDING_MAX_LENGTH = 512
+
+
+def _embedding_model_max_length(embedding_model: str) -> int:
+    """The deployed embedding model's own configured max sequence length, in
+    tokens (from its catalog env_vars), or a conservative default if unknown."""
+    from model_control.model_utils import find_deployed_embedding_model
+
+    deploy = find_deployed_embedding_model(embedding_model)
+    impl = deploy.get("model_impl") if deploy else None
+    raw_max_length = None
+    if impl is not None:
+        raw_max_length = impl.docker_config.get("environment", {}).get(
+            "VLLM__MAX_MODEL_LENGTH"
+        )
+    try:
+        return int(raw_max_length)
+    except (TypeError, ValueError):
+        return DEFAULT_EMBEDDING_MAX_LENGTH
+
+
+def embedding_model_env(app: MarketplaceApp, embedding_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's embedding-endpoint env vars, if the user picked a model.
+
+    `embedding_model` is the identifier the frontend's embedding picker sent
+    (whatever find_deployed_embedding_model matches on). None means the app
+    keeps using its own native embedder, so no override is rendered and the
+    app's static `env` defaults apply. Always points directly at TT-Studio's
+    backend, bypassing the LiteLLM gateway used for chat -- embeddings aren't
+    part of its OpenAI surface.
+
+    Templates also get `max_chunk_tokens` and `max_chunk_chars` (`chunk_overlap_tokens`
+    too) -- the picked model's own max sequence length with a safety margin,
+    not a fixed guess, so an app's RAG chunking never sends the model more
+    than it actually accepts. Use `max_chunk_tokens` for a token-counting text
+    splitter (e.g. Open WebUI's), `max_chunk_chars` for a character-counting
+    one (e.g. AnythingLLM's).
+    """
+    if not embedding_model or not app.embedding_gateway_env:
+        return {}
+    max_length = _embedding_model_max_length(embedding_model)
+    max_chunk_tokens = max(1, int(max_length * EMBEDDING_CHUNK_SAFETY_MARGIN))
+    max_chunk_chars = max_chunk_tokens * CHARS_PER_TOKEN_ESTIMATE
+    chunk_overlap_tokens = max_chunk_tokens // 10 if max_chunk_tokens > 1 else 0
+    return _companion_model_env(
+        app.embedding_gateway_env,
+        embedding_model,
+        max_chunk_tokens=max_chunk_tokens,
+        max_chunk_chars=max_chunk_chars,
+        chunk_overlap_tokens=chunk_overlap_tokens,
+    )
+
+
+def _companion_model_env(
+    template_env: Dict[str, str], model_identifier: Optional[str], **extra: object
+) -> Dict[str, str]:
+    """Shared template renderer behind embedding_model_env/stt_model_env/tts_model_env.
+
+    None (no model picked) or an app with no template for this endpoint both
+    mean "render nothing", so the app's own static `env` defaults (its native
+    embedder/STT/TTS) apply untouched.
+    """
+    if not model_identifier or not template_env:
+        return {}
+    return {
+        key: template.format(
+            base_url=BACKEND_OPENAI_URL,
+            api_key=LITELLM_UPSTREAM_KEY,
+            model=model_identifier,
+            **extra,
+        )
+        for key, template in template_env.items()
+    }
+
+
+def stt_model_env(app: MarketplaceApp, stt_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's speech-to-text env vars, if the user picked a deployed
+    speech-recognition model instead of the app's own native/cloud STT."""
+    return _companion_model_env(app.stt_gateway_env, stt_model)
+
+
+def tts_model_env(app: MarketplaceApp, tts_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's text-to-speech env vars, if the user picked a deployed
+    TTS model instead of the app's own native/cloud TTS."""
+    return _companion_model_env(app.tts_gateway_env, tts_model)
+
+
 # --- Serialization ----------------------------------------------------------
 
 
@@ -341,6 +440,19 @@ def launch_blocked_reason(app: MarketplaceApp) -> Optional[str]:
     # Short-circuits before default_model(), so only the apps that pin one model
     # pay for the deploy scan.
     if app.requires_model and default_model() is None:
+        # A chat model can be deployed and still not be one this app can drive.
+        # Saying "none is deployed" there contradicts the Models page and sends
+        # the user off to deploy a second model that would be just as unusable.
+        from model_control.views import _running_coding_agent_deploys
+
+        if _running_coding_agent_deploys(
+            require_tool_calling=False, require_vetted=False
+        ):
+            return (
+                f"{app.name} needs a model it can drive with tool calling. The "
+                f"deployed model was launched without it — redeploy it from the "
+                f"Home page, then launch {app.name}."
+            )
         return (
             f"{app.name} needs a chat model to connect to, and none is deployed "
             f"yet. Deploy one from the Home page, then launch {app.name}."
@@ -358,6 +470,10 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
         "kind": app.kind.value,
         "docs_url": app.docs_url,
         "first_run_note": app.first_run_note,
+        # Lets the UI offer a "native vs. deployed model" picker before launch.
+        "embedding_choice": bool(app.embedding_gateway_env),
+        "stt_choice": bool(app.stt_gateway_env),
+        "tts_choice": bool(app.tts_gateway_env),
     }
 
     # Apps configured through their own UI need the endpoint as reachable from
@@ -519,10 +635,19 @@ def remove_container_if_present(client, name: str) -> None:
             raise
 
 
-def start_launch(app: MarketplaceApp, host_port: int) -> None:
+def start_launch(
+    app: MarketplaceApp,
+    host_port: int,
+    embedding_model: Optional[str] = None,
+    stt_model: Optional[str] = None,
+    tts_model: Optional[str] = None,
+) -> None:
     """Pull and start an app in the background. Poll get_job / serialize_app."""
     threading.Thread(
-        target=_launch, args=(app, host_port), daemon=True, name=f"launch-{app.id}"
+        target=_launch,
+        args=(app, host_port, embedding_model, stt_model, tts_model),
+        daemon=True,
+        name=f"launch-{app.id}",
     ).start()
 
 
@@ -534,7 +659,13 @@ def stop_app(app: MarketplaceApp) -> None:
     clear_job(app.id)
 
 
-def _launch(app: MarketplaceApp, host_port: int) -> None:
+def _launch(
+    app: MarketplaceApp,
+    host_port: int,
+    embedding_model: Optional[str] = None,
+    stt_model: Optional[str] = None,
+    tts_model: Optional[str] = None,
+) -> None:
     """Pull the image if needed, then run the container. Runs in a worker thread."""
     client = get_docker_client()
     image_name, image_tag = split_image_ref(app.image)
@@ -563,7 +694,13 @@ def _launch(app: MarketplaceApp, host_port: int) -> None:
                 name=app.container_name,
                 hostname=app.container_name,
                 ports={f"{app.container_port}/tcp": host_port},
-                environment={**app.env, **_model_env(app)},
+                environment={
+                    **app.env,
+                    **_model_env(app),
+                    **embedding_model_env(app, embedding_model),
+                    **stt_model_env(app, stt_model),
+                    **tts_model_env(app, tts_model),
+                },
                 volumes=dict(app.volumes),
                 network=backend_config.docker_bridge_network_name,
                 cap_add=list(app.cap_add),
