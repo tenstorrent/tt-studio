@@ -4,7 +4,6 @@
 """FastAPI inference-api lifecycle: venv setup, start, cleanup."""
 
 import os
-import sys
 import subprocess
 import time
 import tempfile
