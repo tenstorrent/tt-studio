@@ -7,9 +7,8 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { cn } from "../../lib/utils";
 
-// Classic Alpaca instruction format. Fine-tuned models are typically trained on
-// a fixed instruction template, so testing them means feeding inputs in that
-// same shape and reading the completion the model produces after "### Response:".
+// Classic Alpaca instruction format — the fixed shape fine-tuned models are
+// trained on, so testing means feeding inputs in this same shape.
 const DEFAULT_TEMPLATE = `Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
 
 ### Instruction:
@@ -32,19 +31,22 @@ function parseFields(template: string): string[] {
   return seen;
 }
 
+// Read a field as an own-property only: `\w+` also matches inherited members
+// like `constructor`/`toString`, so a bare `values[key]` could return functions.
+function ownValue(values: Record<string, string>, key: string): string {
+  return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : "";
+}
+
 /** Substitute {field} placeholders with the user's values. */
 export function renderTemplate(
   template: string,
   values: Record<string, string>,
 ): string {
-  return template.replace(PLACEHOLDER_RE, (_, key) => values[key] ?? "");
+  return template.replace(PLACEHOLDER_RE, (_, key) => ownValue(values, key));
 }
 
-/**
- * Parse the user's stop-sequences input (one per line) into a clean list.
- * Whitespace-only lines are dropped; each remaining line is trimmed and used as
- * a literal stop string sent to vLLM.
- */
+// Parse stop-sequences input (one per line) into literal stop strings for vLLM;
+// blank lines are dropped and each remaining line is trimmed.
 export function parseStops(raw: string): string[] {
   return raw
     .split("\n")
@@ -64,10 +66,14 @@ export default function CompletionTemplatePanel({
   onStop,
 }: CompletionTemplatePanelProps) {
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
-  const [values, setValues] = useState<Record<string, string>>({});
+  // Null-prototype map so placeholder names that collide with Object members
+  // (e.g. {constructor}) don't resolve to inherited values.
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.create(null),
+  );
   const [stopText, setStopText] = useState("");
-  // Template editor and preview are two views of the same thing (raw template vs
-  // filled result), so they expand/collapse together under one state.
+  // Editor and preview are two views of the same thing, so they share one
+  // expand/collapse state.
   const [expanded, setExpanded] = useState(false);
 
   const fields = useMemo(() => parseFields(template), [template]);
@@ -77,13 +83,12 @@ export default function CompletionTemplatePanel({
   );
   const stops = useMemo(() => parseStops(stopText), [stopText]);
 
-  // Allow empty individual fields (e.g. Alpaca's {input} is often blank). Block
-  // only when there's nothing to send: with placeholders, require at least one
-  // filled; without placeholders, require some template text.
+  // Block only when there's nothing to send: with placeholders require one
+  // filled field; without them require some template text.
   const canSend =
     !isStreaming &&
     (fields.length > 0
-      ? fields.some((f) => (values[f] ?? "").trim() !== "")
+      ? fields.some((f) => ownValue(values, f).trim() !== "")
       : template.trim() !== "");
 
   const handleSend = () => {
@@ -118,10 +123,8 @@ export default function CompletionTemplatePanel({
         </div>
       </div>
 
-      {/* Template editor + live preview, side by side (each half width on wider
-          screens, stacked on mobile). The divider separates this working area
-          from the informational header above. Both are collapsed by default —
-          most turns only touch the fields below. */}
+      {/* Template editor + live preview side by side (stacked on mobile), both
+          collapsed by default since most turns only touch the fields below. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-200 dark:border-gray-800 pt-4">
         <div className="rounded-md border border-gray-200 dark:border-gray-800">
           <button
@@ -155,7 +158,7 @@ export default function CompletionTemplatePanel({
         </div>
 
         {/* Rendered-prompt preview — the exact string sent to /v1/completions,
-            so the user can verify it matches the training format byte-for-byte. */}
+            so the user can verify it matches the training format. */}
         <div className="rounded-md border border-gray-200 dark:border-gray-800">
           <button
             type="button"
@@ -194,10 +197,10 @@ export default function CompletionTemplatePanel({
               <label className="block text-left text-sm font-medium capitalize text-gray-700 dark:text-gray-200">
                 {field}
               </label>
-              {/* One line by default (min-h override drops the base 80px floor);
-                  resize-y lets the user drag it taller when they need more room. */}
+              {/* One line by default (min-h override drops the 80px floor);
+                  resize-y lets the user drag it taller. */}
               <Textarea
-                value={values[field] ?? ""}
+                value={ownValue(values, field)}
                 onChange={(e) =>
                   setValues((prev) => ({ ...prev, [field]: e.target.value }))
                 }
@@ -210,12 +213,8 @@ export default function CompletionTemplatePanel({
         </div>
       )}
 
-      {/* Stop sequences — literal strings that halt generation when the model
-          emits them. Needed because a raw completion won't stop on its own
-          unless the fine-tune reliably emits EOS; add the delimiter that starts
-          the next record (e.g. the header/label preceding a new example). Set
-          off with a divider since it's a decoding control, not part of the
-          prompt itself. */}
+      {/* Stop sequences — literal strings that halt generation, needed because a
+          raw completion won't stop on its own unless the fine-tune emits EOS. */}
       <div className="space-y-1.5 border-t border-gray-200 dark:border-gray-800 pt-4">
         <label className="block text-left text-sm font-medium text-gray-700 dark:text-gray-200">
           Stop sequences{" "}
