@@ -370,6 +370,16 @@ def _resolve_training_volume_dir(impl):
     return max(candidates, key=os.path.getmtime)
 
 
+def _copyfile_nofollow(src, dest):
+    """Copy *src* to *dest* without ever following a destination symlink."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(dest, flags, stat.S_IRUSR | stat.S_IWUSR)
+    with open(src, "rb") as src_handle, os.fdopen(fd, "wb") as dest_handle:
+        shutil.copyfileobj(src_handle, dest_handle)
+
+
 def _stage_custom_dataset(impl, name):
     """Copy an uploaded dataset into the container's mounted volume and return
     its container-side path.
@@ -407,7 +417,7 @@ def _stage_custom_dataset(impl, name):
         # staged copy to the container user instead of making it world-readable.
         os.chown(dest_dir, TRAINING_CONTAINER_UID, -1)
         os.chmod(dest_dir, stat.S_IRWXU)
-        shutil.copyfile(src, dest)
+        _copyfile_nofollow(src, dest)
         os.chown(dest, TRAINING_CONTAINER_UID, -1)
         os.chmod(dest, stat.S_IRUSR | stat.S_IWUSR)
     except OSError as e:
