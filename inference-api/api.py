@@ -26,6 +26,10 @@ import shlex
 import urllib.request
 import urllib.error
 
+# Force a sane umask so files run.py writes for read-only container bind mounts
+# (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
+os.umask(0o022)
+
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
 # Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default artifact location);
 # otherwise fall back to tt-inference-server/ at repo root (manual local dev checkout).
