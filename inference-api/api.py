@@ -2571,6 +2571,9 @@ def sync_tokens_from_tt_studio(
     if updated:
         with open(inference_server_env, 'w') as f:
             f.writelines(env_lines)
+        # Holds JWT_SECRET/HF_TOKEN: pin owner-only so the 0o022 umask can't leave it
+        # world-readable. Containers read these via docker --env-file, so 0600 is safe.
+        os.chmod(inference_server_env, 0o600)
         logger.info(f"Updated inference server .env file at {inference_server_env}")
         # Reload environment variables
         load_dotenv()
