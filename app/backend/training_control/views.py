@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 
 import requests
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -48,6 +49,11 @@ DEFAULT_CUSTOM_TEMPLATE = "alpaca"
 # staged into that host dir are readable at this path.
 CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
 CONTAINER_CUSTOM_DATASETS_DIR = f"{CONTAINER_CACHE_ROOT}/custom_datasets"
+
+# UID the training container runs as (tt-inference-server's `--image-user`
+# default, which TT Studio never overrides). Files the root backend stages for
+# the container are handed to this user instead of being made world-readable.
+TRAINING_CONTAINER_UID = 1000
 
 
 def _find_training_container(deploy_id=None):
@@ -161,9 +167,9 @@ def _proxy_post(url, body=None):
 def _custom_datasets_dir():
     """Container-internal path to the custom-datasets directory (created if absent).
 
-    Mirrors the world-writable sticky permissions used elsewhere on the training
-    host volume so the non-root training container (uid 1000) and the host user
-    running run.py can both read/write it.
+    Only the backend touches this dir: uploads land here and are copied into the
+    training volume by ``_stage_custom_dataset``. Neither the host user nor the
+    training container reads it, so it stays owner-only.
     """
     internal_dir = os.path.join(
         backend_config.persistent_storage_volume, CUSTOM_DATASETS_SUBDIR
@@ -171,7 +177,7 @@ def _custom_datasets_dir():
     if not os.path.isdir(internal_dir):
         try:
             os.makedirs(internal_dir, exist_ok=True)
-            os.chmod(internal_dir, 0o1777)
+            os.chmod(internal_dir, stat.S_IRWXU)
         except OSError as e:
             logger.warning(
                 "Could not create custom-datasets dir %s: %s", internal_dir, e
@@ -397,10 +403,13 @@ def _stage_custom_dataset(impl, name):
     dest = os.path.join(dest_dir, base)
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        # Backend runs as root, container as uid 1000 — make it world-readable.
-        os.chmod(dest_dir, 0o755)
+        # Backend runs as root, the container as TRAINING_CONTAINER_UID: hand the
+        # staged copy to the container user instead of making it world-readable.
+        os.chown(dest_dir, TRAINING_CONTAINER_UID, -1)
+        os.chmod(dest_dir, stat.S_IRWXU)
         shutil.copyfile(src, dest)
-        os.chmod(dest, 0o644)
+        os.chown(dest, TRAINING_CONTAINER_UID, -1)
+        os.chmod(dest, stat.S_IRUSR | stat.S_IWUSR)
     except OSError as e:
         logger.exception("Could not stage custom dataset %s into %s", src, dest_dir)
         return None, JsonResponse({"error": str(e)}, status=500)
