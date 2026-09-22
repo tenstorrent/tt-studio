@@ -690,12 +690,14 @@ class TrainingJobsListView(View):
             body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
             body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
 
+            # Optional: reject any non-string value up front (truthy or falsy, so
+            # e.g. [] or 0 aren't silently ignored); None/"" simply means "no eval".
+            if custom_eval_name is not None and not isinstance(custom_eval_name, str):
+                return JsonResponse(
+                    {"error": "custom_eval_dataset must be a dataset name."},
+                    status=400,
+                )
             if custom_eval_name:
-                if not isinstance(custom_eval_name, str):
-                    return JsonResponse(
-                        {"error": "custom_eval_dataset must be a dataset name."},
-                        status=400,
-                    )
                 eval_path, eval_stage_err = _stage_custom_dataset(
                     entry.get("model_impl"), custom_eval_name
                 )
