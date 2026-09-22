@@ -229,11 +229,11 @@ export default function TrainingJobDetailPage() {
       const msg = err?.response?.data?.error;
       if (status === 502 || status === 504) {
         setConnectionError(
-          "Training container is not reachable. It may have stopped or restarted.",
+          "Fine-tuning container is not reachable. It may have stopped or restarted.",
         );
-      } else if (status === 404 && msg?.includes("No running training container")) {
+      } else if (status === 404 && msg?.includes("No running fine-tuning container")) {
         setConnectionError(
-          "Training container is no longer running. The job data is unavailable.",
+          "Fine-tuning container is no longer running. The job data is unavailable.",
         );
       } else if (!job) {
         console.error("Failed to load job details:", err);
