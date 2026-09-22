@@ -669,9 +669,10 @@ class TrainingJobsListView(View):
         if err:
             return err
 
-        # Stage the named upload and rewrite it into the server's custom-dataset
-        # fields. Popped unconditionally so the helper field never reaches the server.
+        # Stage the named upload(s) and rewrite them into the server's custom-dataset
+        # fields. Popped unconditionally so the helper fields never reach the server.
         custom_name = body.pop("custom_dataset", None)
+        custom_eval_name = body.pop("custom_eval_dataset", None)
         if body.get("dataset_loader") == CUSTOM_DATASET_LOADER:
             if not custom_name or not isinstance(custom_name, str):
                 return JsonResponse(
@@ -688,6 +689,22 @@ class TrainingJobsListView(View):
             body["train_dataset_path"] = container_path
             body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
             body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
+
+            # Optional evaluation/validation split. The trainer only runs
+            # validation when a val dataset is present *and* val_steps_freq > 0;
+            # it shares the train dataset's file_type/template/column_mapping.
+            if custom_eval_name:
+                if not isinstance(custom_eval_name, str):
+                    return JsonResponse(
+                        {"error": "custom_eval_dataset must be a dataset name."},
+                        status=400,
+                    )
+                eval_path, eval_stage_err = _stage_custom_dataset(
+                    entry.get("model_impl"), custom_eval_name
+                )
+                if eval_stage_err:
+                    return eval_stage_err
+                body["val_dataset_path"] = eval_path
 
         url = f"{_base_url(entry)}/v1/jobs"
         return _proxy_post(url, body=body)
