@@ -690,9 +690,6 @@ class TrainingJobsListView(View):
             body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
             body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
 
-            # Optional evaluation/validation split. The trainer only runs
-            # validation when a val dataset is present *and* val_steps_freq > 0;
-            # it shares the train dataset's file_type/template/column_mapping.
             if custom_eval_name:
                 if not isinstance(custom_eval_name, str):
                     return JsonResponse(
