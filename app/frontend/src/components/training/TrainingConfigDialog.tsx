@@ -44,7 +44,9 @@ import {
 import {
   parseDatasetFile,
   buildSampledPreview,
+  deriveColumns,
   estimateRowTokenLengths,
+  inferColumnMapping,
   MAX_ROWS_FOR_TOKEN_ESTIMATE,
   type DatasetRow,
 } from "./datasetPreview";
@@ -218,18 +220,26 @@ export function TrainingConfigDialog({
   );
 
   const selectedTemplate = form.watch("template");
-  const templateFields =
-    DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
+  const templateFields = useMemo(
+    () => DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [],
+    [selectedTemplate],
+  );
 
   // Sample of the selected custom dataset, used to warn before submit when
   // examples exceed max_length (the trainer silently drops over-length rows).
   const [datasetSampleRows, setDatasetSampleRows] = useState<DatasetRow[]>([]);
+  // Column names seen in the sample, and whether the sample is only a leading
+  // slice of a large file (in which case its row count says nothing useful).
+  const [datasetColumns, setDatasetColumns] = useState<string[]>([]);
+  const [datasetSampled, setDatasetSampled] = useState(false);
   const maxLength = form.watch("max_length");
   const columnMapping = form.watch("column_mapping");
 
   useEffect(() => {
     if (!open || !isCustomDataset) {
       setDatasetSampleRows([]);
+      setDatasetColumns([]);
+      setDatasetSampled(false);
       return;
     }
     const datasetId = selectedDataset.slice(CUSTOM_DATASET_PREFIX.length);
@@ -243,15 +253,86 @@ export function TrainingConfigDialog({
           ? buildSampledPreview(text, MAX_ROWS_FOR_TOKEN_ESTIMATE)
           : parseDatasetFile(text);
         setDatasetSampleRows(preview.rows);
+        setDatasetColumns(deriveColumns(preview.rows));
+        setDatasetSampled(sampled);
       })
       // Best-effort: a fetch/parse failure just skips the warning.
       .catch(() => {
-        if (!cancelled) setDatasetSampleRows([]);
+        if (!cancelled) {
+          setDatasetSampleRows([]);
+          setDatasetColumns([]);
+          setDatasetSampled(false);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [open, isCustomDataset, selectedDataset]);
+
+  // Pre-fill the column mapping from the dataset's own columns (e.g. a
+  // prompt/completion file maps to instruction/output) whenever the dataset or
+  // template changes. Same-named columns need no mapping and stay blank.
+  useEffect(() => {
+    if (!isCustomDataset) return;
+    const fields =
+      DATASET_TEMPLATES.find((t) => t.id === selectedTemplate)?.fields ?? [];
+    const inferred = inferColumnMapping(
+      datasetColumns,
+      fields.map((f) => f.key),
+    );
+    form.setValue(
+      "column_mapping",
+      fields.map((f) => ({ value: inferred[f.key] ?? "" })),
+    );
+  }, [datasetColumns, selectedTemplate, isCustomDataset, form]);
+
+  // Template fields that neither exist as a column nor could be inferred.
+  const unresolvedRequiredFields = useMemo(() => {
+    if (!isCustomDataset || datasetColumns.length === 0) return [];
+    const present = new Set(datasetColumns);
+    return templateFields
+      .filter((f, i) => {
+        if (!f.required) return false;
+        const mapped = (columnMapping[i]?.value ?? "").trim();
+        return mapped ? !present.has(mapped) : !present.has(f.key);
+      })
+      .map((f) => f.key);
+  }, [isCustomDataset, datasetColumns, templateFields, columnMapping]);
+
+  // Optimizer steps this run will take (floor(rows / batch) * epochs, capped by
+  // Max Steps). Metrics, validation and checkpoints only fire on steps divisible
+  // by their frequency, so anything above this total never fires. The backend
+  // lowers such frequencies to this value when the job is created.
+  const batchSize = form.watch("batch_size");
+  const numEpochs = form.watch("num_epochs");
+  const maxSteps = form.watch("max_steps");
+  const stepsFreq = form.watch("steps_freq");
+  const valStepsFreq = form.watch("val_steps_freq");
+  const saveInterval = form.watch("save_interval");
+  const estimatedTotalSteps = useMemo(() => {
+    if (!isCustomDataset || datasetSampled || datasetSampleRows.length === 0) {
+      return null;
+    }
+    const batch = Number(batchSize) > 0 ? Math.floor(Number(batchSize)) : 1;
+    const epochs = Number(numEpochs) > 0 ? Math.floor(Number(numEpochs)) : 1;
+    let steps =
+      Math.max(1, Math.floor(datasetSampleRows.length / batch)) * epochs;
+    const cap = Number(maxSteps);
+    if (cap > 0) steps = Math.min(steps, Math.floor(cap));
+    return Math.max(1, steps);
+  }, [
+    isCustomDataset,
+    datasetSampled,
+    datasetSampleRows,
+    batchSize,
+    numEpochs,
+    maxSteps,
+  ]);
+  const frequencyExceedsRun =
+    estimatedTotalSteps !== null &&
+    [stepsFreq, valStepsFreq, saveInterval].some(
+      (v) => Number(v) > estimatedTotalSteps,
+    );
 
   // Estimated token length (template boilerplate included) of each example in
   // the sample, over the mapped columns (or each field's own name when unmapped).
@@ -554,7 +635,32 @@ export function TrainingConfigDialog({
                   </FormLabel>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     Map each template field to a column in your dataset.
+                    Detected columns are filled in automatically
+                    {datasetColumns.length > 0 && (
+                      <>
+                        {" "}
+                        (found:{" "}
+                        <span className="font-mono">
+                          {datasetColumns.join(", ")}
+                        </span>
+                        )
+                      </>
+                    )}
+                    .
                   </p>
+                  {unresolvedRequiredFields.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/60 dark:bg-amber-900/20">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                      <p className="text-amber-800 dark:text-amber-200">
+                        No dataset column found for{" "}
+                        <span className="font-semibold">
+                          {unresolvedRequiredFields.join(", ")}
+                        </span>
+                        . Enter the column name(s) below or the job will fail
+                        to start.
+                      </p>
+                    </div>
+                  )}
                   {templateFields.map((f, index) => (
                     <div key={f.key} className="flex items-center gap-2">
                       <span className="w-36 shrink-0 text-sm text-gray-700 dark:text-gray-300">
@@ -795,6 +901,24 @@ export function TrainingConfigDialog({
                   )}
                 />
               </div>
+
+              {frequencyExceedsRun && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                  <p className="text-blue-800 dark:text-blue-200">
+                    This dataset trains for about{" "}
+                    <span className="font-semibold">
+                      {estimatedTotalSteps} step
+                      {estimatedTotalSteps === 1 ? "" : "s"}
+                    </span>{" "}
+                    at the current Batch Size and Epochs. Frequencies above that
+                    would never fire, so they are lowered to{" "}
+                    <span className="font-semibold">{estimatedTotalSteps}</span>{" "}
+                    when the job starts so metrics and a checkpoint are still
+                    recorded.
+                  </p>
+                </div>
+              )}
             </div>
 
             <DialogFooter>
