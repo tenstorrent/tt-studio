@@ -54,6 +54,10 @@ import { customToast } from "../CustomToaster";
 // apart at submit time and send the custom-dataset contract.
 const CUSTOM_DATASET_PREFIX = "custom:";
 
+// Radix Select can't use an empty-string item value, so the "no eval dataset"
+// choice uses this sentinel and is mapped back to "" in the form.
+const EVAL_DATASET_NONE = "__none__";
+
 // Prompt templates the custom-dataset loader supports. No API lists these, so
 // keep in sync with blacksmith's custom_dataset_utils.py. `key` is the field the
 // server reads from each row; the user maps it to a column in their dataset.
@@ -101,6 +105,8 @@ function renderTemplatePrompt(
 const formSchema = z.object({
   model: z.string().min(1, "Select a model"),
   dataset: z.string().min(1, "Select a dataset"),
+  // Optional evaluation/validation dataset (custom datasets only). Empty = none.
+  eval_dataset: z.string().default(""),
   template: z.string().default(DEFAULT_TEMPLATE),
   column_mapping: z
     .array(z.object({ value: z.string().default("") }))
@@ -150,6 +156,7 @@ export function TrainingConfigDialog({
     defaultValues: {
       model: "",
       dataset: "",
+      eval_dataset: "",
       template: DEFAULT_TEMPLATE,
       column_mapping: [],
       learning_rate: 6e-5,
@@ -194,6 +201,21 @@ export function TrainingConfigDialog({
 
   const selectedDataset = form.watch("dataset");
   const isCustomDataset = selectedDataset.startsWith(CUSTOM_DATASET_PREFIX);
+
+  // Clear the eval dataset whenever the train dataset changes: the eval split is
+  // only valid for custom datasets and must differ from the chosen train file.
+  useEffect(() => {
+    form.setValue("eval_dataset", "");
+  }, [selectedDataset, form]);
+
+  // Custom datasets available as an eval split — every uploaded dataset except
+  // the one already chosen as the train set.
+  const selectedTrainCustomId = isCustomDataset
+    ? selectedDataset.slice(CUSTOM_DATASET_PREFIX.length)
+    : "";
+  const evalDatasetOptions = customDatasets.filter(
+    (ds) => ds.id !== selectedTrainCustomId,
+  );
 
   const selectedTemplate = form.watch("template");
   const templateFields =
@@ -314,6 +336,12 @@ export function TrainingConfigDialog({
           if (v) mapping[f.key] = v;
         });
         if (Object.keys(mapping).length > 0) params.column_mapping = mapping;
+
+        // Optional eval/validation split. Shares template + column mapping with
+        // the train set; the backend stages it into val_dataset_path.
+        if (values.eval_dataset) {
+          params.custom_eval_dataset = values.eval_dataset;
+        }
       }
 
       await createTrainingJob(params);
@@ -450,6 +478,47 @@ export function TrainingConfigDialog({
                 <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
                   Choose how the training server formats your data.
                 </p>
+                <FormField
+                  control={form.control}
+                  name="eval_dataset"
+                  render={({ field }) => (
+                    <FormItem className="mb-4 max-w-xs">
+                      <FormLabel className="text-xs">
+                        Evaluation Dataset{" "}
+                        <span className="font-normal text-gray-400">
+                          (optional)
+                        </span>
+                      </FormLabel>
+                      <Select
+                        onValueChange={(value) =>
+                          field.onChange(
+                            value === EVAL_DATASET_NONE ? "" : value,
+                          )
+                        }
+                        value={field.value || EVAL_DATASET_NONE}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="None" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={EVAL_DATASET_NONE}>None</SelectItem>
+                          {evalDatasetOptions.map((ds) => (
+                            <SelectItem key={ds.id} value={ds.id}>
+                              {ds.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Runs validation during training (needs Validation Freq
+                        &gt; 0). Must share the same columns as the train set.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="template"

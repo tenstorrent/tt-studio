@@ -78,6 +78,8 @@ export interface CreateTrainingJobParams {
   device_type: string;
   // Custom-dataset fields, sent only when `dataset_loader` is "Custom".
   custom_dataset?: string;
+  // Optional evaluation/validation dataset name (staged into val_dataset_path).
+  custom_eval_dataset?: string;
   file_type?: string;
   template?: string;
   column_mapping?: Record<string, string>;
