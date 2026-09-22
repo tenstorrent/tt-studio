@@ -119,6 +119,37 @@ class TestStageCustomDataset:
             encoding="utf-8"
         ) == '{"hello":"world"}'
 
+    def test_stages_eval_dataset_alongside_train(
+        self, tmp_path, monkeypatch, views_module
+    ):
+        views = views_module
+        datasets_dir = tmp_path / "datasets"
+        volume_dir = tmp_path / "volume"
+        datasets_dir.mkdir()
+        volume_dir.mkdir()
+        (datasets_dir / "train.json").write_text('[{"a":1}]', encoding="utf-8")
+        (datasets_dir / "eval.json").write_text('[{"a":2}]', encoding="utf-8")
+
+        monkeypatch.setattr(views, "_custom_datasets_dir", lambda: str(datasets_dir))
+        monkeypatch.setattr(
+            views, "_resolve_training_volume_dir", lambda impl: str(volume_dir)
+        )
+        monkeypatch.setattr(views.os, "chown", lambda *_args: None)
+
+        impl = SimpleNamespace(model_name="demo")
+        train_path, train_err = views._stage_custom_dataset(impl, "train.json")
+        eval_path, eval_err = views._stage_custom_dataset(impl, "eval.json")
+
+        assert train_err is None and eval_err is None
+        assert train_path == f"{views.CONTAINER_CUSTOM_DATASETS_DIR}/train.json"
+        assert eval_path == f"{views.CONTAINER_CUSTOM_DATASETS_DIR}/eval.json"
+        assert (volume_dir / "custom_datasets" / "train.json").read_text(
+            encoding="utf-8"
+        ) == '[{"a":1}]'
+        assert (volume_dir / "custom_datasets" / "eval.json").read_text(
+            encoding="utf-8"
+        ) == '[{"a":2}]'
+
     def test_rejects_destination_symlink(self, tmp_path, monkeypatch, views_module):
         views = views_module
         datasets_dir = tmp_path / "datasets"
