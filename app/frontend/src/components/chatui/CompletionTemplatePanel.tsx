@@ -104,7 +104,7 @@ export default function CompletionTemplatePanel({
           <span className="font-medium">Template mode</span>
           <span className="text-gray-500 dark:text-gray-400">
             — fill the template fields to test the fine-tuned model in its
-            training format.
+            fine-tuning format.
           </span>
         </div>
         <div className="flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">

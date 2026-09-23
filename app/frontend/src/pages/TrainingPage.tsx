@@ -102,14 +102,14 @@ export default function TrainingPage() {
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.error;
-      if (status === 404 && msg?.includes("No running training container")) {
+      if (status === 404 && msg?.includes("No running fine-tuning container")) {
         setNoContainer(true);
         setApiError(null);
       } else if (status === 502) {
-        setApiError("Training container is not reachable. It may be starting up or has stopped.");
+        setApiError("Fine-tuning container is not reachable. It may be starting up or has stopped.");
       } else {
         console.error("Failed to fetch training jobs:", err);
-        setApiError(msg || "Failed to connect to training service.");
+        setApiError(msg || "Failed to connect to fine-tuning service.");
       }
     } finally {
       setLoading(false);
@@ -145,7 +145,7 @@ export default function TrainingPage() {
   const handleJobCreated = () => {
     setDialogOpen(false);
     loadJobs();
-    customToast.success("Training job submitted");
+    customToast.success("Fine-tuning job submitted");
   };
 
   return (
@@ -156,7 +156,7 @@ export default function TrainingPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-                Training Jobs
+                Fine-tuning Jobs
               </h1>
               <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                 Beta
@@ -173,7 +173,7 @@ export default function TrainingPage() {
             </Button>
             <Button size="sm" onClick={() => setDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New Training Job
+              New Fine-tuning Job
             </Button>
           </div>
         </div>
@@ -185,10 +185,10 @@ export default function TrainingPage() {
               <ServerOff className="h-8 w-8 shrink-0 text-amber-500" />
               <div>
                 <p className="font-medium text-amber-800 dark:text-amber-200">
-                  No training container is running
+                  No fine-tuning container is running
                 </p>
                 <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                  Deploy a training model first to start fine-tuning jobs.{" "}
+                  Deploy a fine-tuning model first to start jobs.{" "}
                   <Link
                     to="/models-deployed"
                     className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100"
@@ -208,7 +208,7 @@ export default function TrainingPage() {
               <AlertTriangle className="h-8 w-8 shrink-0 text-red-500" />
               <div>
                 <p className="font-medium text-red-800 dark:text-red-200">
-                  Training service unavailable
+                  Fine-tuning service unavailable
                 </p>
                 <p className="mt-1 text-sm text-red-700 dark:text-red-300">
                   {apiError}
@@ -231,9 +231,9 @@ export default function TrainingPage() {
               </div>
             ) : jobs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <p className="text-lg font-medium">No training jobs yet</p>
+                <p className="text-lg font-medium">No fine-tuning jobs yet</p>
                 <p className="mt-1 text-sm">
-                  Click &quot;New Training Job&quot; to get started.
+                  Click &quot;New Fine-tuning Job&quot; to get started.
                 </p>
               </div>
             ) : (

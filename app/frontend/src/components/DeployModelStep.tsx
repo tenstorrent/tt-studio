@@ -636,7 +636,7 @@ export function DeployModelStep({
               </SelectContent>
             </Select>
             <p className="mt-2 text-xs text-muted-foreground">
-              Deploy the base model, or a checkpoint promoted from a training job.
+              Deploy the base model, or a checkpoint promoted from a fine-tuning job.
             </p>
           </div>
         )}
