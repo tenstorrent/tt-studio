@@ -15,7 +15,7 @@ import {
 } from "../../api/modelsDeployedApis";
 import { getTokenLimitsForModel } from "./tokenLimits";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
+import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
@@ -66,21 +66,11 @@ export default function ChatComponent() {
   // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
   // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
   //   useState(false);
-  const { data: allCollections } = useQuery<RagDataSource[]>({
+  const { data: ragDataSources } = useQuery<RagDataSource[]>({
     queryKey: ["collectionsList"],
     queryFn: fetchCollections,
     initialData: [],
   });
-  // The backend's seeded documentation collection isn't one the user made, so it
-  // gets its own group in the picker rather than sitting under "Your Collections".
-  const ragDataSources = useMemo(
-    () => (allCollections ?? []).filter((c) => !isSystemKnowledgeCollection(c)),
-    [allCollections]
-  );
-  const systemCollections = useMemo(
-    () => (allCollections ?? []).filter((c) => isSystemKnowledgeCollection(c)),
-    [allCollections]
-  );
   const { logoUrl } = useLogo();
 
   // Create a default thread to start with
@@ -1337,7 +1327,6 @@ export default function ChatComponent() {
               setModelID={setModelID}
               setModelName={setModelName}
               ragDataSources={ragDataSources}
-              systemCollections={systemCollections}
               ragDatasource={ragDatasource}
               setRagDatasource={setRagDatasource}
               isHistoryPanelOpen={isHistoryPanelOpen}
