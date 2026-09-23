@@ -345,7 +345,7 @@ export default function Settings({
                 if (!settings.maxLength || settings.maxLength <= 0) {
                   onSettingsChange(
                     "maxLength",
-                    maxTokensSliderMax ?? DEFAULT_VALUES.maxLength
+                    Math.max(1, Math.floor(((maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) * 3) / 4))
                   );
                 }
               }}
