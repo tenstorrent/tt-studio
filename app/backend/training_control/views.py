@@ -76,7 +76,7 @@ def _find_training_container(deploy_id=None):
         model_impl = entry.get("model_impl")
         if model_impl is None or getattr(model_impl, "model_type", None) != ModelTypes.TRAINING:
             return None, JsonResponse(
-                {"error": f"deploy_id={deploy_id} is not a training container."},
+                {"error": f"deploy_id={deploy_id} is not a fine-tuning container."},
                 status=400,
             )
         return entry, None
@@ -87,7 +87,7 @@ def _find_training_container(deploy_id=None):
             return entry, None
 
     return None, JsonResponse(
-        {"error": "No running training container found."},
+        {"error": "No running fine-tuning container found."},
         status=404,
     )
 
@@ -130,11 +130,11 @@ def _proxy_get(url, params=None, stream=False):
         return JsonResponse(resp.json(), status=resp.status_code, safe=False)
     except requests.ConnectionError:
         return JsonResponse(
-            {"error": "Training container is not reachable."}, status=502
+            {"error": "Fine-tuning container is not reachable."}, status=502
         )
     except requests.Timeout:
         return JsonResponse(
-            {"error": "Training container request timed out."}, status=504
+            {"error": "Fine-tuning container request timed out."}, status=504
         )
     except Exception as e:
         logger.exception("Unexpected error proxying GET %s", url)
@@ -153,11 +153,11 @@ def _proxy_post(url, body=None):
         return JsonResponse(resp.json(), status=resp.status_code, safe=False)
     except requests.ConnectionError:
         return JsonResponse(
-            {"error": "Training container is not reachable."}, status=502
+            {"error": "Fine-tuning container is not reachable."}, status=502
         )
     except requests.Timeout:
         return JsonResponse(
-            {"error": "Training container request timed out."}, status=504
+            {"error": "Fine-tuning container request timed out."}, status=504
         )
     except Exception as e:
         logger.exception("Unexpected error proxying POST %s", url)
@@ -401,8 +401,8 @@ def _stage_custom_dataset(impl, name):
         return None, JsonResponse(
             {
                 "error": (
-                    "Could not locate the training container's data volume to "
-                    "stage the custom dataset. Is a training model deployed?"
+                    "Could not locate the fine-tuning container's data volume to "
+                    "stage the custom dataset. Is a fine-tuning model deployed?"
                 )
             },
             status=502,
