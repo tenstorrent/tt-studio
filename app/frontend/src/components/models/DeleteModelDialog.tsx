@@ -7,7 +7,7 @@ import {
   Cpu,
   Loader2,
   Minimize2,
-  Square,
+  Trash2,
   RotateCcw,
   XCircle,
 } from "lucide-react";
@@ -193,14 +193,14 @@ export default function DeleteModelDialog({
             <div>
               <DialogTitle className="text-base font-semibold text-white leading-tight">
                 {isDone
-                  ? "Model Stopped"
+                  ? "Deletion Complete"
                   : isError
-                    ? "Stop Failed"
+                    ? "Deletion Failed"
                     : isLoading
                       ? deleteStep === "deleting"
-                        ? "Stopping model…"
+                        ? "Removing model…"
                         : "Resetting board…"
-                      : "Stop Model & Reset Card"}
+                      : "Delete Model & Reset Card"}
               </DialogTitle>
               {isLoading && !isDone && !isError && (
                 <p className="text-xs text-stone-400 mt-0.5">
@@ -215,8 +215,8 @@ export default function DeleteModelDialog({
         <div className="space-y-2 mt-2">
           <ResetStepRow
             number={1}
-            icon={<Square className="w-3.5 h-3.5" />}
-            label="Stop the model container"
+            icon={<Trash2 className="w-3.5 h-3.5" />}
+            label="Stop & remove model container"
             sublabel="Sending stop signal to the container…"
             state={step1State}
             logs={stepLogs.deleting}
@@ -303,7 +303,7 @@ export default function DeleteModelDialog({
                     Processing…
                   </span>
                 ) : (
-                  "Stop & Reset"
+                  "Delete & Reset"
                 )}
               </Button>
             </>

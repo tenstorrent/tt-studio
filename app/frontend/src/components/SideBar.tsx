@@ -141,8 +141,8 @@ const Sidebar = forwardRef((_, ref) => {
                   model's status and health indicators.
                 </li>
                 <li>
-                  <strong>Actions:</strong> Use the "Stop" button to stop a
-                  running model and free its devices.
+                  <strong>Actions:</strong> Use the "Delete" button to stop and
+                  remove a model.
                 </li>
               </ul>
             </CardContent>
