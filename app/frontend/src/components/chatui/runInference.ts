@@ -48,14 +48,9 @@ export const runInference = async (
     console.log("Uploaded files:", request.files);
     console.log("RAG Datasource:", ragDatasource);
 
-    // Raw completion mode (fine-tuned model template testing): the caller
-    // supplied the exact prompt string, so skip RAG, file handling, and all
-    // chat-message assembly — the prompt goes to /v1/completions verbatim.
-    const completionMode = typeof request.prompt === "string";
-
     let ragContext: { documents: string[] } | null = null;
 
-    if (ragDatasource && !completionMode) {
+    if (ragDatasource) {
       console.log(
         `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
       );
@@ -69,10 +64,7 @@ export const runInference = async (
     }
 
     let messages;
-    if (completionMode) {
-      // No message assembly — the raw prompt is sent as-is below.
-      messages = undefined;
-    } else if (request.files && request.files.length > 0) {
+    if (request.files && request.files.length > 0) {
       const file = processUploadedFiles(request.files);
       console.log("Processed file:", file);
 
@@ -229,14 +221,7 @@ export const runInference = async (
         ...(apiUrlDefined
           ? { model: "meta-llama/Llama-3.3-70B-Instruct" }
           : {}),
-        ...(completionMode
-          ? {
-              prompt: request.prompt,
-              ...(request.stop && request.stop.length > 0
-                ? { stop: request.stop }
-                : {}),
-            }
-          : { messages: messages }),
+        messages: messages,
         temperature: request.temperature,
         top_k: request.top_k,
         top_p: request.top_p,
