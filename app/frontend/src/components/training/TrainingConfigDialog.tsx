@@ -197,7 +197,7 @@ export function TrainingConfigDialog({
           setDevice(catalogDevice);
         },
       )
-      .catch(() => customToast.error("Failed to load training catalog"))
+      .catch(() => customToast.error("Failed to load fine-tuning catalog"))
       .finally(() => setCatalogLoading(false));
   }, [open]);
 
@@ -299,7 +299,7 @@ export function TrainingConfigDialog({
   const onSubmit = async (values: FormValues) => {
     if (!device) {
       customToast.error(
-        "Could not determine the training device from the catalog.",
+        "Could not determine the fine-tuning device from the catalog.",
       );
       return;
     }
@@ -370,8 +370,8 @@ export function TrainingConfigDialog({
             : undefined);
       customToast.error(
         message
-          ? `Failed to create training job: ${message}`
-          : "Failed to create training job",
+          ? `Failed to create fine-tuning job: ${message}`
+          : "Failed to create fine-tuning job",
       );
     } finally {
       setSubmitting(false);
@@ -387,9 +387,9 @@ export function TrainingConfigDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>New Training Job</DialogTitle>
+          <DialogTitle>New Fine-tuning Job</DialogTitle>
           <DialogDescription>
-            Configure fine-tuning parameters and submit a training job.
+            Configure fine-tuning parameters and submit a fine-tuning job.
           </DialogDescription>
         </DialogHeader>
 
@@ -490,7 +490,7 @@ export function TrainingConfigDialog({
                   Custom Dataset
                 </h4>
                 <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                  Choose how the training server formats your data.
+                  Choose how the fine-tuning server formats your data.
                 </p>
                 <FormField
                   control={form.control}
@@ -669,7 +669,7 @@ export function TrainingConfigDialog({
                       included) — examples longer than the limit are silently
                       dropped.{" "}
                       {sampleKept === 0
-                        ? "Every sampled example exceeds the limit, so training would fail with an empty dataset."
+                        ? "Every sampled example exceeds the limit, so fine-tuning would fail with an empty dataset."
                         : "Raise Sequence Length to include more examples."}
                     </p>
                   </div>
@@ -828,7 +828,7 @@ export function TrainingConfigDialog({
                 {submitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Start Training
+                Start Fine-tuning
               </Button>
             </DialogFooter>
           </form>

@@ -120,7 +120,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
     try {
       await uploadCustomDataset(file);
       setUploaded(true);
-      customToast.success(`Uploaded "${file.name}" for training`);
+      customToast.success(`Uploaded "${file.name}" for fine-tuning`);
       onUploaded?.();
       void refreshDatasets();
     } catch (err) {
@@ -338,7 +338,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
           {preview.sampled && preview.rows.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">
               A preview sample could not be extracted from the start of this large
-              file. It can still be used for training in full.
+              file. It can still be used for fine-tuning in full.
             </p>
           ) : (
             <DatasetPreview preview={preview} />
@@ -352,7 +352,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
             <>
               <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
                 <CheckCircle2 className="h-4 w-4" />
-                Already saved for training
+                Already saved for fine-tuning
               </span>
               <Button
                 variant="destructive"
@@ -372,7 +372,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
               {uploaded && (
                 <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
                   <CheckCircle2 className="h-4 w-4" />
-                  Available for training
+                  Available for fine-tuning
                 </span>
               )}
               <Button
@@ -384,7 +384,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
                 ) : (
                   <UploadCloud className="mr-2 h-4 w-4" />
                 )}
-                {uploaded ? "Uploaded" : "Save for Training"}
+                {uploaded ? "Uploaded" : "Save for Fine-tuning"}
               </Button>
             </div>
           )}
