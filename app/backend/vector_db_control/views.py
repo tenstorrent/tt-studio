@@ -35,12 +35,6 @@ from vector_db_control.tt_embedding_function import TT_EMBED_PREFIX
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
-# Shared collection holding the Tenstorrent documentation corpus. It is populated
-# once at startup (see apps.py) and merged into per-collection query results so the
-# corpus does not need to be re-embedded into every user collection.
-INTERNAL_KNOWLEDGE_COLLECTION = "tenstorrent_internal_knowledge"
-
-
 def _resolve_max_distance(request):
     """Resolve the effective cosine-distance ceiling for a query.
 
@@ -89,44 +83,6 @@ def _filter_results_by_distance(results, max_distance):
         "distances": [[distances[i] for i in kept]],
     }
 
-
-def _merge_query_results(primary, secondary, limit):
-    """Merge two Chroma query result dicts (single query), primary results first.
-
-    The primary collection is the one the caller explicitly queried, so its matches
-    take the available slots first; secondary (shared internal knowledge) results only
-    fill whatever capacity remains, closest first. Merging purely by distance instead
-    would let the large documentation corpus crowd the user's own documents out of the
-    response entirely.
-
-    Preserves Chroma's ``{ids, documents, metadatas, distances}`` shape with one inner
-    list per query so the response contract is unchanged.
-    """
-    def _entries(result):
-        if not result or not result.get("documents") or not result["documents"][0]:
-            return []
-        documents = result["documents"][0]
-        ids = result["ids"][0]
-        metadatas = result["metadatas"][0] if result.get("metadatas") else [None] * len(documents)
-        distances = result["distances"][0] if result.get("distances") else [None] * len(documents)
-        return [
-            (distances[i], ids[i], documents[i], metadatas[i])
-            for i in range(len(documents))
-        ]
-
-    combined = _entries(primary)[:limit]
-    remaining = limit - len(combined)
-    if remaining > 0:
-        secondary_entries = _entries(secondary)
-        secondary_entries.sort(key=lambda item: item[0] if item[0] is not None else float("inf"))
-        combined.extend(secondary_entries[:remaining])
-
-    return {
-        "ids": [[item[1] for item in combined]],
-        "documents": [[item[2] for item in combined]],
-        "metadatas": [[item[3] for item in combined]],
-        "distances": [[item[0] for item in combined]],
-    }
 
 class VectorCollectionsAPIView(ViewSet):
     EMBED_MODEL = None
@@ -193,7 +149,7 @@ class VectorCollectionsAPIView(ViewSet):
                         latest_date = None
                         
                         for metadata in results["metadatas"]:
-                            if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                            if metadata and metadata.get("source"):
                                 upload_date = metadata.get("upload_date")
                                 if upload_date and (not latest_date or upload_date > latest_date):
                                     latest_date = upload_date
@@ -271,9 +227,6 @@ class VectorCollectionsAPIView(ViewSet):
                 embedding_func_name=embedding_func_name,
             )
 
-            # Internal knowledge lives once in the shared INTERNAL_KNOWLEDGE_COLLECTION
-            # and is merged in at query time, so we no longer re-embed the whole corpus
-            # into every new collection.
             logger.info(f"Collection created successfully: {collection.name}")
             serialized = serialize_collection(collection)
             logger.info(f"Serialized response: {serialized}")
@@ -317,7 +270,7 @@ class VectorCollectionsAPIView(ViewSet):
                     latest_date = None
                     
                     for metadata in results["metadatas"]:
-                        if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                        if metadata and metadata.get("source"):
                             upload_date = metadata.get("upload_date")
                             if upload_date and (not latest_date or upload_date > latest_date):
                                 latest_date = upload_date
@@ -629,30 +582,6 @@ class VectorCollectionsAPIView(ViewSet):
             where=where,
         )
 
-        # Backfill leftover result slots from the shared Tenstorrent knowledge so
-        # single-collection queries can still surface documentation, without copying the
-        # corpus into every collection. The queried collection's own matches always take
-        # priority (see _merge_query_results). Skip the merge when a metadata filter is
-        # set — the caller is scoping to their own chunks. Also skip it for a
-        # collection embedded with a different function (e.g. a TT-hardware model):
-        # the internal-knowledge collection is always MiniLM-embedded, and merging
-        # distances computed in two different vector spaces is meaningless.
-        if (
-            pk != INTERNAL_KNOWLEDGE_COLLECTION
-            and not where
-            and embed_func_name == self.EMBED_MODEL
-        ):
-            try:
-                internal_results = query_collection(
-                    collection_name=INTERNAL_KNOWLEDGE_COLLECTION,
-                    query_texts=[query_text],
-                    n_results=self.query_results_limit,
-                    embedding_func_name=self.EMBED_MODEL,
-                )
-                results = _merge_query_results(results, internal_results, self.query_results_limit)
-            except Exception as e:
-                logger.error(f"Error merging internal knowledge into query for {pk}: {e}")
-
         results = _filter_results_by_distance(results, max_distance)
 
         return Response(results)
@@ -824,10 +753,6 @@ class VectorCollectionsAPIView(ViewSet):
                     data={"error": "You don't have access to this collection"},
                 )
             targets = [collection_name]
-            # Merge in the shared corpus unless the caller scopes with a filter,
-            # mirroring the /query behavior.
-            if collection_name != INTERNAL_KNOWLEDGE_COLLECTION and not where:
-                targets.append(INTERNAL_KNOWLEDGE_COLLECTION)
             mode = "single"
         else:
             all_collections: List[Collection] = list_collections()
@@ -995,7 +920,7 @@ class VectorCollectionsAPIView(ViewSet):
             
             if results and results.get("metadatas"):
                 for i, metadata in enumerate(results["metadatas"]):
-                    if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                    if metadata and metadata.get("source"):
                         source = metadata.get("source")
                         folder_path = metadata.get("folder_path", source)
                         folder_type = metadata.get("folder_type", "other")
