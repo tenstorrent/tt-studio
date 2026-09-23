@@ -1171,7 +1171,14 @@ def _enrich_container_with_model_impl(con, con_id):
     It is now reusable from both that function and ``get_canonical_deployments``.
     """
     con_model_id = con['env_vars'].get("MODEL_ID")
-    model_impl = model_implmentations.get(con_model_id)
+    # A container the user registered is described by its deployment record, not
+    # by the catalog: it gets the external stand-in impl even when a catalog model
+    # shares its name (e.g. a community gpt-oss-120b build). Matching it to the
+    # catalog entry instead would judge it by the catalog allowlist and route it
+    # with the catalog's port/route rather than the ones registration observed.
+    model_impl = _external_model_impl(con_id, con)
+    if not model_impl:
+        model_impl = model_implmentations.get(con_model_id)
     if not model_impl:
         # TT Inference Server containers identify themselves via cache env vars.
         is_tt_inference_container = (
