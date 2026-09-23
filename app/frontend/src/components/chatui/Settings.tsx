@@ -40,8 +40,6 @@ interface SettingsProps {
   onSettingsChange: (key: string, value: number | boolean | string) => void;
   defaultSystemPrompt: string;
   maxTokensSliderMax?: number;
-  /** Hide the system prompt editor (e.g. template/completion mode ignores it). */
-  hideSystemPrompt?: boolean;
 }
 
 // Parameter validation ranges
@@ -237,7 +235,6 @@ export default function Settings({
   onSettingsChange,
   defaultSystemPrompt,
   maxTokensSliderMax,
-  hideSystemPrompt,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
@@ -285,9 +282,7 @@ export default function Settings({
 
           {/* Settings Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* System Prompt — hidden in template/completion mode, where the raw
-                prompt is sent as-is and no system prompt is applied. */}
-            {!hideSystemPrompt && (
+            {/* System Prompt */}
             <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
@@ -359,7 +354,6 @@ export default function Settings({
                 Custom instructions fully replace the auto-generated prompt
               </p>
             </div>
-            )}
 
             <Parameter
               label="Temperature"

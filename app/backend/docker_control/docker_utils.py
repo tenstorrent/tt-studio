@@ -1575,9 +1575,6 @@ def get_canonical_deployments():
             entry["deployment_model_name"] = dep.model_name
             entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
             entry["jwt_secret"] = getattr(dep, "jwt_secret", None)
-            # Fine-tuned deployments carry the merged-weights dir; the chat UI keys
-            # its completion/template testing mode off this being set.
-            entry["host_weights_dir"] = getattr(dep, "host_weights_dir", None)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)

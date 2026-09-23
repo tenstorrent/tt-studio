@@ -107,8 +107,6 @@ interface ChatHistoryProps {
   modelName?: string | null;
   toggleableInlineStats?: boolean;
   isAgentSelected?: boolean;
-  /** Hide the empty-state welcome/example prompts (e.g. template/completion mode). */
-  hideExamples?: boolean;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
@@ -124,7 +122,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   modelName,
   toggleableInlineStats = true,
   isAgentSelected = false,
-  hideExamples = false,
 }) => {
   // console.log("ChatHistory component rendered", ragDatasource);
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
@@ -207,13 +204,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       className={`flex flex-col w-full grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
-        hideExamples ? null : (
-          <ChatExamples
-            logo={logo}
-            setTextInput={setTextInput}
-            isMobileView={isMobileView}
-          />
-        )
+        <ChatExamples
+          logo={logo}
+          setTextInput={setTextInput}
+          isMobileView={isMobileView}
+        />
       ) : (
         <div className="relative flex flex-col grow">
           {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
@@ -290,7 +285,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   {message.sender === "user" && (
                     <div className="flex flex-col gap-1">
                       {message.text && (
-                        <p className="text-left text-white whitespace-pre-wrap break-words">
+                        <p className="text-white whitespace-pre-wrap break-words">
                           {message.text.split(/(\s+)/).map((segment, i) => {
                             // Split by space, keeping spaces
                             const isUrl = /^(https?:\/\/|www\.)\S+/i.test(

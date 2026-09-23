@@ -19,7 +19,6 @@ import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
-import CompletionTemplatePanel from "./CompletionTemplatePanel";
 import { HistoryPanel } from "./HistoryPanel";
 import type {
   InferenceRequest,
@@ -31,7 +30,6 @@ import type {
 } from "./types";
 import { runInference } from "./runInference";
 import { buildDefaultSystemPrompt } from "./templateRenderer";
-import { cn } from "../../lib/utils";
 import { useDeviceState } from "../../hooks/useDeviceState";
 import { useAgentAvailability } from "../../hooks/useAgentAvailability";
 import { v4 as uuidv4 } from "uuid";
@@ -102,13 +100,6 @@ export default function ChatComponent() {
     usePersistentState<number>("current_thread_index", 0);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
-  // True when the selected model was deployed with merged fine-tuned weights.
-  // Switches the composer to raw-completion/template testing mode.
-  const [isFineTuned, setIsFineTuned] = useState<boolean>(false);
-  // For a fine-tuned model, whether the template/completion composer is active.
-  // Defaults on when a fine-tune is detected; a toggle lets the user fall back
-  // to the normal chat composer.
-  const [templateModeOn, setTemplateModeOn] = useState<boolean>(true);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
   const [modelHealthById, setModelHealthById] = useState<Record<string, string>>({});
@@ -299,16 +290,9 @@ export default function ChatComponent() {
 
   // Set dynamic token defaults when the selected model changes
   useEffect(() => {
-    if (!modelID) {
-      setIsFineTuned(false);
-      return;
-    }
+    if (!modelID) return;
     fetchDeployedModelsInfo().then((deployedModels) => {
       const match = deployedModels.find((m) => m.id === modelID);
-      const finetuned = !!match?.host_weights_dir;
-      setIsFineTuned(finetuned);
-      // Default to template mode whenever a fine-tuned model becomes active.
-      if (finetuned) setTemplateModeOn(true);
       const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
         match?.model_impl?.param_count,
         match?.max_model_len
@@ -319,20 +303,6 @@ export default function ChatComponent() {
       // fall back to initial defaults
     });
   }, [modelID]);
-
-  // Template mode is for deterministic testing of a fine-tune, so force greedy
-  // decoding (temperature 0) each time we enter it. Switching back to chat
-  // leaves the value untouched (the user can adjust it in settings), and
-  // re-entering template mode resets it to 0 again.
-  const prevTemplateActiveRef = useRef(false);
-  useEffect(() => {
-    const templateActive = isFineTuned && templateModeOn;
-    const entering = templateActive && !prevTemplateActiveRef.current;
-    prevTemplateActiveRef.current = templateActive;
-    if (entering) {
-      setModelSettings((prev) => ({ ...prev, temperature: 0 }));
-    }
-  }, [isFineTuned, templateModeOn]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -600,20 +570,8 @@ export default function ChatComponent() {
   };
 
   const handleInference = useCallback(
-    async (
-      continuationMessageId: string | null = null,
-      // Raw-completion override (fine-tuned template mode): a pre-rendered prompt
-      // string plus stop sequences. When present, the normal text/file input is
-      // bypassed and the prompt is sent straight to /v1/completions.
-      completion?: { prompt: string; stop?: string[] },
-    ) => {
-      const isCompletion = completion !== undefined;
-      const effectiveText = completion ? completion.prompt : textInput;
-      if (completion) {
-        if (effectiveText.trim() === "") return;
-      } else if (textInput.trim() === "" && files.length === 0) {
-        return;
-      }
+    async (continuationMessageId: string | null = null) => {
+      if (textInput.trim() === "" && files.length === 0) return;
 
       const modelsDeployed = await checkDeployedModels();
       if (modelsDeployed && !modelID) {
@@ -621,7 +579,7 @@ export default function ChatComponent() {
       }
 
       // Process and classify uploaded files
-      if (!isCompletion && files.length > 0) {
+      if (files.length > 0) {
         const processedFiles = await Promise.all(
           files.map(async (file) => {
             // Classify file type and extract metadata
@@ -694,9 +652,9 @@ export default function ChatComponent() {
         const userMessage: ChatMessage = {
           id: uuidv4(),
           sender: "user",
-          text: effectiveText,
-          files: isCompletion ? [] : files,
-          ragDatasource: isCompletion ? undefined : ragDatasource,
+          text: textInput,
+          files: files,
+          ragDatasource: ragDatasource,
         };
         updatedMessages = [...(threadToUse.messages || []), userMessage];
 
@@ -740,16 +698,13 @@ export default function ChatComponent() {
       // Create inference request with detailed logging
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID || "",
-        text: continuationMessageId ? `Continue: ${effectiveText}` : effectiveText,
-        files: isCompletion ? [] : files,
+        text: continuationMessageId ? `Continue: ${textInput}` : textInput,
+        files: files,
         temperature: modelSettings.temperature,
         max_tokens: modelSettings.maxLength,
         top_p: modelSettings.topP,
         top_k: modelSettings.topK,
         ...(modelSettings.seed > 0 && { seed: modelSettings.seed }),
-        ...(completion
-          ? { prompt: completion.prompt, ...(completion.stop ? { stop: completion.stop } : {}) }
-          : {}),
         stream_options: {
           include_usage: true,
           continuous_usage_stats: true,
@@ -1402,9 +1357,8 @@ export default function ChatComponent() {
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
-            {/* System prompt active indicator — hidden in template mode, where the
-                system prompt is not applied (raw completion sends the prompt as-is). */}
-            {modelSettings.systemPrompt && !(isFineTuned && templateModeOn) && (
+            {/* System prompt active indicator */}
+            {modelSettings.systemPrompt && (
               <div className="flex justify-center pt-3 pb-1">
                 <button
                   type="button"
@@ -1431,7 +1385,6 @@ export default function ChatComponent() {
               modelName={modelName}
               toggleableInlineStats={modelSettings.toggleableInlineStats}
               isAgentSelected={isAgentSelected}
-              hideExamples={isFineTuned && templateModeOn}
             />
             {/* Scroll to bottom button */}
             <AnimatePresence>
@@ -1476,68 +1429,23 @@ export default function ChatComponent() {
                 : undefined,
             }}
           >
-            {/* Composer mode toggle — only for fine-tuned models. Lets the user
-                switch between the training-template completion composer and the
-                normal chat input. */}
-            {isFineTuned && (
-              <div className="flex justify-center pt-2 pb-1">
-                <div className="inline-flex rounded-lg bg-gray-100 dark:bg-gray-800 p-0.5 text-sm">
-                  <button
-                    type="button"
-                    aria-pressed={templateModeOn}
-                    onClick={() => setTemplateModeOn(true)}
-                    className={cn(
-                      "px-3 py-1 rounded-md transition-colors",
-                      templateModeOn
-                        ? "bg-white dark:bg-gray-700 text-[#7C68FA] shadow-sm font-medium"
-                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                    )}
-                  >
-                    Template
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={!templateModeOn}
-                    onClick={() => setTemplateModeOn(false)}
-                    className={cn(
-                      "px-3 py-1 rounded-md transition-colors",
-                      !templateModeOn
-                        ? "bg-white dark:bg-gray-700 text-[#7C68FA] shadow-sm font-medium"
-                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                    )}
-                  >
-                    Chat
-                  </button>
-                </div>
-              </div>
-            )}
-            {isFineTuned && templateModeOn ? (
-              <CompletionTemplatePanel
-                isStreaming={isStreaming}
-                onSend={(prompt, stop) =>
-                  handleInference(null, { prompt, stop })
-                }
-                onStop={handleStopInference}
-              />
-            ) : (
-              <InputArea
-                textInput={textInput}
-                setTextInput={setTextInput}
-                handleInference={() => handleInference(null)}
-                isStreaming={isStreaming}
-                isListening={isListening}
-                setIsListening={setIsListening}
-                voiceInputAvailable={voiceInputAvailable}
-                sttDeployId={sttDeployId}
-                isMobileView={screenSize.isMobileView}
-                onCreateNewConversation={createNewConversation}
-                onStopInference={handleStopInference}
-                showInitialPromptAnimation={showInitialPromptAnimation}
-                isAgentSelected={isAgentSelected}
-                setIsAgentSelected={setIsAgentSelected}
-                isAgentAvailable={isAgentAvailable}
-              />
-            )}
+            <InputArea
+              textInput={textInput}
+              setTextInput={setTextInput}
+              handleInference={() => handleInference(null)}
+              isStreaming={isStreaming}
+              isListening={isListening}
+              setIsListening={setIsListening}
+              voiceInputAvailable={voiceInputAvailable}
+              sttDeployId={sttDeployId}
+              isMobileView={screenSize.isMobileView}
+              onCreateNewConversation={createNewConversation}
+              onStopInference={handleStopInference}
+              showInitialPromptAnimation={showInitialPromptAnimation}
+              isAgentSelected={isAgentSelected}
+              setIsAgentSelected={setIsAgentSelected}
+              isAgentAvailable={isAgentAvailable}
+            />
           </div>
         </div>
       </Card>
@@ -1550,7 +1458,6 @@ export default function ChatComponent() {
         onSettingsChange={handleSettingsChange}
         defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
         maxTokensSliderMax={maxTokensSliderMax}
-        hideSystemPrompt={isFineTuned && templateModeOn}
       />
     </div>
   );
