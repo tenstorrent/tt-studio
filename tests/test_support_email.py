@@ -5,6 +5,8 @@
 parity check against the backend twin (app/backend/logs_control/support_email.py)."""
 
 import datetime
+import email
+import email.policy
 import importlib.util
 import os
 import unittest
@@ -53,6 +55,16 @@ class TestAssigneeRotation(unittest.TestCase):
 
     def test_defaults_to_today(self):
         self.assertIn(support_email.assignee_for_date(), support_email.ROTATION)
+
+    def test_rotation_addresses(self):
+        self.assertEqual(
+            [email for _, email in support_email.ROTATION],
+            [
+                "aramchandran@tenstorrent.com",
+                "jashansingh@tenstorrent.com",
+                "rnabeel@tenstorrent.com",
+            ],
+        )
 
 
 class TestSubject(unittest.TestCase):
@@ -104,6 +116,17 @@ class TestBody(unittest.TestCase):
         self.assertIn("1. deploy", body)
         self.assertIn("_fill in_", body)  # unfilled fields keep placeholders
 
+    def test_attach_reminder_vs_attached(self):
+        # mailto: path — the user has to attach the ZIP by hand.
+        self.assertIn("IMPORTANT: attach tt-studio-logs-ttbr-abc123.zip", self._body())
+        # .eml path — the ZIP is already attached.
+        attached = support_email.build_body(
+            "ttbr-abc123", ("Jashan", "jashansingh@tenstorrent.com"), {}, [],
+            "tt-studio-logs-ttbr-abc123.zip", attached=True,
+        )
+        self.assertIn("tt-studio-logs-ttbr-abc123.zip is attached", attached)
+        self.assertNotIn("IMPORTANT: attach", attached)
+
 
 class TestMailtoUrl(unittest.TestCase):
     def test_shape_and_encoding(self):
@@ -132,6 +155,41 @@ class TestMailtoUrl(unittest.TestCase):
         self.assertEqual(unquote(url.split("&body=")[1]), "short body")
 
 
+class TestEml(unittest.TestCase):
+    """build_eml: a ready-to-send message with the ZIP attached."""
+
+    ZIP = b"PK\x03\x04fake-zip-bytes"
+
+    def _message(self):
+        raw = support_email.build_eml(
+            "[TT-Studio] Deploy hangs [ttbr-1]",
+            "Assignee: X\nReference: ttbr-1\n\nbody \u2014 text",
+            self.ZIP,
+            "tt-studio-logs-ttbr-1.zip",
+        )
+        self.assertIsInstance(raw, bytes)
+        return email.message_from_bytes(raw, policy=email.policy.default)
+
+    def test_headers(self):
+        msg = self._message()
+        self.assertEqual(msg["To"], "support@tenstorrent.com")
+        self.assertEqual(msg["Subject"], "[TT-Studio] Deploy hangs [ttbr-1]")
+        self.assertEqual(msg["X-Unsent"], "1")  # Outlook: open as an editable draft
+        self.assertIsNotNone(msg["Date"])
+
+    def test_body_text(self):
+        body = self._message().get_body(preferencelist=("plain",)).get_content()
+        self.assertEqual(body.rstrip("\n"), "Assignee: X\nReference: ttbr-1\n\nbody \u2014 text")
+
+    def test_zip_attached_verbatim(self):
+        attachments = list(self._message().iter_attachments())
+        self.assertEqual(len(attachments), 1)
+        att = attachments[0]
+        self.assertEqual(att.get_filename(), "tt-studio-logs-ttbr-1.zip")
+        self.assertEqual(att.get_content_type(), "application/zip")
+        self.assertEqual(att.get_content(), self.ZIP)
+
+
 class TestBackendTwinParity(unittest.TestCase):
     """The backend copy must behave identically — same rotation, same output."""
 
@@ -145,7 +203,7 @@ class TestBackendTwinParity(unittest.TestCase):
 
         args = (
             "ttbr-xyz",
-            ("Anirudh", "anirud@tenstorrent.com"),
+            ("Anirudh", "aramchandran@tenstorrent.com"),
             {"title": "t", "description": "d"},
             ["OS: Linux"],
             "tt-studio-logs-ttbr-xyz.zip",
@@ -157,6 +215,22 @@ class TestBackendTwinParity(unittest.TestCase):
         self.assertEqual(
             twin.build_mailto_url("s", "b"), support_email.build_mailto_url("s", "b")
         )
+        self.assertEqual(
+            twin.build_body(*args, attached=True), support_email.build_body(*args, attached=True)
+        )
+
+        # Date header and MIME boundary differ per call; compare the parsed parts.
+        def parts(raw):
+            msg = email.message_from_bytes(raw, policy=email.policy.default)
+            att = next(msg.iter_attachments())
+            return (
+                msg["To"], msg["Subject"], msg["X-Unsent"],
+                msg.get_body(preferencelist=("plain",)).get_content(),
+                att.get_filename(), att.get_content_type(), att.get_content(),
+            )
+
+        eml_args = ("s", "b \u2014 body", b"PK\x03\x04zip", "tt-studio-logs-ttbr-xyz.zip")
+        self.assertEqual(parts(twin.build_eml(*eml_args)), parts(support_email.build_eml(*eml_args)))
 
 
 if __name__ == "__main__":

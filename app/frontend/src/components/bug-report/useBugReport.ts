@@ -53,7 +53,7 @@ const INITIAL_SOURCES: LogSourceState[] = [
 ];
 
 const SUPPORT_ROTATION = [
-  { name: "Anirudh", email: "anirud@tenstorrent.com" },
+  { name: "Anirudh", email: "aramchandran@tenstorrent.com" },
   { name: "Jashan", email: "jashansingh@tenstorrent.com" },
   { name: "Raheem", email: "rnabeel@tenstorrent.com" },
 ] as const;
@@ -64,6 +64,18 @@ function makeDiagnosticsRef(): string {
       ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
       : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   return `ttbr-${suffix}`;
+}
+
+/** Trigger a browser download of `blob` under `filename`. */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function currentSupportAssignee(): string {
@@ -145,6 +157,7 @@ export function useBugReport() {
   /** Stable id for matching a support ticket to one downloaded diagnostics ZIP. */
   const [diagnosticsRef, setDiagnosticsRef] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [isBuildingEml, setIsBuildingEml] = useState(false);
   const [emailDraft, setEmailDraft] = useState<SupportEmailDraft | null>(null);
 
   const startCollection = useCallback(async () => {
@@ -190,19 +203,47 @@ export function useBugReport() {
   const downloadZip = useCallback(async () => {
     const response = await fetch("/logs-api/bug-report/download/");
     if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
     const slug =
       diagnosticsRef ??
       new Date().toISOString().replace(/[:.]/g, "-");
-    a.download = `tt-studio-logs-${slug}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    saveBlob(await response.blob(), `tt-studio-logs-${slug}.zip`);
   }, [diagnosticsRef]);
+
+  /** JSON body shared by the support-email endpoints. */
+  const supportEmailPayload = useCallback(
+    (ref: string) =>
+      JSON.stringify({
+        ref,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        steps: form.steps.trim(),
+        expected: form.expected.trim(),
+        actual: form.actual.trim(),
+      }),
+    [form]
+  );
+
+  /** Download a ready-to-send .eml addressed to support with the diagnostics
+   * ZIP already attached — open it in a mail client and hit Send. */
+  const downloadEmailWithLogs = useCallback(async () => {
+    const ref = diagnosticsRef ?? makeDiagnosticsRef();
+    if (!diagnosticsRef) setDiagnosticsRef(ref);
+    setIsBuildingEml(true);
+    try {
+      const response = await fetch("/logs-api/support-email/eml/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: supportEmailPayload(ref),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error ?? `HTTP ${response.status}`);
+      }
+      saveBlob(await response.blob(), `tt-studio-bug-report-${ref}.eml`);
+    } finally {
+      setIsBuildingEml(false);
+    }
+  }, [diagnosticsRef, supportEmailPayload]);
 
   const draftSupportEmail = useCallback(async () => {
     const ref = diagnosticsRef ?? makeDiagnosticsRef();
@@ -212,14 +253,7 @@ export function useBugReport() {
       const response = await fetch("/logs-api/support-email/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ref,
-          title: form.title.trim(),
-          description: form.description.trim(),
-          steps: form.steps.trim(),
-          expected: form.expected.trim(),
-          actual: form.actual.trim(),
-        }),
+        body: supportEmailPayload(ref),
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -242,7 +276,7 @@ export function useBugReport() {
     } finally {
       setIsDrafting(false);
     }
-  }, [diagnosticsRef, form]);
+  }, [diagnosticsRef, supportEmailPayload]);
 
   /** Copy the email body — the drafted one when available, else a local fallback. */
   const copyEmailBody = useCallback(async () => {
@@ -258,6 +292,7 @@ export function useBugReport() {
     setData(null);
     setDiagnosticsRef(null);
     setIsDrafting(false);
+    setIsBuildingEml(false);
     setEmailDraft(null);
   }, []);
 
@@ -269,9 +304,11 @@ export function useBugReport() {
     data,
     diagnosticsRef,
     isDrafting,
+    isBuildingEml,
     emailDraft,
     startCollection,
     downloadZip,
+    downloadEmailWithLogs,
     draftSupportEmail,
     copyEmailBody,
     reset,

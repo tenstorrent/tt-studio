@@ -10,6 +10,7 @@ import {
   Download,
   Copy,
   Mail,
+  Paperclip,
   Clock,
   ChevronRight,
   ChevronDown,
@@ -60,9 +61,11 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     sources,
     diagnosticsRef,
     isDrafting,
+    isBuildingEml,
     emailDraft,
     startCollection,
     downloadZip,
+    downloadEmailWithLogs,
     draftSupportEmail,
     copyEmailBody,
     reset,
@@ -70,6 +73,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
 
   const [copied, setCopied] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [emlError, setEmlError] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [diagnosticsHelpOpen, setDiagnosticsHelpOpen] = useState(false);
   /** Step 3: user confirms they attached the ZIP to the email before sending */
@@ -111,6 +115,17 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
       await downloadZip();
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Download failed");
+    }
+  };
+
+  const handleDownloadEml = async () => {
+    setEmlError(null);
+    try {
+      await downloadEmailWithLogs();
+    } catch (err) {
+      setEmlError(
+        err instanceof Error ? err.message : "Failed to build the support email"
+      );
     }
   };
 
@@ -222,15 +237,17 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     (board, telemetry, firmware fields when available).
                   </p>
                   <p>
-                    In <strong>step 3</strong>, download the ZIP, then click{" "}
-                    <strong>Draft support email</strong> — a pre-filled email to{" "}
+                    In <strong>step 3</strong>, click{" "}
+                    <strong>Download Email with Logs Attached</strong> — a
+                    ready-to-send email file (.eml) addressed to{" "}
                     <code className="rounded bg-stone-200 px-1 py-0.5 text-xs dark:bg-stone-800">
                       support@tenstorrent.com
                     </code>{" "}
-                    opens in your mail client. Attach the ZIP and hit Send; the
-                    support inbox files the ticket and replies come back to your
-                    inbox. A short <strong>ZIP / diagnostics reference</strong>{" "}
-                    links the email to your downloaded file name.
+                    with the diagnostics ZIP already attached is saved. Open it in
+                    your mail client and hit Send; the support inbox files the
+                    ticket and replies come back to your inbox. A short{" "}
+                    <strong>ZIP / diagnostics reference</strong> links the email
+                    to the bundle.
                   </p>
                 </div>
               </CollapsibleContent>
@@ -381,9 +398,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     ZIP / diagnostics reference
                   </p>
                   <p className="text-muted-foreground text-xs leading-relaxed">
-                    Your browser saves the bundle with this full file name (same as
-                    Download Logs as ZIP). Copy it to find the file when attaching
-                    it to the email.
+                    The diagnostics bundle inside the .eml (and the file saved by
+                    Download Logs as ZIP) carries this name, so support can match
+                    the email to the logs.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -447,18 +464,20 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               <p className="font-medium mb-1">How submission works</p>
               <ol className="list-decimal list-inside space-y-1 text-amber-900/90 dark:text-amber-100/90">
                 <li>
-                  Click <strong>Download Logs as ZIP</strong> below. The file name
-                  includes the reference above so it lines up with the email.
+                  Click <strong>Download Email with Logs Attached</strong> below.
+                  It saves a ready-to-send email file (.eml) addressed to{" "}
+                  <strong>support@tenstorrent.com</strong> with the diagnostics
+                  ZIP already attached.
                 </li>
                 <li>
-                  Click <strong>Draft support email</strong> — a pre-filled email
-                  to <strong>support@tenstorrent.com</strong> opens in your mail
-                  client.
+                  Open the .eml in your mail client and hit <strong>Send</strong>{" "}
+                  (in Thunderbird choose <em>Edit As New Message</em> first).
+                  Support replies land back in your inbox.
                 </li>
                 <li>
-                  <strong>Attach the downloaded ZIP</strong> to the email (email
-                  drafts can’t attach it automatically), then hit{" "}
-                  <strong>Send</strong>. Support replies land back in your inbox.
+                  Can’t open .eml files? Use <strong>Download Logs as ZIP</strong>{" "}
+                  and <strong>Draft Support Email</strong> instead, and attach the
+                  ZIP to the draft by hand.
                 </li>
               </ol>
             </div>
@@ -485,6 +504,11 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </div>
             )}
 
+            {emlError && (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {emlError}
+              </p>
+            )}
             {draftError && (
               <p className="text-sm text-red-600 dark:text-red-400">
                 {draftError}
@@ -497,6 +521,24 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             )}
 
             <div className="grid grid-cols-1 gap-2">
+              <Button
+                onClick={handleDownloadEml}
+                disabled={isBuildingEml}
+                className="w-full justify-center gap-2"
+                title={
+                  diagnosticsRef
+                    ? `Saves as tt-studio-bug-report-${diagnosticsRef}.eml`
+                    : undefined
+                }
+              >
+                {isBuildingEml ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Paperclip className="h-4 w-4" />
+                )}
+                Download Email with Logs Attached (.eml)
+              </Button>
+
               <Button
                 variant="outline"
                 onClick={handleDownload}
@@ -512,6 +554,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               </Button>
 
               <Button
+                variant="outline"
                 onClick={handleDraftEmail}
                 disabled={isDrafting}
                 className="w-full justify-center gap-2"
@@ -547,8 +590,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                   onChange={(e) => setConfirmedZipAttached(e.target.checked)}
                 />
                 <span className="text-sm leading-snug text-stone-800 dark:text-stone-200">
-                  I attached the diagnostics ZIP to the support email before
-                  sending it.
+                  I sent the support email with the diagnostics ZIP attached.
                 </span>
               </label>
               {!confirmedZipAttached && (
