@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 // React import not needed for modern JSX transform
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Settings } from "lucide-react";
@@ -46,7 +46,7 @@ export default function SettingsMenu({
   onPreset,
   onRefreshHealthNow,
   isRefreshing,
-}: Props): JSX.Element {
+}: Props): ReactElement {
   return (
     <Popover>
       <PopoverTrigger asChild>

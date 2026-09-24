@@ -48,14 +48,14 @@ import {
 } from "@/src/components/ui/select";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 
 // Spinner component with size variants
 type SpinnerProps = {
   size?: "sm" | "md" | "lg";
 };
 
-const Spinner = ({ size = "md" }: SpinnerProps): JSX.Element => {
+const Spinner = ({ size = "md" }: SpinnerProps): ReactElement => {
   const sizeClasses = {
     sm: "h-3 w-3",
     md: "h-5 w-5",

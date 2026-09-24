@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import ElevatedCard from "../ui/elevated-card";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
@@ -54,7 +54,7 @@ import { ChipStatusDisplay } from "../ChipStatusDisplay";
 import type { ChipStatus } from "../../types/chipStatus";
 import { deviceIdsForRow } from "../../utils/deviceIds";
 
-export default function ModelsDeployedCard(): JSX.Element {
+export default function ModelsDeployedCard(): ReactElement {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight, controlPlaneDegraded } = useModels();
   const { refreshTrigger, triggerHardwareRefresh, resetAllNonce } =
     useRefresh();
