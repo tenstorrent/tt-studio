@@ -4,8 +4,8 @@ import React from "react";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 
 export const updateBoxPositions = (
-  containerRef: React.RefObject<HTMLDivElement>,
-  videoRef: React.RefObject<HTMLVideoElement> | null,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  videoRef: React.RefObject<HTMLVideoElement | null> | null,
   metadata: DetectionMetadata | null,
   detections: Detection[]
 ): Detection[] => {

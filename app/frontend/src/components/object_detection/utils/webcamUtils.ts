@@ -6,7 +6,7 @@ import { runInference } from "./runInference";
 import { InferenceRequest } from "../types/objectDetection";
 
 export const startCapture = (
-  videoRef: React.RefObject<HTMLVideoElement>,
+  videoRef: React.RefObject<HTMLVideoElement | null>,
   setDetections: (data: {
     boxes: Detection[];
     metadata: DetectionMetadata;
@@ -38,7 +38,7 @@ export const startCapture = (
 };
 
 export const sendSnapshot = async (
-  videoRef: React.RefObject<HTMLVideoElement>,
+  videoRef: React.RefObject<HTMLVideoElement | null>,
   setDetections: (data: {
     boxes: Detection[];
     metadata: DetectionMetadata;
@@ -64,7 +64,7 @@ export const sendSnapshot = async (
 };
 
 export const stopCapture = (
-  videoRef: React.RefObject<HTMLVideoElement> | null
+  videoRef: React.RefObject<HTMLVideoElement | null> | null
 ) => {
   if (videoRef && videoRef.current && videoRef.current.srcObject) {
     const tracks = (videoRef.current.srcObject as MediaStream).getTracks();

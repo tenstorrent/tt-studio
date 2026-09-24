@@ -6,7 +6,7 @@ import React from "react";
 interface Props {
   metrics: Record<string, number>;
   onScroll: () => void;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export default function MetricsView({ metrics, onScroll, scrollRef }: Props) {
