@@ -20,11 +20,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
 import uuid
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +43,18 @@ _CATALOG_TTL_SECONDS = 300
 # A catalog/inspect call is one bounded Hub request. A serve has no timeout here:
 # a first-time bundle install downloads an image and weights.
 _QUERY_TIMEOUT_SECONDS = 90
+
+# Byte counters a `download` event sets, in the shape inference-api's own deploys
+# report so the deploy UI renders both the same way.
+_DOWNLOAD_FIELDS = (
+    "downloaded_bytes", "total_bytes", "speed_bps", "eta_seconds",
+    "weights_repo", "weights_cached", "expects_weights",
+)
+# Cleared when the next stage starts, so its view does not show a finished download.
+_TRANSFER_FIELDS = ("downloaded_bytes", "total_bytes", "speed_bps", "eta_seconds")
+
+# Deploy-log lines read for the failure message when the runner exits without one.
+_ERROR_TAIL_LINES = 40
 
 
 class CommunityRunRequest(BaseModel):
@@ -75,6 +89,27 @@ def runner_python() -> Optional[str]:
     default = Path(__file__).parent.parent / ".artifacts" / "tt-model-manager"
     candidate = default / ".venv" / "bin" / "python"
     return str(candidate) if candidate.exists() else None
+
+
+def deployment_log_path(log_dir: Path, repo_id: str, profile: Optional[str]) -> Path:
+    """This deploy's log file, named like inference-server deploy logs.
+
+    The logs browser and bug-report bundle list the directory for ``model_run_*.log``.
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    bundle = re.sub(r"[^A-Za-z0-9._-]", "-", repo_id)
+    name = f"model_run_{stamp}_{bundle}_{profile or 'default'}_community.log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / name
+
+
+def _tail(path: Path, lines: int) -> str:
+    """Last ``lines`` of a log file, for a failure message. Never raises."""
+    try:
+        with open(path, "r", errors="replace") as handle:
+            return "".join(deque(handle, maxlen=lines)).strip()
+    except OSError:
+        return ""
 
 
 def _runner_env(hf_token: Optional[str] = None) -> Dict[str, str]:
@@ -152,6 +187,7 @@ def create_community_router(
     log_store: Dict[str, deque],
     progress_lock: threading.Lock,
     max_log_messages: int,
+    deployment_log_dir: Optional[Path] = None,
 ) -> APIRouter:
     """Build the /community router bound to api.py's job stores.
 
@@ -167,12 +203,30 @@ def create_community_router(
             if job_id in progress_store:
                 progress_store[job_id].update({**fields, "last_updated": time.time()})
 
+    def _clear_transfer(job_id: str) -> None:
+        with progress_lock:
+            record = progress_store.get(job_id)
+            for key in _TRANSFER_FIELDS if record else ():
+                record.pop(key, None)
+
+    # Per-job log files; the in-memory deque is capped and dies with the process.
+    log_files: Dict[str, Any] = {}
+
     def _append_log(job_id: str, level: str, message: str) -> None:
         with progress_lock:
             if job_id in log_store:
                 log_store[job_id].append(
                     {"timestamp": time.time(), "level": level, "message": message}
                 )
+            handle = log_files.get(job_id)
+        if handle is None:
+            return
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            handle.write(f"{stamp} - {level}: {message}\n")
+            handle.flush()
+        except (OSError, ValueError):
+            pass
 
     @router.get("/status")
     async def community_status():
@@ -272,10 +326,15 @@ def create_community_router(
         python = runner_python()
         result: Optional[Dict[str, Any]] = None
         error: Optional[Dict[str, Any]] = None
+        log_path = _open_deploy_log(job_id, request)
         try:
             process = subprocess.Popen(
                 [python, RUNNER, *args],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                stdout=subprocess.PIPE,
+                # tt-model-manager's console output; a file, since an undrained pipe
+                # would block the runner once full.
+                stderr=log_files.get(job_id) or subprocess.DEVNULL,
+                text=True,
                 env=_runner_env(request.hf_token),
             )
             for line in process.stdout:
@@ -284,6 +343,7 @@ def create_community_router(
                     continue
                 kind = event.get("event")
                 if kind == "stage":
+                    _clear_transfer(job_id)
                     _set_progress(
                         job_id,
                         stage=event.get("stage", "model_preparation"),
@@ -291,6 +351,13 @@ def create_community_router(
                         message=event.get("message", ""),
                     )
                     _append_log(job_id, "INFO", event.get("message", ""))
+                elif kind == "download":
+                    # Once a second while bytes arrive, so kept out of the log.
+                    fields = {k: event[k] for k in _DOWNLOAD_FIELDS if k in event}
+                    if "stage" in event:
+                        fields.update(status="running", stage=event["stage"],
+                                      message=event.get("message", ""))
+                    _set_progress(job_id, **fields)
                 elif kind in ("log", "warning"):
                     level = "WARNING" if kind == "warning" else event.get("level", "INFO")
                     _append_log(job_id, level, event.get("message", ""))
@@ -310,11 +377,13 @@ def create_community_router(
                     result = event
                 elif kind == "error":
                     error = event
-            stderr = (process.stderr.read() or "").strip()
             process.wait()
             if process.returncode != 0 and error is None:
-                error = {"message": stderr.splitlines()[-1] if stderr else
-                         f"tt-model-manager exited with code {process.returncode}"}
+                tail = _tail(log_path, _ERROR_TAIL_LINES) if log_path else ""
+                error = {
+                    "message": tail.splitlines()[-1] if tail else
+                    f"tt-model-manager exited with code {process.returncode}"
+                }
         except Exception as exc:  # noqa: BLE001 - a thread boundary; report, never raise
             logger.exception("Community deploy %s failed", job_id)
             error = {"message": str(exc)}
@@ -324,6 +393,7 @@ def create_community_router(
             _set_progress(job_id, status="error", stage="error", progress=100,
                           message=message)
             _append_log(job_id, "ERROR", message)
+            _close_deploy_log(job_id)
             return
 
         _set_progress(
@@ -335,6 +405,33 @@ def create_community_router(
             container_name=result.get("container_name"),
             container_id=result.get("container_id"),
         )
+        _close_deploy_log(job_id)
+
+    def _open_deploy_log(job_id: str, request: CommunityRunRequest) -> Optional[Path]:
+        """Start this deploy's log file, and tell the job where it is."""
+        if deployment_log_dir is None:
+            return None
+        try:
+            path = deployment_log_path(deployment_log_dir, request.repo_id, request.profile)
+            handle = open(path, "a", buffering=1)
+        except OSError as e:
+            logger.warning("Could not open a deploy log for %s: %s", job_id, e)
+            return None
+        with progress_lock:
+            log_files[job_id] = handle
+        _set_progress(job_id, log_file=str(path))
+        _append_log(job_id, "INFO", f"deploying {request.repo_id} "
+                                   f"(profile {request.profile or 'default'})")
+        return path
+
+    def _close_deploy_log(job_id: str) -> None:
+        with progress_lock:
+            handle = log_files.pop(job_id, None)
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
 
     return router
 

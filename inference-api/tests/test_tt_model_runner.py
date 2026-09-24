@@ -8,6 +8,8 @@ a community deployment reserves, and a wrong answer there either blocks the boar
 lets a second model land on devices already in use.
 """
 
+import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -35,7 +37,8 @@ def fake_tt_kernel(monkeypatch):
     container_cli = types.SimpleNamespace(
         parse_device_id=lambda raw, *, chip_count, profile_name: (
             None if raw is None else [int(x) for x in raw.split(",")]
-        )
+        ),
+        ensure_weights=lambda manifest, target, **kw: calls.__setitem__("weights", target),
     )
     manifest = types.ModuleType("tt_kernel.container_manifest")
     manifest.hardware_chip_count = lambda hardware: {"p150": 1, "p300": 2, "p300x2": 4}.get(
@@ -171,3 +174,173 @@ class TestResolveDeviceIds:
         assert runner._resolve_device_ids(None, 1, "default") == [0]
         assert fake_tt_kernel["picked"] == 1
         assert fake_tt_kernel["ensured"] is None
+
+
+class TestEnsureWeights:
+    """Weights are fetched by tt-model-manager; the runner only asks."""
+
+    class _Manifest:
+        def __init__(self, repo_id="org/weights"):
+            self.weights = types.SimpleNamespace(repo_id=repo_id, revision=None)
+
+    def test_delegates_to_tt_model_manager(self, fake_tt_kernel):
+        runner._ensure_weights("ns/bundle", self._Manifest(), no_weights=False)
+        assert fake_tt_kernel["weights"] == "ns/bundle"
+
+    def test_a_bundle_with_no_weights_is_a_no_op(self, fake_tt_kernel):
+        runner._ensure_weights("ns/bundle", types.SimpleNamespace(weights=None),
+                               no_weights=False)
+        assert "weights" not in fake_tt_kernel
+
+    def test_no_weights_skips_the_fetch(self, fake_tt_kernel):
+        runner._ensure_weights("ns/bundle", self._Manifest(), no_weights=True)
+        assert "weights" not in fake_tt_kernel
+
+
+class TestHubErrorClassification:
+    """Only a failure from talking to the Hub is reworded as one.
+
+    ``classify_hub_error`` labels anything "the Hub request failed", which hid docker
+    and device errors behind a dead end.
+    """
+
+    def _error_event(self, tmp_path, body):
+        script = tmp_path / "boom.py"
+        script.write_text(
+            f"import sys\nsys.path.insert(0, {str(Path(runner.__file__).parent)!r})\n"
+            "import tt_model_runner as runner\n"
+            f"{body}\n"
+            "sys.exit(runner.main(['inspect', 'ns/bundle']))\n"
+        )
+        done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+        events = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+        return next(e for e in events if e["event"] == "error")
+
+    def test_a_local_failure_keeps_its_wording(self, tmp_path):
+        event = self._error_event(
+            tmp_path,
+            "runner.cmd_inspect = lambda args: (_ for _ in ()).throw("
+            "RuntimeError('host is not ready: hugepages (absent)'))",
+        )
+        assert event["message"] == "host is not ready: hugepages (absent)"
+        assert event["kind"] == "RuntimeError"
+
+    @staticmethod
+    def _hub_exception():
+        return type("RepositoryNotFoundError", (Exception,),
+                    {"__module__": "huggingface_hub.errors"})("404")
+
+    def test_a_hub_exception_is_one(self):
+        assert runner._is_hub_error(self._hub_exception())
+
+    def test_a_wrapped_hub_exception_is_one(self):
+        try:
+            try:
+                raise self._hub_exception()
+            except Exception as inner:
+                raise RuntimeError("fetch failed") from inner
+        except RuntimeError as outer:
+            assert runner._is_hub_error(outer)
+
+    def test_a_local_exception_is_not(self):
+        assert not runner._is_hub_error(RuntimeError("docker run failed"))
+
+
+class TestDownloadProgress:
+    """Bytes on disk against the pin's Hub sizes, in the shape the deploy UI renders."""
+
+    def test_cached_bytes_counts_complete_and_partial_blobs_of_the_pin(self, tmp_path):
+        (tmp_path / "aaa").write_bytes(b"x" * 10)
+        (tmp_path / "bbb.1234.incomplete").write_bytes(b"x" * 4)
+        (tmp_path / "other-revision").write_bytes(b"x" * 99)
+        files = [("aaa", 10), ("bbb", 8), ("ccc", 5)]
+        assert runner._cached_bytes(tmp_path, files) == 14
+
+    def test_growth_sets_speed_and_eta(self):
+        sizes = iter([0, 500])
+        download = runner._Download("model_preparation", "org/w", 1000, lambda: next(sizes))
+        assert download.sample()
+        fields = download.fields(expects_weights=True)
+        assert fields["downloaded_bytes"] == 500
+        assert fields["total_bytes"] == 1000
+        assert fields["speed_bps"] > 0
+        assert fields["eta_seconds"] > 0
+        assert fields["message"].startswith("Downloading weights: 500 B / 1.00 KB")
+
+    def test_bytes_already_on_disk_are_not_reported_as_speed(self):
+        download = runner._Download("model_preparation", "org/w", 1000, lambda: 700)
+        assert not download.sample()
+        assert download.speed is None
+
+    def test_a_count_past_the_total_is_capped(self):
+        sizes = iter([0, 1500])
+        download = runner._Download("pulling_image", "img:tag", 1000, lambda: next(sizes))
+        download.sample()
+        fields = download.fields(expects_weights=False)
+        assert fields["downloaded_bytes"] == 1000
+        assert fields["message"] == "Loading image into Docker…"
+        assert fields["expects_weights"] is False
+
+    def test_tempfile_is_redirected_only_inside_the_block(self, monkeypatch):
+        monkeypatch.setattr(runner, "_DownloadMonitor", _IdleMonitor)
+        before = runner.tempfile.tempdir
+        with runner._download_progress("ns/bundle", object()):
+            staging = Path(runner.tempfile.gettempdir())
+            assert staging.name.startswith("tt-studio-bundle-")
+        assert runner.tempfile.tempdir == before
+        assert not staging.exists()
+
+
+class _IdleMonitor:
+    def __init__(self, *args):
+        pass
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+
+class TestQuietTtKernel:
+    """Nothing tt_kernel prints may reach stdout, which carries the NDJSON.
+
+    Run as a subprocess because the guarantee is about fd 1 itself.
+    """
+
+    SCRIPT = r"""
+import os, sys
+sys.path.insert(0, {runner_dir!r})
+import tt_model_runner as runner
+with runner._quiet_tt_kernel():
+    os.write(1, b"raw fd write from tt_kernel\n")
+    print("python-level print from tt_kernel")
+    runner.emit("log", level="INFO", message="event from inside the muted block")
+runner.emit("result", status="success")
+"""
+
+    def test_events_get_out_and_everything_else_does_not(self, tmp_path):
+        script = tmp_path / "probe.py"
+        script.write_text(self.SCRIPT.format(runner_dir=str(Path(runner.__file__).parent)))
+        done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+
+        assert done.returncode == 0, done.stderr
+        lines = [line for line in done.stdout.splitlines() if line.strip()]
+        # Every stdout line must parse: a single stray line breaks the reader.
+        events = [json.loads(line) for line in lines]
+        assert [e["event"] for e in events] == ["log", "result"]
+        # The muted output is not lost, just moved off the protocol stream.
+        assert "raw fd write from tt_kernel" in done.stderr
+        assert "python-level print from tt_kernel" in done.stderr
+
+    def test_stdout_is_restored_afterwards(self, tmp_path):
+        script = tmp_path / "probe2.py"
+        script.write_text(
+            f"import sys\nsys.path.insert(0, {str(Path(runner.__file__).parent)!r})\n"
+            "import tt_model_runner as runner\n"
+            "with runner._quiet_tt_kernel():\n    pass\n"
+            "print('visible again')\n"
+        )
+        done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+        assert "visible again" in done.stdout

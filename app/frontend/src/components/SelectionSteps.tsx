@@ -1168,6 +1168,7 @@ export default function StepperDemo() {
                     requireDeviceSelection={requireDeviceSelection}
                     deviceAutoSelected={!advancedActive}
                     placementBlocked={placementBlocked}
+                    usesCardGroup={isFlexible && !fullBoardSelected}
                     chipStatus={effectiveChipStatus}
                     registerDeployment={(d) => addDeployment({ ...d, startedAt: Date.now() })}
                     activeDeployment={deploymentForSelected}

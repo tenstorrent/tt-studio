@@ -113,7 +113,7 @@ open(sys.argv[0] + ".argv.json", "w").write(json.dumps(sys.argv[1:]))
 print(json.dumps({"event": "result", "status": "success"}), flush=True)
 """
 
-    def _drive(self, tmp_path, monkeypatch, script, request=None):
+    def _drive(self, tmp_path, monkeypatch, script, request=None, log_dir=None):
         """Run one deploy against a stub runner; return its progress record and logs."""
         runner = tmp_path / "stub_runner.py"
         runner.write_text(script)
@@ -125,6 +125,7 @@ print(json.dumps({"event": "result", "status": "success"}), flush=True)
         router = community.create_community_router(
             progress_store=progress_store, log_store=log_store,
             progress_lock=threading.Lock(), max_log_messages=50,
+            deployment_log_dir=log_dir,
         )
         # Reached through the route it backs, so the test drives the same closure the
         # app does rather than a copy of it.
@@ -168,6 +169,12 @@ print(json.dumps({"event": "result", "status": "success"}), flush=True)
         # tt-model's own spelling: one comma-separated --device-id.
         assert argv[argv.index("--device-id") + 1] == "2,3"
 
+    def test_no_wait_ready_means_no_boot_watch(self, tmp_path, monkeypatch):
+        argv = self._serve_argv(
+            tmp_path, monkeypatch, community.CommunityRunRequest(repo_id="ns/name")
+        )
+        assert "--wait-ready" not in argv
+
     def test_no_device_ids_leaves_the_pick_to_tt_model_manager(self, tmp_path, monkeypatch):
         argv = self._serve_argv(
             tmp_path, monkeypatch, community.CommunityRunRequest(repo_id="ns/name")
@@ -181,3 +188,116 @@ print(json.dumps({"event": "result", "status": "success"}), flush=True)
         assert "you do not have access" in progress["message"]
         assert "gated" in progress["message"]
         assert any(entry["level"] == "ERROR" for entry in logs)
+
+
+class TestDownloadProgress:
+    """``download`` events land on the progress record in inference-api's own shape."""
+
+    # Stops mid-download, so the record is read while the counters are live.
+    DOWNLOADING = """
+import json, sys
+print(json.dumps({"event": "download", "weights_repo": "org/w", "weights_cached": True}), flush=True)
+print(json.dumps({"event": "download", "stage": "pulling_image", "message": "Pulling Docker Image...", "weights_repo": "tt-model/x:1", "downloaded_bytes": 5, "total_bytes": 10, "speed_bps": 1.0, "eta_seconds": 5.0, "expects_weights": True}), flush=True)
+print(json.dumps({"event": "error", "message": "stop here"}), flush=True)
+sys.exit(1)
+"""
+
+    FINISHED = """
+import json
+print(json.dumps({"event": "download", "stage": "model_preparation", "message": "Downloading weights", "weights_repo": "org/w", "downloaded_bytes": 10, "total_bytes": 10}), flush=True)
+print(json.dumps({"event": "stage", "stage": "container_setup", "progress": 60, "message": "Starting…"}), flush=True)
+print(json.dumps({"event": "result", "status": "success", "container_name": "c", "container_id": "i"}), flush=True)
+"""
+
+    def test_byte_counters_are_copied(self, tmp_path, monkeypatch):
+        progress, logs = TestDriveServe()._drive(tmp_path, monkeypatch, self.DOWNLOADING)
+        assert progress["downloaded_bytes"] == 5
+        assert progress["total_bytes"] == 10
+        assert progress["weights_repo"] == "tt-model/x:1"
+        # The stage-less cached event sets its flag without touching the stage.
+        assert progress["weights_cached"] is True
+        assert not any("Pulling" in entry["message"] for entry in logs)
+
+    def test_the_next_stage_clears_the_counters(self, tmp_path, monkeypatch):
+        progress, _ = TestDriveServe()._drive(tmp_path, monkeypatch, self.FINISHED)
+        assert progress["status"] == "completed"
+        assert "downloaded_bytes" not in progress
+        assert progress["weights_repo"] == "org/w"
+
+
+class TestDeploymentLog:
+    """A deploy's log outlives the deploy, in the directory the logs browser lists."""
+
+    STUB = """
+import json, sys
+print(json.dumps({"event": "stage", "stage": "container_setup", "progress": 60, "message": "Starting…"}), flush=True)
+print(json.dumps({"event": "log", "level": "INFO", "message": "engine line one"}), flush=True)
+print("this went to stderr, as tt-model-manager's own output does", file=sys.stderr, flush=True)
+print(json.dumps({"event": "result", "status": "success", "container_name": "tt-model-x", "container_id": "abc", "port": 7000}), flush=True)
+"""
+
+    # Exits non-zero having said nothing on stdout: the reason exists only in what it
+    # printed, which is the case the log tail has to answer for.
+    SILENT_FAILURE_STUB = """
+import sys
+print("FileNotFoundError: weights snapshot is not a local snapshot", file=sys.stderr, flush=True)
+sys.exit(1)
+"""
+
+    def _drive(self, tmp_path, monkeypatch, script, log_dir):
+        return TestDriveServe()._drive(tmp_path, monkeypatch, script, log_dir=log_dir)
+
+    def _only_log(self, log_dir):
+        files = list(log_dir.glob("*.log"))
+        assert len(files) == 1, files
+        return files[0]
+
+    def test_the_log_is_written_where_every_consumer_looks(self, tmp_path, monkeypatch):
+        log_dir = tmp_path / "model_run_logs"
+        progress, _ = self._drive(tmp_path, monkeypatch, self.STUB, log_dir)
+        log = self._only_log(log_dir)
+        # Discovered by listing the directory for *.log, so the suffix matters.
+        assert log.name.startswith("model_run_")
+        assert log.name.endswith(".log")
+        assert progress["log_file"] == str(log)
+
+    def test_the_log_holds_the_events_and_the_runners_own_output(self, tmp_path, monkeypatch):
+        log_dir = tmp_path / "model_run_logs"
+        self._drive(tmp_path, monkeypatch, self.STUB, log_dir)
+        body = self._only_log(log_dir).read_text()
+        assert "deploying ns/name" in body
+        assert "engine line one" in body
+        assert "Starting" in body
+        # stderr is redirected into the same file: a pipe nobody drains until exit
+        # would deadlock a long weights download.
+        assert "this went to stderr" in body
+
+    def test_a_silent_failure_is_explained_from_the_log(self, tmp_path, monkeypatch):
+        log_dir = tmp_path / "model_run_logs"
+        progress, logs = self._drive(tmp_path, monkeypatch, self.SILENT_FAILURE_STUB, log_dir)
+        assert progress["status"] == "error"
+        assert "FileNotFoundError" in progress["message"]
+        assert any(entry["level"] == "ERROR" for entry in logs)
+
+    def test_no_log_dir_configured_still_deploys(self, tmp_path, monkeypatch):
+        # Persistence is an addition, not a dependency.
+        progress, _ = self._drive(tmp_path, monkeypatch, self.STUB, None)
+        assert progress["status"] == "completed"
+        assert "log_file" not in progress
+
+
+class TestDeploymentLogPath:
+    def test_a_hub_id_becomes_a_usable_filename(self, tmp_path):
+        path = community.deployment_log_path(tmp_path, "ns/some-model", "p300x2")
+        assert "/" not in path.name.replace(".log", "")
+        assert "ns-some-model" in path.name
+        assert "p300x2" in path.name
+
+    def test_no_profile_is_named_default(self, tmp_path):
+        path = community.deployment_log_path(tmp_path, "ns/model", None)
+        assert "default" in path.name
+
+    def test_the_directory_is_created(self, tmp_path):
+        target = tmp_path / "nested" / "model_run_logs"
+        community.deployment_log_path(target, "ns/model", "p150")
+        assert target.is_dir()

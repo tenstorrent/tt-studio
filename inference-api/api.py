@@ -2132,6 +2132,14 @@ app = FastAPI(
     version="1.3.0"
 )
 
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
+    tt_studio_root = Path(__file__).parent.parent.resolve()
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
+
+
 # Community-model path (tt-model-manager). Mounted here so community deploys share
 # this module's job stores and are served by the same /run/progress|logs|stream APIs.
 app.include_router(
@@ -2140,6 +2148,7 @@ app.include_router(
         log_store=log_store,
         progress_lock=progress_lock,
         max_log_messages=MAX_LOG_MESSAGES,
+        deployment_log_dir=get_model_run_logs_dir(),
     )
 )
 
@@ -2228,13 +2237,6 @@ def normalize_device_alias(device: str) -> str:
         "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
-
-def get_model_run_logs_dir():
-    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
-    tt_studio_root = Path(__file__).parent.parent.resolve()
-    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
-    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
-    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""

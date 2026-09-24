@@ -26,16 +26,25 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 # Engines this build of TT Studio can present as a chat model. tt_kernel may support
 # more kinds than we have a UI for (an image/DiT launcher is expected), so an unknown
 # kind is refused by name rather than deployed into a route that would 404.
 SUPPORTED_KINDS = ("vllm-plugin", "vllm-fork")
+
+# Container log lines quoted in a startup-failure message.
+_READY_TAIL_LINES = 20
 
 # Manifests are read concurrently for the whole catalog listing. Measured at ~1.1s
 # for 43 bundles cold and ~0.4s warm, against ~0.2s each serially; the backend caches
@@ -43,17 +52,49 @@ SUPPORTED_KINDS = ("vllm-plugin", "vllm-fork")
 _MANIFEST_WORKERS = 8
 
 
+def _protocol_stream():
+    """A private duplicate of stdout, so events survive ``_quiet_tt_kernel``'s fd mute."""
+    try:
+        return os.fdopen(os.dup(1), "w", buffering=1)
+    except OSError:
+        return sys.stdout
+
+
+_OUT = _protocol_stream()
+# The download monitor emits from its own thread.
+_OUT_LOCK = threading.Lock()
+
+
 def emit(event: str, **fields: Any) -> None:
     """Write one NDJSON event. Flushed so the reader sees progress live."""
-    sys.stdout.write(json.dumps({"event": event, **fields}, default=str) + "\n")
-    sys.stdout.flush()
+    line = json.dumps({"event": event, **fields}, default=str) + "\n"
+    with _OUT_LOCK:
+        _OUT.write(line)
+        _OUT.flush()
 
 
 @contextlib.contextmanager
 def _quiet_tt_kernel():
-    """Send tt_kernel's console output to stderr so stdout stays pure NDJSON."""
-    with contextlib.redirect_stdout(sys.stderr):
-        yield
+    """Keep everything tt_kernel prints away from stdout, which carries the NDJSON.
+
+    Redirected at the fd level: tt_kernel's progress console is bound to
+    ``sys.__stdout__``, which ``redirect_stdout`` alone does not reach.
+    """
+    sys.stdout.flush()
+    try:
+        saved = os.dup(1)
+    except OSError:
+        with contextlib.redirect_stdout(sys.stderr):
+            yield
+        return
+    try:
+        os.dup2(2, 1)
+        with contextlib.redirect_stdout(sys.stderr):
+            yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
 
 
 # --------------------------------------------------------------------- metadata
@@ -370,6 +411,241 @@ def _ensure_installed(repo_id: str, manifest, installed: bool, *, no_weights: bo
         return container_cli.load_pulled(repo_id) or manifest
 
 
+def _ensure_weights(repo_id: str, manifest, *, no_weights: bool) -> None:
+    """Have tt-model-manager fetch or resume the pinned weights before launch.
+
+    Called for installed bundles too: it resumes a partial cache and is a ~1s no-op
+    on a complete one, so the engine never boots on missing shards.
+    """
+    from tt_kernel import container_cli
+
+    ref = getattr(manifest, "weights", None)
+    if ref is None:
+        return
+    if no_weights:
+        emit("log", level="INFO",
+             message=f"skipping weights {ref.repo_id}; the container must find them itself")
+        return
+
+    emit("stage", stage="model_preparation", progress=20,
+         message=f"Fetching weights {ref.repo_id}…")
+    with _quiet_tt_kernel():
+        container_cli.ensure_weights(manifest, repo_id, no_weights=False)
+    emit("log", level="INFO", message=f"weights {ref.repo_id} ready")
+
+
+# ------------------------------------------------------------ download progress
+
+_POLL_SECONDS = 1.0
+
+
+def _format_bytes(num: Optional[float]) -> str:
+    """Decimal units, matching the sizes the Hub and inference-api report."""
+    if not num or num <= 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    idx = 0
+    while num >= 1000 and idx < len(units) - 1:
+        num /= 1000
+        idx += 1
+    decimals = 0 if num >= 100 or idx == 0 else 1 if num >= 10 else 2
+    return f"{num:.{decimals}f} {units[idx]}"
+
+
+def _hub_files(repo_id: str, revision: Optional[str], repo_type: str,
+               allow_patterns=None, ignore_patterns=None) -> List[tuple]:
+    """``(blob name, size)`` for every file ``snapshot_download`` fetches for a pin."""
+    from huggingface_hub import HfApi
+    from huggingface_hub.utils import filter_repo_objects
+
+    info = HfApi().repo_info(repo_id, revision=revision, repo_type=repo_type,
+                             files_metadata=True)
+    siblings = filter_repo_objects(
+        info.siblings or [], allow_patterns=allow_patterns,
+        ignore_patterns=ignore_patterns, key=lambda s: s.rfilename,
+    )
+    return [(s.lfs.sha256 if s.lfs else s.blob_id, s.size or 0) for s in siblings]
+
+
+def _cached_bytes(blobs_dir: Path, files: List[tuple]) -> int:
+    """Bytes of ``files`` present in an HF cache, counting partial ``.incomplete`` blobs.
+
+    Matched by blob name so other revisions cached for the same repo are not counted.
+    """
+    total = 0
+    for blob, size in files:
+        try:
+            done = blobs_dir / blob
+            if done.is_file():
+                total += size
+                continue
+            total += max((p.stat().st_size for p in blobs_dir.glob(f"{blob}*.incomplete")),
+                         default=0)
+        except OSError:
+            pass
+    return total
+
+
+def _tree_bytes(root: Path) -> int:
+    total = 0
+    for dirpath, _, names in os.walk(root):
+        for name in names:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+class _Download:
+    """One download's byte counter, with a smoothed speed."""
+
+    def __init__(self, stage: str, repo: str, total: int, measure: Callable[[], int]):
+        self.stage = stage
+        self.repo = repo
+        self.total = total
+        self.measure = measure
+        self.done = min(measure(), total) if total else measure()
+        self.speed: Optional[float] = None
+        self._at = time.monotonic()
+
+    def sample(self) -> bool:
+        """Re-measure; True when bytes arrived since the last sample."""
+        now = time.monotonic()
+        done = min(self.measure(), self.total) if self.total else self.measure()
+        grew = done > self.done
+        if grew:
+            rate = (done - self.done) / max(now - self._at, 1e-3)
+            self.speed = rate if self.speed is None else 0.2 * rate + 0.8 * self.speed
+        self.done = max(self.done, done)
+        self._at = now
+        return grew
+
+    def fields(self, expects_weights: bool) -> Dict[str, Any]:
+        remaining = self.total - self.done
+        eta = remaining / self.speed if self.speed and remaining > 0 else None
+        speed = f"{_format_bytes(self.speed)}/s" if self.speed else "—"
+        if self.stage == "pulling_image":
+            message = ("Loading image into Docker…" if self.done >= self.total
+                       else "Pulling Docker Image...")
+        elif self.done >= self.total:
+            message = "Finalizing model weights and cache..."
+        else:
+            message = (f"Downloading weights: {_format_bytes(self.done)} / "
+                       f"{_format_bytes(self.total)} • {speed}")
+        return {
+            "stage": self.stage,
+            "message": message,
+            "weights_repo": self.repo,
+            "downloaded_bytes": self.done,
+            "total_bytes": self.total or None,
+            "speed_bps": self.speed,
+            "eta_seconds": eta,
+            "expects_weights": expects_weights,
+        }
+
+
+class _DownloadMonitor(threading.Thread):
+    """Emits ``download`` events for the bundle image and the weights, once a second.
+
+    Measured from bytes on disk, as inference-api does for its own deploys: tt_kernel's
+    byte counter only covers the files in flight, so it cannot give an overall total.
+    """
+
+    def __init__(self, repo_id: str, manifest, staging: Path):
+        super().__init__(name="download-monitor", daemon=True)
+        self._repo_id = repo_id
+        self._manifest = manifest
+        self._staging = staging
+        self._done = threading.Event()
+
+    def stop(self) -> None:
+        self._done.set()
+        self.join(timeout=1)
+
+    def _downloads(self) -> List[_Download]:
+        from tt_kernel import container, hub
+
+        # Tracked even when the image is loaded: tt_kernel reloads on a digest mismatch,
+        # and a download that never starts is never reported.
+        downloads = []
+        try:
+            files = _hub_files(self._repo_id, None, getattr(hub, "_REPO_TYPE", "model"))
+            downloads.append(_Download(
+                "pulling_image", container.image_ref(self._manifest),
+                sum(size for _, size in files), lambda: _tree_bytes(self._staging),
+            ))
+        except Exception as e:  # noqa: BLE001 - progress is advisory
+            emit("log", level="DEBUG", message=f"no image download size: {e}")
+
+        ref = self._manifest.weights
+        if ref is not None:
+            try:
+                files = _hub_files(ref.repo_id, ref.revision,
+                                   getattr(ref, "repo_type", None) or "model",
+                                   ref.allow_patterns, ref.ignore_patterns)
+                blobs = (container.hub_cache()
+                         / f"models--{ref.repo_id.replace('/', '--')}" / "blobs")
+                downloads.append(_Download(
+                    "model_preparation", ref.repo_id, sum(size for _, size in files),
+                    lambda: _cached_bytes(blobs, files),
+                ))
+            except Exception as e:  # noqa: BLE001 - progress is advisory
+                emit("log", level="DEBUG", message=f"no weights download size: {e}")
+        return downloads
+
+    def run(self) -> None:
+        downloads = self._downloads()
+        expects_weights = self._manifest.weights is not None
+        weights = next((d for d in downloads if d.stage == "model_preparation"), None)
+        if weights is not None and weights.total and weights.done >= weights.total:
+            # Stage-less: a fact about the deploy, still true if the install already ended.
+            emit("download", weights_repo=weights.repo, weights_cached=True)
+            downloads.remove(weights)
+        active: Optional[_Download] = None
+        while not self._done.wait(_POLL_SECONDS):
+            for download in downloads:
+                if download.sample():
+                    active = download
+            if active is not None and not self._done.is_set():
+                emit("download", **active.fields(expects_weights))
+
+
+@contextlib.contextmanager
+def _download_progress(repo_id: str, manifest):
+    """Report download progress for the block that installs the bundle.
+
+    tt_kernel stages the bundle in an anonymous temp dir; pointing ``tempfile`` at one
+    we own for the duration is what lets its size be measured.
+    """
+    staging = Path(tempfile.mkdtemp(prefix="tt-studio-bundle-"))
+    previous = tempfile.tempdir
+    tempfile.tempdir = str(staging)
+    monitor = _DownloadMonitor(repo_id, manifest, staging)
+    monitor.start()
+    try:
+        yield
+    finally:
+        monitor.stop()
+        tempfile.tempdir = previous
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _ensure_hf_modules_dir() -> None:
+    """Create ``$HF_HOME/modules`` as the host user before the container starts.
+
+    transformers writes remote code there for ``trust_remote_code`` models. The
+    container runs as the host uid without its supplementary groups, so under a
+    group-writable HF_HOME (e.g. a shared ``root:docker`` cache) it cannot create it.
+    """
+    from tt_kernel import container
+
+    try:
+        (container.hf_home() / "modules").mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        emit("warning", message=f"could not create {container.hf_home() / 'modules'}: {e}")
+
+
 def _connect_network(name: str, network: str) -> None:
     """Attach the container to TT Studio's bridge.
 
@@ -416,9 +692,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # bad pin or a full board should be reported now rather than after the download.
     _resolve_device_ids(args.device_id, chip_count, profile.name)
 
-    manifest = _ensure_installed(
-        args.repo_id, manifest, installed, no_weights=args.no_weights
-    )
+    with _download_progress(args.repo_id, manifest):
+        manifest = _ensure_installed(
+            args.repo_id, manifest, installed, no_weights=args.no_weights
+        )
+        _ensure_weights(args.repo_id, manifest, no_weights=args.no_weights)
     profile = _resolve_profile(manifest, args.profile, args.port)
     chip_count = _chips_for(profile.mesh_device, profile.hardware)
     launcher = launchers.launcher_for(spec.kind)
@@ -440,6 +718,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # failed start can leave one holding the name. Clearing it keeps retry viable.
         container.remove(name, force=True)
     container.ensure_mount_sources(manifest)
+    _ensure_hf_modules_dir()
 
     emit("stage", stage="container_setup", progress=60,
          message=f"Starting {name} on port {port}…")
@@ -467,16 +746,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
     )
 
     if args.wait_ready:
-        emit("stage", stage="model_preparation", progress=80,
+        emit("stage", stage="container_started", progress=80,
              message="Waiting for the server to report ready…")
-        ready = container.wait_ready(
+        # The container's own log is the only account of a startup failure.
+        outcome = container.wait_ready(
             name, launcher.ready_probe(manifest),
             timeout_s=args.ready_timeout,
-            echo=lambda line: emit("log", level="INFO", message=str(line).rstrip()),
+            on_line=lambda line: emit("log", level="INFO", message=str(line).rstrip()),
         )
-        if not ready:
-            raise RuntimeError(f"{name} did not report ready within "
-                               f"{args.ready_timeout}s")
+        if not outcome.ready:
+            reason = (
+                f"{name} exited during startup"
+                if outcome.exited
+                else f"{name} did not report ready within {args.ready_timeout}s"
+            )
+            tail = "\n".join(str(line).rstrip() for line in outcome.tail[-_READY_TAIL_LINES:])
+            raise RuntimeError(f"{reason}. Last output:\n{tail}" if tail else reason)
 
     emit(
         "result",
@@ -557,6 +842,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_HUB_ERROR_MODULES = ("huggingface_hub", "httpx", "httpcore", "requests", "urllib3")
+
+
+def _is_hub_error(exc: BaseException) -> bool:
+    """Did this failure come from talking to the Hub?
+
+    ``classify_hub_error`` labels anything it is given a Hub failure, which would
+    replace a docker or device error's own message with a generic one.
+    """
+    seen = 0
+    while exc is not None and seen < 10:
+        if type(exc).__module__.split(".")[0] in _HUB_ERROR_MODULES:
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
 def main(raw_args: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(raw_args)
     try:
@@ -567,7 +870,7 @@ def main(raw_args: Optional[List[str]] = None) -> int:
         # than a stack trace. Non-Hub failures keep their own message.
         details: Dict[str, Any] = {}
         repo_id = getattr(args, "repo_id", None)
-        if repo_id:
+        if repo_id and _is_hub_error(exc):
             try:
                 from tt_kernel import hub
 

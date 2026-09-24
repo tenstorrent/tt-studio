@@ -46,6 +46,7 @@ export function DeployModelStep({
   requireDeviceSelection,
   deviceAutoSelected,
   placementBlocked,
+  usesCardGroup,
   chipStatus,
   registerDeployment,
   activeDeployment,
@@ -68,6 +69,8 @@ export function DeployModelStep({
   deviceAutoSelected?: boolean;
   // True when no valid device configuration is currently free (auto mode).
   placementBlocked?: boolean;
+  // True when the model runs on a card group rather than the whole board.
+  usesCardGroup?: boolean;
   // Reservation-aware chip status from the parent (in-flight deploys overlaid)
   chipStatus?: ChipStatus | null;
   // Registers a fired deploy with the session-wide tracker (progress tray + reservations).
@@ -232,15 +235,17 @@ export function DeployModelStep({
   };
 
   const isMultiModel = (chipsRequired ?? 1) > 1;
+  const needsWholeBoard = isMultiModel && !usesCardGroup;
   const fullBoardMax = Math.min(4, slotInfo.totalSlots || 1);
   // placementBlocked: the parent already determined no valid configuration is free.
-  // Otherwise: a full-board model needs slots 0..3 free, a single-device model any free slot.
+  // Otherwise: a full-board model needs slots 0..3 free, a card group enough free
+  // slots, a single-device model any free slot.
   const cannotFit =
     !!placementBlocked ||
     (slotInfo.totalSlots > 0 &&
-      (isMultiModel
+      (needsWholeBoard
         ? slotInfo.occupiedSlots > 0
-        : slotInfo.availableSlots === 0));
+        : slotInfo.availableSlots < (chipsRequired ?? 1)));
   // Every device is held by the very model the user is trying to deploy. Without
   // this the warning tells you to free up devices from yourself, naming the model
   // you just picked as the thing blocking it.
@@ -476,7 +481,7 @@ export function DeployModelStep({
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
                     {blockedByThisModel
                       ? "This Model Is Already Deployed"
-                      : isMultiModel
+                      : needsWholeBoard
                         ? "Not Enough Free Devices"
                         : slotInfo.availableSlots > 0
                           ? "No Free Device Configuration"
@@ -485,7 +490,7 @@ export function DeployModelStep({
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
                     {blockedByThisModel
                       ? `${modelName || "This model"} already holds the devices it needs. `
-                      : isMultiModel
+                      : needsWholeBoard
                         ? `${modelName || "This model"} needs all ${fullBoardMax} devices. In use: `
                         : slotInfo.availableSlots > 0
                           ? `${modelName || "This model"} has no free device configuration right now. In use: `
