@@ -45,6 +45,30 @@ CUSTOM_DATASET_LOADER = "Custom"
 DEFAULT_CUSTOM_FILE_TYPE = "json"
 DEFAULT_CUSTOM_TEMPLATE = "alpaca"
 
+# Per-template prompt fields the trainer reads from each row (mirrors
+# blacksmith's custom_dataset_utils TEMPLATE_KEYS) and, for each field, the
+# dataset column names it is commonly stored under, in preference order. When no
+# column mapping is given for a field, the first alias present in the dataset is
+# used so a prompt/completion file trains without hand-mapping columns.
+TEMPLATE_FIELDS = {
+    "alpaca": {
+        "required": ("instruction", "output"),
+        "optional": ("input",),
+    },
+}
+TEMPLATE_COLUMN_ALIASES = {
+    "alpaca": {
+        "instruction": ("instruction", "prompt", "question", "query", "user", "text"),
+        "input": ("input", "context"),
+        "output": ("output", "completion", "response", "answer", "target", "assistant"),
+    },
+}
+# How many leading rows to scan for column names when inferring a mapping.
+MAX_ROWS_FOR_COLUMN_SCAN = 200
+# Job fields expressed in optimizer steps; the trainer fires them only when
+# `global_step % value == 0`, so a value above the run's total steps never fires.
+STEP_FREQUENCY_FIELDS = ("steps_freq", "val_steps_freq", "save_interval")
+
 # The container mounts its per-model volume (`volume_id_*`) here, so datasets
 # staged into that host dir are readable at this path.
 CONTAINER_CACHE_ROOT = "/home/container_app_user/cache_root"
@@ -319,7 +343,144 @@ def _normalize_dataset_rows(text):
             if value is None:
                 row[key] = ""
 
+    # `{}`, `[{}]` or rows whose values are all blank parse fine but give the
+    # trainer nothing to learn from; reject them like an empty file.
+    if not any(_row_has_content(row) for row in rows):
+        return None, "The dataset is empty: no row contains a non-empty value."
+
     return rows, None
+
+
+def _row_has_content(row):
+    """True if any value in *row* is non-empty (blank strings don't count)."""
+    for value in row.values():
+        if isinstance(value, str):
+            if value.strip():
+                return True
+        elif value is not None:
+            return True
+    return False
+
+
+def _inspect_custom_dataset(name):
+    """Return ``(columns, row_count)`` for an uploaded dataset, or ``(None, None)``
+    if it can't be read. Uploads are stored as a normalized JSON array of
+    objects (see ``CustomDatasetsView.post``); column names come from the first
+    :data:`MAX_ROWS_FOR_COLUMN_SCAN` rows.
+    """
+    path = _resolve_dataset_path(_custom_datasets_dir(), name)
+    if path is None or not os.path.isfile(path):
+        return None, None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            rows = json.load(f)
+    except (OSError, ValueError):
+        return None, None
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list):
+        return None, None
+    columns = set()
+    for row in rows[:MAX_ROWS_FOR_COLUMN_SCAN]:
+        if isinstance(row, dict):
+            columns.update(row.keys())
+    return columns, len(rows)
+
+
+def _resolve_column_mapping(template, column_mapping, columns):
+    """Fill in the template fields the request didn't map.
+
+    For each template field without an explicit mapping, pick the first alias
+    from :data:`TEMPLATE_COLUMN_ALIASES` present in *columns* (identity first,
+    so an existing same-named column always wins). Explicit mappings are kept
+    as-is.
+
+    Returns ``(mapping, error_message)``; *error_message* is set when a required
+    field still can't be resolved or an explicit mapping names a column the
+    dataset doesn't have. Unknown templates are passed through untouched.
+    """
+    fields = TEMPLATE_FIELDS.get(template)
+    if fields is None:
+        return column_mapping, None
+
+    mapping = dict(column_mapping) if isinstance(column_mapping, dict) else {}
+    aliases = TEMPLATE_COLUMN_ALIASES.get(template, {})
+    available = sorted(columns)
+
+    for field, column in mapping.items():
+        if column not in columns:
+            return None, (
+                f"Column {column!r} (mapped to {field!r}) was not found in the "
+                f"dataset. Available columns: {available}."
+            )
+
+    for field in fields["required"] + fields["optional"]:
+        if field in mapping:
+            continue
+        for candidate in aliases.get(field, (field,)):
+            if candidate in columns:
+                # Identity needs no entry; the trainer falls back to it itself.
+                if candidate != field:
+                    mapping[field] = candidate
+                break
+
+    missing = [
+        f
+        for f in fields["required"]
+        if f not in mapping and f not in columns
+    ]
+    if missing:
+        return None, (
+            f"Could not find a dataset column for the required template "
+            f"field(s) {missing}. Available columns: {available}. Set "
+            f"column_mapping to tell the trainer which column holds each field."
+        )
+    return mapping or None, None
+
+
+def _estimate_total_steps(body, row_count):
+    """Conservative optimizer-step count for a job over *row_count* examples:
+    ``floor(rows / batch_size) * num_epochs``, capped by a positive
+    ``max_steps``. At least 1."""
+
+    def _positive_int(key, default):
+        value = body.get(key, default)
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return default
+        return value if value > 0 else default
+
+    batch_size = _positive_int("batch_size", 1)
+    num_epochs = _positive_int("num_epochs", 1)
+    steps = max(1, row_count // batch_size) * num_epochs
+    max_steps = _positive_int("max_steps", 0)
+    if max_steps:
+        steps = min(steps, max_steps)
+    return max(1, steps)
+
+
+def _clamp_step_frequencies(body, row_count):
+    """Lower any step-based frequency above the run's estimated total steps.
+
+    The trainer records metrics, runs validation and saves checkpoints only on
+    steps divisible by these values, so a small dataset trained with the default
+    frequencies (10/25/25) finishes with no metrics and no checkpoint. Clamping
+    to the estimated step count keeps every enabled feature firing at least
+    once; ``0`` (disabled) values are left alone.
+    """
+    total = _estimate_total_steps(body, row_count)
+    for key in STEP_FREQUENCY_FIELDS:
+        value = body.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value > total:
+            logger.info(
+                "Lowering %s from %s to %s: the job only runs ~%s steps",
+                key, value, total, total,
+            )
+            body[key] = total
+    return total
 
 
 def _resolve_training_volume_dir(impl):
@@ -689,6 +850,17 @@ class TrainingJobsListView(View):
             body["train_dataset_path"] = container_path
             body.setdefault("file_type", DEFAULT_CUSTOM_FILE_TYPE)
             body.setdefault("template", DEFAULT_CUSTOM_TEMPLATE)
+
+            columns, row_count = _inspect_custom_dataset(custom_name)
+            if columns is not None:
+                mapping, mapping_err = _resolve_column_mapping(
+                    body["template"], body.get("column_mapping"), columns
+                )
+                if mapping_err:
+                    return JsonResponse({"error": mapping_err}, status=400)
+                if mapping:
+                    body["column_mapping"] = mapping
+                _clamp_step_frequencies(body, row_count)
 
             # Optional: reject any non-string value up front (truthy or falsy, so
             # e.g. [] or 0 aren't silently ignored); None/"" simply means "no eval".

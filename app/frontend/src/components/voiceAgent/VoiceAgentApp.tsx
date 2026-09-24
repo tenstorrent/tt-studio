@@ -28,7 +28,7 @@ import {
   runTTSInference,
 } from "@/src/api/modelsDeployedApis";
 import { runInference } from "@/src/components/chatui/runInference";
-import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
+import { fetchCollections } from "@/src/components/rag";
 import { usePersistentState } from "@/src/components/chatui/usePersistentState";
 import { useAgentAvailability } from "../../hooks/useAgentAvailability";
 import type { ChatMessage, RagDataSource } from "@/src/components/chatui/types";
@@ -134,17 +134,13 @@ export default function VoiceAgentApp() {
     models.llm?.id
   );
 
-  // "All collections" first, then the user's own. The backend's seeded docs
-  // collection isn't listed individually — "All collections" spans it, and it's
-  // merged into every single-collection query server-side regardless. It still
-  // counts toward whether there's anything to search at all.
+  // "All collections" first, then the user's own.
   const knowledgeOptions = useMemo<RagDataSource[]>(() => {
     const collections = Array.isArray(ragDataSources) ? ragDataSources : [];
-    const own = collections.filter((c) => !isSystemKnowledgeCollection(c));
     const all: RagDataSource[] = collections.length
       ? [{ id: ALL_COLLECTIONS_ID, name: "All collections" } as RagDataSource]
       : [];
-    return [...all, ...own];
+    return [...all, ...collections];
   }, [ragDataSources]);
 
   const ragDatasource = useMemo(

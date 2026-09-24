@@ -210,6 +210,37 @@ export function buildSampledPreview(chunk: string, maxRows = 50): DatasetPreview
   return { rows, columns, totalRows: rows.length, sampled: true };
 }
 
+// Dataset column names each template field is commonly stored under, in
+// preference order. Mirrors the backend's TEMPLATE_COLUMN_ALIASES so what the
+// dialog pre-fills is exactly what the server would infer on its own.
+export const TEMPLATE_COLUMN_ALIASES: Record<string, readonly string[]> = {
+  instruction: ["instruction", "prompt", "question", "query", "user", "text"],
+  input: ["input", "context"],
+  output: ["output", "completion", "response", "answer", "target", "assistant"],
+};
+
+/**
+ * Guess which dataset column holds each template field. A same-named column
+ * always wins and yields no entry (the trainer falls back to it by itself);
+ * otherwise the first alias present in `columns` is used. Fields with no match
+ * are left out so the caller can flag them.
+ */
+export function inferColumnMapping(
+  columns: readonly string[],
+  fields: readonly string[],
+): Record<string, string> {
+  const present = new Set(columns);
+  const mapping: Record<string, string> = {};
+  for (const field of fields) {
+    if (present.has(field)) continue;
+    const match = (TEMPLATE_COLUMN_ALIASES[field] ?? []).find((c) =>
+      present.has(c),
+    );
+    if (match) mapping[field] = match;
+  }
+  return mapping;
+}
+
 /** Collect column keys in first-seen order across the sampled rows. */
 export function deriveColumns(rows: DatasetRow[]): string[] {
   const seen = new Set<string>();

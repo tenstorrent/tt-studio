@@ -135,7 +135,7 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider stopping existing models before deploying new ones.`,
         "deployed-models-warning"
       );
     }
@@ -192,7 +192,7 @@ export function FirstStepForm({
         // Extra warning if models are deployed
         if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to stop ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 
