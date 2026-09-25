@@ -2,15 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
-import {
-  Bug,
-  CheckCircle2,
-  Loader2,
-  Download,
-  Copy,
-  Mail,
-  Paperclip,
-} from "lucide-react";
+import { Bug, Loader2, Download, Copy, Mail, Paperclip } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -229,10 +221,10 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             ) : error ? (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             ) : (
-              <div className="space-y-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-4 py-3 text-sm text-green-900 dark:text-green-200">
+              <div className="space-y-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
                 <p className="flex items-center gap-2 font-semibold">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Your email is ready, logs attached
+                  <Mail className="h-4 w-4 shrink-0" />
+                  One more step: send the email
                 </p>
                 <p>
                   We saved an email to support@tenstorrent.com with your logs
@@ -247,15 +239,13 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     from your Downloads.
                   </li>
                   <li>
-                    Hit <strong>Send</strong>.
+                    Hit <strong>Send</strong>. If it opens as a received message
+                    instead of a draft, hit <strong>Forward</strong> and send it
+                    to support@tenstorrent.com. The logs stay attached.
                   </li>
                 </ol>
               </div>
             )}
-            <p className="text-xs text-muted-foreground">
-              Opens as a received message instead of a draft? Forward it to
-              support@tenstorrent.com. The logs stay attached.
-            </p>
             <div className="flex flex-wrap justify-between gap-2 pt-1">
               <Button
                 variant="outline"
