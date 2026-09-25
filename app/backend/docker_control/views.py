@@ -419,7 +419,6 @@ def _community_model_entries(current_board, refresh=False):
             "author": impl.author,
             # Hub popularity is a catalog field; the manifest knows nothing about it.
             "downloads": row.get("downloads"),
-            "installed": bool(row.get("installed")),
             "profiles": _community_profiles(
                 impl.repo_id, detail, current_board, board_slots
             ),
@@ -534,7 +533,6 @@ def _unreadable_community_entry(row, current_board, board_slots):
         "source": launchers.COMMUNITY,
         "author": row.get("author"),
         "downloads": row.get("downloads"),
-        "installed": bool(row.get("installed")),
         "profiles": [],
     }
 

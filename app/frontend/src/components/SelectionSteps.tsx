@@ -53,7 +53,6 @@ export interface Model {
   /** Community models only: the publishing Hub namespace and its usage signals. */
   author?: string | null;
   downloads?: number | null;
-  installed?: boolean;
   /** Serve profiles the bundle declares, and the one this entry targets by default. */
   profiles?: ServeProfile[];
   profile?: string;

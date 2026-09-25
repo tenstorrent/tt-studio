@@ -98,6 +98,8 @@ const EXPERIMENTAL_DEPLOY_MODELS: Record<string, string> = {
   "Wan2.2-T2V-A14B-Diffusers": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
 };
 
+const MUTED = "text-gray-400 dark:text-gray-500";
+
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
@@ -340,9 +342,13 @@ export function FirstStepForm({
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
+  // Yellow only when the board itself is undetected, as the banner above explains;
+  // an unmapped community hardware label is not worth a warning of its own.
+  const dotClass = currentBoard === "unknown" ? "text-yellow-500" : "text-green-500";
+
   // Render a model row, greying it out (and explaining why) when it can't be
   // deployed against the currently free devices.
-  const renderModelItem = (model: Model, dotClass: string) => {
+  const renderModelItem = (model: Model) => {
     const chips = model.chips_required ?? 1;
     const totalSlots = chipStatus?.total_slots ?? 4;
     const isCommunity = model.source === "community";
@@ -366,6 +372,16 @@ export function FirstStepForm({
           totalSlots
         )
       : null;
+    // One status line for every source: what the model is, then anything blocking it.
+    const statusParts: { text: string; className: string; title?: string }[] = [];
+    if (model.no_page_reason) {
+      statusParts.push({ text: "deploy only", className: MUTED, title: model.no_page_reason });
+    }
+    if (isDeploying) {
+      statusParts.push({ text: "Deploying…", className: "text-TT-purple-accent" });
+    } else if (!fits && reason) {
+      statusParts.push({ text: reason, className: MUTED });
+    }
     return (
       <SelectItem
         key={model.id}
@@ -376,32 +392,15 @@ export function FirstStepForm({
         <div className="flex items-center w-full">
           <span className={`${dotClass} mr-2 text-xs`}>●</span>
           <span className="flex-1">{model.name}</span>
-          {/* A community bundle has no verification status, so its provenance is
-              what the row shows instead: who published it, and whether deploying
-              it will have to download the bundle first. */}
-          {model.source === "community" && (
-            <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-              {model.installed ? "installed" : "not downloaded"}
+          {statusParts.length > 0 && (
+            <span className="ml-2 text-[10px] whitespace-nowrap">
+              {statusParts.map((part, i) => (
+                <span key={part.text} title={part.title} className={part.className}>
+                  {i > 0 && <span className={MUTED}> · </span>}
+                  {part.text}
+                </span>
+              ))}
             </span>
-          )}
-          {model.no_page_reason && (
-            <span
-              title={model.no_page_reason}
-              className="ml-2 text-[10px] text-amber-500/80 whitespace-nowrap"
-            >
-              deploy only
-            </span>
-          )}
-          {isDeploying ? (
-            <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
-              Deploying…
-            </span>
-          ) : (
-            !fits && reason && (
-              <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                {reason}
-              </span>
-            )
           )}
         </div>
       </SelectItem>
@@ -463,12 +462,12 @@ export function FirstStepForm({
 
                         {/* Compatible Models */}
                         {modelsByCompatibility.compatible.map((model: Model) =>
-                          renderModelItem(model, "text-green-500")
+                          renderModelItem(model)
                         )}
 
                         {/* Unknown Compatibility Models */}
                         {modelsByCompatibility.unknown.map((model: Model) =>
-                          renderModelItem(model, "text-yellow-500")
+                          renderModelItem(model)
                         )}
                       </div>
                     );
