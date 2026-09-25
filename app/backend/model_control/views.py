@@ -46,7 +46,7 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from .log_classifier import classify_startup_phase
-from .image_dialects import resolve_dialect, split_route, submit_url
+from .image_generation import ImageGenerationError, generate_image
 
 
 # Module-level latch: tracks the highest phase + cached state we've ever seen
@@ -139,6 +139,7 @@ from model_control.model_utils import (
     stream_to_cloud_model,
     embed_text,
     find_deployed_embedding_model,
+    find_deployed_image_model,
     find_deployed_speech_model,
     find_deployed_tts_model,
 )
@@ -700,148 +701,26 @@ class ObjectDetectionInferenceCloudView(APIView):
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
-# Upper bound on a single image-generation job. FLUX.2 at 1024x1024/50 steps is
-# minutes of work, so this is a stuck-job backstop, not a performance budget.
-IMAGE_JOB_TIMEOUT_SECONDS = 30 * 60
-
-
-def _openapi_paths(server_root, headers):
-    """The routes a container's OpenAPI document lists, or {} when it has none."""
-    try:
-        resp = requests.get(f"{server_root}/openapi.json", headers=headers, timeout=5)
-        resp.raise_for_status()
-        return resp.json().get("paths") or {}
-    except (requests.RequestException, ValueError):
-        return {}
-
-
 class ImageGenerationInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
         serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.get("deploy_id")
-            prompt = data.get("prompt")  # we should only receive 1 prompt
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            try:
-                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
-
-                server_root, _ = split_route(internal_url)
-                dialect = resolve_dialect(
-                    internal_url,
-                    served_paths=lambda: _openapi_paths(server_root, headers),
-                )
-                submit = submit_url(internal_url, dialect)
-                logger.info(
-                    f"image generation via '{dialect.name}' dialect at {submit}"
-                )
-
-                if dialect.mode == "sync":
-                    # The image comes back on the submit call as base64 JSON.
-                    inference_data = requests.post(
-                        submit,
-                        json={"prompt": prompt},
-                        headers=headers,
-                        timeout=2000,
-                    )
-                    inference_data.raise_for_status()
-                    resp_json = inference_data.json()
-                    if "images" in resp_json:
-                        b64_image = resp_json["images"][0]
-                    elif "image" in resp_json:
-                        b64_image = resp_json["image"]
-                    else:
-                        b64_image = resp_json["data"][0]["b64_json"]
-                    image_bytes = base64.b64decode(b64_image)
-                    django_response = HttpResponse(
-                        image_bytes, content_type=dialect.default_content_type
-                    )
-                    django_response["Content-Disposition"] = (
-                        f"attachment; filename={dialect.default_filename}"
-                    )
-                    return django_response
-
-                # Job dialects: submit -> poll for a terminal state -> fetch bytes.
-                payload = {"prompt": prompt}
-                for req_field, server_field in dialect.extra_params.items():
-                    value = data.get(req_field)
-                    if value is not None:
-                        payload[server_field] = value
-
-                inference_data = requests.post(
-                    submit, json=payload, headers=headers, timeout=30
-                )
-                inference_data.raise_for_status()
-                job_id = inference_data.json().get(dialect.job_id_field)
-                if not job_id:
-                    logger.error(
-                        f"{dialect.name}: submit response carried no "
-                        f"'{dialect.job_id_field}'; cannot track the job"
-                    )
-                    return Response(status=status.HTTP_502_BAD_GATEWAY)
-
-                status_url = server_root + dialect.status_template.format(job_id=job_id)
-                image_url = server_root + dialect.image_template.format(job_id=job_id)
-
-                # Diffusion on accelerators runs for minutes, so this poll is bounded
-                # generously; it exists to stop a wedged job from hanging the request
-                # forever, not to second-guess a slow-but-healthy generation.
-                deadline = time.time() + IMAGE_JOB_TIMEOUT_SECONDS
-                while True:
-                    if time.time() > deadline:
-                        logger.error(
-                            f"{dialect.name}: job {job_id} did not finish within "
-                            f"{IMAGE_JOB_TIMEOUT_SECONDS}s"
-                        )
-                        return Response(status=status.HTTP_504_GATEWAY_TIMEOUT)
-
-                    poll = requests.get(status_url, headers=headers, timeout=30)
-                    # A job id can briefly 404 before the server registers it.
-                    if poll.status_code != status.HTTP_404_NOT_FOUND:
-                        poll.raise_for_status()
-                        job_state = str(poll.json().get("status", "")).lower()
-                        if job_state in dialect.done_states:
-                            break
-                        if job_state in dialect.error_states:
-                            detail = poll.json().get("error")
-                            logger.error(
-                                f"{dialect.name}: job {job_id} ended as "
-                                f"'{job_state}': {detail}"
-                            )
-                            return Response(
-                                {"error": detail or f"Generation {job_state}."},
-                                status=status.HTTP_502_BAD_GATEWAY,
-                            )
-                    time.sleep(1)
-
-                latest_image = requests.get(
-                    image_url, headers=headers, stream=True, timeout=120
-                )
-                latest_image.raise_for_status()
-                content_type = latest_image.headers.get(
-                    "Content-Type", dialect.default_content_type
-                )
-                django_response = HttpResponse(
-                    latest_image.content, content_type=content_type
-                )
-                django_response["Content-Disposition"] = (
-                    f"attachment; filename={dialect.default_filename}"
-                )
-                return django_response
-
-            except requests.exceptions.HTTPError as http_err:
-                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                    return Response(status=status.HTTP_401_UNAUTHORIZED)
-                elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
-                    return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
-                else:
-                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        else:
+        if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[data.get("deploy_id")]
+        try:
+            image, content_type = generate_image(deploy, data.get("prompt"), data)
+        except ImageGenerationError as e:
+            return Response(
+                {"error": e.message} if e.message else None, status=e.status_code
+            )
+        response = HttpResponse(image, content_type=content_type)
+        extension = "jpg" if content_type == "image/jpeg" else "png"
+        response["Content-Disposition"] = f"attachment; filename=image.{extension}"
+        return response
 
 
 class VideoGenerationInferenceView(APIView):
@@ -2287,6 +2166,74 @@ class OpenAIEmbeddingsView(APIView):
         )
 
 
+# Each image is seconds to minutes of accelerator time, so a batch is kept small.
+MAX_IMAGES_PER_REQUEST = 4
+
+
+class OpenAIImagesGenerationsView(APIView):
+    """OpenAI-compatible POST /v1/images/generations for companion apps (Open WebUI).
+
+    Resolves the OpenAI `model` field to a running image deployment and generates
+    through the same dialect handling as the image page. `size` is ignored: a
+    diffusion server is warmed and traced for one resolution, and FLUX.2 rejects
+    any other, so honouring a client's default size would fail every request.
+    Images are always returned as `b64_json`; there is nowhere to host a `url`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data
+        model_name = data.get("model")
+        prompt = data.get("prompt")
+        if not model_name or not prompt:
+            return Response(
+                {"error": {"message": "model and prompt are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            count = int(data.get("n") or 1)
+        except (TypeError, ValueError):
+            count = 0
+        if not 1 <= count <= MAX_IMAGES_PER_REQUEST:
+            message = f"n must be between 1 and {MAX_IMAGES_PER_REQUEST}"
+            return Response(
+                {"error": {"message": message, "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deploy = find_deployed_image_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": {"message": f"No running image model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        images = []
+        try:
+            for _ in range(count):
+                image, _content_type = generate_image(deploy, prompt)
+                images.append({"b64_json": base64.b64encode(image).decode()})
+        except ImageGenerationError as e:
+            return Response(
+                {"error": {"message": e.message or "Image generation failed."}},
+                status=e.status_code,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenAIImagesGenerationsView error: {e}")
+            return Response(
+                {"error": {"message": f"Could not reach the image model: {e}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({"created": int(time.time()), "data": images},
+                        status=status.HTTP_200_OK)
+
+
 class CodingAgentsView(APIView):
     """Info for the frontend 'Coding Agents' page: gateway health, key, models.
 
@@ -2434,17 +2381,19 @@ class MarketplaceLaunchView(APIView):
                 }
             )
 
-        # Apps that offer an embedding/STT/TTS picker (app.embedding_choice,
-        # app.stt_choice, app.tts_choice) may be told which deployed model to
-        # wire up instead of the app's own native/cloud one.
+        # Apps that offer an embedding/STT/TTS/image picker (app.embedding_choice,
+        # app.stt_choice, app.tts_choice, app.image_choice) may be told which
+        # deployed model to wire up instead of the app's own native/cloud one.
         payload = request.data or {}
         embedding_model = payload.get("embedding_model") or None
         stt_model = payload.get("stt_model") or None
         tts_model = payload.get("tts_model") or None
+        image_model = payload.get("image_model") or None
         for label, model, finder in (
             ("embedding", embedding_model, find_deployed_embedding_model),
             ("speech-recognition", stt_model, find_deployed_speech_model),
             ("TTS", tts_model, find_deployed_tts_model),
+            ("image", image_model, find_deployed_image_model),
         ):
             if model and finder(model) is None:
                 return Response(
@@ -2465,6 +2414,7 @@ class MarketplaceLaunchView(APIView):
             embedding_model=embedding_model,
             stt_model=stt_model,
             tts_model=tts_model,
+            image_model=image_model,
         )
         return Response(
             {"status": "starting", "host_port": host_port},

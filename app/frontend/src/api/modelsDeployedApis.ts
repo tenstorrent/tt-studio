@@ -583,6 +583,11 @@ export const fetchSttModels = async (): Promise<DeployedModelSummary[]> =>
 export const fetchTtsModels = async (): Promise<DeployedModelSummary[]> =>
   fetchHealthyModelsByType("tts");
 
+/** Currently deployed, healthy image-generation models, for the marketplace
+ * apps' companion image picker. */
+export const fetchImageModels = async (): Promise<DeployedModelSummary[]> =>
+  fetchHealthyModelsByType("image_generation");
+
 export const runEmbeddingInference = async (
   deployId: string,
   input: string,

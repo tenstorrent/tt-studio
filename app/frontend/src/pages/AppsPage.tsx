@@ -45,6 +45,7 @@ import {
   fetchEmbeddingModels,
   fetchSttModels,
   fetchTtsModels,
+  fetchImageModels,
   type CodingAgentsInfo,
   type DeployedModelSummary,
   type UnavailableCodingAgentModel,
@@ -62,8 +63,8 @@ import { cn } from "../lib/utils";
 
 const POLL_INTERVAL_MS = 3000;
 const PLACEHOLDER_MODEL = "your-model-name";
-// Sentinel for "use the app's own built-in embedder/STT/TTS" in a launch
-// picker -- never sent to the backend as embedding_model/stt_model/tts_model
+// Sentinel for "use the app's own built-in embedder/STT/TTS" (or no image
+// generation) in a launch picker -- never sent to the backend as a model
 // (see launchApp below).
 const NATIVE_CHOICE = "native";
 
@@ -112,23 +113,26 @@ export default function AppsPage() {
   >([]);
   const [sttModels, setSttModels] = useState<DeployedModelSummary[]>([]);
   const [ttsModels, setTtsModels] = useState<DeployedModelSummary[]>([]);
+  const [imageModels, setImageModels] = useState<DeployedModelSummary[]>([]);
   // Per-app inline model choices, keyed by app id. Default to native.
   const [embeddingChoices, setEmbeddingChoices] = useState<
     Record<string, string>
   >({});
   const [sttChoices, setSttChoices] = useState<Record<string, string>>({});
   const [ttsChoices, setTtsChoices] = useState<Record<string, string>>({});
+  const [imageChoices, setImageChoices] = useState<Record<string, string>>({});
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES);
   // Apps with a launch/stop request in flight, so buttons can't be double-fired.
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
-    const [marketplace, gatewayInfo, embeddings, stt, tts] = await Promise.all([
+    const [marketplace, gatewayInfo, embeddings, stt, tts, images] = await Promise.all([
       fetchMarketplaceApps(),
       fetchCodingAgentsInfo().catch(() => null),
       fetchEmbeddingModels().catch(() => []),
       fetchSttModels().catch(() => []),
       fetchTtsModels().catch(() => []),
+      fetchImageModels().catch(() => []),
     ]);
     setApps(marketplace.apps);
     setGatewayConfigured(marketplace.gateway_configured);
@@ -136,6 +140,7 @@ export default function AppsPage() {
     setEmbeddingModels(embeddings);
     setSttModels(stt);
     setTtsModels(tts);
+    setImageModels(images);
   }, []);
 
   useEffect(() => {
@@ -236,6 +241,7 @@ export default function AppsPage() {
         embeddingModel: resolve(embeddingChoices, app.embedding_choice),
         sttModel: resolve(sttChoices, app.stt_choice),
         ttsModel: resolve(ttsChoices, app.tts_choice),
+        imageModel: resolve(imageChoices, app.image_choice),
       })
     );
   };
@@ -357,6 +363,11 @@ export default function AppsPage() {
                   ttsChoice={ttsChoices[app.id] ?? NATIVE_CHOICE}
                   onTtsChoiceChange={(value) =>
                     setTtsChoices((c) => ({ ...c, [app.id]: value }))
+                  }
+                  imageModels={imageModels}
+                  imageChoice={imageChoices[app.id] ?? NATIVE_CHOICE}
+                  onImageChoiceChange={(value) =>
+                    setImageChoices((c) => ({ ...c, [app.id]: value }))
                   }
                   onLaunch={() => launchApp(app)}
                   onStop={() => runAction(app, stopMarketplaceApp)}
@@ -724,6 +735,9 @@ function AppCard({
   ttsModels,
   ttsChoice,
   onTtsChoiceChange,
+  imageModels,
+  imageChoice,
+  onImageChoiceChange,
   onLaunch,
   onStop,
   onConnect,
@@ -740,6 +754,9 @@ function AppCard({
   ttsModels: DeployedModelSummary[];
   ttsChoice: string;
   onTtsChoiceChange: (value: string) => void;
+  imageModels: DeployedModelSummary[];
+  imageChoice: string;
+  onImageChoiceChange: (value: string) => void;
   onLaunch: () => void;
   onStop: () => void;
   onConnect: () => void;
@@ -753,6 +770,7 @@ function AppCard({
     !running && app.embedding_choice && embeddingModels.length > 0;
   const showSttPicker = !running && app.stt_choice && sttModels.length > 0;
   const showTtsPicker = !running && app.tts_choice && ttsModels.length > 0;
+  const showImagePicker = !running && app.image_choice && imageModels.length > 0;
 
   return (
     // A launched app is the one thing on this page the user is likely to act on,
@@ -921,6 +939,15 @@ function AppCard({
                 models={ttsModels}
                 value={ttsChoice}
                 onChange={onTtsChoiceChange}
+              />
+            )}
+            {showImagePicker && (
+              <CompanionModelPicker
+                label="Image generation model"
+                nativeLabel="Off (no image generation)"
+                models={imageModels}
+                value={imageChoice}
+                onChange={onImageChoiceChange}
               />
             )}
             <Button

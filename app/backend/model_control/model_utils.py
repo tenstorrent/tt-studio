@@ -93,6 +93,12 @@ def find_deployed_tts_model(model_identifier: str) -> Optional[dict]:
     return find_deployed_model_by_type(model_identifier, ModelTypes.TTS)
 
 
+def find_deployed_image_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running IMAGE_GENERATION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.IMAGE_GENERATION)
+
+
 def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:
     """POST one text to a deployed embedding model's /v1/embeddings route and
     return the raw OpenAI-shaped response ({"data": [{"embedding": [...]}], ...}).

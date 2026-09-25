@@ -422,6 +422,12 @@ def tts_model_env(app: MarketplaceApp, tts_model: Optional[str]) -> Dict[str, st
     return _companion_model_env(app.tts_gateway_env, tts_model)
 
 
+def image_model_env(app: MarketplaceApp, image_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's image-generation env vars, if the user picked a deployed
+    image model. Without one the app keeps its own default (usually disabled)."""
+    return _companion_model_env(app.image_gateway_env, image_model)
+
+
 # --- Serialization ----------------------------------------------------------
 
 
@@ -474,6 +480,7 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
         "embedding_choice": bool(app.embedding_gateway_env),
         "stt_choice": bool(app.stt_gateway_env),
         "tts_choice": bool(app.tts_gateway_env),
+        "image_choice": bool(app.image_gateway_env),
     }
 
     # Apps configured through their own UI need the endpoint as reachable from
@@ -641,11 +648,12 @@ def start_launch(
     embedding_model: Optional[str] = None,
     stt_model: Optional[str] = None,
     tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
 ) -> None:
     """Pull and start an app in the background. Poll get_job / serialize_app."""
     threading.Thread(
         target=_launch,
-        args=(app, host_port, embedding_model, stt_model, tts_model),
+        args=(app, host_port, embedding_model, stt_model, tts_model, image_model),
         daemon=True,
         name=f"launch-{app.id}",
     ).start()
@@ -665,6 +673,7 @@ def _launch(
     embedding_model: Optional[str] = None,
     stt_model: Optional[str] = None,
     tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
 ) -> None:
     """Pull the image if needed, then run the container. Runs in a worker thread."""
     client = get_docker_client()
@@ -700,6 +709,7 @@ def _launch(
                     **embedding_model_env(app, embedding_model),
                     **stt_model_env(app, stt_model),
                     **tts_model_env(app, tts_model),
+                    **image_model_env(app, image_model),
                 },
                 volumes=dict(app.volumes),
                 network=backend_config.docker_bridge_network_name,
