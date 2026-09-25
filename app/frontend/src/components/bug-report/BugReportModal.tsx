@@ -123,20 +123,6 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 }
               />
             </div>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p>
-                <strong className="text-foreground">
-                  Download Email with Logs Attached
-                </strong>{" "}
-                saves an email to support@tenstorrent.com with your logs
-                already inside. Open it and hit Send.
-              </p>
-              <p>
-                <strong className="text-foreground">Draft Support Email</strong>{" "}
-                opens your mail app and downloads your logs as a ZIP to drag
-                into the email.
-              </p>
-            </div>
             {!canSubmit && (
               <p className="text-xs text-muted-foreground">
                 Fill in what went wrong and the steps to reproduce to continue.
@@ -181,6 +167,10 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 <p className="flex items-center gap-2 font-semibold">
                   <Paperclip className="h-4 w-4 shrink-0" />
                   One more step: attach your logs
+                </p>
+                <p>
+                  Your mail app opened an email to support@tenstorrent.com, and
+                  your logs downloaded as a ZIP.
                 </p>
                 <ol className="list-decimal list-inside space-y-1">
                   <li>
@@ -243,6 +233,10 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 <p className="flex items-center gap-2 font-semibold">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
                   Your email is ready, logs attached
+                </p>
+                <p>
+                  We saved an email to support@tenstorrent.com with your logs
+                  already inside.
                 </p>
                 <ol className="list-decimal list-inside space-y-1">
                   <li>
