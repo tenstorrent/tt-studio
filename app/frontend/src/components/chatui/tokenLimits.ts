@@ -12,24 +12,25 @@ export interface TokenLimits {
  * Uses max_model_len (actual context window from the running vLLM container) when
  * available — this is the authoritative value. Falls back to a param_count-based
  * estimate when the container hasn't been queried yet.
+ *
+ * The default is the model's full usable output budget rather than a small
+ * fraction of it: reasoning models spend thousands of tokens thinking before
+ * they answer, and a low default cuts them off mid-response. The backend clamps
+ * max_tokens to 75% of the context window to leave room for the prompt, so the
+ * default mirrors that ceiling and the slider spans the whole context.
  */
 export function getTokenLimitsForModel(
   paramCount: number | null | undefined,
   maxModelLen: number | null | undefined
 ): TokenLimits {
-  // Slider max is capped at a sensible response length — the context window
-  // is the total input+output budget, not a realistic single-response target.
-  if (maxModelLen != null && maxModelLen > 0) {
-    const sliderMax = maxModelLen <= 16384 ? 8192
-                    : maxModelLen <= 65536 ? 16384
-                    : 32768;
-    const defaultMaxTokens = Math.min(Math.round(sliderMax / 4), 8192);
-    return { defaultMaxTokens, sliderMax };
-  }
-
-  // Fallback: estimate from param_count
-  if (paramCount == null) return { defaultMaxTokens: 1024, sliderMax: 8192 };
-  if (paramCount <= 8)    return { defaultMaxTokens: 2048, sliderMax: 8192 };
-  if (paramCount <= 32)   return { defaultMaxTokens: 4096, sliderMax: 16384 };
-  return                         { defaultMaxTokens: 8192, sliderMax: 32768 };
+  const sliderMax =
+    maxModelLen != null && maxModelLen > 0
+      ? maxModelLen
+      : paramCount == null || paramCount <= 8
+        ? 32768
+        : paramCount <= 32
+          ? 65536
+          : 131072;
+  const defaultMaxTokens = Math.max(1, Math.floor((sliderMax * 3) / 4));
+  return { defaultMaxTokens, sliderMax };
 }
