@@ -187,6 +187,10 @@ class TestEml(unittest.TestCase):
     def test_headers(self):
         msg = self._message()
         self.assertEqual(msg["To"], "support@tenstorrent.com")
+        # Clients offer Send only when a From is present; the placeholder is
+        # swapped for the user's account on send.
+        self.assertEqual(msg["From"], support_email.EML_PLACEHOLDER_SENDER)
+        self.assertTrue(msg["From"].endswith(".invalid>"))
         self.assertEqual(msg["Subject"], "[TT-Studio] Deploy hangs [ttbr-1]")
         self.assertEqual(msg["X-Unsent"], "1")  # Outlook: open as an editable draft
         self.assertIsNotNone(msg["Date"])
@@ -242,7 +246,7 @@ class TestBackendTwinParity(unittest.TestCase):
             msg = email.message_from_bytes(raw, policy=email.policy.default)
             att = next(msg.iter_attachments())
             return (
-                msg["To"], msg["Subject"], msg["X-Unsent"],
+                msg["From"], msg["To"], msg["Subject"], msg["X-Unsent"],
                 msg.get_body(preferencelist=("plain",)).get_content(),
                 att.get_filename(), att.get_content_type(), att.get_content(),
             )

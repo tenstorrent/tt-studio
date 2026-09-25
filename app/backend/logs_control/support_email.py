@@ -30,6 +30,13 @@ from urllib.parse import quote
 
 SUPPORT_EMAIL = "support@tenstorrent.com"
 
+# Placeholder sender for the .eml. Mail clients only offer Send on a message
+# that has a From header; on send they replace one that isn't a configured
+# account with the user's own (Outlook uses the default account, Thunderbird
+# the default identity), so this address never actually goes out.
+# `.invalid` is reserved (RFC 2606) and can't be delivered to by mistake.
+EML_PLACEHOLDER_SENDER = "TT-Studio user <user@tt-studio.invalid>"
+
 # Weekly triage rotation: ISO week number % 3 picks the assignee.
 ROTATION = [
     ("Anirudh", "aramchandran@tenstorrent.com"),
@@ -124,8 +131,11 @@ def build_eml(subject, body, zip_bytes, zip_name):
     Opened from disk in the user's mail client this is a ready-to-send draft
     with the bundle already attached — the one thing mailto: cannot do.
     `X-Unsent: 1` makes Outlook open it as an editable draft rather than a
-    received message; Thunderbird users pick "Edit As New Message"."""
+    received message; Thunderbird users pick "Edit As New Message". A From
+    header is required too: without one clients show no Send button, so a
+    placeholder sender (replaced by the user's account on send) is set."""
     msg = EmailMessage()
+    msg["From"] = EML_PLACEHOLDER_SENDER
     msg["To"] = SUPPORT_EMAIL
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
