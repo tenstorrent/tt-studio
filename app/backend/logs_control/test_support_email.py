@@ -58,6 +58,10 @@ class TestBuilders(unittest.TestCase):
             support_email.build_subject("", "ttbr-abc"),
             "[TT-Studio] Bug report [ttbr-abc]",
         )
+        self.assertEqual(
+            support_email.build_subject("Deploy failed:\n  timeout\r\n", "ttbr-abc"),
+            "[TT-Studio] Deploy failed: timeout [ttbr-abc]",
+        )
 
     def test_body_header_lines(self):
         body = support_email.build_body(

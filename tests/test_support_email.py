@@ -89,6 +89,13 @@ class TestSubject(unittest.TestCase):
         self.assertLess(len(subject), 150)
         self.assertTrue(subject.endswith(" [ttbr-abc123]"))
 
+    def test_multiline_title_collapses(self):
+        # e.g. a multi-line exception message on the launcher's error path —
+        # a line break would make build_eml raise.
+        subject = support_email.build_subject("Deploy failed:\n  timeout\r\n", "ttbr-abc123")
+        self.assertEqual(subject, "[TT-Studio] Deploy failed: timeout [ttbr-abc123]")
+        support_email.build_eml(subject, "body", b"zip", "logs.zip")
+
 
 class TestBody(unittest.TestCase):
     def _body(self, form=None):

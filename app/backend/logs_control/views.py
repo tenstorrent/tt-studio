@@ -647,7 +647,7 @@ class BugReportDataView(APIView):
 
 def _build_bug_report_zip():
     """ZIP archive (bytes) of every TT-Studio log source — one named file per
-    source. Shared by the ZIP download and the .eml attachment."""
+    source."""
     data = _collect_bug_report_data()
     buf = io.BytesIO()
 
@@ -709,22 +709,32 @@ _SUPPORT_FORM_KEYS = ("title", "description", "steps", "expected", "actual")
 
 
 def _parse_support_email_request(request):
-    """(ref, form, environment_lines) from the JSON body shared by the
-    support-email views. Raises ValueError with a client-facing message."""
+    """(ref, form, environment_lines) from SupportEmailView's JSON body.
+    Raises ValueError with a client-facing message."""
     try:
         body_data = json.loads(request.body)
     except Exception:
         raise ValueError("Invalid JSON body")
+    if not isinstance(body_data, dict):
+        raise ValueError("JSON body must be an object")
 
-    ref = (body_data.get("ref") or "").strip()
+    def text(key):
+        value = body_data.get(key)
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        return value.strip()
+
+    ref = text("ref")
     if not ref:
         raise ValueError("ref is required")
     if not _SUPPORT_REF_PATTERN.fullmatch(ref):
         raise ValueError("ref must look like ttbr-<id>")
 
-    form = {key: (body_data.get(key) or "").strip() for key in _SUPPORT_FORM_KEYS}
+    form = {key: text(key) for key in _SUPPORT_FORM_KEYS}
     # Cheap environment summary only — the heavy diagnostics live in the
-    # bundle ZIP (downloaded alongside the draft, or attached to the .eml).
+    # bundle ZIP downloaded alongside the draft.
     environment_lines = [
         f"OS: {platform.platform()}",
         f"Python: {platform.python_version()}",
@@ -768,38 +778,4 @@ class SupportEmailView(APIView):
             )
         except Exception as e:
             logger.error(f"Failed to build support email draft: {e}")
-            return JsonResponse({"error": str(e)}, status=500)
-
-
-class SupportEmailEmlView(APIView):
-    """
-    Builds the support email as a ready-to-send .eml file with the diagnostics
-    ZIP already attached. mailto: drafts cannot carry attachments; with this
-    file the user only has to open it in their mail client and hit Send.
-
-    POST body (JSON): same as SupportEmailView.
-    Response 200: message/rfc822 attachment named tt-studio-bug-report-<ref>.eml
-    """
-
-    def post(self, request, *args, **kwargs):
-        try:
-            ref, form, environment_lines = _parse_support_email_request(request)
-        except ValueError as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-        try:
-            zip_name = f"tt-studio-logs-{ref}.zip"
-            assignee = support_email.assignee_for_date()
-            subject = support_email.build_subject(form["title"], ref)
-            body = support_email.build_body(
-                ref, assignee, form, environment_lines, zip_name, attached=True
-            )
-            eml = support_email.build_eml(subject, body, _build_bug_report_zip(), zip_name)
-            response = HttpResponse(eml, content_type="message/rfc822")
-            response["Content-Disposition"] = (
-                f'attachment; filename="tt-studio-bug-report-{ref}.eml"'
-            )
-            return response
-        except Exception as e:
-            logger.error(f"Failed to build support email .eml: {e}")
             return JsonResponse({"error": str(e)}, status=500)

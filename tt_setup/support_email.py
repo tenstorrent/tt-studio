@@ -52,8 +52,10 @@ def assignee_for_date(d=None):
 
 
 def build_subject(title, ref):
-    """Email subject: `[TT-Studio] <title> [ttbr-…]`."""
-    title = (title or "").strip() or "Bug report"
+    """Email subject: `[TT-Studio] <title> [ttbr-…]`. Whitespace runs —
+    including the newlines of a multi-line error message — collapse to one
+    space, since an email header can't contain a line break."""
+    title = " ".join((title or "").split()) or "Bug report"
     if len(title) > _MAX_SUBJECT_TITLE:
         title = title[: _MAX_SUBJECT_TITLE - 1] + "…"
     return f"[TT-Studio] {title} [{ref}]"

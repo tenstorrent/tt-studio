@@ -7,8 +7,10 @@ Mirrors the web UI's Report Bug button (app/frontend/src/components/bug-report/)
 for the CLI: when `python run.py` errors during setup — or when the user runs
 `python run.py --report-bug` — this collects the available host-side logs and
 system info into a `tt-studio-logs-ttbr-<hex>.zip` bundle, writes a ready-to-send
-`tt-studio-bug-report-ttbr-<hex>.eml` next to it with the bundle already attached,
-and drafts a support email (support@tenstorrent.com) with the next steps pre-filled.
+`tt-studio-bug-report-ttbr-<hex>.eml` to support@tenstorrent.com next to it with
+the bundle already attached, and opens that in the user's mail client. Only when
+the .eml can't be written does it fall back to a mailto: draft, which can't carry
+the bundle, so the user attaches the ZIP by hand.
 
 Unlike the UI, this cannot call the backend's /logs-api/bug-report/ endpoint: a
 setup crash usually happens before the Django backend and docker-control-service
@@ -175,9 +177,36 @@ def write_eml(zip_path, ref, subject, body):
     return eml_path
 
 
+def open_in_mail_client(path):
+    """Open the .eml at `path` with the desktop's default app (the mail
+    client). False when there is no desktop to open it on (headless or SSH
+    session, no opener) or the opener fails."""
+    if sys.platform == "darwin":
+        cmd = ["open", path]
+    elif sys.platform.startswith("linux") and (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        cmd = ["xdg-open", path]
+    else:
+        return False
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+        )
+    except OSError:
+        return False
+    try:
+        return proc.wait(timeout=5) == 0
+    except subprocess.TimeoutExpired:
+        # xdg-open can stay in the foreground for as long as the mail client
+        # it launched is running; still running means it opened.
+        return True
+
+
 def report_bug(exc=None, args=None, open_browser=True):
-    """Collect a diagnostics bundle, draft the support email, show the next
-    steps, and optionally open the pre-filled draft in the default mail client."""
+    """Collect a diagnostics bundle, write the support email, show the next
+    steps, and optionally open it in the default mail client: the .eml with
+    the bundle attached, or the mailto: draft when the .eml couldn't be written."""
     try:
         zip_path, ref = collect_bundle(exc=exc, args=args)
     except Exception as e:
@@ -215,7 +244,6 @@ def report_bug(exc=None, args=None, open_browser=True):
         rows += [
             "[muted]1. Open the .eml above in your mail client — the bundle is attached[/muted]",
             "[muted]2. Send — replies stream back to your inbox[/muted]",
-            "[muted]   (Using the mailto: draft that also opens? Attach the ZIP by hand)[/muted]",
         ]
     else:
         rows += [
@@ -225,6 +253,16 @@ def report_bug(exc=None, args=None, open_browser=True):
         ]
 
     console.print(notice_panel("[bold]🐞 Bug report ready[/bold]", rows, border_style="accent"))
+
+    if eml_path:
+        # The .eml already carries the bundle; the mailto: draft can't, so it
+        # is never opened on this path.
+        if not (open_browser and open_in_mail_client(eml_path)):
+            console.print(
+                "[muted]No mail client opened — open the .eml above in yours and hit Send "
+                "(on a headless server, copy it to your own machine first).[/muted]"
+            )
+        return
 
     opened = False
     if open_browser:
