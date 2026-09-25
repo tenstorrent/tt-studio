@@ -155,6 +155,7 @@ export function useBugReport() {
     step,
     form,
     setForm,
+    zipFileName: diagnosticsRef ? `tt-studio-logs-${diagnosticsRef}.zip` : null,
     isDownloadingZip,
     draftSupportEmail,
     downloadZipAgain,

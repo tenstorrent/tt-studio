@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
-import { Bug, CheckCircle2, Loader2, Download, Copy, Mail } from "lucide-react";
+import { Bug, Loader2, Download, Copy, Mail, Paperclip } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     step,
     form,
     setForm,
+    zipFileName,
     isDownloadingZip,
     draftSupportEmail,
     downloadZipAgain,
@@ -87,7 +88,10 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">What went wrong?</label>
+              <label className="text-sm font-medium">
+                What went wrong?{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </label>
               <Textarea
                 placeholder="What happened, and what were you doing when it did?"
                 rows={5}
@@ -99,8 +103,8 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             </div>
             <p className="text-xs text-muted-foreground">
               Your mail app opens with the report addressed to
-              support@tenstorrent.com, and your TT-Studio logs download as a
-              ZIP to attach.
+              support@tenstorrent.com, and your logs download as a ZIP. Drag
+              the ZIP into the email before you hit Send.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={closeModal}>
@@ -124,13 +128,23 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
             ) : error ? (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             ) : (
-              <div className="flex items-start gap-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-4 py-3 text-sm text-green-800 dark:text-green-300">
-                <CheckCircle2 className="h-5 w-5 shrink-0" />
-                <p>
-                  Your email to support@tenstorrent.com is open. Drag the logs
-                  ZIP from your Downloads into it, then hit{" "}
-                  <strong>Send</strong>.
+              <div className="space-y-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+                <p className="flex items-center gap-2 font-semibold">
+                  <Paperclip className="h-4 w-4 shrink-0" />
+                  One more step: attach your logs
                 </p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>
+                    Drag{" "}
+                    <span className="break-all font-mono text-xs">
+                      {zipFileName}
+                    </span>{" "}
+                    from your Downloads into the email that just opened.
+                  </li>
+                  <li>
+                    Hit <strong>Send</strong>.
+                  </li>
+                </ol>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
