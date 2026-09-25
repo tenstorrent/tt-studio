@@ -8,7 +8,6 @@ import re
 
 from langchain_core.documents import Document
 
-from vector_db_control.data import document_title
 from vector_db_control.document_processor import DocumentProcessor
 from vector_db_control.documents import (
     PARENT_CHUNK_SIZE,
@@ -80,6 +79,16 @@ class TestPdfPages:
         assert docs[0].metadata is not docs[1].metadata
         assert all(d.metadata["source"] == "x.pdf" for d in docs)
 
+    def test_empty_or_whitespace_pages_yield_no_documents(self):
+        docs = DocumentProcessor.pages_to_documents(
+            ["", "   \n\t  ", ""], {"source": "blank_or_image.pdf"}
+        )
+        assert docs == []
+
+    def test_empty_parents_yield_zero_child_chunks(self):
+        children = _build_children([], chunk_size=200, chunk_overlap=0)
+        assert children == []
+
 
 class TestIdsAndHeaders:
     def test_deterministic_chunk_id_stable_and_distinct(self):
@@ -140,14 +149,3 @@ class TestParentChildPipeline:
         )
         assert chunks
         assert all(len(c.metadata["parent_text"]) <= PARENT_CHUNK_SIZE for c in chunks)
-
-
-class TestDocumentTitle:
-    def test_prefers_h1(self):
-        assert document_title("# TT-Metal Guide\n\nbody") == "TT-Metal Guide"
-
-    def test_falls_back_to_first_line(self):
-        assert document_title("plain opener line\nmore") == "plain opener line"
-
-    def test_empty_doc(self):
-        assert document_title("") == "Tenstorrent documentation"

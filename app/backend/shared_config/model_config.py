@@ -104,6 +104,15 @@ class ModelImpl:
     # Only honoured for requires_dev_catalog models (see
     # docker_control.views._resolve_artifact_ref).
     inference_artifact_ref: Optional[Dict[str, str]] = None
+    # Hand-derived tt-inference-server ModelSpec JSON to pass as
+    # --runtime-model-spec-json when deploying on the given device, for a
+    # (model, device) pair the source artifact never declares -- e.g. a model
+    # that only ships a multi-chip mesh spec but genuinely runs on one chip or
+    # one card. Keyed by the tt-studio device name (e.g. "P150"); paths are
+    # relative to TT_STUDIO_ROOT. See sync_models_from_inference_server's
+    # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
+    # files and populate this, and docker_utils.run_container, which consumes it.
+    runtime_model_spec_overrides: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -136,6 +145,19 @@ class ModelImpl:
                 "ENABLE_JOB_PERSISTENCE": "true",
             }
             for _key, _value in training_job_env.items():
+                self.docker_config["environment"].setdefault(_key, _value)
+
+        # Whisper is trained on 30-second windows. Left unset, the media server
+        # sizes its internal audio chunks by worker count and drops to 3s on an
+        # 8+ worker box, which costs accuracy and invites hallucination. Pinning
+        # the window here rather than in the catalog keeps it through a
+        # sync_models_from_inference_server run, which rewrites env_vars.
+        if self.model_type == ModelTypes.SPEECH_RECOGNITION:
+            speech_recognition_env = {
+                "AUDIO_CHUNK_DURATION_SECONDS": "30",
+                "AUDIO_LANGUAGE": "English",
+            }
+            for _key, _value in speech_recognition_env.items():
                 self.docker_config["environment"].setdefault(_key, _value)
 
         # model env file must be interpreted here
@@ -321,10 +343,16 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
-        # Training models are hidden for this release: the pinned inference-server
-        # artifact can't run the training-lora impl yet, so offering them only
-        # produces deploys that die at dispatch. Remove this once training ships.
-        if entry.get("model_type") == "TRAINING":
+        # Models the catalog marks unavailable are not offered for deploy. The
+        # row stays in the JSON (with the reason) rather than being deleted, so a
+        # catalog resync can't quietly reintroduce a model we already know is
+        # broken or has no UI yet. See STUDIO_UNAVAILABLE_MODELS in
+        # sync_models_from_inference_server.py. Absent field == available.
+        if entry.get("available_in_studio") is False:
+            logger.info(
+                f"Skipping {entry.get('model_name')}: "
+                f"{entry.get('unavailable_reason')} - {entry.get('unavailable_details')}"
+            )
             continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
@@ -370,6 +398,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             param_count=entry.get("param_count"),
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
+            runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
         )
         impls.append(impl)
     return impls
@@ -446,6 +475,16 @@ _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 model_implmentations = {}
 for impl in _json_impls + _hardcoded_impls:
     validate_model_implemenation_config(impl)
+    # model_id omits the engine, so same-name cross-engine rows collide unless
+    # their versions differ. Fail loudly instead of silently overwriting.
+    if impl.model_id in model_implmentations:
+        existing = model_implmentations[impl.model_id]
+        raise ValueError(
+            f"Duplicate model_id '{impl.model_id}': "
+            f"'{existing.model_name}' ({existing.inference_engine}) and "
+            f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+            "Give them different versions or model_ids."
+        )
     model_implmentations[impl.model_id] = impl
 
 

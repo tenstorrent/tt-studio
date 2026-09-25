@@ -47,7 +47,9 @@ python3 reference/cli_skeleton.py --help   # the command surface  (then: no flag
 | `reference/test_cli_output.py` | copy into `tests/`: pure helpers, stream parsing, PTY + non-TTY render checks |
 
 Reference implementation in the wild: TT-Studio's `tt_setup/` (+ its house-rules doc
-`dev-docs/launcher-terminal-design.md`).
+`dev-docs/launcher-terminal-design.md`). When you're working in this repo, the
+companion **`tt-studio-cli`** skill has the concrete mechanics — package map, flag
+plumbing, hardware detection.
 
 ---
 

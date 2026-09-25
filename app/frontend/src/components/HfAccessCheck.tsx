@@ -83,6 +83,9 @@ function StatusIcon({ status }: { status: HfCheckStatus }) {
   );
 }
 
+
+
+
 export default function HfAccessCheck({ token, onChecked, className }: Props) {
   const [results, setResults] = useState<HfCheckResult[]>(GATED_MODELS_PLACEHOLDER);
   const [isChecking, setIsChecking] = useState(false);

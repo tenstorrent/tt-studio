@@ -11,8 +11,10 @@ Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
 """
 
+import copy
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,24 +46,257 @@ _CANDIDATE_SOURCES = [
 # error. Adding a future hand-owned field means adding it here. See issue #977.
 HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned")
 
-# Marker on a catalog entry that exists only because someone added it by hand
-# (e.g. the forge TRAINING rows, which no prod release snapshot contains). Such
-# an entry outranks a synced entry of the same model_name: the source JSON has a
-# vLLM CHAT "Llama-3.1-8B" whose name collides with the hand-added forge TRAINING
-# one, and without this the resync silently replaces the training row -- taking
-# the fine-tuning feature offline, since training_control filters on
-# model_type == TRAINING. Catalog model_name must stay unique: several lookups
-# (model_config.get_model_impl, docker_utils' deployment->impl mapping) take the
-# first name match, so keeping both would make them pick arbitrarily.
+# Marker for a hand-added entry (e.g. the forge TRAINING rows, absent from prod
+# snapshots). It outranks a synced entry of the same identity -- (model_name,
+# inference_engine); a same-name row on another engine (the vLLM CHAT beside the
+# forge TRAINING "Llama-3.1-8B-Instruct") is left alone so both coexist.
 HAND_OWNED_MARKER = "hand_owned"
 
-# Models the source artifact advertises but that TT-Studio must not offer.
-# Filtered after merge_hand_owned() so a resync can't reintroduce them.
-# Z-Image-Turbo: wedges Blackhole P300 devices during warmup (eth-core init
-# timeout or a hard device hang mid kernel-compile) hard enough that the host
-# needs a board reset; pull it from the catalog until the media image ships a
-# tt-metal/firmware combo validated on fw 19.7.0.
-EXCLUDED_MODEL_NAMES = {"Z-Image-Turbo"}
+# ---------------------------------------------------------------------------
+# Studio availability
+# ---------------------------------------------------------------------------
+# The source artifact advertises models TT-Studio must not offer in its deploy
+# dropdown. Deleting those rows from the catalog was the old approach and it
+# does not survive: normalize() rebuilds from the source JSON, so every removal
+# had to be re-done by hand after each resync (see the string of "remove
+# non-working models" commits), and the catalog lost the record of *why* a model
+# was pulled. Instead the rows stay and carry a mark, applied on every sync from
+# model_overrides.toml's [[unavailable]] entries, so hiding a model is a
+# one-line, reproducible edit there rather than a JSON deletion someone has to
+# remember to repeat.
+#
+# Two distinct reasons, deliberately not conflated:
+#   known_broken          - the model does not deploy or does not run correctly
+#                           on TT hardware today. It is a bug, and the details
+#                           say what breaks.
+#   unsupported_in_studio - the model works fine on the inference server, but
+#                           TT-Studio has no UI for its modality yet. Nothing is
+#                           broken; there is just nowhere to put it.
+#
+# These marks are script-owned, NOT hand-owned: model_overrides.toml is the
+# single source of truth, so deleting an entry there genuinely unhides the
+# model on the next sync instead of a stale flag in the JSON resurrecting it.
+from model_overrides import (
+    CHIP_TIER_MODELS as STUDIO_CHIP_TIER_MODELS,
+    CHIP_TIERS as STUDIO_CHIP_TIERS,
+    STUDIO_UNAVAILABLE_DEVICES,
+    STUDIO_UNAVAILABLE_MODELS,
+    STUDIO_UNAVAILABLE_REASONS,
+)
+
+# Model types TT-Studio can deploy but has no interface for. These work.
+# For models of types that TT-Studio can deploy but has no interface for, add them here.
+UNSUPPORTED_STUDIO_MODEL_TYPES: dict[str, str] = {}
+
+
+
+# Per-device unavailability and the chip-tier table (STUDIO_UNAVAILABLE_DEVICES,
+# STUDIO_CHIP_TIER_MODELS, STUDIO_CHIP_TIERS) are imported above from
+# model_overrides -- see model_overrides.toml's [[unavailable]] and
+# [[chip_tier]] entries for the data and model_overrides.py's docstring for the
+# exact shapes. Sync REMOVES a marked device from device_configurations and
+# records why in an "unavailable_devices" object: every consumer already gates
+# on device_configurations (docker_control's compatibility check, the
+# frontend's is_compatible badge, infer_chips_required), so per-device hiding
+# needs no new logic anywhere. If every device is removed this way, the model
+# falls back to being hidden outright rather than left with an empty list.
+
+RUNTIME_MODEL_SPECS_DIR = SCRIPT_DIR / "runtime_model_specs"
+
+
+def _load_upstream_model_spec(hf_model_repo: str, board_device: str) -> dict | None:
+    """The real, current upstream ModelSpec for hf_model_repo on board_device,
+    as a plain dict, fetched straight from the tt-inference-server artifact's
+    own workflows.model_spec (the same resolution run.py itself uses).
+
+    Never raises -- returns None if the artifact isn't fetched yet or the pair
+    can't be resolved, so callers can fall back to leaving an already-generated
+    file in place instead of breaking the whole catalog sync.
+    """
+    try:
+        artifact_root = resolve_source_json().parent
+    except FileNotFoundError:
+        return None
+    artifact_root_str = str(artifact_root)
+    if artifact_root_str not in sys.path:
+        sys.path.insert(0, artifact_root_str)
+    os.environ.setdefault(
+        "OVERRIDE_BENCHMARK_TARGETS",
+        str(artifact_root / "reference_config/benchmarking/benchmark_targets/model_performance_reference.json"),
+    )
+    try:
+        import workflows.utils as _wf_utils
+
+        _wf_utils.get_repo_root_path = lambda marker=".git", _root=artifact_root: _root
+        from workflows.model_spec import get_runtime_model_spec
+
+        spec, _impl, _engine = get_runtime_model_spec(hf_model_repo, board_device)
+        return spec.get_serialized_dict()
+    except Exception as e:
+        print(
+            f"chip-tier override: could not load upstream spec for "
+            f"{hf_model_repo} on {board_device}: {e}"
+        )
+        return None
+
+
+def _derive_chip_tier_spec(base: dict, device_type: str, device_ids: str) -> dict:
+    """One P150/P300 variant of `base` (a real whole-board spec dict): same
+    model/image/engine, with only the device identity and worker split
+    overridden. VLLMForge on P300 already uses this exact DEVICE_IDS_2 pattern
+    upstream (tt-media-server/config/constants.py) -- this just derives the
+    equivalent spec for a model that has no native P150/P300 entry."""
+    spec = copy.deepcopy(base)
+    spec["device_type"] = device_type
+    spec["device_model_spec"]["device"] = device_type
+    spec["model_id"] = spec["model_id"].rsplit("_", 1)[0] + "_" + device_type.lower()
+    vllm_overrides = json.dumps(
+        {
+            "model": spec["hf_model_repo"],
+            "max_model_length": 2048,
+            "max_num_batched_tokens": 16384,
+            "min_context_length": 32,
+            "max_num_seqs": 8,
+        }
+    )
+    for env in (spec["device_model_spec"]["env_vars"], spec["env_vars"]):
+        env["MESH_DEVICE"] = device_type
+        env["DEVICE_IDS"] = device_ids
+        env["IS_GALAXY"] = "false"
+        env["VLLM"] = vllm_overrides
+    return spec
+
+
+def apply_chip_tier_overrides(models: list) -> list:
+    """Regenerate the P150/P300 runtime_model_specs/*.json for each model in
+    STUDIO_CHIP_TIER_MODELS from its real, current upstream board spec, and
+    point device_configurations + runtime_model_spec_overrides at them.
+    Returns the list of model_names touched.
+
+    Idempotent, and safe to re-run even offline: each tier's file is
+    regenerated from the live artifact every run (so it can never drift from
+    the real spec), but a model whose upstream spec can't be fetched this run
+    keeps whatever file already exists on disk instead of losing the override.
+    """
+    RUNTIME_MODEL_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+    by_name = {m["model_name"]: m for m in models}
+    touched = []
+    for model_name, board_device in STUDIO_CHIP_TIER_MODELS.items():
+        model = by_name.get(model_name)
+        if not model:
+            continue
+        base = _load_upstream_model_spec(model["hf_model_id"], board_device)
+        devices = list(model.get("device_configurations") or [])
+        specs = dict(model.get("runtime_model_spec_overrides") or {})
+        for device_type, device_ids in STUDIO_CHIP_TIERS[model_name].items():
+            spec_path = RUNTIME_MODEL_SPECS_DIR / f"{model_name.lower()}-{device_type.lower()}.json"
+            if base is not None:
+                derived = _derive_chip_tier_spec(base, device_type, device_ids)
+                with open(spec_path, "w") as f:
+                    json.dump(derived, f, indent=2)
+                    f.write("\n")
+            elif not spec_path.exists():
+                continue  # No fresh base and no existing file -- can't offer this tier.
+            if device_type not in devices:
+                devices.append(device_type)
+            specs[device_type] = str(spec_path.relative_to(_REPO_ROOT.resolve()))
+        devices.sort()
+        model["device_configurations"] = devices
+        model["runtime_model_spec_overrides"] = specs
+        touched.append(model_name)
+    return touched
+
+
+def apply_device_availability(models: list) -> list:
+    """Drop per-device entries a board can't actually run, recording why.
+
+    Returns [(model_name, device, reason)] for what was removed. Idempotent: the
+    device is already gone on a re-run, and the recorded reason is rebuilt from
+    the table rather than trusted from the file.
+    """
+    removed = []
+    for model in models:
+        model.pop("unavailable_devices", None)
+        overrides = STUDIO_UNAVAILABLE_DEVICES.get(model["model_name"])
+        if not overrides:
+            continue
+
+        devices = list(model.get("device_configurations") or [])
+        marks = {}
+        for device, (reason, details) in overrides.items():
+            if reason not in STUDIO_UNAVAILABLE_REASONS:
+                raise ValueError(
+                    f"{model['model_name']}/{device}: unknown reason {reason!r}; "
+                    f"expected one of {STUDIO_UNAVAILABLE_REASONS}"
+                )
+            # Record the mark even if the artifact never claimed this device, so a
+            # stale table entry is visible rather than silently doing nothing.
+            marks[device] = {"reason": reason, "details": details}
+            if device in devices:
+                devices.remove(device)
+                removed.append((model["model_name"], device, reason))
+            else:
+                # The key matched no declared device, so nothing was blocked. Nearly
+                # always a typo -- "P150x4" vs the catalog's "P150X4" shipped once
+                # and left the model on offer on a board it was meant to be pulled
+                # from. Say so loudly; a silent no-op is the whole failure mode.
+                near = [d for d in devices if d.lower() == device.lower()]
+                hint = f" Did you mean {near[0]!r}?" if near else ""
+                print(
+                    f"WARNING: {model['model_name']}: '{device}' is not one of its "
+                    f"devices {devices}, so nothing was blocked.{hint}"
+                )
+
+        model["device_configurations"] = devices
+        model["unavailable_devices"] = marks
+
+        # Nothing left to deploy on: hide the model rather than shipping an entry
+        # with an empty device list, which every board would read as incompatible
+        # with no explanation.
+        if not devices:
+            model["available_in_studio"] = False
+            model["unavailable_reason"] = "known_broken"
+            model["unavailable_details"] = (
+                "No supported device left: "
+                + "; ".join(f"{d}: {m['details']}" for d, m in sorted(marks.items()))
+            )
+
+    return removed
+
+
+def apply_studio_availability(models: list) -> list:
+    """Stamp availability marks on every model, and return the hidden ones.
+
+    Authoritative and idempotent: any pre-existing mark is cleared first, so the
+    tables above fully determine what is hidden. A model that is available
+    carries no availability fields at all -- the catalog stays readable, and a
+    consumer treats "no mark" as available.
+    """
+    hidden = []
+    for model in models:
+        for key in ("available_in_studio", "unavailable_reason", "unavailable_details"):
+            model.pop(key, None)
+
+        override = STUDIO_UNAVAILABLE_MODELS.get(model["model_name"])
+        if override:
+            reason, details = override
+        elif model.get("model_type") in UNSUPPORTED_STUDIO_MODEL_TYPES:
+            reason = "unsupported_in_studio"
+            details = UNSUPPORTED_STUDIO_MODEL_TYPES[model["model_type"]]
+        else:
+            continue
+
+        if reason not in STUDIO_UNAVAILABLE_REASONS:
+            raise ValueError(
+                f"{model['model_name']}: unknown reason {reason!r}; "
+                f"expected one of {STUDIO_UNAVAILABLE_REASONS}"
+            )
+        model["available_in_studio"] = False
+        model["unavailable_reason"] = reason
+        model["unavailable_details"] = details
+        hidden.append((model["model_name"], reason))
+
+    return hidden
 
 
 def _impl_selector(value):
@@ -87,11 +322,20 @@ def _impl_selector(value):
     return None
 
 
-def load_existing_catalog(path: Path) -> dict:
-    """Return {model_name: entry} for the catalog already on disk, or {} if none.
+def _entry_identity(entry: dict) -> tuple:
+    """(model_name, inference_engine) -- distinguishes rows that share a name but
+    differ by engine (forge TRAINING vs vLLM CHAT "Llama-3.1-8B-Instruct")."""
+    return (
+        entry.get("model_name"),
+        (entry.get("inference_engine") or "").lower(),
+    )
 
-    Never fatal: a missing or malformed catalog just means there is nothing to
-    preserve, which is the correct outcome for a first-time sync.
+
+def load_existing_catalog(path: Path) -> dict:
+    """Return {identity: entry} for the on-disk catalog, or {} if missing/corrupt.
+
+    Keyed by identity, not name, so two same-named rows on different engines both
+    survive (a name-keyed index would drop one).
     """
     if not path.exists():
         return {}
@@ -102,7 +346,7 @@ def load_existing_catalog(path: Path) -> dict:
         print(f"Warning: could not read existing catalog ({e}); nothing to preserve")
         return {}
     return {
-        m["model_name"]: m
+        _entry_identity(m): m
         for m in data.get("models", [])
         if isinstance(m, dict) and m.get("model_name")
     }
@@ -117,34 +361,32 @@ def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
     - A model that exists ONLY in the dev-tier catalog can't appear in a prod
       release snapshot at all, so a rebuild deletes the whole entry.
 
-    A third loss, and the reason for HAND_OWNED_MARKER: a hand-added entry whose
-    model_name COLLIDES with a synced one. Name-keyed preservation silently hands
-    the synced entry the hand-owned fields and throws the rest of the hand-added
-    row away -- a different model_type, engine, service_route and env_vars. The
-    marked entry wins outright instead, and the colliding synced entry is dropped
-    so model_name stays unique.
+    A third loss (the reason for HAND_OWNED_MARKER): a hand-added row displaced by
+    a synced one of the same identity. The marked row wins; only a synced row of
+    the SAME identity is dropped, so a same-name row on another engine coexists.
+    Matching is by identity, so this ignores how `existing` was keyed.
 
     Returns (merged_models, preserved_field_names, retained_model_names).
     """
     preserved, retained = [], []
+    by_identity = {_entry_identity(old): old for old in existing.values()}
     hand_owned = {
-        name for name, old in existing.items() if old.get(HAND_OWNED_MARKER)
+        ident for ident, old in by_identity.items() if old.get(HAND_OWNED_MARKER)
     }
 
-    # Drop synced entries whose name is claimed by a hand-owned entry; the
-    # hand-owned row is re-appended intact by the retain loop below.
-    displaced = [m["model_name"] for m in models if m["model_name"] in hand_owned]
+    # Drop synced entries claimed by a hand-owned identity; retained below.
+    displaced = [m["model_name"] for m in models if _entry_identity(m) in hand_owned]
     if displaced:
-        models = [m for m in models if m["model_name"] not in hand_owned]
+        models = [m for m in models if _entry_identity(m) not in hand_owned]
         print(
-            f"Kept {len(displaced)} hand-owned entry(ies) over a same-named source "
+            f"Kept {len(displaced)} hand-owned entry(ies) over a same-identity source "
             f"entry: {', '.join(sorted(displaced))}"
         )
 
-    synced_names = {m["model_name"] for m in models}
+    synced_idents = {_entry_identity(m) for m in models}
 
     for model in models:
-        old = existing.get(model["model_name"])
+        old = by_identity.get(_entry_identity(model))
         if not old:
             continue
         for key in HAND_OWNED_KEYS:
@@ -152,10 +394,10 @@ def merge_hand_owned(models: list, existing: dict) -> tuple[list, list, list]:
                 model[key] = old[key]
                 preserved.append(f"{model['model_name']}.{key}")
 
-    for name, old in existing.items():
-        if name not in synced_names:
+    for ident, old in by_identity.items():
+        if ident not in synced_idents:
             models.append(old)
-            retained.append(name)
+            retained.append(old.get("model_name"))
 
     return models, preserved, retained
 
@@ -261,6 +503,12 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         hf_model_id: HuggingFace model ID (for vLLM chat detection)
         raw_model_type: Raw model type from inference server (TEXT_TO_SPEECH, TTS, etc.)
     """
+    # Embedding models register tt-media-server's embedding.router at "/v1" regardless of
+    # which runner backs them (media or forge) -- see tt-media-server/open_ai_api/__init__.py
+    # SERVICE_ROUTER_MAP[EMBEDDING]. Check this before the per-engine branches below, which
+    # would otherwise route forge-backed embedding models (e.g. bge-m3) to /v1/chat/completions.
+    if raw_model_type == "EMBEDDING":
+        return "/v1/embeddings"
     if inference_engine == "vLLM":
         return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
@@ -278,7 +526,7 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
             if "i2v" in hf_model_id.lower():
                 return "/v1/videos/generations/i2v"
             return "/v1/videos/generations"
-        # Other media models (embedding, etc.) use enqueue
+        # Other media models use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         if raw_model_type == "TRAINING":
@@ -395,62 +643,62 @@ def normalize(source_path: Path) -> list[dict]:
         by_model.setdefault(name, []).append(entry)
 
     models = []
-    for model_name, entries in by_model.items():
-        # Use first entry for genuinely model-level fields that are identical
-        # across all device entries (hf_model_repo, model_type, engine, ...).
-        first = entries[0]
-        # version/docker_image vary per device entry, so pick the highest version.
-        canonical = pick_canonical_entry(entries)
+    for model_name, name_entries in by_model.items():
+        # Split by engine: one name can span engines (vLLM CHAT + forge TRAINING
+        # both "Llama-3.1-8B-Instruct") and those are separate entries. Merging by
+        # name let the higher-versioned training spec clobber the chat image.
+        # Record an impl only for the cross-engine case (name has >1 impl); a
+        # redundant one 404s the server's (model, device, impl) lookup.
+        name_distinct_impls = {_impl_selector(e.get("impl")) for e in name_entries}
+        name_distinct_impls.discard(None)
+        needs_disambiguating_impl = len(name_distinct_impls) > 1
 
-        # Aggregate device_types (union across all entries). Lookup is
-        # case-insensitive so artifact casing drift can't silently drop a device.
-        device_configurations = sorted(
-            {
-                DEVICE_TYPE_TO_CONFIG[(e.get("device_type") or "").upper()]
-                for e in entries
-                if (e.get("device_type") or "").upper() in DEVICE_TYPE_TO_CONFIG
-            }
-        )
+        by_engine: dict[str, list[dict]] = {}
+        for e in name_entries:
+            by_engine.setdefault(e.get("inference_engine", "vLLM"), []).append(e)
 
-        # Pick highest status
-        status = None
-        for e in entries:
-            status = pick_higher_status(status, e.get("status", "EXPERIMENTAL"))
+        for inference_engine, entries in by_engine.items():
+            # Model-level fields from the first entry; take the highest version
+            # since version/docker_image vary per device.
+            first = entries[0]
+            canonical = pick_canonical_entry(entries)
 
-        # Model-level env_vars (from first entry, strip device-specific keys)
-        env_vars = filter_env_vars(first.get("env_vars") or {})
+            # Union of device_types; case-insensitive so casing drift can't drop one.
+            device_configurations = sorted(
+                {
+                    DEVICE_TYPE_TO_CONFIG[(e.get("device_type") or "").upper()]
+                    for e in entries
+                    if (e.get("device_type") or "").upper() in DEVICE_TYPE_TO_CONFIG
+                }
+            )
 
-        inference_engine = first.get("inference_engine", "vLLM")
-        raw_model_type = first.get("model_type", "LLM")
-        service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
+            status = None
+            for e in entries:
+                status = pick_higher_status(status, e.get("status", "EXPERIMENTAL"))
 
-        # Record an impl only when it actually disambiguates. The server does a
-        # stricter (model, device, impl) lookup that misses specs outside the prod
-        # tier, so an impl that buys no disambiguation turns a working resolve into
-        # a 404 (e.g. speecht5_tts on Blackhole). A future dev-catalog spec that
-        # collides on name+device won't appear in this prod artifact, so it can't be
-        # seen here; such models arrive as hand-added retained entries whose impl is
-        # preserved, or the impl can be set by hand.
-        distinct_impls = {_impl_selector(e.get("impl")) for e in entries}
-        distinct_impls.discard(None)
-        disambiguating_impl = _impl_selector(first.get("impl")) if len(distinct_impls) > 1 else None
+            env_vars = filter_env_vars(first.get("env_vars") or {})
 
-        models.append({
-            "model_name": model_name,
-            "model_type": map_model_type(raw_model_type, inference_engine),
-            "display_model_type": raw_model_type,
-            "device_configurations": device_configurations,
-            "hf_model_id": first.get("hf_model_repo"),
-            "inference_engine": inference_engine,
-            "impl": disambiguating_impl,
-            "status": status,
-            "version": canonical.get("version", "0.0.0"),
-            "docker_image": canonical.get("docker_image"),
-            "service_route": service_route,
-            "health_route": map_health_route(inference_engine, service_route),
-            "env_vars": env_vars,
-            "param_count": first.get("param_count"),
-        })
+            raw_model_type = first.get("model_type", "LLM")
+            service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
+
+            disambiguating_impl = _impl_selector(first.get("impl")) if needs_disambiguating_impl else None
+
+            models.append({
+                "model_name": model_name,
+                "model_type": map_model_type(raw_model_type, inference_engine),
+                "display_model_type": raw_model_type,
+                "device_configurations": device_configurations,
+                "hf_model_id": first.get("hf_model_repo"),
+                "inference_engine": inference_engine,
+                "impl": disambiguating_impl,
+                "status": status,
+                "version": canonical.get("version", "0.0.0"),
+                "docker_image": canonical.get("docker_image"),
+                "service_route": service_route,
+                "health_route": map_health_route(inference_engine, service_route),
+                "env_vars": env_vars,
+                "param_count": first.get("param_count"),
+            })
 
     # Sort: by status (highest first), then alphabetically by model_name
     models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
@@ -483,10 +731,35 @@ def main():
         if "impl" in _m:
             _m["impl"] = _impl_selector(_m.get("impl"))
 
-    excluded = [m["model_name"] for m in models if m["model_name"] in EXCLUDED_MODEL_NAMES]
-    if excluded:
-        models = [m for m in models if m["model_name"] not in EXCLUDED_MODEL_NAMES]
-        print(f"Excluded {len(excluded)} model(s): {', '.join(excluded)}")
+    # Add chip-tier device + spec overrides before the availability passes, so
+    # a model's device_configurations already reflects them going in.
+    chip_tiers = apply_chip_tier_overrides(models)
+    if chip_tiers:
+        print(f"Applied chip-tier overrides: {', '.join(sorted(chip_tiers))}")
+
+    # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
+    # the next resync doesn't silently reintroduce them and the reason travels
+    # with the catalog.
+    # Order matters: the model-wide pass clears availability fields before
+    # re-stamping them, and the per-device pass may set those same fields when it
+    # strips a model's last device. Device pass second, so that survives.
+    apply_studio_availability(models)
+    dropped = apply_device_availability(models)
+    if dropped:
+        print(f"Blocked {len(dropped)} model/device pair(s):")
+        for name, device, reason in sorted(dropped):
+            print(f"  {name} on {device}: {reason}")
+
+    # Report the FINAL state, not `hidden` from the model-wide pass: the device
+    # pass runs after it and can hide a model outright by taking its last device.
+    final_hidden: dict[str, list[str]] = {}
+    for m in models:
+        if m.get("available_in_studio") is False:
+            final_hidden.setdefault(m["unavailable_reason"], []).append(m["model_name"])
+    if final_hidden:
+        print(f"Hidden from TT-Studio: {sum(len(v) for v in final_hidden.values())} model(s)")
+        for reason, names in sorted(final_hidden.items()):
+            print(f"  {reason}: {', '.join(sorted(names))}")
 
     if preserved:
         print(f"Preserved {len(preserved)} hand-set field(s): {', '.join(preserved)}")
@@ -530,6 +803,7 @@ def main():
     status_counts = Counter(m["status"] for m in models)
     type_counts = Counter(m["model_type"] for m in models)
     display_type_counts = Counter(m["display_model_type"] for m in models)
+    print(f"  Shown in TT-Studio:        {sum(1 for m in models if m.get('available_in_studio', True) is not False)} of {len(models)}")
     print(f"  Status distribution:       {dict(status_counts)}")
     print(f"  Type distribution:         {dict(type_counts)}")
     print(f"  Display type distribution: {dict(display_type_counts)}")
