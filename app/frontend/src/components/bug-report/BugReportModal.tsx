@@ -19,6 +19,12 @@ interface BugReportModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Apple Mail opens an .eml from disk as a received message — it ignores
+ *  X-Unsent and never offers Send — so Mac users must Forward instead. */
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac/i.test(navigator.platform || navigator.userAgent);
+
 export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
   const {
     step,
@@ -238,11 +244,20 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                     </span>{" "}
                     from your Downloads.
                   </li>
-                  <li>
-                    Hit <strong>Send</strong>. If it opens as a received message
-                    instead of a draft, hit <strong>Forward</strong> and send it
-                    to support@tenstorrent.com. The logs stay attached.
-                  </li>
+                  {isMac ? (
+                    <li>
+                      Apple Mail shows it as a received message, so hit{" "}
+                      <strong>Forward</strong> and send it to
+                      support@tenstorrent.com. The logs stay attached.
+                    </li>
+                  ) : (
+                    <li>
+                      Hit <strong>Send</strong>. If it opens as a received
+                      message instead of a draft, hit <strong>Forward</strong>{" "}
+                      and send it to support@tenstorrent.com. The logs stay
+                      attached.
+                    </li>
+                  )}
                 </ol>
               </div>
             )}
