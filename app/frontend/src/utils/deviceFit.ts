@@ -150,24 +150,118 @@ function meshPlacement(chipsRequired: number, totalSlots: number): ModelPlacemen
   };
 }
 
-// SINGLE SOURCE OF TRUTH for per-model device configurations.
+// A community bundle's serve profile, as the model list describes it.
+export interface ServeProfile {
+  name: string;
+  id: string; // model_id that deploys this profile
+  chips_required: number;
+  is_compatible: boolean | null;
+}
+
+// Devices a profile spans in the UI's terms, where 4 means the whole board.
+function profileDevices(profile: ServeProfile, totalSlots: number): number {
+  return Math.min(profile.chips_required, fullBoardSlots(totalSlots).length);
+}
+
+function runnableProfiles(profiles: ServeProfile[], totalSlots: number): ServeProfile[] {
+  return profiles.filter(
+    (p) => p.is_compatible !== false && p.chips_required <= totalSlots
+  );
+}
+
+// Distinct device counts the runnable profiles offer, `preferred`'s first, then largest.
+function profileTiers(
+  profiles: ServeProfile[],
+  totalSlots: number,
+  preferred?: string
+): number[] {
+  const runnable = runnableProfiles(profiles, totalSlots);
+  const first = runnable.find((p) => p.name === preferred);
+  const sizes = runnable
+    .map((p) => profileDevices(p, totalSlots))
+    .sort((a, b) => b - a);
+  if (first) sizes.unshift(profileDevices(first, totalSlots));
+  return Array.from(new Set(sizes));
+}
+
+// Placement for a community bundle: one tier per mesh among its profiles that fit
+// this board, falling back to `chipsRequired` when none are known. The manifest is
+// authoritative (tt-model-manager scopes the container to exactly the chips it is
+// handed), so getModelPlacement's name-matched catalog rules never apply — a Hub id
+// like "ns/llama-3.1-8b-..." readily matches those names.
+export function communityPlacement(
+  profiles: ServeProfile[] = [],
+  chipsRequired: number,
+  totalSlots: number
+): ModelPlacement {
+  const sizes = profileTiers(profiles, totalSlots);
+  if (sizes.length === 0) return meshPlacement(chipsRequired, totalSlots);
+  const board = fullBoardSlots(totalSlots).length;
+  const allowsSingle = sizes.includes(1);
+  const group = sizes.filter((n) => n > 1 && n < board).pop();
+  const groups = group ? alignedChipGroups(group, totalSlots) : [];
+  return {
+    allowsSingle,
+    allowsFullBoard: board > 1 && sizes.includes(board),
+    // Alongside a single device a card group is a middle tier; without one it is
+    // the smallest unit the bundle runs on.
+    cardGroups: allowsSingle ? [] : groups,
+    pairGroups: allowsSingle && groups.length > 0 ? groups : undefined,
+  };
+}
+
+// Devices an automatic deploy of a community bundle uses: its preferred profile's
+// mesh when that fits now, else the largest that does (the backend's
+// _preferred_community_profile rule, applied to current occupancy).
+export function autoCommunityPlacement(
+  profiles: ServeProfile[] = [],
+  chipsRequired: number,
+  preferred: string | undefined,
+  slots: DeviceSlotLike[],
+  totalSlots: number
+): { deviceIds: number[]; fullBoard: boolean } | null {
+  const sizes = profileTiers(profiles, totalSlots, preferred);
+  for (const n of sizes.length > 0 ? sizes : [chipsRequired]) {
+    const place = autoPlacement(meshPlacement(n, totalSlots), n, slots, totalSlots);
+    if (place) return place;
+  }
+  return null;
+}
+
+// Fewest devices any runnable profile of a community bundle needs.
+export function communityMinDevices(
+  profiles: ServeProfile[] = [],
+  chipsRequired: number,
+  totalSlots: number
+): number {
+  const sizes = profileTiers(profiles, totalSlots);
+  return sizes.length > 0 ? Math.min(...sizes) : chipsRequired;
+}
+
+// The profile serving a deploy on `deviceCount` devices: `preferred` when its mesh
+// matches, else the first such profile in manifest order. Mirrors the backend's
+// profile_for_chips.
+export function profileForDevices(
+  profiles: ServeProfile[] = [],
+  deviceCount: number,
+  totalSlots: number,
+  preferred?: string
+): ServeProfile | undefined {
+  const matches = runnableProfiles(profiles, totalSlots).filter(
+    (p) => profileDevices(p, totalSlots) === deviceCount
+  );
+  return matches.find((p) => p.name === preferred) ?? matches[0];
+}
+
+// SINGLE SOURCE OF TRUTH for per-model device configurations of catalog models
+// (community bundles use communityPlacement).
 // Add a branch here to support a new flexible/custom model.
 export function getModelPlacement(
   modelName: string,
   chipsRequired: number,
   boardType?: string,
-  modelType?: string,
-  totalSlots = 4,
-  isCommunity = false
+  modelType?: string
 ): ModelPlacement {
-  // A community bundle's manifest is authoritative: tt-model-manager scopes the
-  // container to exactly the chips it is handed. The special cases below are
-  // name-matched and describe how tt-inference-server deploys a catalog model, so
-  // applying them to a bundle would place it on chips it never asked for — and a
-  // bundle's Hub id ("ns/llama-3.1-8b-...") readily matches those names.
-  if (isCommunity) {
-    return meshPlacement(chipsRequired, totalSlots);
-  }
   // Training on P300x2 runs on a single 2-chip card (auto default) or the full
   // board; elsewhere the full board. Routed by model_type, not name, since it
   // shares the "Llama-3.1-8B-Instruct" name with the chat model.

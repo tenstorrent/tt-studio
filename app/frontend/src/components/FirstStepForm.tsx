@@ -38,7 +38,14 @@ import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { useModels } from "../hooks/useModels";
-import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
+import {
+  autoCommunityPlacement,
+  autoPlacement,
+  communityMinDevices,
+  communityPlacement,
+  deployabilityReason,
+  getModelPlacement,
+} from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
 
 // Status configuration with icons and labels
@@ -335,22 +342,27 @@ export function FirstStepForm({
   // deployed against the currently free devices.
   const renderModelItem = (model: Model, dotClass: string) => {
     const chips = model.chips_required ?? 1;
-    const placement = getModelPlacement(
-      model.name,
-      chips,
-      chipStatus?.board_type,
-      model.model_type,
-      chipStatus?.total_slots ?? 4,
-      model.source === "community"
-    );
+    const totalSlots = chipStatus?.total_slots ?? 4;
+    const isCommunity = model.source === "community";
+    const placement = isCommunity
+      ? communityPlacement(model.profiles, chips, totalSlots)
+      : getModelPlacement(model.name, chips, chipStatus?.board_type, model.model_type);
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
+    // A community bundle fits when any of its profiles does, not just the preferred one.
     const fits =
       isDeploying ||
       !chipStatus ||
-      autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
+      (isCommunity
+        ? autoCommunityPlacement(model.profiles, chips, model.profile, chipStatus.slots, totalSlots)
+        : autoPlacement(placement, chips, chipStatus.slots, totalSlots)) !== null;
     const reason = !isDeploying && chipStatus
-      ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
+      ? deployabilityReason(
+          placement,
+          isCommunity ? communityMinDevices(model.profiles, chips, totalSlots) : chips,
+          chipStatus.slots,
+          totalSlots
+        )
       : null;
     return (
       <SelectItem

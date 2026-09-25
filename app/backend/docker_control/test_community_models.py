@@ -21,6 +21,7 @@ from shared_config.community_model_config import (
     devices_for_hardware,
     is_community_model_id,
     parse_community_model_id,
+    profile_for_chips,
 )
 from shared_config.device_config import DeviceConfigurations
 from shared_config.model_type_config import ModelTypes
@@ -298,23 +299,86 @@ class RequestedDeviceIdTests(unittest.TestCase):
     """Parsing the deploy form's device_id, which arrives as an int or "0,1"."""
 
     def _parse(self, raw):
-        from docker_control.community_deploy import _requested_device_id
+        from docker_control.community_deploy import _requested_device_ids
 
-        return _requested_device_id(raw)
+        return _requested_device_ids(raw)
 
     def test_auto_placement_when_absent_or_blank(self):
         for raw in (None, "", "   "):
-            self.assertIsNone(self._parse(raw))
+            self.assertEqual(self._parse(raw), [])
 
     def test_reads_an_int_or_a_string(self):
-        self.assertEqual(self._parse(2), 2)
-        self.assertEqual(self._parse("2"), 2)
+        self.assertEqual(self._parse(2), [2])
+        self.assertEqual(self._parse("2"), [2])
 
-    def test_takes_the_base_slot_of_a_group(self):
-        self.assertEqual(self._parse("2,3"), 2)
+    def test_reads_every_slot_of_a_group(self):
+        self.assertEqual(self._parse("2, 3"), [2, 3])
 
     def test_junk_falls_back_to_auto_placement(self):
-        self.assertIsNone(self._parse("nope"))
+        self.assertEqual(self._parse("nope"), [])
+
+
+# One profile per mesh, like jashansinghTT/olmo-3.1-32b-instruct-blackhole.
+TIERED_BUNDLE = {
+    **BUNDLE,
+    "repo_id": "ns/tiered",
+    "default_profile": "p150",
+    "profiles": [
+        {"name": "p150", "hardware": "p150", "chips_required": 1},
+        {"name": "p300", "hardware": "p300", "chips_required": 2},
+        {"name": "p300-long", "hardware": "p300", "chips_required": 2},
+        {"name": "p300x2", "hardware": "p300x2", "chips_required": 4},
+    ],
+}
+
+
+class ProfileForChipsTests(unittest.TestCase):
+    def test_picks_the_profile_with_that_mesh(self):
+        self.assertEqual(profile_for_chips(TIERED_BUNDLE, 4), "p300x2")
+
+    def test_first_in_manifest_order_wins_a_tie(self):
+        self.assertEqual(profile_for_chips(TIERED_BUNDLE, 2), "p300")
+
+    def test_the_preferred_profile_wins_a_tie(self):
+        self.assertEqual(profile_for_chips(TIERED_BUNDLE, 2, "p300-long"), "p300-long")
+
+    def test_a_preferred_profile_of_another_size_is_ignored(self):
+        self.assertEqual(profile_for_chips(TIERED_BUNDLE, 2, "p150"), "p300")
+
+    def test_no_matching_mesh(self):
+        self.assertIsNone(profile_for_chips(TIERED_BUNDLE, 8))
+        self.assertIsNone(profile_for_chips({}, 1))
+
+
+class PinnedProfileTests(unittest.TestCase):
+    """An explicit multi-device pin deploys the profile with that mesh."""
+
+    def _resolve(self, pinned, profile=None):
+        from docker_control.community_deploy import _impl_for_pinned_devices
+
+        impl = build_community_model_impl(TIERED_BUNDLE, profile)
+        with patch(
+            "docker_control.community_deploy.fetch_bundle", return_value=TIERED_BUNDLE
+        ):
+            return _impl_for_pinned_devices(impl, pinned)
+
+    def test_a_card_pin_switches_to_the_two_chip_profile(self):
+        impl = self._resolve([2, 3])
+        self.assertEqual((impl.profile, impl.chips_required), ("p300", 2))
+        self.assertEqual(impl.model_id, community_model_id("ns/tiered", "p300"))
+
+    def test_a_board_pin_switches_to_the_four_chip_profile(self):
+        self.assertEqual(self._resolve([0, 1, 2, 3]).profile, "p300x2")
+
+    def test_a_pin_matching_the_requested_profile_keeps_it(self):
+        self.assertEqual(self._resolve([0, 1], "p300-long").profile, "p300-long")
+
+    def test_a_lone_slot_keeps_the_requested_profile(self):
+        # For a multi-chip profile a single slot only names the base.
+        self.assertEqual(self._resolve([2], "p300x2").profile, "p300x2")
+
+    def test_a_pin_no_profile_matches_keeps_the_requested_profile(self):
+        self.assertEqual(self._resolve([0, 1, 2]).profile, "p150")
 
 
 if __name__ == "__main__":

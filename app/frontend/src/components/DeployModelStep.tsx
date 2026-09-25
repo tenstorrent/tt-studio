@@ -47,6 +47,7 @@ export function DeployModelStep({
   deviceAutoSelected,
   placementBlocked,
   usesCardGroup,
+  profileName,
   chipStatus,
   registerDeployment,
   activeDeployment,
@@ -71,6 +72,8 @@ export function DeployModelStep({
   placementBlocked?: boolean;
   // True when the model runs on a card group rather than the whole board.
   usesCardGroup?: boolean;
+  // Community bundles: the serve profile the chosen devices deploy.
+  profileName?: string;
   // Reservation-aware chip status from the parent (in-flight deploys overlaid)
   chipStatus?: ChipStatus | null;
   // Registers a fired deploy with the session-wide tracker (progress tray + reservations).
@@ -578,6 +581,17 @@ export function DeployModelStep({
                   (auto-selected)
                 </span>
               )}
+            </div>
+          )}
+          {profileName && (
+            <div className="flex items-center space-x-2">
+              <Cpu className="text-TT-purple-accent" />
+              <span className="text-sm text-gray-800 dark:text-gray-400">
+                Serve profile:
+              </span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                {profileName}
+              </span>
             </div>
           )}
           {(!previewDeviceIds || previewDeviceIds.length === 0) &&

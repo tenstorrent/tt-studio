@@ -399,10 +399,37 @@ def _community_model_entries(current_board, refresh=False):
             # Hub popularity is a catalog field; the manifest knows nothing about it.
             "downloads": row.get("downloads"),
             "installed": bool(row.get("installed")),
-            "profiles": list(impl.profiles),
+            "profiles": _community_profiles(
+                impl.repo_id, detail, current_board, board_slots
+            ),
             "profile": impl.profile,
         })
     return entries
+
+
+def _community_profiles(repo_id, detail, current_board, board_slots):
+    """Each serve profile's deploy id, mesh and fit on this board, in manifest order.
+
+    The deploy UI offers one device tier per mesh that fits, then deploys the id of
+    the profile matching the devices chosen.
+    """
+    from shared_config.community_model_config import devices_for_hardware
+
+    return [
+        {
+            "name": p["name"],
+            "id": community_model_id(repo_id, p["name"]),
+            "chips_required": p.get("chips_required") or 1,
+            "is_compatible": _community_fit(
+                devices_for_hardware(p.get("hardware")),
+                p.get("chips_required"),
+                current_board,
+                board_slots,
+            ),
+        }
+        for p in detail.get("profiles") or []
+        if p.get("name")
+    ]
 
 
 def _preferred_community_profile(detail, current_board, board_slots):

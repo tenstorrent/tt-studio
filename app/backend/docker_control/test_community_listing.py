@@ -10,8 +10,15 @@ hides a deployable model or offers a device configuration the deploy then refuse
 
 from django.test import TestCase
 
-from docker_control.views import _community_fit, _preferred_community_profile
-from shared_config.community_model_config import devices_for_hardware
+from docker_control.views import (
+    _community_fit,
+    _community_profiles,
+    _preferred_community_profile,
+)
+from shared_config.community_model_config import (
+    community_model_id,
+    devices_for_hardware,
+)
 
 BOARD = "P300x2"
 SLOTS = 4
@@ -86,3 +93,43 @@ class PreferredProfileTests(TestCase):
 
     def test_no_profiles_at_all_is_handled(self):
         self.assertIsNone(self._pick([], "default"))
+
+
+class CommunityProfilesTests(TestCase):
+    """The per-profile rows the deploy UI builds its device tiers from."""
+
+    def test_every_profile_is_described_with_its_deploy_id_and_fit(self):
+        detail = {
+            "profiles": [
+                _profile("p150", "p150", 1),
+                _profile("p300", "p300", 2),
+                _profile("p150x8", "p150x8", 8),
+            ]
+        }
+        self.assertEqual(
+            _community_profiles("ns/model", detail, BOARD, SLOTS),
+            [
+                {
+                    "name": "p150",
+                    "id": community_model_id("ns/model", "p150"),
+                    "chips_required": 1,
+                    "is_compatible": True,
+                },
+                {
+                    "name": "p300",
+                    "id": community_model_id("ns/model", "p300"),
+                    "chips_required": 2,
+                    "is_compatible": True,
+                },
+                {
+                    "name": "p150x8",
+                    "id": community_model_id("ns/model", "p150x8"),
+                    "chips_required": 8,
+                    "is_compatible": False,
+                },
+            ],
+        )
+
+    def test_unnamed_profiles_are_skipped(self):
+        detail = {"profiles": [{"hardware": "p150", "chips_required": 1}]}
+        self.assertEqual(_community_profiles("ns/model", detail, BOARD, SLOTS), [])

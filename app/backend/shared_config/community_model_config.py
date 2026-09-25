@@ -103,6 +103,18 @@ def devices_for_hardware(hardware: Optional[str]) -> FrozenSet[DeviceConfigurati
     return frozenset({device}) if device else frozenset()
 
 
+def profile_for_chips(
+    bundle: Dict[str, Any], chips: int, preferred: Optional[str] = None
+) -> Optional[str]:
+    """The profile opening exactly ``chips`` chips: ``preferred`` if it does, else the first."""
+    names = [
+        p.get("name")
+        for p in bundle.get("profiles") or []
+        if p.get("name") and int(p.get("chips_required") or 1) == chips
+    ]
+    return preferred if preferred in names else next(iter(names), None)
+
+
 @dataclass(frozen=True)
 class CommunityModelImpl:
     """Stand-in model_impl for a tt-model-manager bundle."""

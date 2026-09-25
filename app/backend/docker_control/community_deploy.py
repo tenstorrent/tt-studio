@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from rest_framework import status
 from rest_framework.response import Response
@@ -32,7 +32,11 @@ from docker_control.deploy_guards import (
     hugging_face_access_refusal,
 )
 from docker_control.launchers.base import StartRequest
-from docker_control.tt_model_client import get_community_impl
+from docker_control.tt_model_client import fetch_bundle, get_community_impl
+from shared_config.community_model_config import (
+    build_community_model_impl,
+    profile_for_chips,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,9 @@ def deploy_community_model(request) -> Response:
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    pinned = _requested_device_ids(request.data.get("device_id"))
+    impl = _impl_for_pinned_devices(impl, pinned)
 
     launcher = launchers.get(launchers.COMMUNITY)
     if not launcher.available():
@@ -91,9 +98,7 @@ def deploy_community_model(request) -> Response:
         return Response(refusal[0], status=refusal[1])
 
     try:
-        device_id, device_ids = _allocate_slots(
-            impl, _requested_device_id(request.data.get("device_id"))
-        )
+        device_id, device_ids = _allocate_slots(impl, pinned[0] if pinned else None)
     except MultiChipConflictError as e:
         logger.warning(f"Multi-chip conflict for {impl.repo_id}: {e}")
         return Response(
@@ -152,19 +157,28 @@ def deploy_community_model(request) -> Response:
     )
 
 
-def _requested_device_id(raw) -> Optional[int]:
-    """The base slot the user pinned in advanced mode, or None for auto-placement.
-
-    Accepts the comma-separated form the deploy form also sends for catalog models
-    ("0,1"); only the first slot matters, since the bundle's own chip count decides
-    how many follow it.
-    """
+def _requested_device_ids(raw) -> List[int]:
+    """The slots the user pinned ("2" or "2,3"), or [] for auto-placement."""
     if raw is None or str(raw).strip() == "":
-        return None
+        return []
     try:
-        return int(str(raw).split(",")[0].strip())
+        return [int(part) for part in str(raw).split(",") if part.strip()]
     except ValueError:
-        return None
+        return []
+
+
+def _impl_for_pinned_devices(impl, pinned: List[int]):
+    """Switch to the profile whose mesh matches an explicit multi-device pin.
+
+    "0,1" states a chip count the model_id's profile need not match: the CLI's
+    --device-id sends the listing's default id. A lone slot is left alone, since for
+    a multi-chip profile it only names the base slot.
+    """
+    if len(pinned) < 2 or len(pinned) == impl.chips_required:
+        return impl
+    bundle = fetch_bundle(impl.repo_id)
+    name = profile_for_chips(bundle or {}, len(pinned), preferred=impl.profile)
+    return build_community_model_impl(bundle, name, impl.service_port) if name else impl
 
 
 def _allocate_slots(impl, manual_device_id: Optional[int]):
