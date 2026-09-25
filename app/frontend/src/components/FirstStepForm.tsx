@@ -84,6 +84,8 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
   TRAINING: { label: "Fine-tuning", order: 9 },
+  // Community bundles no TT Studio page drives: deployable and manageable only.
+  OTHER: { label: "Other Models (deploy only)", order: 10 },
 };
 
 // Models whose weights are large and frequently fail/stall when Hugging Face
@@ -380,6 +382,14 @@ export function FirstStepForm({
           {model.source === "community" && (
             <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
               {model.installed ? "installed" : "not downloaded"}
+            </span>
+          )}
+          {model.no_page_reason && (
+            <span
+              title={model.no_page_reason}
+              className="ml-2 text-[10px] text-amber-500/80 whitespace-nowrap"
+            >
+              deploy only
             </span>
           )}
           {isDeploying ? (

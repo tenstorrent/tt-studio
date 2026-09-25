@@ -18,7 +18,9 @@ from shared_config.community_model_config import (
     arch_for_board,
     build_community_model_impl,
     community_model_id,
+    community_model_type,
     devices_for_hardware,
+    no_page_reason,
     is_community_model_id,
     parse_community_model_id,
     profile_for_chips,
@@ -133,6 +135,63 @@ class BuildImplTests(unittest.TestCase):
         self.assertEqual(data["device_configurations"], ["P300x2"])
 
 
+# Shaped like changh95/qwen-image-2.1-p150's `inspect` document.
+DIT_BUNDLE = {
+    "repo_id": "changh95/qwen-image-2.1-p150",
+    "kind": "tt-dit-server",
+    "task": "text-to-image",
+    "weights_repo": "Qwen/Qwen-Image-2.1",
+    "default_profile": "default",
+    "profiles": [{"name": "default", "hardware": "p150", "chips_required": 1}],
+}
+
+
+class ModelTypeTests(unittest.TestCase):
+    def test_vllm_bundles_are_chat_whatever_the_task(self):
+        self.assertEqual(community_model_type("vllm-plugin", None), ModelTypes.CHAT)
+        self.assertEqual(community_model_type("vllm-fork", "robotics"), ModelTypes.CHAT)
+
+    def test_dit_image_tasks_are_image_generation(self):
+        for task in ("text-to-image", "image-to-image"):
+            self.assertEqual(
+                community_model_type("tt-dit-server", task), ModelTypes.IMAGE_GENERATION
+            )
+
+    def test_dit_tasks_without_a_page_deploy_as_unknown(self):
+        for task in ("robotics", "depth-estimation", "never-seen", None):
+            self.assertEqual(
+                community_model_type("tt-dit-server", task), ModelTypes.UNKNOWN
+            )
+
+    def test_unlisted_engines_deploy_as_unknown(self):
+        self.assertEqual(
+            community_model_type("something-new", "text-to-image"), ModelTypes.UNKNOWN
+        )
+
+    def test_no_page_reason_comes_from_the_overrides_file(self):
+        self.assertIsNone(no_page_reason("tt-dit-server", "text-to-image"))
+        self.assertIsNone(no_page_reason("vllm-plugin", None))
+        self.assertIn("Robot policies", no_page_reason("tt-dit-server", "robotics"))
+
+    def test_no_page_reason_covers_what_the_file_does_not_list(self):
+        self.assertIn("never-seen", no_page_reason("tt-dit-server", "never-seen"))
+        self.assertIn("something-new", no_page_reason("something-new", None))
+
+    def test_an_image_bundle_registers_no_route(self):
+        # Each tt-dit app picks its own routes; the image view reads them off the
+        # container's OpenAPI document instead.
+        impl = build_community_model_impl(DIT_BUNDLE)
+        self.assertEqual(impl.model_type, ModelTypes.IMAGE_GENERATION)
+        self.assertEqual(impl.service_route, "")
+        self.assertEqual(impl.display_model_type, "IMAGE")
+
+    def test_a_bundle_without_a_page_builds_as_unknown(self):
+        impl = build_community_model_impl({**DIT_BUNDLE, "task": "robotics"})
+        self.assertEqual(impl.model_type, ModelTypes.UNKNOWN)
+        self.assertEqual(impl.service_route, "")
+        self.assertEqual(impl.display_model_type, "OTHER")
+
+
 class HardwareMappingTests(unittest.TestCase):
     def test_known_labels(self):
         self.assertEqual(devices_for_hardware("p150"), frozenset({DeviceConfigurations.P150}))
@@ -199,6 +258,16 @@ class ImplFromDeploymentTests(unittest.TestCase):
         self.assertEqual(impl.profile, "fast")
         self.assertEqual(impl.service_port, 7001)
         self.assertTrue(impl.tool_calling_enabled)
+
+    def test_an_image_record_keeps_its_type_and_empty_route(self):
+        from shared_config.community_model_config import community_impl_from_deployment
+
+        dep = self._Deployment()
+        dep.model_type = "image_generation"
+        dep.service_route = ""
+        impl = community_impl_from_deployment(dep)
+        self.assertEqual(impl.model_type, ModelTypes.IMAGE_GENERATION)
+        self.assertEqual(impl.service_route, "")
 
     def test_returns_none_for_a_non_community_record(self):
         class Plain:

@@ -1,0 +1,128 @@
+# How TT-Studio presents the tt-model-manager community catalog. The community
+# counterpart of model_overrides.toml: a policy belongs in DATA here, not in code.
+# Loaded and validated by community_overrides.py.
+#
+# Every bundle tt-model-manager can launch is listed and deployable, so a user can
+# always follow its deployment and manage it. This file decides which page, if
+# any, drives it once it is up: a bundle with no page is deployed as "unknown"
+# (status, logs and stop only, no interaction page), and the entry says why.
+# Only [[unavailable]] hides a bundle outright.
+#
+# INPUT, never generated. Every entry has to say why, or a stale mark outlives its
+# reason.
+
+schema_version = 1
+
+# ===========================================================================
+# Engines
+# ===========================================================================
+# A bundle's engine (`container.kind` in its manifest) decides what it is served
+# as. serve_as is a model type (shared_config/model_type_config.py), or "task"
+# when the engine serves many modalities and the bundle's Hub task decides (see
+# [[task]] below). An engine not listed here is deployed without a page.
+#
+# vllm_mesh_fallback: the p150x4 and p300x2 four-chip meshes are interchangeable
+# for vLLM, as they are for catalog vLLM models (model_overrides.toml's
+# device_fallback). A tt-dit app is built for its own mesh -- FLUX.2 rejects a
+# 1x4 line -- so it does not get the fallback.
+
+[[engine]]
+kind = "vllm-plugin"
+serve_as = "chat"
+vllm_mesh_fallback = true
+
+[[engine]]
+kind = "vllm-fork"
+serve_as = "chat"
+vllm_mesh_fallback = true
+
+[[engine]]
+kind = "tt-dit-server"
+serve_as = "task"
+
+# ===========================================================================
+# Hub tasks
+# ===========================================================================
+# For an engine served by "task": the bundle's Hub pipeline_tag, else its
+# weights repo's (bundles rarely tag themselves). Each entry either serves the
+# task as a model type, or gives the details of why no page drives it yet. A
+# task not listed is deployed without a page too, but should be added here once
+# seen so the reason is on record.
+
+[[task]]
+task = "text-to-image"
+serve_as = "image_generation"
+
+[[task]]
+task = "image-to-image"
+serve_as = "image_generation"
+details = """
+FLUX.2-dev's weights are tagged image-to-image, yet it generates from a prompt \
+alone, which is all the image page sends."""
+
+[[task]]
+task = "text-to-speech"
+details = """
+e.g. jashansinghTT/s2-pro-blackhole. The TTS page is not yet mapped onto a \
+tt-dit speech app's API."""
+
+[[task]]
+task = "text-to-audio"
+details = """
+e.g. jashansinghTT/minimax-music3-blackhole. TT-Studio has no music or \
+general audio generation page."""
+
+[[task]]
+task = "robotics"
+details = """
+e.g. GR00T, pi05, xvla, RLDX, Alpamayo2. Robot policies take observations and \
+return actions; no page drives them."""
+
+[[task]]
+task = "image-text-to-text"
+details = """
+A vision-language task served by a tt-dit app rather than vLLM, so the chat \
+page's OpenAI contract does not apply."""
+
+[[task]]
+task = "object-detection"
+details = """
+e.g. changh95/rf-detr-p150. The object detection page speaks the catalog's \
+/objdetection_v2 contract, which tt-dit detection apps do not serve."""
+
+[[task]]
+task = "depth-estimation"
+details = "e.g. depth-anything-3, moge-2. No page for image-in, depth-out models."
+
+[[task]]
+task = "keypoint-detection"
+details = "e.g. superpoint, hamer, gaze-lle. No page for keypoint models."
+
+[[task]]
+task = "image-to-3d"
+details = "e.g. mast3r, vggt. No page for 3D reconstruction."
+
+[[task]]
+task = "image-segmentation"
+details = "e.g. changh95/sam3-p150. No page for segmentation."
+
+[[task]]
+task = "mask-generation"
+details = "SAM-family weights are tagged this way. No page for segmentation."
+
+# ===========================================================================
+# Unavailable bundles
+# ===========================================================================
+# A specific bundle, or one of its serve profiles, that must not be offered at
+# all. Omit `profile` to hide the whole bundle; naming one hides just that mesh,
+# leaving the bundle's other profiles on offer.
+#
+# reason (same vocabulary as model_overrides.toml):
+#   known_broken          - does not deploy, or deploys and does not run. A bug.
+#   unsupported_in_studio - launches, but must not be offered from TT-Studio.
+#
+# [[unavailable]]
+# repo = "ns/bundle"
+# profile = "p150"            # optional
+# reason = "known_broken"
+# details = "What breaks, where it was verified, and when to drop this entry."

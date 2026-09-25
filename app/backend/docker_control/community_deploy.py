@@ -36,6 +36,7 @@ from docker_control.tt_model_client import fetch_bundle, get_community_impl
 from shared_config.community_model_config import (
     build_community_model_impl,
     profile_for_chips,
+    unavailable_mark,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,16 +76,12 @@ def deploy_community_model(request) -> Response:
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    if impl.kind not in ("vllm-plugin", "vllm-fork"):
-        # A bundle whose engine this build has no UI for would deploy into a route
-        # that 404s, so it is refused by name instead.
+    mark = unavailable_mark(impl.repo_id, impl.profile)
+    if mark:
         return Response(
             {
                 "status": "error",
-                "message": (
-                    f"{impl.repo_id} uses the '{impl.kind}' engine, which this version "
-                    "of TT Studio cannot serve yet."
-                ),
+                "message": f"{impl.repo_id} is not offered in TT Studio: {mark[1]}",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

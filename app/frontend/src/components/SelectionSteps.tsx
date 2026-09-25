@@ -57,6 +57,8 @@ export interface Model {
   /** Serve profiles the bundle declares, and the one this entry targets by default. */
   profiles?: ServeProfile[];
   profile?: string;
+  /** Community models only: why no TT Studio page drives it (deployed as "unknown"). */
+  no_page_reason?: string | null;
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.

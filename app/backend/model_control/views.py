@@ -46,7 +46,7 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from .log_classifier import classify_startup_phase
-from .image_dialects import resolve_dialect, split_route
+from .image_dialects import resolve_dialect, split_route, submit_url
 
 
 # Module-level latch: tracks the highest phase + cached state we've ever seen
@@ -379,7 +379,7 @@ class ModelHealthView(APIView):
             model_impl = deploy.get("model_impl")
             if getattr(model_impl, "model_type", None) == ModelTypes.UNKNOWN:
                 return Response(
-                    {"message": "Unknown", "details": "This container's model was not identified, so its health cannot be probed."},
+                    {"message": "Unknown", "details": "No TT Studio page drives this model, so its health is not probed."},
                     status=status.HTTP_501_NOT_IMPLEMENTED,
                 )
             health_url = "http://" + deploy["health_url"]
@@ -705,6 +705,16 @@ class ObjectDetectionInferenceCloudView(APIView):
 IMAGE_JOB_TIMEOUT_SECONDS = 30 * 60
 
 
+def _openapi_paths(server_root, headers):
+    """The routes a container's OpenAPI document lists, or {} when it has none."""
+    try:
+        resp = requests.get(f"{server_root}/openapi.json", headers=headers, timeout=5)
+        resp.raise_for_status()
+        return resp.json().get("paths") or {}
+    except (requests.RequestException, ValueError):
+        return {}
+
+
 class ImageGenerationInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
@@ -719,16 +729,20 @@ class ImageGenerationInferenceView(APIView):
             try:
                 headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
 
-                dialect = resolve_dialect(internal_url)
                 server_root, _ = split_route(internal_url)
+                dialect = resolve_dialect(
+                    internal_url,
+                    served_paths=lambda: _openapi_paths(server_root, headers),
+                )
+                submit = submit_url(internal_url, dialect)
                 logger.info(
-                    f"image generation via '{dialect.name}' dialect at {internal_url}"
+                    f"image generation via '{dialect.name}' dialect at {submit}"
                 )
 
                 if dialect.mode == "sync":
                     # The image comes back on the submit call as base64 JSON.
                     inference_data = requests.post(
-                        internal_url,
+                        submit,
                         json={"prompt": prompt},
                         headers=headers,
                         timeout=2000,
@@ -737,6 +751,8 @@ class ImageGenerationInferenceView(APIView):
                     resp_json = inference_data.json()
                     if "images" in resp_json:
                         b64_image = resp_json["images"][0]
+                    elif "image" in resp_json:
+                        b64_image = resp_json["image"]
                     else:
                         b64_image = resp_json["data"][0]["b64_json"]
                     image_bytes = base64.b64decode(b64_image)
@@ -756,7 +772,7 @@ class ImageGenerationInferenceView(APIView):
                         payload[server_field] = value
 
                 inference_data = requests.post(
-                    internal_url, json=payload, headers=headers, timeout=30
+                    submit, json=payload, headers=headers, timeout=30
                 )
                 inference_data.raise_for_status()
                 job_id = inference_data.json().get(dialect.job_id_field)

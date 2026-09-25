@@ -252,6 +252,17 @@ def get_deploy_cache():
     return data
 
 
+_NOT_READY_STATUSES = frozenset({"loading", "initializing", "starting"})
+
+
+def _reports_not_ready(content) -> bool:
+    """True for a health body declaring the server up but not yet serving."""
+    if not isinstance(content, dict):
+        return False
+    status_text = str(content.get("status", "")).lower()
+    return content.get("ready") is False or status_text in _NOT_READY_STATUSES
+
+
 def health_check(url, json_data, timeout=5, auth_token: str = None):
     logger.info(f"calling health_url:= {url}")
     try:
@@ -266,11 +277,15 @@ def health_check(url, json_data, timeout=5, auth_token: str = None):
         return False, str(e)
 
     if response.status_code == 200:
-        logger.info(f"Health check passed: {response.status_code}")
         try:
             content = response.json() if response.content else {}
         except Exception:
             content = {}
+        if _reports_not_ready(content):
+            # tt-dit apps answer 200 while their pipeline is still warming up.
+            logger.info(f"Health check: up but not ready yet: {content}")
+            return None, content
+        logger.info(f"Health check passed: {response.status_code}")
         return True, content
 
     # Detect transient "still warming up" responses. The media-server stack

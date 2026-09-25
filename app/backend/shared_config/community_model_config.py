@@ -15,26 +15,64 @@ only a handful of attributes off ``model_impl``, so a lightweight frozen datacla
 enough and avoids pretending a bundle has the deploy-time fields (image_version,
 volume_path, env_file) that a catalog ModelImpl carries.
 
-Only the vLLM engines are modelled. tt-model-manager may support more kinds than
-TT Studio has a UI for, so an unsupported kind is filtered out upstream rather than
-mapped onto a route that would 404.
+Which page drives each engine and Hub task lives in community_overrides.toml. A
+bundle with no page is still listed and deployable, as ModelTypes.UNKNOWN: tracked
+and manageable, but offered no interaction page that would 404.
 """
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
+from shared_config.community_overrides import CommunityOverrides, Mark
 from shared_config.device_config import DeviceConfigurations
 from shared_config.model_type_config import ModelTypes
 
 MODEL_ID_PREFIX = "id_community-"
 
-# Both vLLM launchers in tt-model-manager run `vllm serve`, so a bundle is an
-# OpenAI-compatible chat server on its published port — the same contract as a
-# catalog CHAT model.
-SUPPORTED_KINDS = frozenset({"vllm-plugin", "vllm-fork"})
-
 SERVICE_ROUTE = "/v1/chat/completions"
 HEALTH_ROUTE = "/health"
+
+# Per type: (service_route, display_model_type, inference_engine). A tt-dit app
+# picks its own routes, so an image bundle registers none and the image view identifies
+# the contract from the container's OpenAPI document (see image_dialects.resolve_dialect).
+_TYPE_DEFAULTS = {
+    ModelTypes.CHAT: (SERVICE_ROUTE, "LLM", "vllm"),
+    ModelTypes.IMAGE_GENERATION: ("", "IMAGE", "tt-dit"),
+    ModelTypes.UNKNOWN: ("", "OTHER", "tt-model"),
+}
+
+OVERRIDES = CommunityOverrides(
+    servable=[t for t in _TYPE_DEFAULTS if t is not ModelTypes.UNKNOWN]
+)
+
+
+def community_model_type(kind: Optional[str], task: Optional[str]) -> ModelTypes:
+    """The model type TT Studio serves a bundle as; UNKNOWN when no page drives it."""
+    engine = OVERRIDES.engines.get(kind or "")
+    if engine is None:
+        return ModelTypes.UNKNOWN
+    return engine.serve_as or OVERRIDES.served_tasks.get(task or "", ModelTypes.UNKNOWN)
+
+
+def no_page_reason(kind: Optional[str], task: Optional[str]) -> Optional[str]:
+    """Why no TT Studio page drives a bundle, or None when one does."""
+    if community_model_type(kind, task) is not ModelTypes.UNKNOWN:
+        return None
+    if kind not in OVERRIDES.engines:
+        return f"TT Studio has no page for the {kind or 'unknown'} engine."
+    if task in OVERRIDES.no_page_tasks:
+        return OVERRIDES.no_page_tasks[task]
+    return f"TT Studio has no page for the {task or 'undeclared'} task."
+
+
+def vllm_mesh_fallback(kind: Optional[str]) -> bool:
+    engine = OVERRIDES.engines.get(kind or "")
+    return engine is not None and engine.vllm_mesh_fallback
+
+
+def unavailable_mark(repo_id: str, profile: Optional[str] = None) -> Optional[Mark]:
+    """Why a bundle (or one of its profiles) is hidden, or None when it is offered."""
+    return OVERRIDES.unavailable_mark(repo_id, profile)
 
 # A profile's `hardware` label is tt-model-manager's device target. Mapping it onto
 # DeviceConfigurations lets a community model flow through the same board-compatibility
@@ -164,7 +202,7 @@ def build_community_model_impl(
 ) -> CommunityModelImpl:
     """Build an impl from a ``/community/models/{repo_id}`` document.
 
-    ``bundle`` is the runner's ``inspect`` output: repo_id, kind, arch, image,
+    ``bundle`` is the runner's ``inspect`` output: repo_id, kind, task, arch, image,
     weights_repo, default_profile and one entry per serve profile.
     """
     repo_id = bundle["repo_id"]
@@ -175,6 +213,9 @@ def build_community_model_impl(
         profiles[0] if profiles else {},
     )
     resolved_profile = profile.get("name") or wanted or "default"
+    kind = bundle.get("kind") or "vllm-plugin"
+    model_type = community_model_type(kind, bundle.get("task"))
+    service_route, display_type, engine = _TYPE_DEFAULTS[model_type]
     return CommunityModelImpl(
         # The Hub id is the model's identity everywhere in the UI: it carries the
         # author, which is the whole point of showing a community model as community.
@@ -182,6 +223,10 @@ def build_community_model_impl(
         model_id=community_model_id(repo_id, resolved_profile),
         repo_id=repo_id,
         profile=resolved_profile,
+        model_type=model_type,
+        service_route=service_route,
+        display_model_type=display_type,
+        inference_engine=engine,
         service_port=service_port,
         hf_model_id=bundle.get("weights_repo"),
         tool_calling_enabled=bool(profile.get("tool_parser")),
@@ -189,7 +234,7 @@ def build_community_model_impl(
         chips_required=int(profile.get("chips_required") or 1),
         device_configurations=devices_for_hardware(profile.get("hardware")),
         arch=bundle.get("arch"),
-        kind=bundle.get("kind") or "vllm-plugin",
+        kind=kind,
         image=bundle.get("image"),
         author=repo_id.split("/")[0] if "/" in repo_id else None,
         downloads=bundle.get("downloads"),
@@ -213,12 +258,24 @@ def community_impl_from_deployment(deployment) -> Optional[CommunityModelImpl]:
         repo_id, profile = parse_community_model_id(model_id)
     except ValueError:
         return None
+    try:
+        model_type = ModelTypes(
+            getattr(deployment, "model_type", None) or ModelTypes.CHAT
+        )
+    except ValueError:
+        model_type = ModelTypes.CHAT
+    default_route, display_type, engine = _TYPE_DEFAULTS.get(
+        model_type, _TYPE_DEFAULTS[ModelTypes.CHAT]
+    )
     return CommunityModelImpl(
         model_name=getattr(deployment, "model_name", None) or repo_id,
         model_id=model_id,
         repo_id=repo_id,
         profile=profile or "default",
-        service_route=getattr(deployment, "service_route", None) or SERVICE_ROUTE,
+        model_type=model_type,
+        display_model_type=display_type,
+        inference_engine=engine,
+        service_route=getattr(deployment, "service_route", None) or default_route,
         service_port=getattr(deployment, "port", None) or 7000,
         hf_model_id=getattr(deployment, "hf_model_id", None),
         tool_calling_enabled=bool(getattr(deployment, "tool_calling_enabled", False)),

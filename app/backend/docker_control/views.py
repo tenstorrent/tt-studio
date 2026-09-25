@@ -72,6 +72,7 @@ from shared_config.community_model_config import (
     arch_for_board,
     community_model_id,
     is_community_model_id,
+    vllm_mesh_fallback,
 )
 from docker_control import launchers
 from docker_control.community_deploy import deploy_community_model
@@ -339,7 +340,11 @@ def _community_model_entries(current_board, refresh=False):
     unreachable, and neither must break the catalog model list.
     """
     from docker_control.tt_model_client import fetch_bundle, fetch_catalog
-    from shared_config.community_model_config import build_community_model_impl
+    from shared_config.community_model_config import (
+        build_community_model_impl,
+        no_page_reason,
+        unavailable_mark,
+    )
 
     arch = arch_for_board(current_board)
     try:
@@ -369,12 +374,24 @@ def _community_model_entries(current_board, refresh=False):
         # weights), so a bundle that has never been pulled is described just as fully.
         detail = (fetch_bundle(repo_id) if row.get("installed") else None) or row
         if detail.get("supported") is False:
-            # An engine this build cannot serve. Refused at deploy time anyway, so
-            # listing it as a deployable LLM only wastes the user's click.
+            # An engine tt-model-manager cannot launch. Refused at deploy time anyway,
+            # so listing it only wastes the user's click.
+            continue
+        mark = unavailable_mark(repo_id)
+        if mark:
+            logger.debug(f"Hiding community bundle {repo_id}: {mark[0]} - {mark[1]}")
             continue
         if not detail.get("profiles"):
             entries.append(_unreadable_community_entry(row, current_board, board_slots))
             continue
+        profiles = [
+            p
+            for p in detail["profiles"]
+            if not unavailable_mark(repo_id, p.get("name"))
+        ]
+        if not profiles:
+            continue
+        detail = {**detail, "profiles": profiles}
 
         impl = build_community_model_impl(
             detail, _preferred_community_profile(detail, current_board, board_slots)
@@ -383,7 +400,11 @@ def _community_model_entries(current_board, refresh=False):
             "id": impl.model_id,
             "name": impl.model_name,
             "is_compatible": _community_fit(
-                impl.device_configurations, impl.chips_required, current_board, board_slots
+                impl.device_configurations,
+                impl.chips_required,
+                current_board,
+                board_slots,
+                impl.kind,
             ),
             "compatible_boards": [],
             "model_type": impl.model_type.value,
@@ -403,6 +424,8 @@ def _community_model_entries(current_board, refresh=False):
                 impl.repo_id, detail, current_board, board_slots
             ),
             "profile": impl.profile,
+            # Why a bundle deployed as "unknown" gets no interaction page.
+            "no_page_reason": no_page_reason(impl.kind, detail.get("task")),
         })
     return entries
 
@@ -425,6 +448,7 @@ def _community_profiles(repo_id, detail, current_board, board_slots):
                 p.get("chips_required"),
                 current_board,
                 board_slots,
+                detail.get("kind"),
             ),
         }
         for p in detail.get("profiles") or []
@@ -456,6 +480,7 @@ def _preferred_community_profile(detail, current_board, board_slots):
             profile.get("chips_required"),
             current_board,
             board_slots,
+            detail.get("kind"),
         ) is not False
 
     default_name = detail.get("default_profile")
@@ -477,19 +502,31 @@ def _unreadable_community_entry(row, current_board, board_slots):
     whole board. That is pessimistic in the device preview but never wrong about
     placement, and the deploy re-reads the manifest before it allocates anything.
     """
-    from shared_config.community_model_config import devices_for_hardware
+    from shared_config.community_model_config import (
+        community_model_type,
+        devices_for_hardware,
+        no_page_reason,
+    )
 
     repo_id = row["repo_id"]
     chips = row.get("chips_required")
+    # With no manifest there is no Hub task, so a task-served engine reads as having
+    # no page until the deploy re-reads the manifest.
+    model_type = community_model_type(row.get("kind"), None)
     return {
         "id": community_model_id(repo_id),
         "name": repo_id,
         "is_compatible": _community_fit(
-            devices_for_hardware(row.get("hardware")), chips, current_board, board_slots
+            devices_for_hardware(row.get("hardware")),
+            chips,
+            current_board,
+            board_slots,
+            row.get("kind"),
         ),
         "compatible_boards": [],
-        "model_type": ModelTypes.CHAT.value,
-        "display_model_type": "LLM",
+        "model_type": model_type.value,
+        "display_model_type": "LLM" if model_type is ModelTypes.CHAT else "OTHER",
+        "no_page_reason": no_page_reason(row.get("kind"), None),
         "current_board": current_board,
         "status": None,
         "chips_required": chips or board_slots,
@@ -502,7 +539,9 @@ def _unreadable_community_entry(row, current_board, board_slots):
     }
 
 
-def _community_fit(device_configurations, chips_required, current_board, board_slots):
+def _community_fit(
+    device_configurations, chips_required, current_board, board_slots, kind=None
+):
     """Whether a bundle's mesh fits this board. None when it cannot be determined.
 
     One rule for both listing paths, so an installed bundle and a catalog row are
@@ -521,9 +560,10 @@ def _community_fit(device_configurations, chips_required, current_board, board_s
     if board_devices.intersection(device_configurations):
         return True
     # The same four-chip Blackhole mesh equivalence the catalog grants a vLLM model,
-    # where a p150x4 and a p300x2 mesh are interchangeable. It applies here because
-    # every community bundle TT Studio serves is vLLM (see SUPPORTED_KINDS in the
-    # runner) — so the engine is fixed rather than read off the bundle.
+    # where a p150x4 and a p300x2 mesh are interchangeable. A tt-dit app is built for
+    # its own mesh (FLUX.2 rejects a 1x4 line), so it gets no such fallback.
+    if kind is not None and not vllm_mesh_fallback(kind):
+        return False
     return bool(
         vllm_mesh_fallback_fits(
             SimpleNamespace(

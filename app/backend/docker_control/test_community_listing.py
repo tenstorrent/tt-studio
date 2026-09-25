@@ -51,6 +51,21 @@ class CommunityFitTests(TestCase):
     def test_an_unknown_board_is_undecided(self):
         self.assertIsNone(self._fit("p150", 1, board="unknown"))
 
+    def test_the_four_chip_fallback_is_vllm_only(self):
+        # A tt-dit app is built for its own mesh: FLUX.2 rejects a 1x4 line.
+        self.assertIs(
+            _community_fit(
+                devices_for_hardware("p150x4"), 4, BOARD, SLOTS, "tt-dit-server"
+            ),
+            False,
+        )
+        self.assertIs(
+            _community_fit(
+                devices_for_hardware("p150x4"), 4, BOARD, SLOTS, "vllm-plugin"
+            ),
+            True,
+        )
+
     def test_an_unrecognised_hardware_label_is_undecided(self):
         # Undecided, not incompatible: a label this build cannot map must not hide a
         # bundle that may well run.

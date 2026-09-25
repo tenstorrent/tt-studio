@@ -88,6 +88,46 @@ class TestTagReading:
         assert runner._kind_from_tags(["blackhole", "p150"]) is None
 
 
+class TestTask:
+    """The Hub task that decides which page drives a tt-dit-server bundle."""
+
+    @pytest.fixture
+    def hub(self, monkeypatch):
+        tags = {
+            "ns/bundle": None,
+            "org/weights": "text-to-image",
+            "ns/tagged": "robotics",
+        }
+        asked = []
+
+        def model_info(repo):
+            asked.append(repo)
+            if repo not in tags:
+                raise RuntimeError("not found")
+            return types.SimpleNamespace(pipeline_tag=tags[repo])
+
+        module = types.ModuleType("huggingface_hub")
+        module.HfApi = lambda: types.SimpleNamespace(model_info=model_info)
+        monkeypatch.setitem(sys.modules, "huggingface_hub", module)
+        return asked
+
+    def test_vllm_bundles_need_no_lookup(self, hub):
+        assert runner._task("vllm-plugin", "ns/bundle", "org/weights") is None
+        assert hub == []
+
+    def test_an_untagged_bundle_falls_back_to_its_weights(self, hub):
+        task = runner._task("tt-dit-server", "ns/bundle", "org/weights")
+        assert task == "text-to-image"
+
+    def test_the_bundles_own_tag_wins(self, hub):
+        assert runner._task("tt-dit-server", "ns/tagged", "org/weights") == "robotics"
+
+    def test_an_unreachable_repo_is_skipped(self, hub):
+        task = runner._task("tt-dit-server", "ns/missing", "org/weights")
+        assert task == "text-to-image"
+        assert runner._task("tt-dit-server", "ns/missing", None) is None
+
+
 class TestAnnotateFromManifests:
     """The manifest overrides the tags, because a repo carries only one hardware tag
     while a bundle may declare several profiles with different meshes."""

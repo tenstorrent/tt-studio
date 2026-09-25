@@ -38,10 +38,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-# Engines this build of TT Studio can present as a chat model. tt_kernel may support
-# more kinds than we have a UI for (an image/DiT launcher is expected), so an unknown
-# kind is refused by name rather than deployed into a route that would 404.
-SUPPORTED_KINDS = ("vllm-plugin", "vllm-fork")
+# vLLM bundles are always chat servers, so they need no Hub task lookup (see _task).
+# Which engines can be deployed at all is tt_kernel's own launcher registry; which
+# page drives a deployed bundle is TT Studio's call (community_overrides.toml).
+VLLM_KINDS = ("vllm-plugin", "vllm-fork")
 
 # Container log lines quoted in a startup-failure message.
 _READY_TAIL_LINES = 20
@@ -163,6 +163,36 @@ def _profile_summary(manifest, profile) -> Dict[str, Any]:
     }
 
 
+def _launchable(kind: Optional[str]) -> bool:
+    """True for an engine tt-model-manager has a launcher for."""
+    from tt_kernel.launchers import KINDS
+
+    return kind in KINDS
+
+
+def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]:
+    """The Hub task a non-vLLM bundle serves: its own pipeline_tag, else its weights'.
+
+    A tt-dit-server app has no common API, so the task is what tells an image model
+    from a robotics policy. Bundles rarely tag themselves; their weights repos do.
+    """
+    if kind in VLLM_KINDS:
+        return None
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    for repo in (repo_id, weights_repo):
+        if not repo:
+            continue
+        try:
+            tag = api.model_info(repo).pipeline_tag
+        except Exception:
+            continue
+        if tag:
+            return tag
+    return None
+
+
 def _describe(repo_id: str, manifest) -> Dict[str, Any]:
     """Everything TT Studio needs to build a model_impl and a deploy plan."""
     from tt_kernel import container
@@ -174,15 +204,17 @@ def _describe(repo_id: str, manifest) -> Dict[str, Any]:
     ]
     default_profile = spec.resolved_default()
     image = container.image_ref(manifest)
+    weights_repo = manifest.weights.repo_id if manifest.weights else None
     return {
         "repo_id": repo_id,
         "name": manifest.name,
         "arch": manifest.arch,
         "kind": spec.kind,
-        "supported": spec.kind in SUPPORTED_KINDS,
+        "supported": _launchable(spec.kind),
+        "task": _task(spec.kind, repo_id, weights_repo),
         "image": image,
         "image_present": container.image_present(image),
-        "weights_repo": manifest.weights.repo_id if manifest.weights else None,
+        "weights_repo": weights_repo,
         "default_profile": default_profile,
         "profiles": profiles,
         "tt_metal_version": (spec.built or {}).get("tt_metal_version"),
@@ -282,11 +314,13 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         emit("log", level="DEBUG", message=f"could not read manifest for {repo_id}: {e}")
         return None
+    weights_repo = manifest.weights.repo_id if manifest.weights else None
     return {
         "arch": manifest.arch,
         "kind": spec.kind,
-        "supported": spec.kind in SUPPORTED_KINDS,
-        "weights_repo": manifest.weights.repo_id if manifest.weights else None,
+        "supported": _launchable(spec.kind),
+        "task": _task(spec.kind, repo_id, weights_repo),
+        "weights_repo": weights_repo,
         "default_profile": spec.resolved_default(),
         "profiles": profiles,
         # Kept consistent with `profiles` above rather than left on the tag reading:
@@ -355,7 +389,7 @@ def cmd_catalog(args: argparse.Namespace) -> int:
                     "hardware": hardware,
                     "chips_required": _chips_for(None, hardware) if hardware else None,
                     "kind": kind,
-                    "supported": kind in SUPPORTED_KINDS if kind else None,
+                    "supported": _launchable(kind) if kind else None,
                     "weights_repo": None,
                 }
             )
@@ -673,10 +707,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         raise RuntimeError(f"{args.repo_id} could not be resolved")
 
     spec = manifest.container
-    if spec.kind not in SUPPORTED_KINDS:
+    if not _launchable(spec.kind):
         raise RuntimeError(
-            f"bundle engine {spec.kind!r} is not supported by this TT Studio build "
-            f"(supported: {', '.join(SUPPORTED_KINDS)})"
+            f"bundle engine {spec.kind!r} has no launcher in this tt-model-manager build"
         )
 
     failures = [r for r in container.preflight(need_devices=True) if not r.ok]
