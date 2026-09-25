@@ -1200,6 +1200,31 @@ def _community_model_impl(con_id, con):
     return impl
 
 
+# Health routes a community app may serve, preferred first. Each tt-dit app picks its
+# own (Qwen-Image serves /health, Fish S2 Pro /v1/health) and the manifest does not say.
+_COMMUNITY_HEALTH_ROUTES = ("/health", "/v1/health")
+_community_health_routes = {}  # container id -> route read off its OpenAPI document
+
+
+def _community_health_route(con_id, base):
+    """The health route a community container serves, read once from its OpenAPI.
+
+    Until the app answers (a model still loading in its lifespan) the default is
+    probed and nothing is cached, so the badge reads "starting" rather than wrong.
+    """
+    route = _community_health_routes.get(con_id)
+    if route:
+        return route
+    try:
+        response = requests.get(f"http://{base}/openapi.json", timeout=2)
+        paths = response.json().get("paths")
+    except (requests.RequestException, ValueError):
+        return _COMMUNITY_HEALTH_ROUTES[0]
+    route = next((r for r in _COMMUNITY_HEALTH_ROUTES if r in (paths or {})), None)
+    _community_health_routes[con_id] = route or _COMMUNITY_HEALTH_ROUTES[0]
+    return _community_health_routes[con_id]
+
+
 def _enrich_container_with_model_impl(con, con_id):
     """Resolve ``model_impl`` for a live Docker container and populate the
     derived fields (``model_id``, ``weights_id``, ``model_impl``,
@@ -1351,8 +1376,11 @@ def _enrich_container_with_model_impl(con, con_id):
                     actual_port = int(container_port_key.split("/")[0])
                 except (ValueError, IndexError):
                     pass
+        health_route = model_impl.health_route
+        if getattr(model_impl, "is_community", False):
+            health_route = _community_health_route(con_id, f"{hostname}:{actual_port}")
         con["internal_url"] = f"{hostname}:{actual_port}{model_impl.service_route}"
-        con["health_url"] = f"{hostname}:{actual_port}{model_impl.health_route}"
+        con["health_url"] = f"{hostname}:{actual_port}{health_route}"
         return True
 
     return False

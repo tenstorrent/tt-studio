@@ -38,6 +38,8 @@ HEALTH_ROUTE = "/health"
 _TYPE_DEFAULTS = {
     ModelTypes.CHAT: (SERVICE_ROUTE, "LLM", "vllm"),
     ModelTypes.IMAGE_GENERATION: ("", "IMAGE", "tt-dit"),
+    ModelTypes.TTS: ("/v1/audio/speech", "TEXT_TO_SPEECH", "tt-dit"),
+    ModelTypes.SPEECH_RECOGNITION: ("/v1/audio/transcriptions", "AUDIO", "tt-dit"),
     ModelTypes.UNKNOWN: ("", "OTHER", "tt-model"),
 }
 

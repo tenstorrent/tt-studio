@@ -62,9 +62,11 @@ alone, which is all the image page sends."""
 
 [[task]]
 task = "text-to-speech"
-details = """
-e.g. jashansinghTT/s2-pro-blackhole. The TTS page is not yet mapped onto a \
-tt-dit speech app's API."""
+serve_as = "tts"
+
+[[task]]
+task = "automatic-speech-recognition"
+serve_as = "speech_recognition"
 
 [[task]]
 task = "text-to-audio"

@@ -157,6 +157,18 @@ class ModelTypeTests(unittest.TestCase):
                 community_model_type("tt-dit-server", task), ModelTypes.IMAGE_GENERATION
             )
 
+    def test_dit_speech_tasks_use_the_openai_audio_routes(self):
+        # The TTS and speech-recognition pages speak OpenAI's audio contract, which
+        # Fish S2 Pro serves; the route is fixed rather than discovered.
+        tts = build_community_model_impl({**DIT_BUNDLE, "task": "text-to-speech"})
+        self.assertEqual(tts.model_type, ModelTypes.TTS)
+        self.assertEqual(tts.service_route, "/v1/audio/speech")
+        stt = build_community_model_impl(
+            {**DIT_BUNDLE, "task": "automatic-speech-recognition"}
+        )
+        self.assertEqual(stt.model_type, ModelTypes.SPEECH_RECOGNITION)
+        self.assertEqual(stt.service_route, "/v1/audio/transcriptions")
+
     def test_dit_tasks_without_a_page_deploy_as_unknown(self):
         for task in ("robotics", "depth-estimation", "never-seen", None):
             self.assertEqual(
@@ -452,3 +464,43 @@ class PinnedProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommunityHealthRouteTests(unittest.TestCase):
+    """Each tt-dit app picks its own health route; it is read off the app's OpenAPI."""
+
+    def setUp(self):
+        from docker_control import docker_utils
+
+        self.docker_utils = docker_utils
+        docker_utils._community_health_routes.clear()
+
+    def _route(self, con_id, response=None, error=None):
+        with patch("docker_control.docker_utils.requests.get") as get:
+            if error:
+                get.side_effect = error
+            else:
+                get.return_value.json.return_value = response
+            return self.docker_utils._community_health_route(con_id, "app:7000"), get
+
+    def test_a_v1_health_app_is_probed_there(self):
+        # Fish S2 Pro serves /v1/health only.
+        route, _ = self._route("c1", {"paths": {"/v1/health": {}, "/v1/tts": {}}})
+        self.assertEqual(route, "/v1/health")
+
+    def test_plain_health_is_preferred(self):
+        route, _ = self._route("c2", {"paths": {"/health": {}, "/v1/health": {}}})
+        self.assertEqual(route, "/health")
+
+    def test_the_route_is_read_once_per_container(self):
+        self._route("c3", {"paths": {"/v1/health": {}}})
+        route, get = self._route("c3", {"paths": {"/health": {}}})
+        self.assertEqual(route, "/v1/health")
+        get.assert_not_called()
+
+    def test_an_app_still_loading_is_retried_later(self):
+        import requests
+
+        route, _ = self._route("c4", error=requests.ConnectionError("refused"))
+        self.assertEqual(route, "/health")
+        self.assertNotIn("c4", self.docker_utils._community_health_routes)

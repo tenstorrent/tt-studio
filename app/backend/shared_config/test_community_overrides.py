@@ -28,8 +28,11 @@ def _load(body: str) -> CommunityOverrides:
 
 class ShippedFileTests(unittest.TestCase):
     def test_the_shipped_file_loads(self):
-        overrides = CommunityOverrides(servable=SERVABLE)
+        # Loaded exactly as the app loads it, with the types it has routes for.
+        from shared_config.community_model_config import OVERRIDES as overrides
+
         self.assertEqual(overrides.engines["vllm-plugin"].serve_as, ModelTypes.CHAT)
+        self.assertEqual(overrides.served_tasks["text-to-speech"], ModelTypes.TTS)
         self.assertIsNone(overrides.engines["tt-dit-server"].serve_as)
         self.assertEqual(
             overrides.served_tasks["text-to-image"], ModelTypes.IMAGE_GENERATION
