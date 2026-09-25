@@ -4,7 +4,7 @@
 import { useState, useCallback } from "react";
 import type { BugReportForm, BugReportStep } from "./types";
 
-const INITIAL_FORM: BugReportForm = { title: "", description: "" };
+const INITIAL_FORM: BugReportForm = { title: "", description: "", steps: "" };
 
 const SUPPORT_ROTATION = [
   { name: "Anirudh", email: "aramchandran@tenstorrent.com" },
@@ -27,6 +27,9 @@ function makeDiagnosticsRef(): string {
       : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   return `ttbr-${suffix}`;
 }
+
+const zipFileName = (ref: string) => `tt-studio-logs-${ref}.zip`;
+const emlFileName = (ref: string) => `tt-studio-bug-report-${ref}.eml`;
 
 /** Trigger a browser download of `blob` under `filename`. */
 function saveBlob(blob: Blob, filename: string): void {
@@ -71,13 +74,16 @@ Reference: ${diagnosticsRef}
 
 TT-Studio bug report. Do not edit the Assignee/Reference lines — Jira
 automation reads them.
-Logs: attach tt-studio-logs-${diagnosticsRef}.zip from your Downloads before sending.
+Logs: attach ${zipFileName(diagnosticsRef)} from your Downloads before sending.
 
 ## Summary
 ${field(form.title)}
 
 ## Description
 ${field(form.description)}
+
+## Steps to Reproduce
+${field(form.steps)}
 
 --
 Sent from TT-Studio bug reporter.`;
@@ -108,20 +114,48 @@ export function useBugReport() {
   const [form, setForm] = useState<BugReportForm>(INITIAL_FORM);
   /** Stable id for matching a support ticket to one diagnostics ZIP. */
   const [diagnosticsRef, setDiagnosticsRef] = useState<string | null>(null);
-  const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const saveZip = useCallback(async (ref: string) => {
-    setIsDownloadingZip(true);
+    setIsDownloading(true);
     try {
       const response = await fetch("/logs-api/bug-report/download/");
       if (!response.ok) {
         throw new Error(`Logs download failed: HTTP ${response.status}`);
       }
-      saveBlob(await response.blob(), `tt-studio-logs-${ref}.zip`);
+      saveBlob(await response.blob(), zipFileName(ref));
     } finally {
-      setIsDownloadingZip(false);
+      setIsDownloading(false);
     }
   }, []);
+
+  /** The backend collects the logs and builds the .eml with the ZIP
+   * attached, so the user only has to open it and hit Send. */
+  const saveEml = useCallback(
+    async (ref: string) => {
+      setIsDownloading(true);
+      try {
+        const response = await fetch("/logs-api/support-email/eml/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ref,
+            title: form.title.trim(),
+            description: form.description.trim(),
+            steps: form.steps.trim(),
+          }),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error ?? `HTTP ${response.status}`);
+        }
+        saveBlob(await response.blob(), emlFileName(ref));
+      } finally {
+        setIsDownloading(false);
+      }
+    },
+    [form]
+  );
 
   /** Open the mail app on a filled-in draft to support, then download the
    * logs ZIP for the user to drag in (mailto: cannot carry attachments). The
@@ -131,13 +165,22 @@ export function useBugReport() {
     const ref = makeDiagnosticsRef();
     setDiagnosticsRef(ref);
     openMailDraft(buildSubject(form.title, ref), buildEmailBody(form, ref));
-    setStep("done");
+    setStep("drafted");
     await saveZip(ref);
   }, [form, saveZip]);
 
-  const downloadZipAgain = useCallback(async () => {
-    if (diagnosticsRef) await saveZip(diagnosticsRef);
-  }, [diagnosticsRef, saveZip]);
+  const downloadEmailWithLogs = useCallback(async () => {
+    const ref = makeDiagnosticsRef();
+    setDiagnosticsRef(ref);
+    setStep("downloaded");
+    await saveEml(ref);
+  }, [saveEml]);
+
+  /** Retry whichever file this report produced. */
+  const downloadAgain = useCallback(async () => {
+    if (!diagnosticsRef) return;
+    await (step === "downloaded" ? saveEml : saveZip)(diagnosticsRef);
+  }, [diagnosticsRef, step, saveEml, saveZip]);
 
   const copyEmailBody = useCallback(async () => {
     if (!diagnosticsRef) return;
@@ -148,17 +191,19 @@ export function useBugReport() {
     setStep("form");
     setForm(INITIAL_FORM);
     setDiagnosticsRef(null);
-    setIsDownloadingZip(false);
+    setIsDownloading(false);
   }, []);
 
   return {
     step,
     form,
     setForm,
-    zipFileName: diagnosticsRef ? `tt-studio-logs-${diagnosticsRef}.zip` : null,
-    isDownloadingZip,
+    zipFileName: diagnosticsRef ? zipFileName(diagnosticsRef) : null,
+    emlFileName: diagnosticsRef ? emlFileName(diagnosticsRef) : null,
+    isDownloading,
     draftSupportEmail,
-    downloadZipAgain,
+    downloadEmailWithLogs,
+    downloadAgain,
     copyEmailBody,
     reset,
   };

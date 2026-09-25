@@ -65,13 +65,18 @@ def build_body(ref, assignee, form, environment_lines, zip_name, attached=False)
     """Plain-text email body. `form` may provide title/description/steps/
     expected/actual; `environment_lines` is a short list of "key: value" strings.
     `attached=True` (the .eml path) states that the ZIP is attached instead of
-    asking the user to attach it."""
+    asking the user to attach it. The Expected / Actual section is left out
+    when neither is given, so a sent .eml never carries unfillable
+    placeholders for fields the reporter wasn't asked for."""
     name, email = assignee
 
     def field(key):
         return (form.get(key) or "").strip() or "_fill in_"
 
     env_block = "\n".join(environment_lines) if environment_lines else "_unknown_"
+    expected_actual = ""
+    if (form.get("expected") or "").strip() or (form.get("actual") or "").strip():
+        expected_actual = f'\n## Expected / Actual\n{field("expected")} / {field("actual")}\n'
     zip_line = (
         f"The diagnostics bundle {zip_name} is attached to this email."
         if attached
@@ -91,10 +96,7 @@ automation reads them.
 
 ## Steps to Reproduce
 {field("steps")}
-
-## Expected / Actual
-{field("expected")} / {field("actual")}
-
+{expected_actual}
 ## Environment
 {env_block}
 (Full logs and system info are in the attached ZIP.)

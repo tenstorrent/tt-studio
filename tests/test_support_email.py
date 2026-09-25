@@ -123,6 +123,13 @@ class TestBody(unittest.TestCase):
         self.assertIn("1. deploy", body)
         self.assertIn("_fill in_", body)  # unfilled fields keep placeholders
 
+    def test_expected_actual_only_when_given(self):
+        self.assertNotIn("## Expected / Actual", self._body({"title": "It broke"}))
+        self.assertIn(
+            "## Expected / Actual\nloads / hangs",
+            self._body({"expected": "loads", "actual": "hangs"}),
+        )
+
     def test_attach_reminder_vs_attached(self):
         # mailto: path — the user has to attach the ZIP by hand.
         self.assertIn("IMPORTANT: attach tt-studio-logs-ttbr-abc123.zip", self._body())
@@ -216,6 +223,10 @@ class TestBackendTwinParity(unittest.TestCase):
             "tt-studio-logs-ttbr-xyz.zip",
         )
         self.assertEqual(twin.build_body(*args), support_email.build_body(*args))
+        with_expected = args[:2] + ({"expected": "e", "actual": "a"},) + args[3:]
+        self.assertEqual(
+            twin.build_body(*with_expected), support_email.build_body(*with_expected)
+        )
         self.assertEqual(
             twin.build_subject("t", "ttbr-xyz"), support_email.build_subject("t", "ttbr-xyz")
         )

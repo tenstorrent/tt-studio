@@ -77,6 +77,16 @@ class TestBuilders(unittest.TestCase):
         self.assertIn("tt-studio-logs-ttbr-abc.zip", body)
         self.assertIn("IMPORTANT: attach tt-studio-logs-ttbr-abc.zip", body)
 
+    def test_body_expected_actual_only_when_given(self):
+        def body(form):
+            return support_email.build_body(
+                "ttbr-abc", ("Raheem", "rnabeel@tenstorrent.com"), form,
+                ["OS: Linux"], "tt-studio-logs-ttbr-abc.zip",
+            )
+
+        self.assertNotIn("## Expected / Actual", body({"title": "t", "steps": "1. deploy"}))
+        self.assertIn("## Expected / Actual\nloads / _fill in_", body({"expected": "loads"}))
+
     def test_body_attached_variant(self):
         body = support_email.build_body(
             "ttbr-abc", ("Raheem", "rnabeel@tenstorrent.com"), {}, [],

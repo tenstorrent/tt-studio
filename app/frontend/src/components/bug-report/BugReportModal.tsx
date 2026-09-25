@@ -2,7 +2,15 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
-import { Bug, Loader2, Download, Copy, Mail, Paperclip } from "lucide-react";
+import {
+  Bug,
+  CheckCircle2,
+  Loader2,
+  Download,
+  Copy,
+  Mail,
+  Paperclip,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,15 +33,19 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     form,
     setForm,
     zipFileName,
-    isDownloadingZip,
+    emlFileName,
+    isDownloading,
     draftSupportEmail,
-    downloadZipAgain,
+    downloadEmailWithLogs,
+    downloadAgain,
     copyEmailBody,
     reset,
   } = useBugReport();
 
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const canSubmit = form.description.trim() !== "" && form.steps.trim() !== "";
 
   const closeModal = () => {
     setError(null);
@@ -47,7 +59,7 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Logs download failed");
+      setError(err instanceof Error ? err.message : "Download failed");
     }
   };
 
@@ -88,29 +100,66 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">
-                What went wrong?{" "}
-                <span className="text-muted-foreground">(optional)</span>
-              </label>
+              <label className="text-sm font-medium">What went wrong?</label>
               <Textarea
+                required
                 placeholder="What happened, and what were you doing when it did?"
-                rows={5}
+                rows={4}
                 value={form.description}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, description: e.target.value }))
                 }
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Your mail app opens with the report addressed to
-              support@tenstorrent.com, and your logs download as a ZIP. Drag
-              the ZIP into the email before you hit Send.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Steps to reproduce</label>
+              <Textarea
+                required
+                placeholder="1. …&#10;2. …&#10;3. …"
+                rows={3}
+                value={form.steps}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, steps: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p>
+                <strong className="text-foreground">
+                  Download Email with Logs Attached
+                </strong>{" "}
+                saves an email to support@tenstorrent.com with your logs
+                already inside. Open it and hit Send.
+              </p>
+              <p>
+                <strong className="text-foreground">Draft Support Email</strong>{" "}
+                opens your mail app and downloads your logs as a ZIP to drag
+                into the email.
+              </p>
+            </div>
+            {!canSubmit && (
+              <p className="text-xs text-muted-foreground">
+                Fill in what went wrong and the steps to reproduce to continue.
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button variant="outline" onClick={closeModal}>
                 Cancel
               </Button>
-              <Button onClick={() => run(draftSupportEmail)} className="gap-2">
+              <Button
+                variant="outline"
+                disabled={!canSubmit}
+                onClick={() => run(downloadEmailWithLogs)}
+                className="gap-2"
+              >
+                <Paperclip className="h-4 w-4" />
+                Download Email with Logs Attached
+              </Button>
+              <Button
+                disabled={!canSubmit}
+                onClick={() => run(draftSupportEmail)}
+                className="gap-2"
+              >
                 <Mail className="h-4 w-4" />
                 Draft Support Email
               </Button>
@@ -118,9 +167,9 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
           </div>
         )}
 
-        {step === "done" && (
+        {step === "drafted" && (
           <div className="space-y-4">
-            {isDownloadingZip ? (
+            {isDownloading ? (
               <div className="flex items-center gap-3 rounded-md border px-4 py-3 text-sm text-muted-foreground">
                 <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
                 Your email is open. Downloading your logs…
@@ -165,14 +214,65 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => run(downloadZipAgain)}
-                  disabled={isDownloadingZip}
+                  onClick={() => run(downloadAgain)}
+                  disabled={isDownloading}
                   className="gap-2"
                 >
                   <Download className="h-4 w-4" />
                   Download ZIP Again
                 </Button>
               </div>
+              <Button size="sm" onClick={closeModal}>
+                Done
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === "downloaded" && (
+          <div className="space-y-4">
+            {isDownloading ? (
+              <div className="flex items-center gap-3 rounded-md border px-4 py-3 text-sm text-muted-foreground">
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                Collecting your logs and building the email…
+              </div>
+            ) : error ? (
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            ) : (
+              <div className="space-y-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-4 py-3 text-sm text-green-900 dark:text-green-200">
+                <p className="flex items-center gap-2 font-semibold">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Your email is ready, logs attached
+                </p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>
+                    Open{" "}
+                    <span className="break-all font-mono text-xs">
+                      {emlFileName}
+                    </span>{" "}
+                    from your Downloads.
+                  </li>
+                  <li>
+                    Hit <strong>Send</strong>.
+                  </li>
+                </ol>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Opens as a received message instead of a draft? Forward it to
+              support@tenstorrent.com. The logs stay attached.
+            </p>
+            <div className="flex flex-wrap justify-between gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => run(downloadAgain)}
+                disabled={isDownloading}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download Email Again
+              </Button>
               <Button size="sm" onClick={closeModal}>
                 Done
               </Button>
