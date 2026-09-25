@@ -1130,13 +1130,13 @@ def _external_model_impl(con_id, con):
     try:
         # Match on either id form: registration stores whatever id the caller
         # passed (usually the short one), the live listing keys on the full one.
+        # Do not fall back to container_name here: a stale external record can
+        # legitimately share a name with a newer catalog deployment, and external
+        # registration is supposed to describe one specific container identity.
         active = ModelDeployment.objects.filter(
             device="external", status__in=["running", "starting"]
         )
-        dep = (
-            active.filter(container_id__in=[con_id, con_id[:12]]).first()
-            or active.filter(container_name=con["name"]).first()
-        )
+        dep = active.filter(container_id__in=[con_id, con_id[:12]]).first()
     except Exception as e:
         logger.warning(f"Could not look up external deployment for {con_id}: {e}")
         return None
