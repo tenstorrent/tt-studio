@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { X, Zap, ScrollText, Download, Check, Clock } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ModelRow } from "../../types/models";
@@ -394,7 +394,7 @@ export default function ModelPreparingBanner({
   phaseMap,
   onViewLogs,
   onDismiss,
-}: ModelPreparingBannerProps): JSX.Element {
+}: ModelPreparingBannerProps): ReactElement {
   return (
     <div className="mx-6 mb-4 rounded-lg border border-amber-500/20 bg-gradient-to-r from-amber-950/25 via-stone-900/30 to-transparent overflow-hidden">
       {/* Thin amber top accent line */}

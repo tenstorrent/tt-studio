@@ -9,7 +9,7 @@ interface Props {
   events: string[];
   filterLog: (line: string) => boolean;
   onScroll: () => void;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   showScrollButton: boolean;
   scrollToBottom: () => void;
 }
