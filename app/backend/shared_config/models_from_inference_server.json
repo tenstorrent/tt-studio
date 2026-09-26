@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.21.0",
-    "generated_at": "2026-09-16T17:53:03.358710+00:00"
+    "generated_at": "2026-09-17T16:56:01.803316+00:00"
   },
   "total_models": 73,
   "models": [
@@ -360,6 +360,7 @@
       "device_configurations": [
         "GALAXY",
         "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
@@ -371,13 +372,7 @@
       "service_route": "/v1/images/generations",
       "health_route": "/health",
       "env_vars": {},
-      "param_count": 6,
-      "unavailable_devices": {
-        "P300x2": {
-          "reason": "known_broken",
-          "details": "Media container never reaches a healthy state. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
-        }
-      }
+      "param_count": 6
     },
     {
       "model_name": "Qwen3-32B",
