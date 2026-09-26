@@ -31,6 +31,8 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Input } from "../ui/input";
+import { useTour } from "../../hooks/useTour";
+import { FINE_TUNE_TOUR_ID } from "../tour/tours/fineTuneModel";
 import { Button } from "../ui/button";
 import {
   fetchTrainingCatalogFull,
@@ -152,6 +154,13 @@ export function TrainingConfigDialog({
   const [device, setDevice] = useState<string | undefined>(undefined);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // While the fine-tune tour is driving this dialog, run it non-modally so the
+  // tour tooltip stays clickable (a modal Radix dialog disables pointer events
+  // on the rest of the page) and ignore outside clicks so stepping through the
+  // tour does not dismiss it.
+  const { run: tourRun, activeTourId } = useTour();
+  const isFineTuneTour = tourRun && activeTourId === FINE_TUNE_TOUR_ID;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -451,8 +460,13 @@ export function TrainingConfigDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={onOpenChange} modal={!isFineTuneTour}>
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(e) => {
+          if (isFineTuneTour) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>New Fine-tuning Job</DialogTitle>
           <DialogDescription>
@@ -468,7 +482,7 @@ export function TrainingConfigDialog({
                 control={form.control}
                 name="model"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-tour="training-dialog-model">
                     <FormLabel>Model</FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -501,7 +515,7 @@ export function TrainingConfigDialog({
                 control={form.control}
                 name="dataset"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-tour="training-dialog-dataset">
                     <FormLabel>Dataset</FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -687,7 +701,7 @@ export function TrainingConfigDialog({
             )}
 
             {/* Hyperparameters */}
-            <div>
+            <div data-tour="training-dialog-hyperparameters">
               <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
                 Hyperparameters
               </h4>
@@ -777,7 +791,7 @@ export function TrainingConfigDialog({
             </div>
 
             {/* LoRA Config */}
-            <div>
+            <div data-tour="training-dialog-lora">
               <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
                 LoRA Configuration
               </h4>
@@ -930,7 +944,11 @@ export function TrainingConfigDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button
+                type="submit"
+                disabled={submitting}
+                data-tour="training-dialog-submit"
+              >
                 {submitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}

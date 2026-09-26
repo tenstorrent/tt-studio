@@ -394,7 +394,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
   );
 
   return (
-    <Card>
+    <Card data-tour="dataset-upload-panel">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Custom Dataset Upload</CardTitle>
         <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -404,7 +404,7 @@ export function DatasetPreviewPanel({ onUploaded }: DatasetPreviewPanelProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Previously uploaded datasets */}
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="dataset-uploaded-list">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
               Uploaded datasets

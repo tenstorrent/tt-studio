@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, type ElementType } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Plus,
@@ -27,10 +27,15 @@ import {
 import { customToast } from "../components/CustomToaster";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
 import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
+import { useTour } from "../hooks/useTour";
+import {
+  FINE_TUNE_TOUR_ID,
+  TRAINING_DIALOG_TOUR_PREFIX,
+} from "../components/tour/tours/fineTuneModel";
 
 const STATUS_STYLES: Record<
   string,
-  { label: string; color: string; bg: string; icon: React.ElementType }
+  { label: string; color: string; bg: string; icon: ElementType }
 > = {
   queued: {
     label: "Queued",
@@ -93,6 +98,39 @@ export default function TrainingPage() {
   const [noContainer, setNoContainer] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
+  // Guided tour: the "New Training Job" dialog must be open while the active
+  // step points at something inside it, and closed again afterwards.
+  const {
+    run: tourRun,
+    activeTourId,
+    steps: tourSteps,
+    stepIndex: tourStepIndex,
+  } = useTour();
+  const isFineTuneTour = tourRun && activeTourId === FINE_TUNE_TOUR_ID;
+  const wasFineTuneTourRef = useRef(false);
+
+  useEffect(() => {
+    if (isFineTuneTour) {
+      wasFineTuneTourRef.current = true;
+      const target = tourSteps[tourStepIndex]?.target;
+      const wantsDialog =
+        typeof target === "string" &&
+        target.startsWith(TRAINING_DIALOG_TOUR_PREFIX);
+      setDialogOpen(wantsDialog);
+      if (typeof target === "string" && !wantsDialog && target !== "body") {
+        // Joyride's own scrolling is disabled for these steps (see the tour
+        // definition), so bring the highlighted element into view here.
+        document
+          .querySelector(target)
+          ?.scrollIntoView({ block: "center", behavior: "instant" });
+      }
+    } else if (wasFineTuneTourRef.current) {
+      // Tour finished, skipped, or closed: never leave the dialog dangling.
+      wasFineTuneTourRef.current = false;
+      setDialogOpen(false);
+    }
+  }, [isFineTuneTour, tourSteps, tourStepIndex]);
+
   const loadJobs = useCallback(async () => {
     try {
       const data = await fetchTrainingJobs();
@@ -153,7 +191,7 @@ export default function TrainingPage() {
       <div className="mx-auto max-w-6xl space-y-6 bg-white dark:bg-black rounded-2xl border border-gray-200/80 dark:border-gray-800/70 p-6 sm:p-8 shadow-sm dark:shadow-none">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
+          <div data-tour="training-page-header">
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
                 Fine-tuning Jobs
@@ -171,7 +209,11 @@ export default function TrainingPage() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => setDialogOpen(true)}
+              data-tour="training-new-job-button"
+            >
               <Plus className="mr-2 h-4 w-4" />
               New Fine-tuning Job
             </Button>
@@ -219,7 +261,7 @@ export default function TrainingPage() {
         )}
 
         {/* Jobs table */}
-        <Card>
+        <Card data-tour="training-jobs-table">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Jobs</CardTitle>
           </CardHeader>
