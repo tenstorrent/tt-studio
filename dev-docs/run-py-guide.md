@@ -120,7 +120,7 @@ These automate the release process in CONTRIBUTING.md (RC branch cut from `main`
 | Option | Description |
 | --- | --- |
 | `--help-env` | Show detailed help for environment variables. |
-| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and draft a support email to support@tenstorrent.com. |
+| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and write a ready-to-send support email to support@tenstorrent.com with it attached (`logs/tt-studio-bug-report-ttbr-*.eml`). |
 | `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
 | `--no-clear` | Don't clear the terminal at startup — keep whatever was already on screen and stream the full per-phase detail. Like `--verbose`, but it also preserves your scrollback. |
 
@@ -591,10 +591,14 @@ confirmation covers both; answering no leaves everything in place.
 python run.py --report-bug
 ```
 Collects the available host-side logs (startup, model-run, docker-control) plus a
-non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip` and opens a
-pre-filled support-email draft to support@tenstorrent.com in your mail client —
-attach the ZIP to that email and send it. The support inbox files the ticket and
-replies stream back to your inbox. The bundle never includes your `.env` (only
+non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip`, and writes
+`logs/tt-studio-bug-report-ttbr-*.eml` next to it: a ready-to-send email to
+support@tenstorrent.com with the ZIP already attached. On a desktop it opens in
+your mail client (Outlook opens it as a draft; in Thunderbird choose *Edit As New
+Message*); on a headless server, copy the `.eml` to your own machine and open it
+there. Then hit Send. Only if the `.eml` can't be written does a pre-filled
+mailto: draft open instead, and then you attach the ZIP by hand. The support
+inbox files the ticket and replies stream back to your inbox. The bundle never includes your `.env` (only
 whether it exists). If `python run.py` itself errors, it offers the same flow
 interactively from the "Next steps" panel.
 

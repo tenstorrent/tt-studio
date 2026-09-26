@@ -76,6 +76,7 @@ app/frontend/public/.cleanup-pending
 .artifacts/
 *.tar.gz
 *.zip
+*.eml
 
 # Inference API
 inference-api/.venv/

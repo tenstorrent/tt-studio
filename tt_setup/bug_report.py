@@ -6,8 +6,11 @@
 Mirrors the web UI's Report Bug button (app/frontend/src/components/bug-report/)
 for the CLI: when `python run.py` errors during setup — or when the user runs
 `python run.py --report-bug` — this collects the available host-side logs and
-system info into a `tt-studio-logs-ttbr-<hex>.zip` bundle and drafts a support
-email (support@tenstorrent.com) with the bundle name and next steps pre-filled.
+system info into a `tt-studio-logs-ttbr-<hex>.zip` bundle, writes a ready-to-send
+`tt-studio-bug-report-ttbr-<hex>.eml` to support@tenstorrent.com next to it with
+the bundle already attached, and opens that in the user's mail client. Only when
+the .eml can't be written does it fall back to a mailto: draft, which can't carry
+the bundle, so the user attaches the ZIP by hand.
 
 Unlike the UI, this cannot call the backend's /logs-api/bug-report/ endpoint: a
 setup crash usually happens before the Django backend and docker-control-service
@@ -139,9 +142,10 @@ def collect_bundle(exc=None, args=None):
     return zip_path, ref
 
 
-def build_support_email(ref, exc=None, args=None):
+def build_support_email(ref, exc=None, args=None, attached=False):
     """(subject, body, mailto_url, assignee) for the support draft. The body
-    summarizes the environment; full detail stays in the bundle ZIP."""
+    summarizes the environment; full detail stays in the bundle ZIP.
+    `attached=True` words the body for the .eml, where the ZIP is attached."""
     info = _system_info(exc, args)
     environment_lines = [
         f"OS: {info['os']}",
@@ -157,14 +161,52 @@ def build_support_email(ref, exc=None, args=None):
     assignee = support_email.assignee_for_date()
     subject = support_email.build_subject(error_summary, ref)
     body = support_email.build_body(
-        ref, assignee, form, environment_lines, f"tt-studio-logs-{ref}.zip"
+        ref, assignee, form, environment_lines, f"tt-studio-logs-{ref}.zip", attached=attached
     )
     return subject, body, support_email.build_mailto_url(subject, body), assignee
 
 
+def write_eml(zip_path, ref, subject, body):
+    """Write the ready-to-send .eml (support email with the bundle attached)
+    next to the ZIP and return its path."""
+    eml_path = os.path.join(os.path.dirname(zip_path), f"tt-studio-bug-report-{ref}.eml")
+    with open(zip_path, "rb") as f:
+        zip_bytes = f.read()
+    with open(eml_path, "wb") as f:
+        f.write(support_email.build_eml(subject, body, zip_bytes, os.path.basename(zip_path)))
+    return eml_path
+
+
+def open_in_mail_client(path):
+    """Open the .eml at `path` with the desktop's default app (the mail
+    client). False when there is no desktop to open it on (headless or SSH
+    session, no opener) or the opener fails."""
+    if sys.platform == "darwin":
+        cmd = ["open", path]
+    elif sys.platform.startswith("linux") and (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        cmd = ["xdg-open", path]
+    else:
+        return False
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+        )
+    except OSError:
+        return False
+    try:
+        return proc.wait(timeout=5) == 0
+    except subprocess.TimeoutExpired:
+        # xdg-open can stay in the foreground for as long as the mail client
+        # it launched is running; still running means it opened.
+        return True
+
+
 def report_bug(exc=None, args=None, open_browser=True):
-    """Collect a diagnostics bundle, draft the support email, show the next
-    steps, and optionally open the pre-filled draft in the default mail client."""
+    """Collect a diagnostics bundle, write the support email, show the next
+    steps, and optionally open it in the default mail client: the .eml with
+    the bundle attached, or the mailto: draft when the .eml couldn't be written."""
     try:
         zip_path, ref = collect_bundle(exc=exc, args=args)
     except Exception as e:
@@ -178,20 +220,49 @@ def report_bug(exc=None, args=None, open_browser=True):
         ref, exc=exc, args=args
     )
 
-    console.print(notice_panel(
-        "[bold]🐞 Bug report ready[/bold]",
-        [
-            f"[muted]Reference  →[/muted]  {ref}",
-            f"[muted]Bundle     →[/muted]  {zip_path}",
-            f"[muted]Email      →[/muted]  {support_email.SUPPORT_EMAIL}",
-            f"[muted]Assignee   →[/muted]  {assignee_name} <{assignee_email}> (this week's triage)",
-            "",
+    # Ready-to-send .eml with the bundle attached — the mailto: draft below
+    # cannot carry attachments, so this is the path where nothing is forgotten.
+    eml_path = None
+    try:
+        eml_body = build_support_email(ref, exc=exc, args=args, attached=True)[1]
+        eml_path = write_eml(zip_path, ref, subject, eml_body)
+    except Exception as e:
+        console.print(f"[warning]Could not write the .eml draft: {e}[/warning]")
+
+    rows = [
+        f"[muted]Reference  →[/muted]  {ref}",
+        f"[muted]Bundle     →[/muted]  {zip_path}",
+    ]
+    if eml_path:
+        rows.append(f"[muted]Email file →[/muted]  {eml_path}")
+    rows += [
+        f"[muted]Email      →[/muted]  {support_email.SUPPORT_EMAIL}",
+        f"[muted]Assignee   →[/muted]  {assignee_name} <{assignee_email}> (this week's triage)",
+        "",
+    ]
+    if eml_path:
+        rows += [
+            "[muted]1. Open the .eml above in your mail client — the bundle is attached[/muted]",
+            "[muted]2. Send — replies stream back to your inbox[/muted]",
+        ]
+    else:
+        rows += [
             "[muted]1. A pre-filled draft opens in your mail client[/muted]",
             "[muted]2. Attach the bundle ZIP above to the email[/muted]",
             "[muted]3. Send — replies stream back to your inbox[/muted]",
-        ],
-        border_style="accent",
-    ))
+        ]
+
+    console.print(notice_panel("[bold]🐞 Bug report ready[/bold]", rows, border_style="accent"))
+
+    if eml_path:
+        # The .eml already carries the bundle; the mailto: draft can't, so it
+        # is never opened on this path.
+        if not (open_browser and open_in_mail_client(eml_path)):
+            console.print(
+                "[muted]No mail client opened — open the .eml above in yours and hit Send "
+                "(on a headless server, copy it to your own machine first).[/muted]"
+            )
+        return
 
     opened = False
     if open_browser:

@@ -1,54 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-export type LogSourceStatus = "pending" | "loading" | "done" | "error";
-
-export interface LogEntry {
-  file: string | null;
-  content: string;
-}
-
-export interface BugReportData {
-  backend_log: LogEntry;
-  model_run_log: LogEntry;
-  model_run_deployment_logs: LogEntry[];
-  docker_control_log: LogEntry;
-  startup_log: LogEntry;
-  agent_log: { content: string };
-  inference_run_logs: LogEntry[];
-  inference_docker_server_logs: LogEntry[];
-  inference_run_specs: LogEntry[];
-  tt_smi: Record<string, unknown>;
-  deployments: unknown[];
-  /** Docker + deploy-cache snapshot for currently deployed models (bug report). */
-  current_models: Record<string, unknown>;
-}
-
-export type BugReportStep = "form" | "collecting" | "actions";
+/** "drafted": mail app opened + logs ZIP downloaded to drag in.
+ *  "downloaded": .eml with the logs ZIP already attached downloaded. */
+export type BugReportStep = "form" | "drafted" | "downloaded";
 
 export interface BugReportForm {
   title: string;
   description: string;
   steps: string;
-  expected: string;
-  actual: string;
-}
-
-/** Pre-filled support-email draft returned by POST /logs-api/support-email/. */
-export interface SupportEmailDraft {
-  to: string;
-  subject: string;
-  body: string;
-  /** Server-built mailto: link. The web UI does not navigate to it — it
-   * assembles its own from `to`/`subject`/`body` so no server-supplied URL
-   * reaches a DOM sink. Kept for API consumers (e.g. the CLI twin). */
-  mailto_url: string;
-  assignee: { name: string; email: string };
-  ref: string;
-}
-
-export interface LogSourceState {
-  label: string;
-  key: string;
-  status: LogSourceStatus;
 }
