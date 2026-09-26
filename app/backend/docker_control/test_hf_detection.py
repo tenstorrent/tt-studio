@@ -8,7 +8,8 @@ guard against tt-media-server's non-LLM /v1/models path-as-id quirk.
 
 from unittest.mock import Mock, patch
 
-from docker_control.views import _hf_from_container, _detect_model_info
+from docker_control.views import _hf_from_container, _detect_model_info, _infer_model_type
+from docker_control.tt_inference_client import tool_call_parser_for
 
 
 def _container(env: dict) -> dict:
@@ -71,3 +72,23 @@ class TestDetectModelInfoIgnoresPathLikeApiId:
 
         assert result["hf_model_id"] == "meta-llama/Llama-3.1-8B-Instruct"
         assert result["source"] == "api"
+
+
+class TestInferModelType:
+    def test_community_image_packages_are_not_chat(self):
+        # DEVSTACK-489: a Qwen-Image DiT package used to fall through to "chat".
+        assert _infer_model_type("changh95/qwen-image-2.1-p150") == "image_generation"
+        assert _infer_model_type("black-forest-labs/FLUX.2-dev") == "image_generation"
+
+    def test_video_packages(self):
+        assert _infer_model_type("Wan-AI/Wan2.2-T2V-A14B") == "video_generation"
+        assert _infer_model_type("genmo/mochi-1-preview") == "video_generation"
+
+    def test_plain_llm_still_chat(self):
+        assert _infer_model_type("Qwen/Qwen3-32B") == "chat"
+
+
+class TestToolCallParser:
+    def test_gpt_oss_uses_openai_parser(self):
+        assert tool_call_parser_for("gpt-oss-120b", "openai/gpt-oss-120b") == "openai"
+        assert tool_call_parser_for("gpt-oss-120b-p150x4", "tt-hous/gpt-oss-120b-p150x4") == "openai"

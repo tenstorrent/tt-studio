@@ -11,6 +11,9 @@ serving stacks below it were designed independently:
   response. What tt-media-server exposes for its OpenAI-compatible image models.
 * ``media``  — ``POST /enqueue`` → poll ``/status/<id>`` → ``GET /fetch_image/<id>``.
   tt-media-server's older job API.
+* ``predict`` — ``POST /predict``, synchronous, base64 PNG under ``image``. The
+  contract community tt-metal DiT packages published through tt-model use
+  (e.g. ``changh95/qwen-image-2.1-p150``).
 * ``tt_dit`` — ``POST /generate`` → poll ``/jobs/<id>`` → ``GET /jobs/<id>/image``.
   tt-metal's DiT models (``models.tt_dit.server.*``) serving HTTP directly,
   without tt-media-server in front. Diffusion on accelerators takes minutes per
@@ -64,6 +67,8 @@ class ImageDialect:
     # hands us raw base64 with no content type of its own).
     default_content_type: str = "image/png"
     default_filename: str = "image.png"
+    # Sync dialects: JSON keys that may carry the base64 image, tried in order.
+    b64_fields: tuple = ("images", "image", "b64_json")
 
 
 OPENAI = ImageDialect(
@@ -86,6 +91,14 @@ MEDIA = ImageDialect(
     error_states=frozenset({"failed", "error", "cancelled"}),
 )
 
+PREDICT = ImageDialect(
+    name="predict",
+    submit_route="/predict",
+    mode="sync",
+    b64_fields=("image",),
+    extra_params={"seed": "seed", "num_inference_steps": "num_steps"},
+)
+
 TT_DIT = ImageDialect(
     name="tt_dit",
     submit_route="/generate",
@@ -101,7 +114,9 @@ TT_DIT = ImageDialect(
 
 # Longest submit_route first so "/v1/images/generations" is tested before any
 # shorter route that could also appear as a suffix.
-DIALECTS = tuple(sorted((OPENAI, MEDIA, TT_DIT), key=lambda d: -len(d.submit_route)))
+DIALECTS = tuple(
+    sorted((OPENAI, MEDIA, TT_DIT, PREDICT), key=lambda d: -len(d.submit_route))
+)
 
 # Routes we can recognise in a container's OpenAPI document, most specific first.
 _ROUTE_TO_DIALECT = {d.submit_route: d for d in DIALECTS}
