@@ -4,7 +4,7 @@
 
 from dataclasses import dataclass
 from typing import List, Optional
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APIClient
@@ -22,6 +22,7 @@ from docker_control.docker_utils import (
     equivalent_mesh_device,
     infer_inference_server_device,
     media_image_override,
+    run_container,
     trace_region_override,
     vllm_mesh_fallback_fits,
 )
@@ -656,6 +657,62 @@ class MediaImageOverrideTests(SimpleTestCase):
     def test_unpinned_model_returns_none(self):
         self.assertIsNone(media_image_override("whisper-large-v3", "p150"))
         self.assertIsNone(media_image_override("Llama-3.1-8B-Instruct", "p150x4"))
+
+    def test_mochi_on_p300x2_is_pinned_to_the_patched_studio_image(self):
+        """The spec's 0.10.0 image rejects the P300x2 2x2 mesh, and stock 0.18.0
+        still carries the pre-refactor runner; only the studio_images build runs."""
+        self.assertEqual(
+            media_image_override("mochi-1-preview", "p300x2"),
+            "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76",
+        )
+
+    def test_mochi_on_other_boards_keeps_the_spec_image(self):
+        """The patched build was only verified on p300x2; the other boards are untested on it."""
+        for device in ("t3k", "galaxy", "p150x4", "p150x8"):
+            self.assertIsNone(media_image_override("mochi-1-preview", device))
+
+
+class RunContainerMediaPinTests(SimpleTestCase):
+    """What run_container actually posts to /run for a pinned media model, next
+    to an unpinned one, with board detection and the inference server mocked."""
+
+    MOCHI_PIN = "ghcr.io/tenstorrent/tt-studio/studio_images:mochi-1-preview-qb2-20260813-0.18.0-c49bb76"
+
+    def _payload_for(self, model_name):
+        impl = next(
+            i for i in model_implmentations.values()
+            if i.model_name == model_name and i.model_type != ModelTypes.TRAINING
+        )
+        response = Mock(status_code=202)
+        response.json.return_value = {}
+        with (
+            patch("docker_control.docker_utils.detect_board_type", return_value="P300x2"),
+            patch("docker_control.docker_utils.get_next_service_port", return_value=20001),
+            patch("shared_config.user_config.get_hf_token", return_value=None),
+            patch("shared_config.user_config.get_jwt_secret", return_value=None),
+            patch("docker_control.docker_utils.requests.post", return_value=response) as post,
+        ):
+            run_container(impl, weights_id="", device_id=0)
+        return post.call_args.kwargs["json"]
+
+    def test_mochi_on_p300x2_deploys_the_pin_through_its_derived_spec(self):
+        payload = self._payload_for("mochi-1-preview")
+        self.assertEqual(payload["device"], "p300x2")
+        self.assertEqual(payload["override_docker_image"], self.MOCHI_PIN)
+        # run.py loads a runtime spec as-is, so the env var and the pin travel in
+        # the derived spec file (see serve_override env_vars in model_overrides.toml).
+        self.assertTrue(
+            payload["runtime_model_spec_json"].endswith(
+                "app/backend/shared_config/runtime_model_specs/mochi-1-preview-p300x2.json"
+            ),
+            payload["runtime_model_spec_json"],
+        )
+        self.assertNotIn("device_id", payload, "whole-board mesh deploys are not pinned to a chip")
+
+    def test_unpinned_media_model_sends_neither(self):
+        payload = self._payload_for("FLUX.1-schnell")
+        self.assertNotIn("override_docker_image", payload)
+        self.assertNotIn("runtime_model_spec_json", payload)
 
 
 class MediaTraceRegionOverrideTests(SimpleTestCase):
