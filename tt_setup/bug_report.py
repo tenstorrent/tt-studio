@@ -177,6 +177,25 @@ def write_eml(zip_path, ref, subject, body):
     return eml_path
 
 
+def eml_send_verb():
+    """What to do with the opened .eml. Apple Mail shows an .eml from disk as
+    a received message — it ignores X-Unsent and never offers Send — so on
+    macOS the user forwards it to support instead."""
+    if sys.platform == "darwin":
+        return f"hit Forward and send it to {support_email.SUPPORT_EMAIL}"
+    return "hit Send"
+
+
+def eml_send_step():
+    """Panel step for sending the opened .eml (see eml_send_verb)."""
+    if sys.platform == "darwin":
+        return (
+            f"Apple Mail shows it as a received message: hit Forward and send it to "
+            f"{support_email.SUPPORT_EMAIL} — the logs stay attached"
+        )
+    return "Send — replies stream back to your inbox"
+
+
 def open_in_mail_client(path):
     """Open the .eml at `path` with the desktop's default app (the mail
     client). False when there is no desktop to open it on (headless or SSH
@@ -243,7 +262,7 @@ def report_bug(exc=None, args=None, open_browser=True):
     if eml_path:
         rows += [
             "[muted]1. Open the .eml above in your mail client — the bundle is attached[/muted]",
-            "[muted]2. Send — replies stream back to your inbox[/muted]",
+            f"[muted]2. {eml_send_step()}[/muted]",
         ]
     else:
         rows += [
@@ -259,7 +278,7 @@ def report_bug(exc=None, args=None, open_browser=True):
         # is never opened on this path.
         if not (open_browser and open_in_mail_client(eml_path)):
             console.print(
-                "[muted]No mail client opened — open the .eml above in yours and hit Send "
+                f"[muted]No mail client opened — open the .eml above in yours and {eml_send_verb()} "
                 "(on a headless server, copy it to your own machine first).[/muted]"
             )
         return
