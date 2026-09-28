@@ -5,7 +5,7 @@ import React from "react";
 import { EnhancedButton as Button } from "../../ui/enhanced-button";
 import {
   FileCode2,
-  Trash2,
+  Square,
   ScrollText,
   MessageSquareText,
   Image as ImageIcon,
@@ -15,6 +15,7 @@ import {
   Volume2,
   ScanFace,
   BrainCog,
+  Binary,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
@@ -75,9 +76,9 @@ export default React.memo(function ManageCell({
   // Most specific cause first: an in-flight delete is a concrete operation the
   // user is waiting on, so it must not be shadowed by the broader outage notice.
   const deleteDisabledReason = isResetting
-    ? "The board is resetting. Wait for it to finish before deleting a model."
+    ? "The board is resetting. Wait for it to finish before stopping a model."
     : deleteInProgress
-      ? "A model is currently being deleted. Please wait for it to finish before starting another destructive action."
+      ? "A model is currently being stopped. Please wait for it to finish before starting another destructive action."
       : "The Docker control service is unreachable, so this model can't be stopped right now. The model itself is unaffected and still usable.";
   const resettingTitle = isResetting
     ? "Disabled while the board is resetting"
@@ -94,8 +95,8 @@ export default React.memo(function ManageCell({
   const modelType = model_type
     ? getModelTypeFromBackendType(model_type)
     : getModelTypeFromName(name ?? "");
-  // Embedding models have no UI, and an unidentified container has no known API
-  // shape — neither gets an interaction or API button, only management actions.
+  // An unidentified container has no known API shape — it gets no interaction
+  // or API button, only management actions.
   const noInteraction = !hasInteractionPage(modelType);
   const openLabel =
     modelType === ModelType.ImageGeneration
@@ -108,9 +109,11 @@ export default React.memo(function ManageCell({
             ? "Face Rec"
             : modelType === ModelType.TTS
               ? "TTS"
-              : modelType === ModelType.Training
-                ? "Training Dashboard"
-                : "Chat";
+              : modelType === ModelType.Embedding
+                ? "Embed"
+                : modelType === ModelType.Training
+                  ? "Fine-tuning Dashboard (Beta)"
+                  : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration
       ? ImageIcon
@@ -122,9 +125,11 @@ export default React.memo(function ManageCell({
             ? ScanFace
             : modelType === ModelType.TTS
               ? Volume2
-              : modelType === ModelType.Training
-                ? BrainCog
-                : MessageSquareText;
+              : modelType === ModelType.Embedding
+                ? Binary
+                : modelType === ModelType.Training
+                  ? BrainCog
+                  : MessageSquareText;
 
   if (isFailed) {
     return (
@@ -157,12 +162,12 @@ export default React.memo(function ManageCell({
                   onClick={() => onDelete(id)}
                   className={`${baseBtn} ${dangerBtn} [&_svg]:animate-spin`}
                 >
-                  Removing…
+                  Stopping…
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
                 <p className="text-sm">
-                  Removal in progress. Click to view progress.
+                  Stop in progress. Click to view progress.
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -176,13 +181,13 @@ export default React.memo(function ManageCell({
                     variant="outline"
                     size="sm"
                     effect="expandIcon"
-                    icon={Trash2}
+                    icon={Square}
                     iconPlacement="right"
                     onClick={() => onDelete(id)}
                     disabled
                     className={`${baseBtn} ${dangerBtn}`}
                   >
-                    Remove &amp; Reset
+                    Stop &amp; Reset
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -198,12 +203,12 @@ export default React.memo(function ManageCell({
             variant="outline"
             size="sm"
             effect="expandIcon"
-            icon={Trash2}
+            icon={Square}
             iconPlacement="right"
             onClick={() => onDelete(id)}
             className={`${baseBtn} ${dangerBtn}`}
           >
-            Remove &amp; Reset
+            Stop &amp; Reset
           </Button>
         )}
       </div>
@@ -269,12 +274,12 @@ export default React.memo(function ManageCell({
                 onClick={() => onDelete(id)}
                 className={`${baseBtn} ${dangerBtn} [&_svg]:animate-spin`}
               >
-                Deleting…
+                Stopping…
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <p className="text-sm">
-                Deletion in progress. Click to view progress.
+                Stop in progress. Click to view progress.
               </p>
             </TooltipContent>
           </Tooltip>
@@ -288,13 +293,13 @@ export default React.memo(function ManageCell({
                   variant="outline"
                   size="sm"
                   effect="expandIcon"
-                  icon={Trash2}
+                  icon={Square}
                   iconPlacement="right"
                   onClick={() => onDelete(id)}
                   disabled
                   className={`${baseBtn} ${dangerBtn}`}
                 >
-                  Delete
+                  Stop
                 </Button>
               </span>
             </TooltipTrigger>
@@ -310,12 +315,12 @@ export default React.memo(function ManageCell({
           variant="outline"
           size="sm"
           effect="expandIcon"
-          icon={Trash2}
+          icon={Square}
           iconPlacement="right"
           onClick={() => onDelete(id)}
           className={`${baseBtn} ${dangerBtn}`}
         >
-          Delete
+          Stop
         </Button>
       )}
 

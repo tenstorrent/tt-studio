@@ -16,12 +16,14 @@ import os
 import sys
 
 from tt_setup.constants import DOCKER_CONTROL_LOG_FILE, MODEL_RUN_LOG_FILE, TT_STUDIO_ROOT
-from tt_setup.services import snapshot_health
+from tt_setup.services import get_backend_port, snapshot_health
+
+_BACKEND_PORT = get_backend_port()
 
 # Compose service names are stable across dev/prod/tt-hardware overrides, so we
 # drive logs/restart by service name and never juggle container-name suffixes.
 SERVICES = [
-    {"name": "Backend",        "compose": "tt_studio_backend",  "port": 8000, "health": "http://localhost:8000/up/",              "kind": "container"},
+    {"name": "Backend",        "compose": "tt_studio_backend",  "port": _BACKEND_PORT, "health": f"http://localhost:{_BACKEND_PORT}/up/", "kind": "container"},
     {"name": "Frontend",       "compose": "tt_studio_frontend", "port": 3000, "health": "http://localhost:3000/",                 "kind": "container"},
     {"name": "Agent",          "compose": "tt_studio_agent",    "port": 8080, "health": "http://localhost:8080/",                 "kind": "container"},
     {"name": "ChromaDB",       "compose": "tt_studio_chroma",   "port": 8111, "health": "http://localhost:8111/api/v1/heartbeat", "kind": "container"},

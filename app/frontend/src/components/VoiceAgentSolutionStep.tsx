@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { Fragment, useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { Fragment, useState, useEffect, useCallback, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -34,6 +34,7 @@ import { Model, getModelsUrl } from "./SelectionSteps";
 import {
   isLlama31_8BModel,
   isP300x2Board,
+  isQwen3_8BModel,
 } from "../utils/p300x2Placement";
 import { runHfCheck, type HfCheckResult } from "../api/settingsApi";
 import type { ChipStatus } from "../types/chipStatus";
@@ -84,6 +85,20 @@ const STATUS_CONFIG = {
 
 const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPERIMENTAL: 1 };
 
+// Blackhole voice pipeline runs Qwen3.5-9B as its LLM. It is single-chip, so the
+// LLM, Whisper and SpeechT5 each take one device. Where Qwen3.5-9B is compatible
+// (Blackhole boards) it is pinned and the LLM card is fixed rather than a dropdown.
+const PINNED_VOICE_LLM = "Qwen3.5-9B";
+
+// Where Qwen3.5-9B is not compatible, prefer Qwen3-8B before falling through to
+// the Instruct-preferring chat default, so the pipeline still deploys.
+const FALLBACK_VOICE_LLM = "Qwen3-8B";
+
+// Qwen3-8B and Llama-3.1-8B run across a whole P300 card. On a P300x2 that card
+// is slots 0,1, which pushes Whisper to 2 and SpeechT5 to 3 and needs 4 slots.
+const usesCardPairLlm = (modelNameOrId: string) =>
+  isQwen3_8BModel(modelNameOrId) || isLlama31_8BModel(modelNameOrId);
+
 // ---- helpers --------------------------------------------------------------
 
 
@@ -109,11 +124,14 @@ async function pollDeployProgress(
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
   // Genuinely terminal: the backend has decided this deploy is over.
   const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout"];
-  // "not_found" is ambiguous - a truly orphaned job, or one the backend just cannot
-  // resolve at this instant. Treating the first one as fatal failed deploys whose
-  // image was still downloading, so require it to persist before killing the card.
-  const NOT_FOUND_STRIKES = 3;
-  let notFoundCount = 0;
+  // `not_found` is NOT terminal on sight. A job can legitimately read as unknown for
+  // a short window — the record is still being registered, or a backend worker that
+  // hasn't seen it yet serves the poll. Treating the first one as fatal killed cards
+  // within seconds of a perfectly healthy deploy. useDeploymentProgress.ts and
+  // useActiveDeployments.ts both allow 90s; match them rather than inventing a
+  // third policy.
+  const NOT_FOUND_GRACE_MS = 90 * 1000;
+  const startedAt = Date.now();
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
@@ -122,13 +140,17 @@ async function pollDeployProgress(
         onUpdate?.(data);
         if (data.status === "completed") return { outcome: "done", status: data.status };
         if (data.status === "not_found") {
-          if (++notFoundCount >= NOT_FOUND_STRIKES) {
-            return { outcome: "error", status: data.status, message: data.message };
+          if (Date.now() - startedAt >= NOT_FOUND_GRACE_MS) {
+            return {
+              outcome: "error",
+              status: data.status,
+              message:
+                data.message ??
+                "Deployment could not be tracked — the job is no longer known to the server.",
+            };
           }
-        } else {
-          notFoundCount = 0;
-        }
-        if (TERMINAL_ERRORS.includes(data.status)) {
+          // Inside the grace window: keep polling.
+        } else if (TERMINAL_ERRORS.includes(data.status)) {
           return { outcome: "error", status: data.status, message: data.message };
         }
       }
@@ -160,7 +182,15 @@ function deployDetailFromProgress(
   const transfer = parts.length > 0 ? parts : undefined;
 
   if (data.stage === "pulling_image") {
-    return { detail: `Pulling Docker Image… ${pct}%`, transfer };
+    // Early in a pull the rate is measured over very few samples and the ETA can be
+    // off by 5-10x (a run that finished in 16 min was projecting 106 min at 5%).
+    // Withhold it until enough of the image has landed for the estimate to mean
+    // something, rather than showing a number that pushes people to cancel.
+    const total = data.total_bytes ?? 0;
+    const downloaded = data.downloaded_bytes ?? 0;
+    const etaStable = total > 0 && downloaded / total > 0.1;
+    const pullParts = etaStable ? parts : transferDetailParts({ ...data, eta_seconds: null });
+    return { detail: `Pulling Docker Image… ${pct}%`, transfer: pullParts.length > 0 ? pullParts : undefined };
   }
   if (data.stage === "model_preparation") {
     // weights_cached short-circuits the download, so don't imply one is running.
@@ -314,6 +344,45 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   // previous model's result.
   const [hfCheck, setHfCheck] = useState<{ repo: string; results: HfCheckResult[] } | null>(null);
 
+  /** Re-read which devices are in use. Deliberately callable on demand: this used to
+   *  run once on mount only, so after a deploy finished (or its containers went away)
+   *  the page kept showing minutes-old occupancy — and because that state feeds
+   *  `canDeploy`, the Deploy button stayed disabled with a generic tooltip while the
+   *  backend reported every slot free. A swallowed click is indistinguishable from a
+   *  broken app, so keep this fresh. */
+  const refreshOccupiedDevices = useCallback(
+    () =>
+      fetch("/docker-api/status/")
+        .then((r) => r.json())
+        .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
+          const occupied = Object.values(data)
+            .map((c) => {
+              const normalizedDeviceIds = Array.isArray(c.device_ids)
+                ? c.device_ids
+                    .map((slot) => Number(slot))
+                    .filter((slot) => Number.isInteger(slot))
+                : [];
+              const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
+              const resolvedDeviceIds =
+                normalizedDeviceIds.length > 0
+                  ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
+                  : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
+                    ? [fallbackDeviceId]
+                    : [];
+              if (resolvedDeviceIds.length === 0) return undefined;
+              return {
+                device_id: resolvedDeviceIds[0],
+                device_ids: resolvedDeviceIds,
+                name: c.name,
+              };
+            })
+            .filter((item): item is OccupiedDevice => item !== undefined);
+          setOccupiedDevices(occupied);
+        })
+        .catch(() => { /* non-fatal — just no pre-flight warnings */ }),
+    []
+  );
+
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
       .then((r) => r.json())
@@ -343,40 +412,21 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
             models.find((m) => m.model_type === type && filter(m))?.id ?? ""
           );
         };
-        setSelectedLlmId(firstCompat("chat"));
+        // Prefer the pinned Qwen3.5-9B where the board supports it, then Qwen3-8B,
+        // then the compatible-chat default (Instruct-preferring).
+        const compatibleByName = (name: string) =>
+          models.find((m) => m.name === name && m.is_compatible === true);
+        setSelectedLlmId(
+          compatibleByName(PINNED_VOICE_LLM)?.id ??
+            compatibleByName(FALLBACK_VOICE_LLM)?.id ??
+            firstCompat("chat")
+        );
         setSelectedWhisperId(firstCompat("speech_recognition"));
         setSpeechT5Id(firstCompat("tts"));
       })
       .catch(() => customToast.error("Failed to load model catalog"));
 
-    const loadSlots = fetch("/docker-api/status/")
-      .then((r) => r.json())
-      .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
-        const occupied = Object.values(data)
-          .map((c) => {
-            const normalizedDeviceIds = Array.isArray(c.device_ids)
-              ? c.device_ids
-                  .map((slot) => Number(slot))
-                  .filter((slot) => Number.isInteger(slot))
-              : [];
-            const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
-            const resolvedDeviceIds =
-              normalizedDeviceIds.length > 0
-                ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
-                : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
-                  ? [fallbackDeviceId]
-                  : [];
-            if (resolvedDeviceIds.length === 0) return undefined;
-            return {
-              device_id: resolvedDeviceIds[0],
-              device_ids: resolvedDeviceIds,
-              name: c.name,
-            };
-          })
-          .filter((item): item is OccupiedDevice => item !== undefined);
-        setOccupiedDevices(occupied);
-      })
-      .catch(() => { /* non-fatal — just no pre-flight warnings */ });
+    const loadSlots = refreshOccupiedDevices();
 
     // Board slot count for the device pre-flight check.
     const loadSlotCount = fetch("/docker-api/chip-status/")
@@ -387,7 +437,20 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       .catch(() => { /* non-fatal */ });
 
     Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
-  }, []);
+  }, [refreshOccupiedDevices]);
+
+  // Keep occupancy fresh without polling hard: refresh when the tab regains focus
+  // (the common case — the user was elsewhere while a deploy finished) and on a
+  // slow interval as a backstop.
+  useEffect(() => {
+    const onFocus = () => { void refreshOccupiedDevices(); };
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(onFocus, 30000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(timer);
+    };
+  }, [refreshOccupiedDevices]);
 
   // Auto-redirect countdown after all done
   useEffect(() => {
@@ -408,16 +471,22 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const ttsModels = allModels.filter((m) => m.model_type === "tts" && isSingleChip(m));
   const selectedLlmModel = allModels.find((m) => m.id === selectedLlmId);
   const speechT5Model = allModels.find((m) => m.id === speechT5Id);
+  // Pinned when the selected LLM is Qwen3.5-9B (Blackhole); the card is then fixed
+  // rather than a dropdown.
+  const isPinned = selectedLlmModel?.name === PINNED_VOICE_LLM;
   const currentBoard = allModels[0]?.current_board;
-  const useLlamaCardPair =
+  // Qwen3.5-9B is single-chip, so the pinned pipeline is one device per stage. The
+  // fallback LLMs take a whole P300 card, so on a P300x2 they occupy slots 0,1.
+  const useCardPair =
+    !isPinned &&
     isP300x2Board(currentBoard) &&
-    isLlama31_8BModel(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
-  const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
-  const whisperDeviceId = useLlamaCardPair ? 2 : 1;
-  const ttsDeviceId = useLlamaCardPair ? 3 : 2;
+    usesCardPairLlm(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
+  const llmDeviceId: number | string = useCardPair ? "0,1" : 0;
+  const whisperDeviceId = useCardPair ? 2 : 1;
+  const ttsDeviceId = useCardPair ? 3 : 2;
 
   // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
-  const requiredSlots = useLlamaCardPair ? 4 : 3;
+  const requiredSlots = useCardPair ? 4 : 3;
   const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
   // The backend refuses a gated deploy outright, so resolve access before offering
@@ -469,19 +538,20 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     });
     return Array.from(unique.values());
   };
+  // A card-pair LLM occupies both slots of the card, so report it as "0,1".
   const withDisplayDeviceIds = (item: OccupiedDevice): OccupiedDevice =>
-    useLlamaCardPair && item.device_ids.includes(0)
+    useCardPair && item.device_ids.includes(0)
       ? { ...item, device_ids: [0, 1] }
       : item;
-  const llmOccupantsRaw = useLlamaCardPair
+  const llmOccupantsRaw = useCardPair
     ? dedupeOccupiedDevices([occupiedByDevice(0), occupiedByDevice(1)])
     : dedupeOccupiedDevices([occupiedByDevice(0)]);
-  const llmOccupants = useLlamaCardPair
+  const llmOccupants = useCardPair
     ? dedupeOccupiedDevices(llmOccupantsRaw.map(withDisplayDeviceIds))
     : llmOccupantsRaw;
   const whisperOccupants = dedupeOccupiedDevices([occupiedByDevice(whisperDeviceId)]);
   const ttsOccupants = dedupeOccupiedDevices([occupiedByDevice(ttsDeviceId)]);
-  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
+  const targetSlots = useCardPair ? [0, 1, 2, 3] : [0, 1, 2];
   const occupiedSlots = dedupeOccupiedDevices(
     targetSlots
       .map((id) => occupiedByDevice(id))
@@ -582,6 +652,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);
+    // Whatever the outcome, occupancy just changed — slots were taken, or a failed
+    // deploy released the ones it had reserved. Re-read it so a retry isn't blocked
+    // by stale conflicts.
+    void refreshOccupiedDevices();
     if (failures.length === 0) {
       setAllDone(true);
       customToast.success("Voice Agent pipeline submitted! Redirecting…");
@@ -624,9 +698,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         <div>
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
-            {useLlamaCardPair
-              ? "Deploys the full voice pipeline: Llama 8B Instruct on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
-              : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
+            {isPinned
+              ? "Deploys the full voice pipeline: Qwen3.5-9B on device 0, Whisper on device 1, SpeechT5 on device 2."
+              : useCardPair
+                ? `Deploys the full voice pipeline: ${selectedLlmModel?.name ?? "LLM"} on devices 0,1, Whisper on device 2, SpeechT5 on device 3.`
+                : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
 
@@ -646,21 +722,32 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
               <ModelCard
                 icon={<Bot className="w-5 h-5" />}
                 label="LLM"
-                deviceLabel={useLlamaCardPair ? "Device 0,1" : "Device 0"}
+                deviceLabel={useCardPair ? "Device 0,1" : "Device 0"}
                 deployState={llmState}
                 accent="blue"
                 occupants={llmOccupants}
                 helperContent={
                   <>
                     <Info className="w-2.5 h-2.5 shrink-0 opacity-60" />
-                    <span>Instruct variants recommended for chat</span>
+                    <span>
+                      {isPinned
+                        ? "Qwen3.5-9B is experimental on Blackhole"
+                        : "Instruct variants recommended for chat"}
+                    </span>
                   </>
                 }
               >
-                <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
-                  <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
-                  <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
-                </Select>
+                {isPinned ? (
+                  <div className="flex items-center h-8 px-3 rounded-md border border-input bg-muted/50 text-xs text-muted-foreground">
+                    {selectedLlmModel?.name ?? PINNED_VOICE_LLM}
+                    <span className="ml-auto text-[10px] opacity-60">fixed</span>
+                  </div>
+                ) : (
+                  <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
+                    <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
+                    <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
+                  </Select>
+                )}
               </ModelCard>
 
               <ModelCard

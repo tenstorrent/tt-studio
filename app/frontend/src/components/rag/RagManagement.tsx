@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+// This file incorporates work covered by the following copyright and permission notice:
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import { Button } from "@/src/components/ui/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/src/components/ui/card";
@@ -16,8 +20,11 @@ import {
   createCollection,
   uploadDocument,
   fetchDocuments,
-  isSystemKnowledgeCollection,
 } from "@/src/components/rag";
+import {
+  fetchEmbeddingModels,
+  type DeployedEmbeddingModel,
+} from "@/src/api/modelsDeployedApis";
 import {
   FileType,
   Trash2,
@@ -27,9 +34,18 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
-  Database,
 } from "lucide-react";
-import { GentleFileUpload } from "@/src/components/ui/gentle-file-upload";
+import {
+  GentleFileUpload,
+  type UploadFileItem,
+} from "@/src/components/ui/gentle-file-upload";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/src/components/ui/select";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
 import type { JSX } from "react";
@@ -135,7 +151,22 @@ export default function RagManagement() {
   const [collectionsUploading, setCollectionsUploading] = useState<string[]>(
     []
   );
+  const [activeUploads, setActiveUploads] = useState<UploadFileItem[]>([]);
+  const progressIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map()
+  );
+  // Track auto-dismiss timeouts so they can be cleared on unmount
+  const dismissTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadBoxKey, setUploadBoxKey] = useState(0);
+
+  // Embedding model for newly-created datasources: "" is the default local
+  // model, otherwise a deployed embedding model's stable identity (see
+  // EmbeddingDemo, which introduced TT-hardware-backed collections).
+  const [embeddingModels, setEmbeddingModels] = useState<DeployedEmbeddingModel[]>([]);
+  const [embeddingModel, setEmbeddingModel] = useState("");
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -150,10 +181,107 @@ export default function RagManagement() {
     }));
   };
 
+  // Helper to start smooth simulated progress while backend creates embeddings
+  const startProgressSimulation = (uploadId: string, collectionName: string) => {
+    if (progressIntervals.current.has(uploadId)) {
+      clearInterval(progressIntervals.current.get(uploadId)!);
+    }
+    const interval = setInterval(() => {
+      setActiveUploads((prev) =>
+        prev.map((item) => {
+          if (item.id === uploadId && item.status === "loading") {
+            const current = item.progress || 15;
+            if (current < 85) {
+              const step = current < 50 ? 8 : 4;
+              const nextProgress = Math.min(current + step, 85);
+              return {
+                ...item,
+                progress: nextProgress,
+                statusText:
+                  nextProgress > 50
+                    ? `Generating vector embeddings for "${collectionName}"...`
+                    : `Extracting text & chunking "${item.file.name}"...`,
+              };
+            }
+          }
+          return item;
+        })
+      );
+    }, 400);
+    progressIntervals.current.set(uploadId, interval);
+  };
+
+  const stopProgressSimulation = (uploadId: string) => {
+    if (progressIntervals.current.has(uploadId)) {
+      clearInterval(progressIntervals.current.get(uploadId)!);
+      progressIntervals.current.delete(uploadId);
+    }
+  };
+
+  // Schedule auto-dismiss of a completed upload card after 6 seconds
+  const scheduleDismiss = (uploadId: string) => {
+    if (dismissTimeouts.current.has(uploadId)) {
+      clearTimeout(dismissTimeouts.current.get(uploadId)!);
+    }
+    const timer = setTimeout(() => {
+      setActiveUploads((prev) => prev.filter((item) => item.id !== uploadId));
+      dismissTimeouts.current.delete(uploadId);
+    }, 6000);
+    dismissTimeouts.current.set(uploadId, timer);
+  };
+
+  const handleRemoveUploadItem = (id: string) => {
+    stopProgressSimulation(id);
+    // Cancel pending auto-dismiss if user manually dismisses
+    if (dismissTimeouts.current.has(id)) {
+      clearTimeout(dismissTimeouts.current.get(id)!);
+      dismissTimeouts.current.delete(id);
+    }
+    setActiveUploads((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    const currentIntervals = progressIntervals.current;
+    const currentTimeouts = dismissTimeouts.current;
+    return () => {
+      currentIntervals.forEach((interval) => clearInterval(interval));
+      currentIntervals.clear();
+      currentTimeouts.forEach((timer) => clearTimeout(timer));
+      currentTimeouts.clear();
+    };
+  }, []);
+
   // Ensure browser ID is initialized on component mount
   useEffect(() => {
     // This just makes sure browser ID is initialized
     getBrowserId();
+  }, []);
+
+  // Offer any deployed embedding model as an alternative to the default local
+  // one for datasources created from here on. Polls like the health checks
+  // elsewhere on this page do, so deploying/removing a model is reflected
+  // without a refresh.
+  useEffect(() => {
+    let cancelled = false;
+    const loadEmbeddingModels = async () => {
+      const models = await fetchEmbeddingModels();
+      if (cancelled) return;
+      setEmbeddingModels(models);
+      // A model the picker was set to got undeployed -- fall back to default
+      // rather than silently keep sending a now-invalid identity. Reads the
+      // latest selection via the updater fn since this effect never re-runs.
+      setEmbeddingModel((current) =>
+        current && !models.some((m) => (m.hfModelId || m.modelName) === current)
+          ? ""
+          : current
+      );
+    };
+    loadEmbeddingModels();
+    const id = setInterval(loadEmbeddingModels, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   // Load data effect similar to ModelsDeployedTable approach
@@ -207,19 +335,6 @@ export default function RagManagement() {
           finalCollections
         );
 
-        // Debug: Log information about internal knowledge detection
-        console.log(
-          "[RagManagement] Collection analysis:",
-          finalCollections.map((col) => ({
-            name: col.name,
-            id: col.id,
-            documentsCount: col.documents?.length || 0,
-            hasMetadata: Boolean(col.metadata),
-            lastUploadedDoc: col.metadata?.last_uploaded_document,
-            isInternalKnowledge: isSystemKnowledgeCollection(col),
-          }))
-        );
-
         setRagDataSources(finalCollections as RagDataSource[]);
       } catch (err) {
         setError(err as Error);
@@ -237,12 +352,16 @@ export default function RagManagement() {
     mutationFn: async ({
       file,
       collectionName,
+      uploadId,
+      ttEmbeddingModel,
     }: {
       file: File;
       collectionName: string;
+      uploadId?: string;
+      ttEmbeddingModel?: string;
     }) => {
       // First create the collection
-      await createCollection({ collectionName });
+      await createCollection({ collectionName, ttEmbeddingModel });
 
       // Then upload the document; if that fails, roll back the collection so
       // we don't leave behind an empty datasource that can't be retried.
@@ -260,7 +379,7 @@ export default function RagManagement() {
         throw uploadError;
       }
 
-      return { file, collectionName };
+      return { file, collectionName, uploadId };
     },
     onMutate: ({ collectionName }) => {
       setCollectionsUploading((prev) =>
@@ -270,10 +389,31 @@ export default function RagManagement() {
         `Creating datasource "${collectionName}" and uploading document...`
       );
     },
-    onError: (error: any, { file, collectionName }) => {
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
+    },
+    onError: (error: any, { file, collectionName, uploadId }) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage:
+                    error.message === "Collection name already exists"
+                      ? `Collection "${collectionName}" already exists.`
+                      : error.message || "Failed to create datasource",
+                }
+              : item
+          )
+        );
+      }
       if (error.message === "Collection name already exists") {
         customToast.error(
           `Collection "${collectionName}" already exists. Please choose a different name.`
@@ -284,10 +424,26 @@ export default function RagManagement() {
         );
       }
     },
-    onSuccess: async ({ file, collectionName }) => {
+    onSuccess: async ({ file, collectionName, uploadId }) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Datasource "${collectionName}" created successfully`,
+                }
+              : item
+          )
+        );
+        scheduleDismiss(uploadId);
+      }
       customToast.success(
         `Successfully created datasource "${collectionName}" and uploaded "${file.name}"`
       );
@@ -411,25 +567,72 @@ export default function RagManagement() {
 
   // Upload document mutation (for existing collections)
   const uploadDocumentMutation = useMutation({
-    mutationFn: uploadDocument,
+    mutationFn: ({
+      file,
+      collectionName,
+    }: {
+      file: File;
+      collectionName: string;
+      uploadId?: string;
+    }) => uploadDocument({ file, collectionName }),
     onMutate: ({ collectionName }) => {
       setCollectionsUploading((prev) =>
         prev.includes(collectionName) ? prev : [...prev, collectionName]
       );
       customToast.info("Uploading document...");
     },
-    onError: (error: Error, { file, collectionName }) => {
+    onSettled: () => {
+      setUploadBoxKey((prev) => prev + 1);
+    },
+    onError: (
+      error: Error,
+      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+    ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage: error.message || "Upload failed",
+                }
+              : item
+          )
+        );
+      }
       customToast.error(
         `Error uploading ${file.name} to ${collectionName}: ${error.message}`
       );
     },
-    onSuccess: async (response, { file, collectionName }) => {
+    onSuccess: async (
+      response,
+      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+    ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      if (uploadId) {
+        stopProgressSimulation(uploadId);
+        setActiveUploads((prev) =>
+          prev.map((item) =>
+            item.id === uploadId
+              ? {
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Uploaded "${file.name}" to "${collectionName}"`,
+                }
+              : item
+          )
+        );
+        scheduleDismiss(uploadId);
+      }
 
       // Check if metadata was updated successfully
       const uploadResponse = response.data;
@@ -584,19 +787,40 @@ export default function RagManagement() {
         customToast.error(
           `Generated collection name "${collectionName}" is too short. Please rename the file.`
         );
+        setUploadBoxKey((prev) => prev + 1);
         return;
       }
+
+      const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newUpload: UploadFileItem = {
+        id: uploadId,
+        file,
+        status: "loading",
+        progress: 15,
+        statusText: `Uploading & preparing "${collectionName}"...`,
+      };
+
+      setActiveUploads((prev) => [...prev, newUpload]);
+      startProgressSimulation(uploadId, collectionName);
 
       // Check if collection already exists
       const existingCollection = ragDataSources.find(
         (rds) => rds.name === collectionName
       );
       if (existingCollection) {
-        // Upload to existing collection
-        uploadDocumentMutation.mutate({ file, collectionName });
+        // Upload to existing collection -- its embedding function is already
+        // fixed from when it was created, so there's nothing to pass here.
+        uploadDocumentMutation.mutate({ file, collectionName, uploadId });
       } else {
-        // Create new collection and upload
-        autoCreateAndUploadMutation.mutate({ file, collectionName });
+        // Create new collection and upload. embeddingModel is "" for the
+        // default local model, or a deployed model's identity to back this
+        // new datasource with it instead (see the picker above the dropzone).
+        autoCreateAndUploadMutation.mutate({
+          file,
+          collectionName,
+          uploadId,
+          ttEmbeddingModel: embeddingModel || undefined,
+        });
       }
     });
   };
@@ -631,13 +855,6 @@ export default function RagManagement() {
     );
   }
 
-  // Helper function to check if a collection is the system-seeded internal
-  // knowledge collection. Only explicit system signals count — an empty user
-  // collection (e.g. one whose upload failed) must keep its Delete/Upload
-  // buttons so the user can retry or clean it up.
-  const isInternalKnowledgeCollection = (item: RagDataSource): boolean =>
-    isSystemKnowledgeCollection(item);
-
   // Action buttons component for reuse
   const ActionButtons = ({
     item,
@@ -650,81 +867,49 @@ export default function RagManagement() {
     onDelete: (rds: RagDataSource) => void;
     onUploadClick: (rds: RagDataSource) => void;
   }) => {
-    const isInternal = isInternalKnowledgeCollection(item);
-
     return (
       <div className="flex flex-wrap gap-1 justify-end">
-        {isInternal ? (
-          // Show disabled buttons for internal knowledge collections with tooltips
-          <div className="flex gap-1">
+        <ConfirmDialog
+          dialogDescription="This action cannot be undone. This will permanently delete the datasource and all associated files."
+          dialogTitle="Delete Datasource"
+          onConfirm={() => onDelete(item)}
+          alertTrigger={
             <Button
-              disabled={true}
-              className="bg-gray-400 dark:bg-gray-600 text-gray-700 dark:text-gray-400 cursor-not-allowed rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
-              title="Cannot delete internal knowledge collections"
+              disabled={isUploading}
+              className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
             >
-              <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+              <Trash2 className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:rotate-12" />
               <span className="hidden sm:inline ml-1">Delete</span>
             </Button>
+          }
+        />
+        <ConfirmDialog
+          dialogDescription={
+            item.documents && item.documents.length > 0
+              ? `This collection already has ${item.documents.length} document${item.documents.length > 1 ? "s" : ""}. Adding a new document will append it to the collection. Are you sure?`
+              : "Select a document to upload to this collection. Supported types: PDF, TXT, LOG, DOCX, MD, HTML, and source code files."
+          }
+          dialogTitle={
+            item.documents && item.documents.length > 0
+              ? "Add to existing documents?"
+              : "Upload Document"
+          }
+          onConfirm={() => onUploadClick(item)}
+          alertTrigger={
             <Button
-              disabled={true}
-              className="bg-gray-400 dark:bg-gray-600 text-gray-700 dark:text-gray-400 cursor-not-allowed rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
-              title="Cannot upload to internal knowledge collections"
+              disabled={isUploading}
+              className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
+              data-testid="upload-document-button"
             >
-              <Upload className="w-3 h-3 md:w-4 md:h-4" />
+              <Upload className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:-translate-y-1" />
               <span className="hidden sm:inline ml-1">Upload</span>
             </Button>
-            <div className="flex items-center px-2 py-1">
-              <span className="text-xs text-gray-500 dark:text-gray-400 italic">
-                Internal Knowledge
-              </span>
-            </div>
+          }
+        />
+        {isUploading && (
+          <div className="my-auto">
+            <Spinner size="sm" />
           </div>
-        ) : (
-          // Show normal buttons for user collections
-          <>
-            <ConfirmDialog
-              dialogDescription="This action cannot be undone. This will permanently delete the datasource and all associated files."
-              dialogTitle="Delete Datasource"
-              onConfirm={() => onDelete(item)}
-              alertTrigger={
-                <Button
-                  disabled={isUploading}
-                  className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
-                >
-                  <Trash2 className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:rotate-12" />
-                  <span className="hidden sm:inline ml-1">Delete</span>
-                </Button>
-              }
-            />
-            <ConfirmDialog
-              dialogDescription={
-                item.documents && item.documents.length > 0
-                  ? `This collection already has ${item.documents.length} document${item.documents.length > 1 ? "s" : ""}. Adding a new document will append it to the collection. Are you sure?`
-                  : "Select a document to upload to this collection. Supported types: PDF, TXT, LOG, DOCX, MD, HTML, and source code files."
-              }
-              dialogTitle={
-                item.documents && item.documents.length > 0
-                  ? "Add to existing documents?"
-                  : "Upload Document"
-              }
-              onConfirm={() => onUploadClick(item)}
-              alertTrigger={
-                <Button
-                  disabled={isUploading}
-                  className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
-                  data-testid="upload-document-button"
-                >
-                  <Upload className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:-translate-y-1" />
-                  <span className="hidden sm:inline ml-1">Upload</span>
-                </Button>
-              }
-            />
-            {isUploading && (
-              <div className="my-auto">
-                <Spinner size="sm" />
-              </div>
-            )}
-          </>
         )}
       </div>
     );
@@ -769,21 +954,17 @@ export default function RagManagement() {
               onClick={() => toggleExpandRow(item.id)}
             >
               <div className="flex items-center gap-2">
-                {isInternalKnowledgeCollection(item) ? (
-                  <Database className="w-4 h-4 shrink-0 text-blue-500" />
-                ) : (
-                  <User className="w-4 h-4 shrink-0" />
-                )}
+                <User className="w-4 h-4 shrink-0" />
                 <span className="truncate font-medium">{item.name}</span>
-                {isInternalKnowledgeCollection(item) && (
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full ml-2">
-                    Internal
-                  </span>
-                )}
               </div>
               {/* Documents info visible on mobile - below the name */}
               <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">
-                {item.documents && item.documents.length > 0 ? (
+                {isUploading ? (
+                  <div className="flex items-center gap-1.5 text-blue-500 animate-pulse">
+                    <Spinner size="sm" />
+                    <span>Indexing document...</span>
+                  </div>
+                ) : item.documents && item.documents.length > 0 ? (
                   <>
                     <FileType className="w-3 h-3 shrink-0 text-blue-500" />
                     <span className="truncate">
@@ -807,7 +988,19 @@ export default function RagManagement() {
               className="hidden sm:block col-span-4 md:col-span-5 cursor-pointer"
               onClick={() => toggleExpandRow(item.id)}
             >
-              {item.documents && item.documents.length > 0 ? (
+              {isUploading ? (
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 animate-pulse">
+                  <Spinner size="sm" />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">
+                      Processing & Indexing...
+                    </span>
+                    <span className="text-xs text-blue-500/80">
+                      Generating vector embeddings
+                    </span>
+                  </div>
+                </div>
+              ) : item.documents && item.documents.length > 0 ? (
                 <div className="flex items-center gap-2">
                   <FileType color="blue" className="w-4 h-4 shrink-0" />
                   <div className="flex flex-col">
@@ -942,6 +1135,32 @@ export default function RagManagement() {
           style={{ display: "none" }}
         />
 
+        {/* Embedding model picker: only shown once something is deployed to
+            offer as an alternative to the default local model. Applies to
+            datasources created from here on -- an existing one keeps whatever
+            it was created with, since a collection can't change embedding
+            functions after the fact. */}
+        {embeddingModels.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 text-sm">
+            <span className="font-medium text-gray-600 dark:text-gray-400 shrink-0">
+              Embed new datasources with:
+            </span>
+            <Select value={embeddingModel || "__default__"} onValueChange={(v) => setEmbeddingModel(v === "__default__" ? "" : v)}>
+              <SelectTrigger className="h-9 w-auto min-w-[220px] text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Default (local model)</SelectItem>
+                {embeddingModels.map((m) => (
+                  <SelectItem key={m.id} value={m.hfModelId || m.modelName}>
+                    {m.modelName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* File Upload Area */}
         <Card
           className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${
@@ -953,7 +1172,12 @@ export default function RagManagement() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
-          <GentleFileUpload onChange={handleFileUpload} />
+          <GentleFileUpload
+            key={uploadBoxKey}
+            onChange={handleFileUpload}
+            files={activeUploads}
+            onRemoveFile={handleRemoveUploadItem}
+          />
         </Card>
 
         <Card
@@ -1030,9 +1254,21 @@ export default function RagManagement() {
                         input.onchange = (e) => {
                           const target = e.target as HTMLInputElement;
                           if (target.files && target.files[0]) {
+                            const file = target.files[0];
+                            const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+                            const newUpload: UploadFileItem = {
+                              id: uploadId,
+                              file,
+                              status: "loading",
+                              progress: 15,
+                              statusText: `Uploading to "${rds.name}"...`,
+                            };
+                            setActiveUploads((prev) => [...prev, newUpload]);
+                            startProgressSimulation(uploadId, rds.name);
                             uploadDocumentMutation.mutate({
-                              file: target.files[0],
+                              file,
                               collectionName: rds.name,
+                              uploadId,
                             });
                           }
                         };

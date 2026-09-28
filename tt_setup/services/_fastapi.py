@@ -14,7 +14,7 @@ from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
 from tt_setup.console import console, progress_status, show_detail
-from tt_setup.services._ports import check_port_available, kill_process_on_port
+from tt_setup.services._ports import check_port_available, kill_process_on_port, _pid_is_zombie
 
 
 def setup_fastapi_environment():
@@ -213,8 +213,22 @@ while true; do
     "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1
     EXIT_CODE=$?
     RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    # Check if this supervisor is still tracked by the PID file. If the PID file
+    # was removed (via --stop or --purge-all) or overwritten by another launcher
+    # run, this process has become an untracked ghost. Exit cleanly immediately.
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
+
     echo "[$(date)] FastAPI exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
     sleep 3
+
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
 done
 '''
             else:
@@ -304,6 +318,8 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files (quiet — only warns on errors)."""
     # Helper function to check if process is still alive
     def is_process_alive(pid):
+        if _pid_is_zombie(pid):
+            return False
         try:
             os.kill(int(pid), 0)
             return True
@@ -316,6 +332,14 @@ def cleanup_fastapi_server(no_sudo=False):
                 return result.returncode == 0
             return True
 
+    def wait_for_death(pid, timeout=2.5, interval=0.1):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not is_process_alive(pid):
+                return True
+            time.sleep(interval)
+        return not is_process_alive(pid)
+
     # Kill process if PID file exists
     if os.path.exists(FASTAPI_PID_FILE):
         try:
@@ -323,20 +347,18 @@ def cleanup_fastapi_server(no_sudo=False):
                 pid = f.read().strip()
             if pid and pid.isdigit():
                 pid_int = int(pid)
-                if is_process_alive(pid_int):
+                if pid_int > 1 and is_process_alive(pid_int):
                     try:
                         os.kill(pid_int, signal.SIGTERM)
-                        time.sleep(2)
-                        if is_process_alive(pid_int):
+                        if not wait_for_death(pid_int, timeout=2.0):
                             os.kill(pid_int, signal.SIGKILL)
-                            time.sleep(1)
+                            wait_for_death(pid_int, timeout=1.0)
                     except PermissionError:
                         if not no_sudo:
                             subprocess.run(["sudo", "kill", "-15", pid], check=False)
-                            time.sleep(2)
-                            if is_process_alive(pid_int):
+                            if not wait_for_death(pid_int, timeout=2.0):
                                 subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                                time.sleep(1)
+                                wait_for_death(pid_int, timeout=1.0)
                         else:
                             print(f"{C_YELLOW}⚠️  Could not kill FastAPI process {pid} (no sudo){C_RESET}")
                     except (ProcessLookupError, Exception):

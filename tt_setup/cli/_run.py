@@ -15,15 +15,16 @@ from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import classify_pull_failure, handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
-from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
-from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_foreign_tt_studio_stacks, detect_tt_hardware, fix_docker_issues, stop_tt_studio_stack
+from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env, write_env_var
 from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY, decide_image_source, describe_pull_fallback, frontend_config_drift, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
+from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
-from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
+from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
+from tt_setup.inference_server import _catalog_missing_generated_specs, _sync_model_catalog, setup_tt_inference_server
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -108,6 +109,101 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     console.print()
     console.print(ready_panel("TT Studio is ready", rows, footer))
     console.print()
+
+
+def _auto_deploy_query(model, device_id):
+    """Build the `?auto-deploy=…` query string for the browser (UI-driven) path.
+    Includes device-id only when explicitly set; omitting it lets the backend
+    allocate a slot based on the model's requirements."""
+    from urllib.parse import urlencode
+
+    query = {"auto-deploy": model}
+    if device_id is not None:
+        query["device-id"] = device_id
+    return f"?{urlencode(query)}"
+
+
+def _preflight_device_availability(args):
+    """Fast-reject a `--device-id`-pinned deploy when the requested chip slots are
+    already occupied, *before* the full stack-up / browser open.
+
+    Only runs when a model and explicit chip slots are both set. Queries the
+    backend chip-status endpoint with a short timeout; if the backend isn't up
+    yet (fresh boot) or the check can't complete, it silently returns and lets
+    the deploy-time allocator stay the authoritative guard. This just moves the
+    common "chips busy" rejection to the front so a re-run against occupied
+    devices fails in a second instead of after a ~50s startup."""
+    model = getattr(args, "auto_deploy", None)
+    device_id = getattr(args, "device_id", None)
+    if not model or not device_id:
+        return
+    try:
+        requested = [int(x.strip()) for x in str(device_id).split(",") if x.strip() != ""]
+    except ValueError:
+        return  # malformed — Typer already validated; let the backend re-check
+    if not requested:
+        return
+
+    dh = _load_deploy_driver()
+    if dh is None:
+        return
+    client = dh.Client("http://localhost:8000", proxy=False)
+    try:
+        st, data = client.get("chip_status", timeout=5)
+    except Exception:
+        return  # backend not reachable yet — deploy-time guard will handle it
+    if st != 200 or not isinstance(data, dict):
+        return
+
+    slots = {s.get("slot_id"): s for s in data.get("slots", []) if isinstance(s, dict)}
+    busy = []
+    for slot in requested:
+        info = slots.get(slot)
+        if info and info.get("status") == "occupied":
+            occupant = info.get("model_name") or "another model"
+            busy.append(f"chip {slot} — in use by {occupant}")
+    if not busy:
+        return
+
+    lines = [f"Requested --device-id {device_id}, but:"] + busy
+    lines.append("")
+    lines.append("Free the chips (stop that model in the UI, or python run.py --stop) or")
+    lines.append("pick different slots, then re-run.")
+    console.print(notice_panel("Requested chips are busy", lines, border_style="error"))
+    sys.exit(1)
+
+
+def _load_deploy_driver():
+    """Import ci/deploy_healthcheck.py as a module (it's import-safe: all argparse/
+    tee/report machinery lives under a guarded main()). Returns the module, or
+    None if it's missing."""
+    import importlib.util
+
+    dh_path = os.path.join(TT_STUDIO_ROOT, "ci", "deploy_healthcheck.py")
+    if not os.path.exists(dh_path):
+        console.print(f"[warning]⚠  Headless deploy driver not found at {dh_path}; skipping auto-deploy.[/warning]")
+        return None
+    spec = importlib.util.spec_from_file_location("deploy_healthcheck", dh_path)
+    if spec is None or spec.loader is None:
+        console.print(f"[warning]⚠  Could not import headless deploy driver from {dh_path}; skipping auto-deploy.[/warning]")
+        return None
+    dh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dh)
+    return dh
+
+
+def _headless_deploy(args):
+    """Deploy a model straight through the backend API — no browser, no frontend
+    JS — rendering stage progress in the terminal and finishing with the
+    model's endpoint. The rendering lives in tt_setup/cli/_deploy.py; this
+    wrapper only loads the shared ci/deploy_healthcheck.py driver."""
+    from tt_setup.cli._deploy import run_headless_deploy
+
+    dh = _load_deploy_driver()
+    if dh is None:
+        return False
+    fe_host, fe_port, _ = get_frontend_config()
+    return run_headless_deploy(dh, args, frontend=(fe_host, fe_port))
 
 
 def _run(args):
@@ -203,7 +299,7 @@ def _run(args):
   {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
   {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
   {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
-  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + open a pre-filled GitHub issue
+  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + draft a support email
   {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
   {C_CYAN}python run.py --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
   {C_CYAN}python run.py --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
@@ -211,6 +307,9 @@ def _run(args):
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
   {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
   {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}python run.py --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+  {C_CYAN}python run.py --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
+  {C_CYAN}python run.py --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -249,6 +348,21 @@ def _run(args):
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
 
+        if getattr(args, "make_rc_branch", None):
+            sys.exit(make_rc_branch(args.make_rc_branch))
+
+        if getattr(args, "update_rc_branch", False):
+            sys.exit(update_rc_branch())
+
+        if getattr(args, "merge_rc_branch", False):
+            sys.exit(merge_rc_branch())
+
+        # Stopping one model (and resetting its chips) must never fall through
+        # to the full-stack teardown either.
+        if getattr(args, "stop_model", None):
+            from tt_setup.cli._stop_model import stop_models
+            sys.exit(stop_models(args))
+
         # Must dispatch before the cleanup branches: purging one model must
         # never fall through to the full-stack teardown.
         if getattr(args, "purge_model", None):
@@ -279,7 +393,11 @@ def _run(args):
         if args.add_headers:
             add_spdx_headers()
             return
-        
+
+        # Fast reject a pinned deploy onto already-busy chips before any stack-up
+        # work (no-op on a fresh boot / unreachable backend).
+        _preflight_device_availability(args)
+
         run_start = time.monotonic()
 
         # Install the sticky-top stepper FIRST, on an empty screen — this is what
@@ -529,12 +647,61 @@ def _run(args):
         ph.set("ports & permissions")
         # (spinner stays suspended from the frontend-deps step above)
 
+        # Only one TT Studio can be booted per machine — the containers share
+        # names, host ports, and the Docker network — so a stack started from a
+        # different checkout must be stopped explicitly rather than letting
+        # compose silently recreate or collide with its containers. Runs before
+        # the backend-port resolution below, so any TT Studio backend still
+        # holding a port after this point is our own (a normal restart).
+        foreign_stacks = detect_foreign_tt_studio_stacks()
+        if foreign_stacks:
+            checkouts = [os.path.dirname(wd) or wd for wd in foreign_stacks]
+            console.print(notice_panel(
+                "[warning]Another TT Studio is already running[/warning]",
+                ["It was started from:"]
+                + [f"  [bold]{c}[/bold]" for c in checkouts]
+                + ["",
+                   "Only one TT Studio can run on a machine at a time — the",
+                   "containers share names, host ports, and the Docker network."],
+                border_style="warning",
+            ))
+            if sys.stdin.isatty() and confirm(
+                    "Stop that TT Studio and start this one instead?", default=False):
+                for wd in foreign_stacks:
+                    if not stop_tt_studio_stack(wd):
+                        console.print(
+                            f"[error]⛔ Could not stop the TT Studio running from "
+                            f"{os.path.dirname(wd) or wd}. Stop it there with "
+                            f"[bold]python run.py --stop[/bold], then re-run.[/error]")
+                        sys.exit(1)
+                console.print("[success]✓ Stopped the other TT Studio[/success]")
+            else:
+                console.print(
+                    "[info]Stop it with [bold]python run.py --stop[/bold] in that "
+                    "checkout (or use TT Studio from there), then re-run.[/info]")
+                sys.exit(1)
+
         # Check if all required ports are available
+
+        # Backend host port: keep the configured port (default 8000) when it is
+        # free or held by our own backend container; when another process holds
+        # it, bump to the next free port instead of failing startup. The chosen
+        # port is persisted to .env so every later compose invocation (--stop,
+        # --logs, restarts) resolves the same mapping.
+        configured_backend_port = get_backend_port()
+        backend_port, backend_port_changed = resolve_backend_port(configured_backend_port)
+        if backend_port_changed:
+            write_env_var("BACKEND_PORT", str(backend_port))
+            os.environ["BACKEND_PORT"] = str(backend_port)
+            console.print(
+                f"[warning]⚠️  Port {configured_backend_port} (Backend API) is in use — "
+                f"the backend will be published on port {backend_port} instead.[/warning]"
+            )
 
         # Define ports based on mode
         required_ports = [
             (3000, "Frontend"),
-            (8000, "Backend API"),
+            (backend_port, "Backend API"),
             (8080, "Agent Service"),
             (8111, "ChromaDB"),
         ]
@@ -679,7 +846,8 @@ def _run(args):
                     args.resync or
                     args.reconfigure_inference_server or
                     args.pull_branch or
-                    not os.path.exists(models_json_path)
+                    not os.path.exists(models_json_path) or
+                    _catalog_missing_generated_specs(models_json_path)
                 )
                 if should_sync:
                     with step("Syncing model catalog", spinner=True):
@@ -896,22 +1064,32 @@ def _run(args):
                 sys.exit(1)
         
         
-        # Control browser open only if service is healthy
-        if not args.no_browser:
-            # Get configurable frontend settings
-            host, port, timeout = get_frontend_config()
-            
-            # Use the new function that reuses existing infrastructure
-            device_id_val = getattr(args, "device_id", 0)
-            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy, device_id=device_id_val):
-                auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
-                print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{auto_deploy_param}{C_RESET}")
+        # Model auto-deploy has two modes. Terminal (default): drive the backend
+        # deploy API from here, render progress in the terminal, and never open a
+        # browser — the terminal is the UI for that run. --browser: open the web
+        # UI with ?auto-deploy= and let it perform the deploy.
+        from tt_setup.cli._deploy import deploy_mode, should_open_browser
+
+        mode = deploy_mode(args)
+        device_id_val = getattr(args, "device_id", None)
+        browser_deploy = mode == "browser"
+        headless_deploy = mode == "terminal"
+
+        host, port, timeout = get_frontend_config()
+        if should_open_browser(args):
+            # UI-driven deploy passes the model so the web UI performs the deploy.
+            browser_model = args.auto_deploy if browser_deploy else None
+            if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val):
+                print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{C_RESET}")
                 print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
-        else:
-            host, port, _ = get_frontend_config()
-            device_id_val = getattr(args, "device_id", 0)
-            auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
+        elif not headless_deploy:
+            auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
+
+        if headless_deploy:
+            if getattr(args, "headless", False) and show_detail():
+                console.print("[muted]--headless is now the default; pass --browser to deploy through the web UI instead.[/muted]")
+            _headless_deploy(args)
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:
@@ -1003,9 +1181,9 @@ def _run(args):
             border_style="error",
         ))
 
-        # Offer to package logs + a pre-filled GitHub issue right now, mirroring
-        # the web UI's Report Bug button. Guard the prompt: a Ctrl+C here should
-        # exit cleanly rather than surface a second traceback.
+        # Offer to package logs + a pre-filled support-email draft right now,
+        # mirroring the web UI's Report Bug button. Guard the prompt: a Ctrl+C
+        # here should exit cleanly rather than surface a second traceback.
         try:
             if confirm("Generate a diagnostics bundle to report this bug now?", default=False):
                 report_bug(exc=e, args=args, open_browser=not args.no_browser)

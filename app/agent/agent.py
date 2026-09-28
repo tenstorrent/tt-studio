@@ -7,7 +7,6 @@ try:
     from .custom_llm import CustomLLM
     from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
-    from .document_search_tool import DocumentSearchTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
     from .config import AgentConfig
@@ -16,7 +15,6 @@ except ImportError:
     from custom_llm import CustomLLM
     from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
-    from document_search_tool import DocumentSearchTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
     from config import AgentConfig
@@ -206,10 +204,31 @@ def setup_cloud_llm() -> CustomLLM:
     return llm
 
 def setup_local_container_llm(container_name: str) -> CustomLLM:
-    """Setup LLM using environment-specified container"""
+    """Setup LLM using environment-specified container name.
+
+    Deployments no longer bind a fixed port (see AgentConfig.LOCAL_PORT), so
+    LOCAL_PORT is only correct for whichever deployment happened to get it.
+    Resolve the container's actual port via the backend's deployed-models
+    list first, falling back to LOCAL_PORT only if that lookup fails.
+    """
+    try:
+        local_llms = discovery_service.discover_local_llms()
+        for llm_info in local_llms:
+            if llm_info.container_name == container_name:
+                return setup_discovered_llm(llm_info)
+        print(
+            f"[WARNING] LLM_CONTAINER_NAME={container_name} not found among "
+            f"deployed models; falling back to LOCAL_PORT={AgentConfig.LOCAL_PORT}"
+        )
+    except Exception as e:
+        print(
+            f"[WARNING] Could not resolve {container_name}'s port via discovery: "
+            f"{e}; falling back to LOCAL_PORT={AgentConfig.LOCAL_PORT}"
+        )
+
     llm = CustomLLM(
-        server_url=f"http://{container_name}:7000", 
-        encoded_jwt=_auth_token(), 
+        server_url=f"http://{container_name}:{AgentConfig.LOCAL_PORT}",
+        encoded_jwt=_auth_token(),
         streaming=True,
         is_cloud=False
     )
@@ -467,9 +486,6 @@ def build_tools(include_code_tool: bool = True) -> list:
     )
     tool_list = [DeduplicatedSearchTool(inner_tool=raw_search)]
 
-    # Documentation search over the backend's internal knowledge collection.
-    tool_list.append(DocumentSearchTool())
-
     if include_code_tool:
         # Code interpreter needs an E2B_API_KEY; skipped when unavailable.
         try:
@@ -707,10 +723,7 @@ def get_status():
         discovery_status = discovery_service.get_llm_status_summary()
         
         configured_tools = [t.name for t in tools] if tools else []
-        # Match on "tavily" specifically — document_search also contains "search"
-        # and must not make web_search look configured.
         has_search = any("tavily" in t.lower() for t in configured_tools)
-        has_document_search = "document_search" in configured_tools
         _tavily_raw = os.getenv("TAVILY_API_KEY", "")
         tavily_key_set = bool(_tavily_raw) and _tavily_raw != "tavily-api-key-not-configured"
 
@@ -722,7 +735,6 @@ def get_status():
             "tools": configured_tools,
             "capabilities": {
                 "web_search": has_search and tavily_key_set and tool_calling_supported,
-                "document_search": has_document_search and tool_calling_supported,
                 "tool_calling": tool_calling_supported,
             },
             "configuration": {

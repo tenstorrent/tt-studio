@@ -48,6 +48,7 @@ export type HfCheckStatus =
   | "granted"
   | "denied"
   | "auth_failed"
+  | "not_found"
   | "error"
   | "no_token";
 

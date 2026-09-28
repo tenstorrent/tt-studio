@@ -4,19 +4,20 @@
 import io
 import json
 import os
+import platform
 import re
 import glob
 import subprocess
-import urllib.request
-import urllib.error
 import zipfile
 import docker
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
 from shared_config.logger_config import get_logger
+
+from . import support_email
 
 # Setting up logger
 logger = get_logger(__name__)
@@ -644,6 +645,45 @@ class BugReportDataView(APIView):
             return JsonResponse({"error": str(e)}, status=500)
 
 
+def _build_bug_report_zip():
+    """ZIP archive (bytes) of every TT-Studio log source — one named file per
+    source. Shared by the ZIP download and the .eml attachment."""
+    data = _collect_bug_report_data()
+    buf = io.BytesIO()
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("backend.log", data["backend_log"]["content"])
+        zf.writestr("model_run.log", data["model_run_log"]["content"])
+        zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
+        zf.writestr("startup.log", data["startup_log"]["content"])
+        zf.writestr("agent.log", data["agent_log"]["content"])
+
+        for entry in data["model_run_deployment_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"model_run_logs/{fname}", entry["content"])
+
+        for entry in data["inference_run_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/run_logs/{fname}", entry["content"])
+
+        for entry in data["inference_docker_server_logs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/docker_server/{fname}", entry["content"])
+
+        for entry in data["inference_run_specs"]:
+            fname = os.path.basename(entry["file"])
+            zf.writestr(f"inference_artifacts/run_specs/{fname}", entry["content"])
+
+        zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
+        zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
+        zf.writestr(
+            "current_models.json",
+            json.dumps(data["current_models"], indent=2, default=str),
+        )
+
+    return buf.getvalue()
+
+
 class BugReportDownloadView(APIView):
     """
     Returns a ZIP archive containing all TT-Studio log files for download.
@@ -653,43 +693,9 @@ class BugReportDownloadView(APIView):
     def get(self, request, *args, **kwargs):
         logger.info("BugReportDownloadView endpoint hit")
         try:
-            data = _collect_bug_report_data()
-            buf = io.BytesIO()
-
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr("backend.log", data["backend_log"]["content"])
-                zf.writestr("model_run.log", data["model_run_log"]["content"])
-                zf.writestr("docker-control-service.log", data["docker_control_log"]["content"])
-                zf.writestr("startup.log", data["startup_log"]["content"])
-                zf.writestr("agent.log", data["agent_log"]["content"])
-
-                for entry in data["model_run_deployment_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"model_run_logs/{fname}", entry["content"])
-
-                for entry in data["inference_run_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_logs/{fname}", entry["content"])
-
-                for entry in data["inference_docker_server_logs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/docker_server/{fname}", entry["content"])
-
-                for entry in data["inference_run_specs"]:
-                    fname = os.path.basename(entry["file"])
-                    zf.writestr(f"inference_artifacts/run_specs/{fname}", entry["content"])
-
-                zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
-                zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
-                zf.writestr(
-                    "current_models.json",
-                    json.dumps(data["current_models"], indent=2, default=str),
-                )
-
-            buf.seek(0)
             timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
             filename = f"tt-studio-logs-{timestamp}.zip"
-            response = HttpResponse(buf.read(), content_type="application/zip")
+            response = HttpResponse(_build_bug_report_zip(), content_type="application/zip")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
             return response
 
@@ -698,70 +704,112 @@ class BugReportDownloadView(APIView):
             return JsonResponse({"error": str(e)}, status=500)
 
 
-class GitHubIssueView(APIView):
-    """
-    Creates a GitHub issue via the API using GITHUB_PAT from backend config.
-    Falls back to returning a pre-built browser URL if no PAT is configured.
+_SUPPORT_REF_PATTERN = re.compile(r"ttbr-[0-9a-z]{12,32}")
+_SUPPORT_FORM_KEYS = ("title", "description", "steps", "expected", "actual")
 
-    POST body (JSON): { title, body, labels? }
-    Success response: { issue_url, issue_number, created_via_api }  (201)
-                   or { url, created_via_api: false }               (200, fallback)
-    """
 
-    GITHUB_API_URL = "https://api.github.com/repos/tenstorrent/tt-studio/issues"
-    GITHUB_NEW_ISSUE_URL = "https://github.com/tenstorrent/tt-studio/issues/new"
+def _parse_support_email_request(request):
+    """(ref, form, environment_lines) from the JSON body shared by the
+    support-email views. Raises ValueError with a client-facing message."""
+    try:
+        body_data = json.loads(request.body)
+    except Exception:
+        raise ValueError("Invalid JSON body")
+    if not isinstance(body_data, dict):
+        raise ValueError("JSON body must be an object")
+
+    def text(key):
+        value = body_data.get(key)
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        return value.strip()
+
+    ref = text("ref")
+    if not ref:
+        raise ValueError("ref is required")
+    if not _SUPPORT_REF_PATTERN.fullmatch(ref):
+        raise ValueError("ref must look like ttbr-<id>")
+
+    form = {key: text(key) for key in _SUPPORT_FORM_KEYS}
+    # Cheap environment summary only — the heavy diagnostics live in the
+    # bundle ZIP (downloaded alongside the draft, or attached to the .eml).
+    environment_lines = [
+        f"OS: {platform.platform()}",
+        f"Python: {platform.python_version()}",
+        "Reported from: TT-Studio web UI",
+    ]
+    return ref, form, environment_lines
+
+
+class SupportEmailView(APIView):
+    """
+    Builds a pre-filled support-email draft (support@tenstorrent.com) for a bug
+    report. The support inbox creates a Jira ticket from the email; a weekly
+    rotation picks the Assignee stamped into the body (see support_email.py).
+
+    POST body (JSON): { ref, title?, description?, steps?, expected?, actual? }
+    Response 200: { to, subject, body, mailto_url, assignee: {name, email}, ref }
+    """
 
     def post(self, request, *args, **kwargs):
-        from shared_config.backend_config import backend_config
+        try:
+            ref, form, environment_lines = _parse_support_email_request(request)
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=400)
 
         try:
-            body_data = json.loads(request.body)
-        except Exception:
-            return JsonResponse({"error": "Invalid JSON body"}, status=400)
-
-        title = body_data.get("title", "").strip()
-        body = body_data.get("body", "").strip()
-        labels = body_data.get("labels", ["bug", "auto-generated"])
-
-        if not title:
-            return JsonResponse({"error": "title is required"}, status=400)
-
-        pat = backend_config.github_pat
-        if not pat:
-            # Graceful fallback: return a pre-built browser URL (body truncated for URL safety)
-            params = urlencode({"title": title, "body": body[:8000], "labels": ",".join(labels)})
-            url = f"{self.GITHUB_NEW_ISSUE_URL}?{params}"
-            return JsonResponse({"url": url, "created_via_api": False}, status=200)
-
-        # Create the issue via GitHub REST API
-        payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
-        req = urllib.request.Request(
-            self.GITHUB_API_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {pat}",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json",
-                "User-Agent": "tt-studio-bug-reporter",
-            },
-            method="POST",
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                return JsonResponse(
-                    {
-                        "issue_url": result.get("html_url"),
-                        "issue_number": result.get("number"),
-                        "created_via_api": True,
-                    },
-                    status=201,
-                )
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8", errors="replace")
-            logger.error(f"GitHub API error {e.code}: {error_body}")
-            return JsonResponse({"error": f"GitHub API error: {e.code}", "detail": error_body}, status=502)
+            assignee = support_email.assignee_for_date()
+            subject = support_email.build_subject(form["title"], ref)
+            body = support_email.build_body(
+                ref, assignee, form, environment_lines, f"tt-studio-logs-{ref}.zip"
+            )
+            return JsonResponse(
+                {
+                    "to": support_email.SUPPORT_EMAIL,
+                    "subject": subject,
+                    "body": body,
+                    "mailto_url": support_email.build_mailto_url(subject, body),
+                    "assignee": {"name": assignee[0], "email": assignee[1]},
+                    "ref": ref,
+                },
+                status=200,
+            )
         except Exception as e:
-            logger.error(f"Failed to create GitHub issue: {e}")
+            logger.error(f"Failed to build support email draft: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+class SupportEmailEmlView(APIView):
+    """
+    Builds the support email as a ready-to-send .eml file with the diagnostics
+    ZIP already attached. mailto: drafts cannot carry attachments; with this
+    file the user only has to open it in their mail client and hit Send.
+
+    POST body (JSON): same as SupportEmailView.
+    Response 200: message/rfc822 attachment named tt-studio-bug-report-<ref>.eml
+    """
+
+    def post(self, request, *args, **kwargs):
+        try:
+            ref, form, environment_lines = _parse_support_email_request(request)
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
+        try:
+            zip_name = f"tt-studio-logs-{ref}.zip"
+            assignee = support_email.assignee_for_date()
+            subject = support_email.build_subject(form["title"], ref)
+            body = support_email.build_body(
+                ref, assignee, form, environment_lines, zip_name, attached=True
+            )
+            eml = support_email.build_eml(subject, body, _build_bug_report_zip(), zip_name)
+            response = HttpResponse(eml, content_type="message/rfc822")
+            response["Content-Disposition"] = (
+                f'attachment; filename="tt-studio-bug-report-{ref}.eml"'
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Failed to build support email .eml: {e}")
             return JsonResponse({"error": str(e)}, status=500)

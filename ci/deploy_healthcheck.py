@@ -221,7 +221,9 @@ def resolve_model_id(client, model_name, explicit_id):
     """Return the deploy model_id. Model ids are generated at runtime, so we
     resolve by human-readable model_name against the live catalog rather than
     hardcoding an id that could drift."""
-    st, data = client.get("catalog", timeout=30)
+    # Generous: the catalog probes every catalogued image against the Docker API,
+    # which is ~30s at 60+ models — the default 30s raced it.
+    st, data = client.get("catalog", timeout=180)
     if st != 200 or data.get("status") != "success":
         raise SmokeTestError(f"catalog fetch failed (HTTP {st}): {data}")
     models = data.get("models", {})

@@ -188,8 +188,11 @@ PY`;
   };
 };
 
-// Internal gateway URL, usable once Dify's containers share tt_studio_network.
+// Internal gateway URL, usable once an app's containers share tt_studio_network.
 const GATEWAY_INTERNAL_BASE = "http://tt-studio-litellm:4000/v1";
+// TT-Studio's own OpenAI-compatible surface. Embeddings aren't part of the
+// gateway's OpenAI surface, so anything embedding-related points here instead.
+const BACKEND_INTERNAL_BASE = "http://tt-studio-backend-api:8000/models/openai/v1";
 
 const buildDifyGuide = ({
   openaiBase,
@@ -276,8 +279,84 @@ Vision Support              No Support${isThinking(activeModel)
   };
 };
 
+const buildRagflowGuide = ({
+  openaiBase,
+  apiKey,
+  models,
+  activeModel,
+}: GuideContext): Guide => {
+  const model = models.find((m) => m.name === activeModel) ?? models[0];
+  const maxTokens = model?.max_tokens ?? DEFAULT_MAX_TOKENS;
+  // RAGFlow's containers resolve localhost to themselves, so the browser-facing
+  // host is only usable when it isn't loopback (e.g. an SSH-forwarded session).
+  const hostBase = openaiBase.replace(
+    /\/\/(localhost|127\.0\.0\.1)(?=[:/])/,
+    "//<tt-studio-host>",
+  );
+
+  return {
+    intro:
+      "RAGFlow runs as its own Docker Compose stack (Elasticsearch, MySQL, MinIO, Redis), so it is started from its compose file rather than launched here. Join it to TT-Studio's network first, then add the gateway as a model provider.",
+    snippets: [
+      {
+        label: "Set up and start RAGFlow",
+        language: "bash",
+        // RAGFlow's Elasticsearch needs a higher mmap count than most distros
+        // default to; the network override, as with Dify, survives recreation.
+        code: `git clone https://github.com/infiniflow/ragflow.git
+cd ragflow/docker
+sudo sysctl -w vm.max_map_count=262144
+
+cat > docker-compose.override.yml <<'YAML'
+services:
+  ragflow-cpu:
+    networks: [ragflow, tt_studio_network]
+networks:
+  tt_studio_network:
+    external: true
+YAML
+
+docker compose -f docker-compose.yml up -d   # RAGFlow's UI is then on http://localhost`,
+        note: `Swap ragflow-gpu into the override instead if that's the variant you're running. vm.max_map_count resets on reboot, so re-run that line after restarting the host. If you'd rather not join the network at all, use ${hostBase} in place of ${GATEWAY_INTERNAL_BASE} below -- never localhost, which inside RAGFlow's containers means RAGFlow itself.`,
+      },
+      {
+        label: "Add the chat model",
+        language: "text",
+        code: `User settings -> Model providers -> OpenAI-API-Compatible -> Add the model
+
+Instance name    tt-studio
+API Key          ${apiKey}
+Base URL         ${GATEWAY_INTERNAL_BASE}
+
+-> Add custom model
+Model type       Chat
+Model name       ${activeModel}
+Max tokens       ${maxTokens}`,
+        note: "Repeat the custom-model step for each deployed model you want available, using each model's own name.",
+      },
+      {
+        label: "Add an embedding model (optional)",
+        language: "text",
+        // Embeddings aren't on the gateway's OpenAI surface, so they need a
+        // second provider instance pointed at the backend directly.
+        code: `User settings -> Model providers -> OpenAI-API-Compatible -> Add the model (a second instance)
+
+Instance name    tt-studio-embedding
+API Key          ${apiKey}
+Base URL         ${BACKEND_INTERNAL_BASE}
+
+-> Add custom model
+Model type       Embedding
+Model name       <your deployed embedding model's name>`,
+        note: "Only needed if you'd rather use a deployed embedding model than RAGFlow's own local embedder. Deploy the embedding model from the Home page first, then set it as the default under System Model Settings. Also lower each knowledge base's Chunk Token Number to roughly 3/4 of that model's max sequence length (check the Home page's model card) -- RAGFlow's own default (128) is only safe for the smallest deployed embedders, and a chunk sized past what the model accepts fails to index rather than silently truncating.",
+      },
+    ],
+  };
+};
+
 export const GUIDE_BUILDERS: Record<string, (ctx: GuideContext) => Guide> = {
   dify: buildDifyGuide,
+  ragflow: buildRagflowGuide,
   "claude-code": buildClaudeCodeGuide,
   opencode: buildOpenCodeGuide,
   openclaw: buildOpenClawGuide,
