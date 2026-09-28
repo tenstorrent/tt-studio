@@ -14,7 +14,7 @@ from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
 from tt_setup.console import console, progress_status, show_detail
-from tt_setup.services._ports import check_port_available, kill_process_on_port
+from tt_setup.services._ports import check_port_available, kill_process_on_port, _pid_is_zombie
 
 
 def setup_fastapi_environment():
@@ -318,6 +318,8 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files (quiet — only warns on errors)."""
     # Helper function to check if process is still alive
     def is_process_alive(pid):
+        if _pid_is_zombie(pid):
+            return False
         try:
             os.kill(int(pid), 0)
             return True

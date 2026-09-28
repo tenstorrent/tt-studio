@@ -20,7 +20,6 @@ import {
   createCollection,
   uploadDocument,
   fetchDocuments,
-  isSystemKnowledgeCollection,
 } from "@/src/components/rag";
 import {
   fetchEmbeddingModels,
@@ -35,7 +34,6 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
-  Database,
 } from "lucide-react";
 import {
   GentleFileUpload,
@@ -335,19 +333,6 @@ export default function RagManagement() {
         console.log(
           "[RagManagement] Collections with documents:",
           finalCollections
-        );
-
-        // Debug: Log information about internal knowledge detection
-        console.log(
-          "[RagManagement] Collection analysis:",
-          finalCollections.map((col) => ({
-            name: col.name,
-            id: col.id,
-            documentsCount: col.documents?.length || 0,
-            hasMetadata: Boolean(col.metadata),
-            lastUploadedDoc: col.metadata?.last_uploaded_document,
-            isInternalKnowledge: isSystemKnowledgeCollection(col),
-          }))
         );
 
         setRagDataSources(finalCollections as RagDataSource[]);
@@ -870,13 +855,6 @@ export default function RagManagement() {
     );
   }
 
-  // Helper function to check if a collection is the system-seeded internal
-  // knowledge collection. Only explicit system signals count — an empty user
-  // collection (e.g. one whose upload failed) must keep its Delete/Upload
-  // buttons so the user can retry or clean it up.
-  const isInternalKnowledgeCollection = (item: RagDataSource): boolean =>
-    isSystemKnowledgeCollection(item);
-
   // Action buttons component for reuse
   const ActionButtons = ({
     item,
@@ -889,81 +867,49 @@ export default function RagManagement() {
     onDelete: (rds: RagDataSource) => void;
     onUploadClick: (rds: RagDataSource) => void;
   }) => {
-    const isInternal = isInternalKnowledgeCollection(item);
-
     return (
       <div className="flex flex-wrap gap-1 justify-end">
-        {isInternal ? (
-          // Show disabled buttons for internal knowledge collections with tooltips
-          <div className="flex gap-1">
+        <ConfirmDialog
+          dialogDescription="This action cannot be undone. This will permanently delete the datasource and all associated files."
+          dialogTitle="Delete Datasource"
+          onConfirm={() => onDelete(item)}
+          alertTrigger={
             <Button
-              disabled={true}
-              className="bg-gray-400 dark:bg-gray-600 text-gray-700 dark:text-gray-400 cursor-not-allowed rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
-              title="Cannot delete internal knowledge collections"
+              disabled={isUploading}
+              className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
             >
-              <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+              <Trash2 className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:rotate-12" />
               <span className="hidden sm:inline ml-1">Delete</span>
             </Button>
+          }
+        />
+        <ConfirmDialog
+          dialogDescription={
+            item.documents && item.documents.length > 0
+              ? `This collection already has ${item.documents.length} document${item.documents.length > 1 ? "s" : ""}. Adding a new document will append it to the collection. Are you sure?`
+              : "Select a document to upload to this collection. Supported types: PDF, TXT, LOG, DOCX, MD, HTML, and source code files."
+          }
+          dialogTitle={
+            item.documents && item.documents.length > 0
+              ? "Add to existing documents?"
+              : "Upload Document"
+          }
+          onConfirm={() => onUploadClick(item)}
+          alertTrigger={
             <Button
-              disabled={true}
-              className="bg-gray-400 dark:bg-gray-600 text-gray-700 dark:text-gray-400 cursor-not-allowed rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
-              title="Cannot upload to internal knowledge collections"
+              disabled={isUploading}
+              className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
+              data-testid="upload-document-button"
             >
-              <Upload className="w-3 h-3 md:w-4 md:h-4" />
+              <Upload className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:-translate-y-1" />
               <span className="hidden sm:inline ml-1">Upload</span>
             </Button>
-            <div className="flex items-center px-2 py-1">
-              <span className="text-xs text-gray-500 dark:text-gray-400 italic">
-                Internal Knowledge
-              </span>
-            </div>
+          }
+        />
+        {isUploading && (
+          <div className="my-auto">
+            <Spinner size="sm" />
           </div>
-        ) : (
-          // Show normal buttons for user collections
-          <>
-            <ConfirmDialog
-              dialogDescription="This action cannot be undone. This will permanently delete the datasource and all associated files."
-              dialogTitle="Delete Datasource"
-              onConfirm={() => onDelete(item)}
-              alertTrigger={
-                <Button
-                  disabled={isUploading}
-                  className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
-                >
-                  <Trash2 className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:rotate-12" />
-                  <span className="hidden sm:inline ml-1">Delete</span>
-                </Button>
-              }
-            />
-            <ConfirmDialog
-              dialogDescription={
-                item.documents && item.documents.length > 0
-                  ? `This collection already has ${item.documents.length} document${item.documents.length > 1 ? "s" : ""}. Adding a new document will append it to the collection. Are you sure?`
-                  : "Select a document to upload to this collection. Supported types: PDF, TXT, LOG, DOCX, MD, HTML, and source code files."
-              }
-              dialogTitle={
-                item.documents && item.documents.length > 0
-                  ? "Add to existing documents?"
-                  : "Upload Document"
-              }
-              onConfirm={() => onUploadClick(item)}
-              alertTrigger={
-                <Button
-                  disabled={isUploading}
-                  className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8 transition-all duration-200 ease-in-out hover:scale-105 hover:shadow-md active:scale-95"
-                  data-testid="upload-document-button"
-                >
-                  <Upload className="w-3 h-3 md:w-4 md:h-4 transition-transform duration-200 hover:-translate-y-1" />
-                  <span className="hidden sm:inline ml-1">Upload</span>
-                </Button>
-              }
-            />
-            {isUploading && (
-              <div className="my-auto">
-                <Spinner size="sm" />
-              </div>
-            )}
-          </>
         )}
       </div>
     );
@@ -1008,17 +954,8 @@ export default function RagManagement() {
               onClick={() => toggleExpandRow(item.id)}
             >
               <div className="flex items-center gap-2">
-                {isInternalKnowledgeCollection(item) ? (
-                  <Database className="w-4 h-4 shrink-0 text-blue-500" />
-                ) : (
-                  <User className="w-4 h-4 shrink-0" />
-                )}
+                <User className="w-4 h-4 shrink-0" />
                 <span className="truncate font-medium">{item.name}</span>
-                {isInternalKnowledgeCollection(item) && (
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full ml-2">
-                    Internal
-                  </span>
-                )}
               </div>
               {/* Documents info visible on mobile - below the name */}
               <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">

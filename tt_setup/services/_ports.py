@@ -204,7 +204,7 @@ def check_and_free_ports(ports, no_sudo=False):
     return (len(failed_ports) == 0, failed_ports)
 
 
-def _process_is_docker(pid):
+def _process_is_docker(pid, no_sudo=False):
     """True if `pid` belongs to Docker itself (Docker Desktop backend, docker-proxy,
     dockerd, containerd, vpnkit). On macOS/Docker Desktop a *published* container
     port is held by `com.docker.backend`, so killing the port's holder would take
@@ -212,9 +212,18 @@ def _process_is_docker(pid):
     try:
         r = subprocess.run(["ps", "-p", str(pid), "-o", "comm="],
                            capture_output=True, text=True, check=False)
+        name = (r.stdout or "").strip()
+        if not name and not no_sudo:
+            # With /proc mounted hidepid=..., a plain ps cannot see other users'
+            # processes, root's docker-proxy included. The pid itself came from
+            # a sudo lsof/ss pass, so identify it the same way before deciding
+            # it is safe to kill.
+            r = subprocess.run(["sudo", "ps", "-p", str(pid), "-o", "comm="],
+                               capture_output=True, text=True, check=False)
+            name = (r.stdout or "").strip()
     except Exception:
         return False
-    name = (r.stdout or "").strip().lower()
+    name = name.lower()
     return any(tok in name for tok in ("docker", "vpnkit", "containerd"))
 
 
@@ -301,6 +310,30 @@ def _find_supervisor_wrapper_pid(pid, max_depth=5):
     return found
 
 
+def _pid_is_zombie(pid):
+    """True if `pid` is a zombie: exited but not yet reaped by its parent.
+
+    `kill -0` (and os.kill(pid, 0)) still succeed for zombies, so the alive
+    checks below treat them as dead to avoid waiting on a process that is
+    already gone (e.g. a killed supervisor wrapper whose parent launcher is
+    still running)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            state = f.read().rsplit(")", 1)[-1].split()[0]
+    except FileNotFoundError:
+        if os.path.isdir("/proc"):
+            return False  # no such process
+        try:
+            result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                                    capture_output=True, text=True, check=False)
+            state = result.stdout.strip()
+        except (OSError, Exception):
+            return False
+    except (OSError, IndexError, ValueError):
+        return False
+    return state[:1] == "Z"
+
+
 def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout=7.0, poll_interval=0.25):
     """Send SIGTERM (-15), poll every `poll_interval`s up to `timeout`s,
     and escalate to SIGKILL (-9) only if still alive."""
@@ -330,7 +363,7 @@ def _terminate_pid_graceful_then_force(pid, use_sudo=False, quiet=False, timeout
         while time.time() < deadline:
             time.sleep(poll_interval)
             result = run_command(check_alive_cmd, check=False, capture_output=True)
-            if result.returncode != 0:
+            if result.returncode != 0 or _pid_is_zombie(pid_int):
                 alive = False
                 break
 
@@ -357,8 +390,11 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
 
     # --- macOS and Linux logic ---
 
-    # Define commands to try
-    lsof_cmd = ["lsof", "-ti", f"tcp:{port}"]
+    # Define commands to try. Restrict lsof to the LISTEN socket: without
+    # -sTCP:LISTEN it also lists processes that merely have a client
+    # connection to the port (a curl, an IDE, or the previous run.py launcher
+    # with a lingering socket to the frontend), and those must not be killed.
+    lsof_cmd = ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"]
     ss_cmd = ["ss", "-lptn", f"sport = :{port}"]
 
     # Function to run a command and extract PID
@@ -401,7 +437,7 @@ def _kill_port_holder(port, no_sudo=False, quiet=False):
     # com.docker.backend; killing it crashes the engine and the build then fails
     # with "Cannot connect to the Docker daemon". A TT Studio container holding
     # the port is recreated by `docker compose up` anyway.
-    if _process_is_docker(pid):
+    if _process_is_docker(pid, no_sudo=no_sudo):
         return "docker"
 
     use_sudo_for_kill = not no_sudo and hasattr(os, "geteuid") and os.geteuid() != 0

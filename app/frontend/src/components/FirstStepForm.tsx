@@ -75,7 +75,7 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
-  TRAINING: { label: "Training", order: 9 },
+  TRAINING: { label: "Fine-tuning", order: 9 },
 };
 
 // Models whose weights are large and frequently fail/stall when Hugging Face
@@ -135,7 +135,7 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider stopping existing models before deploying new ones.`,
         "deployed-models-warning"
       );
     }
@@ -192,7 +192,7 @@ export function FirstStepForm({
         // Extra warning if models are deployed
         if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to stop ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 

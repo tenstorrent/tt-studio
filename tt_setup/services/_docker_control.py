@@ -13,7 +13,6 @@ import os
 import re
 import shutil
 import subprocess
-
 from tt_setup.constants import DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_SERVICE_DIR
 from tt_setup.console import console
 from tt_setup.services._ports import (

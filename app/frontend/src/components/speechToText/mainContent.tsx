@@ -6,7 +6,6 @@ import {
   Loader2,
   Copy,
   Save,
-  Trash2 as Trash,
   Mic,
   MessageSquare,
   Clock,
@@ -905,23 +904,6 @@ export function MainContent({
                                     </Tooltip>
                                   </TooltipProvider>
                                 )}
-
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 hover:bg-TT-red-shade/20 text-TT-red"
-                                      >
-                                        <Trash className="h-3 w-3 sm:h-4 sm:w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      Delete transcription
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
                               </div>
                             </div>
 

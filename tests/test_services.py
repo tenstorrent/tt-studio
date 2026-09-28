@@ -6,7 +6,7 @@ import os
 import signal
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 try:
     from tt_setup import services as M
@@ -617,6 +617,80 @@ class TestSupervisorTreeTraversal(unittest.TestCase):
             result = _ports_mod._kill_port_holder(8002, no_sudo=True, quiet=True)
 
         self.assertFalse(result, "kill_port_holder must return False if supervisor wrapper termination fails")
+
+
+class TestPortFreeingOnlyTargetsTheListener(unittest.TestCase):
+    """`lsof -ti tcp:<port>` also lists processes that merely hold a *client*
+    connection to the port. When the listener is invisible to the non-sudo pass
+    (docker-proxy runs as root), that made the launcher kill whatever user
+    process had a connection open, including the previous `run.py --dev`
+    launcher and any curl/IDE client. Only the LISTEN socket may be targeted."""
+
+    def test_lsof_is_restricted_to_listening_sockets(self):
+        lsof_calls = []
+
+        def fake_run_command(cmd, **kwargs):
+            if "lsof" in cmd:
+                lsof_calls.append(cmd)
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch("shutil.which", return_value="/usr/bin/lsof"):
+            _ports_mod._kill_port_holder(8000, no_sudo=True, quiet=True)
+
+        self.assertTrue(lsof_calls, "lsof must be consulted")
+        for cmd in lsof_calls:
+            self.assertIn("-sTCP:LISTEN", cmd,
+                          f"lsof must only report the listening process, got {cmd}")
+
+    def test_docker_guard_falls_back_to_sudo_ps_when_the_process_is_hidden(self):
+        # /proc mounted with hidepid hides root's docker-proxy from a plain ps,
+        # which used to make the guard return False and the proxy get killed.
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "sudo":
+                return MagicMock(returncode=0, stdout="docker-proxy\n")
+            return MagicMock(returncode=1, stdout="")
+
+        with patch.object(_ports_mod.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(_ports_mod._process_is_docker(4242))
+            self.assertEqual(calls[-1][:2], ["sudo", "ps"])
+
+            calls.clear()
+            self.assertFalse(_ports_mod._process_is_docker(4242, no_sudo=True))
+            self.assertFalse(any(c[0] == "sudo" for c in calls),
+                             "no_sudo must not fall back to sudo ps")
+
+
+class TestZombieProcessesAreTreatedAsDead(unittest.TestCase):
+    """A zombie (state Z) still answers `kill -0`, but it is already gone: the
+    alive checks must not wait on it or refuse to start because of it."""
+
+    ZOMBIE_STAT = "999 (docker_control) Z 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+    SLEEPING_STAT = "999 (docker_control) S 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+
+    def test_pid_is_zombie_returns_true_for_zombie(self):
+        with patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)):
+            self.assertTrue(_ports_mod._pid_is_zombie(999))
+        with patch("builtins.open", mock_open(read_data=self.SLEEPING_STAT)):
+            self.assertFalse(_ports_mod._pid_is_zombie(999))
+
+    def test_terminate_pid_graceful_then_force_does_not_force_kill_zombie(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            return MagicMock(returncode=0)  # `kill -0` keeps succeeding for a zombie
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"), \
+             patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [["kill", "-15", "999"], ["kill", "-0", "999"]],
+                         "a zombie must be reported dead on the first poll, without kill -9")
 
 
 if __name__ == "__main__":
