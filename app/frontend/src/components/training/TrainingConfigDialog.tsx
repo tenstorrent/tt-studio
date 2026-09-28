@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { AlertTriangle, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -232,7 +232,8 @@ export function TrainingConfigDialog({
   // slice of a large file (in which case its row count says nothing useful).
   const [datasetColumns, setDatasetColumns] = useState<string[]>([]);
   const [datasetSampled, setDatasetSampled] = useState(false);
-  const maxLength = form.watch("max_length");
+  // Number inputs report edits as strings, so coerce before comparing lengths.
+  const maxLength = Number(form.watch("max_length"));
   const columnMapping = form.watch("column_mapping");
 
   useEffect(() => {
@@ -365,8 +366,10 @@ export function TrainingConfigDialog({
   const includedPercentLabel =
     sampleKept > 0 && rawPercent < 1 ? "<1" : String(Math.round(rawPercent));
 
-  const lengthWarning =
-    isCustomDataset && sampleTotal > 0 && validMaxLength && sampleKept < sampleTotal;
+  const lengthEstimateReady =
+    isCustomDataset && sampleTotal > 0 && validMaxLength;
+  const lengthWarning = lengthEstimateReady && sampleKept < sampleTotal;
+  const lengthAllFit = lengthEstimateReady && sampleKept === sampleTotal;
 
   const onSubmit = async (values: FormValues) => {
     if (!device) {
@@ -772,6 +775,18 @@ export function TrainingConfigDialog({
                       to lower Batch Size to avoid out-of-memory (OOM) errors.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {lengthAllFit && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs dark:border-green-700/60 dark:bg-green-900/20">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                  <p className="text-green-800 dark:text-green-200">
+                    At a Sequence Length of{" "}
+                    <span className="font-semibold">{maxLength}</span>, all
+                    examples fit and would be used for training (estimated,
+                    template included).
+                  </p>
                 </div>
               )}
             </div>
