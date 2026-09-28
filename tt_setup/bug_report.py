@@ -278,8 +278,9 @@ def report_bug(exc=None, args=None, open_browser=True):
         # is never opened on this path.
         if not (open_browser and open_in_mail_client(eml_path)):
             console.print(
-                f"[muted]No mail client opened — open the .eml above in yours and {eml_send_verb()} "
-                "(on a headless server, copy it to your own machine first).[/muted]"
+                "[muted]No mail client opened — open the .eml above in yours and "
+                f"{eml_send_verb()} (on a headless server, copy it to your own machine first)."
+                "[/muted]"
             )
         return
 
