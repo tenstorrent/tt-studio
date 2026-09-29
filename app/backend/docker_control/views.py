@@ -2917,7 +2917,9 @@ class RegisterExternalModelView(APIView):
             # only way to learn a route that diverges from the per-type convention
             # (a tt-dit image server serves /generate, not /v1/images/generations),
             # which is why the route is kept even when the type came from elsewhere.
-            served_api = _detect_served_api(service_port)
+            served_api = _detect_served_api(
+                _first_host_port(container_info) or service_port
+            )
             service_route = served_api.get("service_route") or None
             served_type = served_api.get("model_type")
             if served_type and served_type != model_type:
@@ -2969,9 +2971,13 @@ class RegisterExternalModelView(APIView):
 
             # Record if the model was launched with tool-calling capability and
             # warn when a tool-capable model was launched without tool-calling capability.
+            # The container's launch flags are the ground truth: a family we have
+            # no parser entry for (gpt-oss, community builds) can still have been
+            # started with tool calling, and gating on our table would wrongly
+            # hide it from the marketplace and coding agents (DEVSTACK-489).
             launch_flags = tool_calling_launch_flags(model_name, hf_model_id or "")
             container_has_tools = _container_has_tool_calling(container_info)
-            tool_calling_enabled = launch_flags is not None and container_has_tools
+            tool_calling_enabled = container_has_tools
             if launch_flags is not None and not container_has_tools:
                 corrections.append(
                     "This container was started without vLLM tool-calling support, so "
@@ -3673,7 +3679,9 @@ def _infer_model_type(hf_id: str) -> str:
         return "speech_recognition"
     if any(x in lower for x in ["llava", "clip", "idefics", "vision", "blip"]):
         return "vlm"
-    if any(x in lower for x in ["stable-diffusion", "sdxl", "dall-e"]):
+    if any(x in lower for x in ["wan2", "mochi", "video-gen", "text2video"]):
+        return "video_generation"
+    if any(x in lower for x in ["stable-diffusion", "sdxl", "dall-e", "qwen-image", "flux", "-dit"]):
         return "image_generation"
     if any(x in lower for x in ["-e5-", "/e5-", "gte-", "bge-", "embed", "sentence-t5"]):
         return "embedding"
@@ -3687,7 +3695,7 @@ _IMAGE_TYPE_HINTS = (
     (("-tts-", "_tts", "tts-", "tts_", "xtts", "bark", "speecht5", "fastspeech"), "tts"),
     (("whisper", "wav2vec", "-asr", "speech-recognition", "speech_recognition", "-stt"), "speech_recognition"),
     (("llava", "idefics", "vision", "blip", "-vl-", "-vl:"), "vlm"),
-    (("stable-diffusion", "sdxl", "flux", "image-generation"), "image_generation"),
+    (("stable-diffusion", "sdxl", "flux", "qwen-image", "image-generation"), "image_generation"),
     (("yolo", "objdetection", "object-detection"), "object_detection"),
     (("wan2", "video-generation", "mochi"), "video_generation"),
     (("embed", "-e5-", "bge-", "gte-"), "embedding"),

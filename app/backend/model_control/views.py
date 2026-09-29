@@ -705,6 +705,21 @@ class ObjectDetectionInferenceCloudView(APIView):
 IMAGE_JOB_TIMEOUT_SECONDS = 30 * 60
 
 
+def _sync_b64_image(resp_json: dict, dialect) -> str:
+    """Pull the base64 image out of a sync dialect's response.
+
+    Servers disagree on the key: tt-media-server returns ``images: [..]``, the
+    OpenAI contract ``data: [{b64_json}]``, community /predict servers ``image``.
+    """
+    for key in dialect.b64_fields:
+        value = resp_json.get(key)
+        if isinstance(value, list) and value:
+            return value[0]
+        if isinstance(value, str) and value:
+            return value
+    return resp_json["data"][0]["b64_json"]
+
+
 class ImageGenerationInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
@@ -725,20 +740,23 @@ class ImageGenerationInferenceView(APIView):
                     f"image generation via '{dialect.name}' dialect at {internal_url}"
                 )
 
+                payload = {"prompt": prompt}
+                for req_field, server_field in dialect.extra_params.items():
+                    value = data.get(req_field)
+                    if value is not None:
+                        payload[server_field] = value
+
                 if dialect.mode == "sync":
                     # The image comes back on the submit call as base64 JSON.
                     inference_data = requests.post(
                         internal_url,
-                        json={"prompt": prompt},
+                        json=payload,
                         headers=headers,
                         timeout=2000,
                     )
                     inference_data.raise_for_status()
                     resp_json = inference_data.json()
-                    if "images" in resp_json:
-                        b64_image = resp_json["images"][0]
-                    else:
-                        b64_image = resp_json["data"][0]["b64_json"]
+                    b64_image = _sync_b64_image(resp_json, dialect)
                     image_bytes = base64.b64decode(b64_image)
                     django_response = HttpResponse(
                         image_bytes, content_type=dialect.default_content_type
@@ -749,12 +767,6 @@ class ImageGenerationInferenceView(APIView):
                     return django_response
 
                 # Job dialects: submit -> poll for a terminal state -> fetch bytes.
-                payload = {"prompt": prompt}
-                for req_field, server_field in dialect.extra_params.items():
-                    value = data.get(req_field)
-                    if value is not None:
-                        payload[server_field] = value
-
                 inference_data = requests.post(
                     internal_url, json=payload, headers=headers, timeout=30
                 )

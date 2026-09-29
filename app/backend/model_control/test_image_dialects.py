@@ -13,6 +13,7 @@ and ``JobStatus`` enum were read off a running FLUX.2-dev container.
 from model_control.image_dialects import (
     MEDIA,
     OPENAI,
+    PREDICT,
     TT_DIT,
     dialect_from_openapi,
     resolve_dialect,
@@ -73,6 +74,15 @@ class TestDialectFromOpenapi:
     def test_identifies_openai_image_server(self):
         assert dialect_from_openapi(["/v1/images/generations", "/health"]) is OPENAI
 
+    def test_identifies_community_predict_server(self):
+        # changh95/qwen-image-2.1-p150 (tt-model package): /predict + a stub
+        # /v1/models. The stub must not make it look like a chat server.
+        paths = ["/predict", "/health", "/info", "/v1/models"]
+        assert dialect_from_openapi(paths) is PREDICT
+        assert resolve_dialect("http://qwen-image:20000/predict") is PREDICT
+        assert PREDICT.mode == "sync"
+        assert PREDICT.b64_fields == ("image",)
+
     def test_chat_server_is_not_an_image_dialect(self):
         # A vLLM container serves no image route: returning None is what keeps it
         # from being registered as an image model.
@@ -94,7 +104,9 @@ class TestJobStateVocabulary:
         # tt-media-server reports "Completed"; the view lowercases before comparing.
         assert "Completed".lower() in MEDIA.done_states
 
-    def test_only_tt_dit_forwards_diffusion_params(self):
+    def test_only_diffusion_native_dialects_forward_params(self):
         assert "num_inference_steps" in TT_DIT.extra_params
+        # /predict spells the step count differently; the request field is the same.
+        assert PREDICT.extra_params["num_inference_steps"] == "num_steps"
         assert not MEDIA.extra_params
         assert not OPENAI.extra_params
