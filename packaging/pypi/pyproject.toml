@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+[project]
+name = "tt-studio"
+# Placeholder — .github/workflows/publish-pypi.yml injects the release tag
+# (vX.Y.Z -> X.Y.Z) before building, so the PyPI version always matches the
+# GitHub release the shim will install.
+version = "0.0.0"
+description = "TT Studio — web interface for running AI models on Tenstorrent hardware"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+# Deliberately no dependencies: the shim is stdlib-only. The real launcher
+# dependencies are installed by run.py's own bootstrap inside the managed
+# checkout (tt_setup/bootstrap.py).
+dependencies = []
+keywords = ["tenstorrent", "tt-studio", "ai", "inference"]
+
+[project.urls]
+Homepage = "https://github.com/tenstorrent/tt-studio"
+Issues = "https://github.com/tenstorrent/tt-studio/issues"
+
+[project.scripts]
+tt-studio = "tt_studio.shim:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

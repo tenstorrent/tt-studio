@@ -147,6 +147,11 @@ def maybe_repair_shortcut():
     """Re-point an installed shortcut whose baked-in path no longer matches this
     checkout (the repo moved, or the user launched a different clone). Silent
     no-op otherwise; never raises — a broken rc file must not block startup."""
+    # Under the pip shim the checkout lives in ~/.tt-studio and `tt-studio` is
+    # already a console script — re-pointing a dev clone's rc shortcut at the
+    # managed root would hijack it (and shadow the pip entry point).
+    if os.environ.get("TT_STUDIO_MANAGED") == "1":
+        return
     try:
         _, rc_path = _detect_shell_rc()
         if not rc_path or not is_shortcut_installed(rc_path):
@@ -247,6 +252,10 @@ def maybe_offer_shortcut(args):
     """One-time offer to install the shortcut during a normal launch. Skips when
     non-interactive, already installed, already offered, or the shell isn't
     auto-supported — so it never nags."""
+    if os.environ.get("TT_STUDIO_MANAGED") == "1":
+        # pip-shim install: `tt-studio` already exists as a console script; the
+        # rc shell function would shadow it and point at the managed checkout.
+        return
     if not console.is_terminal:
         return
     _, rc_path = _detect_shell_rc()
