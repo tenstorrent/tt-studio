@@ -215,6 +215,7 @@ def compute_download_progress(
     repo: Optional[str],
     container_path: Optional[str],
     cached: bool,
+    full_repo: bool = False,
 ) -> Dict[str, Optional[float]]:
     """Return a snapshot of download progress for this deploy.
 
@@ -224,6 +225,9 @@ def compute_download_progress(
     When `cached=True`, the in-container script logged "Weights already exist at"
     and skipped snapshot_download. We still report downloaded_bytes (which should
     equal total_bytes) so the bar pins at 100% briefly before the phase advances.
+
+    `full_repo=True` counts every repo file in the total, for media-server
+    downloads that fetch the whole repo (training) rather than a subset.
     """
     out: Dict[str, Optional[float]] = {
         "downloaded_bytes": None,
@@ -265,7 +269,8 @@ def compute_download_progress(
         return out
     out["downloaded_bytes"] = int(downloaded)
 
-    total = _fetch_total_bytes(repo, subset_only=media_download) if repo else None
+    subset_only = media_download and not full_repo
+    total = _fetch_total_bytes(repo, subset_only=subset_only) if repo else None
     if total is not None:
         out["total_bytes"] = int(total)
 
