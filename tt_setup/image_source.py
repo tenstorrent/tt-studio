@@ -10,11 +10,14 @@ contexts whenever a pull cannot succeed or would produce the wrong bits
 (unpublished checkout, local modifications, custom frontend config, --build-images).
 """
 
+import json
+import os
 import subprocess
 
 from tt_setup.constants import TT_STUDIO_ROOT
 
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/tenstorrent/tt-studio"
+CATALOG_PATH = "app/backend/shared_config/models_from_inference_server.json"
 
 
 def compute_image_tag(exact_tag, full_sha):
@@ -99,9 +102,30 @@ def describe_pull_fallback(kind, tag, cached):
     return f"{reason} — {next_step}", hint
 
 
+def _without_timestamp(catalog):
+    source = {k: v for k, v in catalog.get("source", {}).items() if k != "generated_at"}
+    return {**catalog, "source": source}
+
+
+def _catalog_matches_head():
+    """Whether the model catalog equals HEAD's, ignoring source.generated_at."""
+    try:
+        head = subprocess.run(
+            ["git", "-C", TT_STUDIO_ROOT, "show", f"HEAD:{CATALOG_PATH}"],
+            capture_output=True, text=True, check=False,
+        )
+        if head.returncode != 0:
+            return False
+        with open(os.path.join(TT_STUDIO_ROOT, CATALOG_PATH)) as f:
+            return _without_timestamp(json.load(f)) == _without_timestamp(json.loads(head.stdout))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def is_worktree_dirty():
     """True when app/ differs from HEAD (or git state can't be read — build is
-    the safe default: never run prebuilt bits over modified sources)."""
+    the safe default: never run prebuilt bits over modified sources). A catalog
+    whose only change is its sync timestamp doesn't count."""
     try:
         result = subprocess.run(
             ["git", "-C", TT_STUDIO_ROOT, "status", "--porcelain", "--", "app/"],
@@ -111,7 +135,8 @@ def is_worktree_dirty():
         return True
     if result.returncode != 0:
         return True
-    return bool(result.stdout.strip())
+    changed = [line[3:] for line in result.stdout.splitlines() if line.strip()]
+    return any(path != CATALOG_PATH or not _catalog_matches_head() for path in changed)
 
 
 def images_present_locally(refs, use_sudo=False):

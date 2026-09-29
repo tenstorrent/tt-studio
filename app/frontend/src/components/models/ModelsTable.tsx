@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React from "react";
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import {
   TableBody,
   TableCell,
@@ -163,7 +163,7 @@ export default function ModelsTable({
   hideDeviceId = false,
   deleteInProgress = false,
   deletingTargetId = null,
-}: Props): JSX.Element {
+}: Props): ReactElement {
   const { containerId, image, ports } = visibleMap;
 
   // Listen to hover-tier events for per-row actions
