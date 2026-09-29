@@ -4,6 +4,10 @@
 import type { Step } from "react-joyride";
 import { deployModelSteps } from "./tours/deployModel";
 import { onboardingSteps } from "./tours/onboarding";
+import {
+  FINE_TUNE_TOUR_ID,
+  fineTuneModelSteps,
+} from "./tours/fineTuneModel";
 
 export interface TourDefinition {
   id: string;
@@ -27,6 +31,14 @@ export const TOUR_REGISTRY: Record<string, TourDefinition> = {
       "Walk through selecting a deployment mode, configuring hardware, and launching a model.",
     steps: deployModelSteps,
     route: "/",
+  },
+  [FINE_TUNE_TOUR_ID]: {
+    id: FINE_TUNE_TOUR_ID,
+    title: "Fine-Tune & Promote a Model",
+    description:
+      "Upload a custom dataset, configure and launch a LoRA training job, then promote a checkpoint for inference.",
+    steps: fineTuneModelSteps,
+    route: "/training",
   },
 };
 
