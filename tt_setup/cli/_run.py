@@ -230,6 +230,9 @@ def _run(args):
 {C_YELLOW}{C_BOLD}Optional Services:{C_RESET}
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
+  {C_YELLOW}TT_STUDIO_DISABLE_HF_XET{C_RESET}            Set true to disable Hugging Face Xet
+                                      transfer for weight downloads and use
+                                      plain HTTPS instead (slower; default off)
 
 {C_ORANGE}{C_BOLD}Hardware:{C_RESET}
 {'=' * 80}
