@@ -28,6 +28,7 @@ import {
   // PanelLeft, // was Canvas's nav icon; Canvas is hidden from the UI
   Plus,
   LayoutGrid,
+  ScanText,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -744,17 +745,28 @@ export default function NavBar() {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
-          const route = getDestinationFromModelType(modelType);
+          const route = getDestinationFromModelType(
+            modelType,
+            model.name,
+            model.image
+          );
+          // An OCR model is a VLM, so branch on the route the mapper
+          // already picked rather than teaching the icon and label
+          // helpers about a model type that does not exist.
+          const isOcr = route === "/ocr";
+          const pageName = isOcr
+            ? "Read Text"
+            : getModelPageNameFromModelType(modelType);
           return {
             type: "button",
-            icon: getNavIconFromModelType(modelType),
-            label: getModelPageNameFromModelType(modelType),
+            icon: isOcr ? ScanText : getNavIconFromModelType(modelType),
+            label: pageName,
             onClick: () =>
               navigate(route, {
                 state: { containerID: model.id, modelName: model.name },
               }),
             isDisabled: false,
-            tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
+            tooltipText: `Open ${pageName} (${model.name})`,
             route,
           };
         });
@@ -809,17 +821,28 @@ export default function NavBar() {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
-        const route = getDestinationFromModelType(modelType);
+        const route = getDestinationFromModelType(
+          modelType,
+          model.name,
+          model.image
+        );
+        // An OCR model is a VLM, so branch on the route the mapper
+        // already picked rather than teaching the icon and label
+        // helpers about a model type that does not exist.
+        const isOcr = route === "/ocr";
+        const pageName = isOcr
+          ? "Read Text"
+          : getModelPageNameFromModelType(modelType);
         return {
           type: "button",
-          icon: getNavIconFromModelType(modelType),
-          label: getModelPageNameFromModelType(modelType),
+          icon: isOcr ? ScanText : getNavIconFromModelType(modelType),
+          label: pageName,
           onClick: () =>
             navigate(route, {
               state: { containerID: model.id, modelName: model.name },
             }),
           isDisabled: false,
-          tooltipText: `Open ${getModelPageNameFromModelType(modelType)}`,
+          tooltipText: `Open ${pageName}`,
           route,
         };
       });

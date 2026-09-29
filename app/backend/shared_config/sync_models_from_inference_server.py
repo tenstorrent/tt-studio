@@ -510,6 +510,14 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
     if raw_model_type == "EMBEDDING":
         return "/v1/embeddings"
     if inference_engine == "vLLM":
+        # A VLM has no image path on /v1/completions: InferenceView flattens the
+        # messages list into a prompt string for that route, so any image_url
+        # content part is stringified and silently dropped. Route on the declared
+        # type rather than on whether the model id happens to contain one of the
+        # CHAT_CAPABLE_PATTERNS substrings -- every VLM shipped so far was named
+        # "-Instruct" or "-it" and matched by luck, which is why this held up.
+        if raw_model_type == "VLM":
+            return "/v1/chat/completions"
         return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
         # TTS models use OpenAI-compatible /v1/audio/speech endpoint

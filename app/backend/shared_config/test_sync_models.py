@@ -39,6 +39,22 @@ class TestServiceRouteMapping:
         """vLLM base models should use /v1/completions."""
         assert map_service_route("vLLM", "meta-llama/Llama-3.1-70B", "") == "/v1/completions"
         assert map_service_route("vLLM", "meta-llama/Llama-3.2-1B", "") == "/v1/completions"
+
+    def test_vllm_vlm_models_route_on_type_not_name(self):
+        """A VLM must get /v1/chat/completions whatever its model id looks like.
+
+        /v1/completions has no image path: InferenceView flattens the messages
+        list into a prompt string for that route, so an image_url content part is
+        stringified and dropped. Every VLM shipped so far happened to be named
+        "-Instruct" or "-it" and matched CHAT_CAPABLE_PATTERNS by luck; these
+        names do not.
+        """
+        assert map_service_route("vLLM", "PaddlePaddle/PaddleOCR-VL-1.6", "VLM") == "/v1/chat/completions"
+        assert map_service_route("vLLM", "zai-org/GLM-OCR", "VLM") == "/v1/chat/completions"
+        # Named-chat models keep working through the name path when type is absent.
+        assert map_service_route("vLLM", "Qwen/Qwen2.5-VL-7B-Instruct", "VLM") == "/v1/chat/completions"
+        # A non-VLM base model is unaffected by the type branch.
+        assert map_service_route("vLLM", "meta-llama/Llama-3.1-70B", "LLM") == "/v1/completions"
     
     def test_tts_media_models_use_openai_endpoint(self):
         """TTS media models should use /v1/audio/speech (OpenAI-compatible)."""

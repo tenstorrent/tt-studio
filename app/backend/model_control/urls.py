@@ -23,6 +23,7 @@ urlpatterns = [
     path("object-detection-cloud/", views.ObjectDetectionInferenceCloudView.as_view()),
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),
     path("speech-recognition-cloud/", views.SpeechRecognitionInferenceCloudView.as_view()),
+    path("ocr/", views.OcrInferenceView.as_view()),
     path("face-recognition/recognize/", views.FaceRecognitionRecognizeView.as_view()),
     path("face-recognition/register/", views.FaceRecognitionRegisterView.as_view()),
     path("face-recognition/faces/", views.FaceRecognitionListView.as_view()),
