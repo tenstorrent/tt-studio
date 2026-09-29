@@ -757,37 +757,7 @@ export function TrainingConfigDialog({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="seed"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Seed</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={MAX_TRAINING_SEED - 1}
-                          step={1}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
-
-              {seedChanged && (
-                <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                  <p className="text-blue-800 dark:text-blue-200">
-                    The seed only applies on the host side. The Tenstorrent
-                    device RNG is not seeded, so runs may not be fully
-                    reproducible.
-                  </p>
-                </div>
-              )}
 
               {lengthWarning && (
                 <div className="mt-3 space-y-2">
@@ -826,6 +796,39 @@ export function TrainingConfigDialog({
                     <span className="font-semibold">{maxLength}</span>, all
                     examples fit and would be used for training (estimated,
                     template included).
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <FormField
+                  control={form.control}
+                  name="seed"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Seed</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={MAX_TRAINING_SEED - 1}
+                          step={1}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {seedChanged && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                  <p className="text-blue-800 dark:text-blue-200">
+                    The seed only applies on the host side. The Tenstorrent
+                    device RNG is not seeded, so runs may not be fully
+                    reproducible.
                   </p>
                 </div>
               )}
