@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useMemo } from "react";
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import type { ColumnVisibilityMap } from "../../types/models";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -18,7 +18,7 @@ export default function ColumnsMenu({
   value,
   onChange,
   onPreset,
-}: Props): JSX.Element {
+}: Props): ReactElement {
   const visibleCount = useMemo(
     () => Object.values(value).filter(Boolean).length,
     [value]

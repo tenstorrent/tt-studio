@@ -250,7 +250,9 @@ export function VoiceInput({
               {[...Array(5)].map((_, index) => (
                 <div
                   key={index}
-                  ref={(el) => (barsRef.current[index] = el)}
+                  ref={(el) => {
+                    barsRef.current[index] = el;
+                  }}
                   className="w-1 bg-[#7C68FA] rounded-full transition-all duration-75"
                   style={{ height: "4%" }}
                 ></div>
