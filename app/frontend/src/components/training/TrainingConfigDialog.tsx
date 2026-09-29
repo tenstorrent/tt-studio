@@ -242,6 +242,7 @@ export function TrainingConfigDialog({
   const [datasetSampled, setDatasetSampled] = useState(false);
   // Number inputs report edits as strings, so coerce before comparing lengths.
   const maxLength = Number(form.watch("max_length"));
+  const seedChanged = Number(form.watch("seed")) !== 0;
   const columnMapping = form.watch("column_mapping");
 
   useEffect(() => {
@@ -776,6 +777,17 @@ export function TrainingConfigDialog({
                   )}
                 />
               </div>
+
+              {seedChanged && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                  <p className="text-blue-800 dark:text-blue-200">
+                    The seed only applies on the host side. The Tenstorrent
+                    device RNG is not seeded, so runs may not be fully
+                    reproducible.
+                  </p>
+                </div>
+              )}
 
               {lengthWarning && (
                 <div className="mt-3 space-y-2">
