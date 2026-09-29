@@ -23,6 +23,7 @@ from sync_models_from_inference_server import (
     map_service_route,
     merge_hand_owned,
     normalize,
+    write_catalog,
 )
 
 
@@ -513,6 +514,49 @@ class TestLoadExistingCatalog:
 
         assert set(loaded) == {("A", "vllm"), ("A", "forge"), ("B", "vllm")}
         assert loaded[("A", "vllm")]["requires_dev_catalog"] is True
+
+
+def _catalog(generated_at, models):
+    return {
+        "source": {"artifact_version": "0.22.0", "generated_at": generated_at},
+        "total_models": len(models),
+        "models": models,
+    }
+
+
+class TestWriteCatalog:
+    def test_writes_when_missing(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        catalog = _catalog("t1", [{"model_name": "A"}])
+
+        assert write_catalog(path, catalog) is True
+        assert json.loads(path.read_text()) == catalog
+
+    def test_timestamp_only_change_leaves_file_untouched(self, tmp_path):
+        """A no-op resync must not dirty the committed catalog (it would force
+        the launcher to build images instead of pulling them)."""
+        path = tmp_path / "catalog.json"
+        write_catalog(path, _catalog("t1", [{"model_name": "A"}]))
+        before = path.read_text()
+
+        assert write_catalog(path, _catalog("t2", [{"model_name": "A"}])) is False
+        assert path.read_text() == before
+
+    def test_content_change_is_written(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        write_catalog(path, _catalog("t1", [{"model_name": "A"}]))
+        updated = _catalog("t2", [{"model_name": "A"}, {"model_name": "B"}])
+
+        assert write_catalog(path, updated) is True
+        assert json.loads(path.read_text()) == updated
+
+    def test_malformed_existing_file_is_overwritten(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        path.write_text("{not valid json")
+        catalog = _catalog("t1", [])
+
+        assert write_catalog(path, catalog) is True
+        assert json.loads(path.read_text()) == catalog
 
 
 class TestStudioAvailability:

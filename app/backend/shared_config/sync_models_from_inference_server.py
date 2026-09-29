@@ -705,6 +705,29 @@ def normalize(source_path: Path) -> list[dict]:
     return models
 
 
+def _without_timestamp(catalog: dict) -> dict:
+    source = {k: v for k, v in catalog.get("source", {}).items() if k != "generated_at"}
+    return {**catalog, "source": source}
+
+
+def write_catalog(path: Path, catalog: dict) -> bool:
+    """Write the catalog unless only source.generated_at would change.
+
+    Keeps a no-op sync from dirtying the committed file, which would make the
+    launcher build images instead of pulling them. Returns whether it wrote.
+    """
+    try:
+        with open(path) as f:
+            if _without_timestamp(json.load(f)) == _without_timestamp(catalog):
+                return False
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    with open(path, "w") as f:
+        json.dump(catalog, f, indent=2)
+        f.write("\n")
+    return True
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Sync model catalog from tt-inference-server")
@@ -792,11 +815,10 @@ def main():
     }
 
     out_path = OUTPUT_JSON.resolve()
-    with open(out_path, "w") as f:
-        json.dump(catalog, f, indent=2)
-        f.write("\n")
-
-    print(f"Written {len(models)} models → {out_path}")
+    if write_catalog(out_path, catalog):
+        print(f"Written {len(models)} models → {out_path}")
+    else:
+        print(f"Catalog unchanged ({len(models)} models) → {out_path}")
 
     # Print a summary
     from collections import Counter
