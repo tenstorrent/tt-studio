@@ -245,3 +245,48 @@ class PlaceholderNameMatchTests(IsolatedStoreTestCase):
             any(not e.get("is_pending") for e in canonical.values()),
             "name matching must still resolve a real job-id record to its container",
         )
+
+
+class ExternalRegistrationIdentityTests(IsolatedStoreTestCase):
+    def test_external_lookup_ignores_stale_name_matches_for_other_containers(self):
+        from docker_control.docker_utils import _external_model_impl
+
+        ModelDeployment.objects.create(
+            container_id="deadbeefcafe",
+            container_name="Qwen3.8-27B",
+            model_name="Qwen3.8-27B",
+            device="external",
+            status="running",
+            port=7000,
+            model_type="chat",
+        )
+
+        impl = _external_model_impl(
+            "feedfaceb00c",
+            {"name": "Qwen3.8-27B", "env_vars": {}, "networks": {}, "port_bindings": {}},
+        )
+
+        self.assertIsNone(
+            impl,
+            "external enrichment must match the registered container identity, not a stale same-named record",
+        )
+
+    def test_external_lookup_still_accepts_registered_short_container_ids(self):
+        from docker_control.docker_utils import _external_model_impl
+
+        ModelDeployment.objects.create(
+            container_id="deadbeefcafe",
+            container_name="registered-qwen",
+            model_name="registered-qwen",
+            device="external",
+            status="running",
+            port=7000,
+            model_type="chat",
+        )
+
+        impl = _external_model_impl(
+            "deadbeefcafefeed1234",
+            {"name": "registered-qwen", "env_vars": {}, "networks": {}, "port_bindings": {}},
+        )
+
+        self.assertIsNotNone(impl)
