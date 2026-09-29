@@ -80,15 +80,6 @@ reset. Re-enable once the media image ships a tt-metal/firmware combo \
 validated on fw 19.7.0."""
 
 [[unavailable]]
-model = "Motif-Image-6B-Preview"
-device = "P300x2"
-reason = "known_broken"
-details = """
-Media container never reaches a healthy state. Verified broken on a P300x2 \
-(4x p300c Blackhole) box. Untested on this model's other boards, so it stays \
-available there."""
-
-[[unavailable]]
 model = "gpt-oss-120b"
 device = "P300x2"
 reason = "known_broken"
@@ -216,6 +207,23 @@ details = """
 0.17.0 carries the MODEL_WEIGHTS_DIR fix (tt-inference-server#4107), so the \
 container reads the mounted host HF cache instead of re-downloading ~118GB. \
 Applies on every board."""
+
+[[serve_override]]
+model = "Motif-Image-6B-Preview"
+device = "p300x2"
+docker_image = "ghcr.io/tenstorrent/tt-studio/studio_images:motif-image-6b-p300x2-20260814-0.18.0-c49bb76"
+details = """
+The spec pins 0.9.0-c180ef7, which cannot run Motif at all: its ModelNames \
+enum predates the rename to exact-case values ("motif-image-6b-preview" vs \
+the "Motif-Image-6B-Preview" run.py passes as MODEL) and it has no Motif \
+P300X2 device config. Stock 0.18.0-c49bb76 fixes both, but its tt-metal \
+MotifPipeline has no (2, 2) mesh preset (p300x2 dies with KeyError: \
+'num_links') and its trace region is too small for the tp=2 layout. This \
+studio_images build layers both one-line fixes (tt-metal#53197, \
+tt-inference-server#4955) on 0.18.0-c49bb76. Verified on a P300x2 (4x p300c \
+Blackhole) box: warmup healthy, 1024x1024 generations in ~7s. Drop once a \
+media image ships with both fixes and the spec re-pins \
+(tt-inference-server#4956)."""
 
 [[serve_override]]
 model = "FLUX.1-dev"
