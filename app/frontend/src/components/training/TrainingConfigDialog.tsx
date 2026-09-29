@@ -38,6 +38,7 @@ import {
   fetchCustomDatasetContent,
   createTrainingJob,
   CUSTOM_DATASET_LOADER,
+  MAX_TRAINING_SEED,
   type CatalogEntry,
   type CustomDataset,
 } from "../../api/trainingApi";
@@ -117,6 +118,12 @@ const formSchema = z.object({
   batch_size: z.coerce.number().int().positive().default(8),
   num_epochs: z.coerce.number().int().positive().default(1),
   max_length: z.coerce.number().int().positive().default(128),
+  seed: z.coerce
+    .number()
+    .int("Seed must be a whole number")
+    .nonnegative("Seed must be 0 or greater")
+    .lt(MAX_TRAINING_SEED, `Seed must be below ${MAX_TRAINING_SEED}`)
+    .default(0),
   max_steps: z.coerce.number().int().nonnegative().default(100),
   lora_rank: z.coerce.number().int().positive().default(4),
   lora_alpha: z.coerce.number().int().positive().default(8),
@@ -165,6 +172,7 @@ export function TrainingConfigDialog({
       batch_size: 8,
       num_epochs: 1,
       max_length: 128,
+      seed: 0,
       max_steps: 100,
       lora_rank: 4,
       lora_alpha: 8,
@@ -392,6 +400,7 @@ export function TrainingConfigDialog({
         batch_size: values.batch_size,
         num_epochs: values.num_epochs,
         dataset_max_sequence_length: values.max_length,
+        seed: values.seed,
         lora_alpha: values.lora_alpha,
         lora_r: values.lora_rank,
         max_steps: values.max_steps,
@@ -742,6 +751,25 @@ export function TrainingConfigDialog({
                       <FormLabel className="text-xs">Sequence Length</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="seed"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Seed</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={MAX_TRAINING_SEED - 1}
+                          step={1}
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

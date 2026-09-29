@@ -94,8 +94,11 @@ export interface CreateTrainingJobParams {
   steps_freq?: number;
   val_steps_freq?: number;
   save_interval?: number;
+  seed?: number;
   [key: string]: unknown;
 }
+
+export const MAX_TRAINING_SEED = 2 ** 32;
 
 // ---------------------------------------------------------------------------
 // API functions
