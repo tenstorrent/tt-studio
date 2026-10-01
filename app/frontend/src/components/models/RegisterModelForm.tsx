@@ -357,8 +357,8 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
         </div>
       ) : containers.length === 0 ? (
         <p className="text-sm text-muted-foreground py-2">
-          No unregistered containers found. Make sure a container is running outside
-          tt_studio_network.
+          No unregistered model containers found. Make sure the model's container is
+          running with its Tenstorrent devices.
         </p>
       ) : (
         <div className="space-y-2">

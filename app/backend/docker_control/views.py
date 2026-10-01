@@ -2780,6 +2780,9 @@ class DiscoverContainersView(APIView):
                 else:
                     detected_device_ids = None
 
+                # Only model servers are offered for registration.
+                if _model_server_signal(c, bound) is None:
+                    continue
                 results.append({
                     "id": cid,
                     "name": name,
@@ -2924,6 +2927,32 @@ def _detect_device_board(container_info: dict):
         seg = cache.split("/")[-1]
         if seg:
             return seg
+    return None
+
+
+# Images of the servers TT Studio and tt-model-manager launch models with.
+_MODEL_SERVER_IMAGE = re.compile(
+    r"tt-inference-server|tt-media|tt-model|tt-metal|vllm", re.IGNORECASE
+)
+
+
+def _model_server_signal(container_info: dict, bound) -> "str | None":
+    """Why a container looks like a model server, or None when nothing says so.
+
+    A Tenstorrent model cannot run without the chips, so bound devices (or a
+    privileged container, which sees them unbound) are the main signal; TT launch
+    arguments and known server images catch the rest.
+    """
+    if bound is not None:
+        return "Tenstorrent devices bound"
+    if (container_info.get("HostConfig") or {}).get("Privileged"):
+        return "privileged container"
+    tokens = _cmd_tokens(container_info)
+    if _detect_device_board(container_info) or _find_arg_value(tokens, _DEVICE_ID_ARG):
+        return "Tenstorrent launch settings"
+    image = (container_info.get("Config") or {}).get("Image") or container_info.get("image") or ""
+    if _MODEL_SERVER_IMAGE.search(image):
+        return "model server image"
     return None
 
 
