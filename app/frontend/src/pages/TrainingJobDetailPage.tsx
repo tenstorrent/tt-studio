@@ -514,7 +514,11 @@ export default function TrainingJobDetailPage() {
             {(() => {
               const config = job.config ?? job.request_parameters;
               if (!config || Object.keys(config).length === 0) return null;
-              const HIDDEN_CONFIG_KEYS = ["lora_task_type", "ignored_index"];
+              const HIDDEN_CONFIG_KEYS = [
+                "lora_task_type",
+                "ignored_index",
+                "column_mapping",
+              ];
               // Staged paths are container-internal; only the file name means
               // anything to the user.
               const DATASET_PATH_LABELS: Record<string, string> = {
