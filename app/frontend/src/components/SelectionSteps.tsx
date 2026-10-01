@@ -18,13 +18,11 @@ import { useRefresh } from "../hooks/useRefresh";
 import { useTour } from "../hooks/useTour";
 import type { ChipStatus } from "../types/chipStatus";
 import {
-  autoCommunityPlacement,
-  autoPlacement,
-  communityMinDevices,
-  communityPlacement,
+  autoPlacementFor,
   fullBoardSlots,
-  getModelPlacement,
   isMultiChipModel,
+  minDevicesFor,
+  placementFor,
   profileForDevices,
   type ServeProfile,
 } from "../utils/deviceFit";
@@ -47,16 +45,11 @@ export interface Model {
   chips_required?: number; // Chips the model occupies: 1, a bundle's mesh size, or 4 for a whole board
   /** Hugging Face repo backing this model; null when it has no HF source. */
   hf_model_id?: string | null;
-  /** Which launcher backend serves this model. Community models come from the
-   *  Hugging Face Hub via tt-model-manager rather than the released catalog. */
-  source?: "inference-server" | "community";
-  /** Community models only: the publishing Hub namespace and its usage signals. */
-  author?: string | null;
-  downloads?: number | null;
-  /** Serve profiles the bundle declares, and the one this entry targets by default. */
+  /** Serve profiles the model declares, and the one deployed by default. A model
+   *  with profiles is placed by them (see placementFor). */
   profiles?: ServeProfile[];
   profile?: string;
-  /** Community models only: why no TT Studio page drives it (deployed as "unknown"). */
+  /** Why no TT Studio page drives the model, when none does (deploy only). */
   no_page_reason?: string | null;
 }
 
@@ -227,32 +220,32 @@ export default function StepperDemo() {
   const selectedModelType = selectedModelRow?.model_type ?? "";
 
   const boardType = effectiveChipStatus?.board_type;
-  const isSelectedModelCommunity = selectedModelRow?.source === "community";
   const selectedProfiles = selectedModelRow?.profiles;
   const preferredProfile = selectedModelRow?.profile;
-  // Supported device configurations for the selected model (single source of truth).
-  // Memoized so re-renders hand ChipConfigStep the same placement object instead of
-  // a fresh one, which its selection effects would read as a rule change.
-  const placement = useMemo(
-    () =>
-      isSelectedModelCommunity
-        ? communityPlacement(selectedProfiles, selectedModelChips, totalSlots ?? 4)
-        : getModelPlacement(
-            selectedModelName ?? selectedModel ?? "",
-            selectedModelChips,
-            boardType,
-            selectedModelType
-          ),
+  const hasProfiles = (selectedProfiles?.length ?? 0) > 0;
+  const placementModel = useMemo(
+    () => ({
+      name: selectedModelName ?? selectedModel ?? "",
+      chips_required: selectedModelChips,
+      model_type: selectedModelType,
+      profiles: selectedProfiles,
+      profile: preferredProfile,
+    }),
     [
       selectedModelName,
       selectedModel,
       selectedModelChips,
-      boardType,
       selectedModelType,
-      totalSlots,
-      isSelectedModelCommunity,
       selectedProfiles,
+      preferredProfile,
     ]
+  );
+  // Supported device configurations for the selected model (single source of truth).
+  // Memoized so re-renders hand ChipConfigStep the same placement object instead of
+  // a fresh one, which its selection effects would read as a rule change.
+  const placement = useMemo(
+    () => placementFor(placementModel, boardType, totalSlots ?? 4),
+    [placementModel, boardType, totalSlots]
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
@@ -267,15 +260,7 @@ export default function StepperDemo() {
   // free slot. null when nothing fits.
   const autoPlace = advancedActive
     ? null
-    : isSelectedModelCommunity
-      ? autoCommunityPlacement(
-          selectedProfiles,
-          selectedModelChips,
-          preferredProfile,
-          effectiveChipStatus?.slots ?? [],
-          totalSlots ?? 4
-        )
-      : autoPlacement(placement, selectedModelChips, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
+    : autoPlacementFor(placementModel, placement, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
   // The full-board (force_full_board) flow applies to flexible (card-pair) models
   // and to single-vs-full-board opt-in models; both need every slot selected in
   // advanced mode, or a full-board auto-placement, to actually mean "full board".
@@ -293,20 +278,18 @@ export default function StepperDemo() {
     }
     return selectedDeviceIds.length ? selectedDeviceIds : undefined;
   })();
-  // A community bundle deploys the profile whose mesh matches the devices chosen.
-  const deployProfile =
-    isSelectedModelCommunity && previewDeviceIds?.length
-      ? profileForDevices(selectedProfiles, previewDeviceIds.length, totalSlots ?? 4, preferredProfile)
-      : undefined;
-  // Chips the deployment actually occupies: full-board takes every slot, a community
-  // bundle its profile's mesh (its smallest until devices are chosen).
-  const effectiveChips = isSelectedModelCommunity
-    ? previewDeviceIds?.length ||
-      communityMinDevices(selectedProfiles, selectedModelChips, totalSlots ?? 4)
+  // A profiled model deploys the profile whose mesh matches the devices chosen.
+  const deployProfile = previewDeviceIds?.length
+    ? profileForDevices(placementModel, previewDeviceIds.length, totalSlots ?? 4)
+    : undefined;
+  // Chips the deployment actually occupies: full-board takes every slot, a profiled
+  // model its profile's mesh (its smallest until devices are chosen).
+  const effectiveChips = hasProfiles
+    ? previewDeviceIds?.length || minDevicesFor(placementModel, totalSlots ?? 4)
     : fullBoardSelected
       ? 4
       : selectedModelChips;
-  const usesCardGroup = isSelectedModelCommunity
+  const usesCardGroup = hasProfiles
     ? effectiveChips > 1 && effectiveChips < fullBoardSlots(totalSlots ?? 4).length
     : isFlexible && !fullBoardSelected;
   // Auto mode with no available configuration → block deploy with a clear reason.
@@ -628,10 +611,10 @@ export default function StepperDemo() {
         // also allows a single-device default (e.g. Qwen3-Embedding-0.6B), where
         // sending it unconditionally would override that default. Use the same
         // placement rules the manual flow uses to decide.
-        const resolvedPlacement = getModelPlacement(
-          model.name,
-          model.chips_required ?? 1,
-          effectiveChipStatus?.board_type
+        const resolvedPlacement = placementFor(
+          model,
+          effectiveChipStatus?.board_type,
+          effectiveChipStatus?.total_slots ?? 4
         );
         if (!resolvedPlacement.allowsSingle) {
           deployPayload.force_full_board = true;
@@ -675,7 +658,7 @@ export default function StepperDemo() {
       if (deviceIdParam !== null && deviceIdParam !== "") {
         deviceIds = parseDeviceIds(deviceIdParam);
       } else if (Array.isArray(data.device_ids) && data.device_ids.length > 0) {
-        // The full group, when the backend reports one (community deploys do).
+        // The full group, when the backend reports one.
         deviceIds = data.device_ids.map(Number).filter((n: number) => Number.isFinite(n));
       } else {
         const allocated = data.allocated_device_id;

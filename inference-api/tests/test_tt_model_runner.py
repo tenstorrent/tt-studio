@@ -57,35 +57,69 @@ def fake_tt_kernel(monkeypatch):
     return calls
 
 
-class TestTagReading:
-    """Repo tags are the fallback description for a bundle whose manifest won't load.
+class TestVerifiedCatalog:
+    """tt-cli's community_catalog.json is the whole community listing: nothing is
+    discovered by Hub search until the Hub has a verification process."""
 
-    Both readers ask tt_kernel rather than carrying their own list of board names or
-    engines, so a new board or launcher needs no change here.
-    """
-
-    TAGS = [
-        "blackhole", "p300x2", "tt-model-cache", "tt-model-container",
-        "vllm-plugin", "license:other", "region:us",
+    ROWS = [
+        {"repo": "ns/chat", "arch": "blackhole", "engine": "vllm-plugin",
+         "hardware": ["p150", "p300x2"], "validated_on": "2026-09-25"},
+        {"repo": "ns/image", "arch": "blackhole", "engine": "tt-dit-server",
+         "hardware": ["p300x2"]},
+        {"repo": "ns/wormhole", "arch": "wormhole", "engine": "vllm-plugin",
+         "hardware": ["n300"]},
     ]
 
-    def test_finds_the_board_among_the_noise(self, fake_tt_kernel):
-        assert runner._hardware_from_tags(self.TAGS) == "p300x2"
+    @pytest.fixture
+    def catalog(self, tmp_path):
+        path = tmp_path / "community_catalog.json"
+        path.write_text(json.dumps({"schema_version": 1, "bundles": self.ROWS}))
+        return str(path)
 
-    def test_finds_the_engine_among_the_noise(self, fake_tt_kernel):
-        assert runner._kind_from_tags(self.TAGS) == "vllm-plugin"
+    def test_filters_by_arch(self, catalog):
+        rows = runner._verified_bundles(catalog, "blackhole", None, 100)
+        assert [r["repo"] for r in rows] == ["ns/chat", "ns/image"]
 
-    def test_an_unsupported_engine_is_still_named(self, fake_tt_kernel):
-        # Naming it is what lets the listing drop it instead of offering an LLM that
-        # cannot be served.
-        assert runner._kind_from_tags(["blackhole", "tt-dit-server"]) == "tt-dit-server"
+    def test_query_matches_a_repo_substring(self, catalog):
+        assert [r["repo"] for r in runner._verified_bundles(catalog, None, "IMA", 100)] == [
+            "ns/image"
+        ]
 
-    def test_no_board_tag_reads_as_unknown(self, fake_tt_kernel):
-        # Not as one chip: an untagged bundle must not look single-device.
-        assert runner._hardware_from_tags(["blackhole", "vllm-plugin"]) is None
+    def test_limit_caps_the_listing(self, catalog):
+        assert len(runner._verified_bundles(catalog, None, None, 1)) == 1
 
-    def test_no_engine_tag_reads_as_unknown(self, fake_tt_kernel):
-        assert runner._kind_from_tags(["blackhole", "p150"]) is None
+    def test_an_unknown_schema_is_refused(self, tmp_path):
+        path = tmp_path / "c.json"
+        path.write_text(json.dumps({"schema_version": 2, "bundles": []}))
+        with pytest.raises(ValueError):
+            runner._verified_bundles(str(path), None, None, 100)
+
+    def _catalog_rows(self, monkeypatch, fake_tt_kernel, path):
+        localdb = types.SimpleNamespace(
+            all_entries=lambda: [{"repo_id": "ns/chat", "arch": "blackhole", "profile": "p150"}]
+        )
+        sys.modules["tt_kernel"].localdb = localdb
+        monkeypatch.setattr(runner, "_annotate_from_manifests", lambda bundles: None)
+        events = []
+        monkeypatch.setattr(runner, "emit", lambda event, **f: events.append((event, f)))
+        args = types.SimpleNamespace(catalog=path, arch="blackhole", query=None, limit=100)
+        assert runner.cmd_catalog(args) == 0
+        return events
+
+    def test_rows_carry_the_verified_boards(self, monkeypatch, fake_tt_kernel, catalog):
+        [(event, fields)] = self._catalog_rows(monkeypatch, fake_tt_kernel, catalog)
+        assert event == "catalog"
+        chat, image = fields["bundles"]
+        assert chat["installed"] and chat["default_profile"] == "p150"
+        assert chat["validated_hardware"] == ["p150", "p300x2"]
+        # The smallest verified board stands in until the manifest is read.
+        assert (chat["hardware"], chat["chips_required"]) == ("p150", 1)
+        assert (image["kind"], image["supported"]) == ("tt-dit-server", True)
+
+    def test_a_missing_catalog_lists_nothing(self, monkeypatch, fake_tt_kernel, tmp_path):
+        events = self._catalog_rows(monkeypatch, fake_tt_kernel, str(tmp_path / "nope.json"))
+        assert [e for e, _ in events] == ["warning", "catalog"]
+        assert events[-1][1]["bundles"] == []
 
 
 class TestTask:
@@ -129,7 +163,7 @@ class TestTask:
 
 
 class TestAnnotateFromManifests:
-    """The manifest overrides the tags, because a repo carries only one hardware tag
+    """The manifest overrides the catalog row, because a row names verified boards
     while a bundle may declare several profiles with different meshes."""
 
     def _rows(self):
@@ -140,7 +174,7 @@ class TestAnnotateFromManifests:
              "kind": "vllm-plugin", "supported": True, "profiles": []},
         ]
 
-    def test_manifest_wins_over_a_disagreeing_tag(self, monkeypatch):
+    def test_manifest_wins_over_the_catalog_row(self, monkeypatch):
         detail = {
             "arch": "blackhole",
             "kind": "vllm-plugin",
@@ -162,7 +196,7 @@ class TestAnnotateFromManifests:
         assert rows[0]["default_profile"] == "p300x2"
         assert len(rows[0]["profiles"]) == 2
 
-    def test_an_unreadable_manifest_leaves_the_tag_reading(self, monkeypatch):
+    def test_an_unreadable_manifest_leaves_the_catalog_row(self, monkeypatch):
         monkeypatch.setattr(runner, "_catalog_entry", lambda repo_id: None)
         rows = self._rows()
         runner._annotate_from_manifests(rows)

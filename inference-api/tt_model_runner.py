@@ -15,7 +15,8 @@ console writes to stdout, so it is redirected to stderr for the whole run and ca
 never corrupt the stream.
 
 Commands (all emit JSON objects, one per line, on stdout):
-    catalog --arch A [--query Q] [--limit N]  community bundles for this arch
+    catalog --catalog F --arch A [--query Q] [--limit N]
+                                              verified community bundles for this arch
     inspect <repo_id>                         deployable metadata for one bundle
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
@@ -45,6 +46,9 @@ VLLM_KINDS = ("vllm-plugin", "vllm-fork")
 
 # Container log lines quoted in a startup-failure message.
 _READY_TAIL_LINES = 20
+
+# tt-cli's community_catalog.json format this reads.
+CATALOG_SCHEMA_VERSION = 1
 
 # Manifests are read concurrently for the whole catalog listing. Measured at ~1.1s
 # for 43 bundles cold and ~0.4s warm, against ~0.2s each serially; the backend caches
@@ -242,48 +246,24 @@ def _load_manifest(repo_id: str, *, allow_fetch: bool):
 # ---------------------------------------------------------------------- commands
 
 
-def _hardware_from_tags(tags: List[str]) -> Optional[str]:
-    """The board label among a repo's tags, via tt_kernel's own reader.
+def _verified_bundles(path: str, arch: Optional[str], query: Optional[str],
+                     limit: int) -> List[Dict[str, Any]]:
+    """tt-cli's community_catalog.json rows for ``arch``, filtered by repo substring.
 
-    ``hardware_chip_count`` answers for every real board label ("p150", "p300x2") and
-    None for everything else, so it doubles as the discriminator — no second list of
-    board names to keep in step with tt_kernel's.
+    The file lists the bundles verified to deploy; until the Hub has a verification
+    process it is the whole community listing, so nothing is discovered by search.
     """
-    from tt_kernel.container_manifest import hardware_chip_count
-
-    return next((t for t in tags if t and hardware_chip_count(t) is not None), None)
-
-
-def _kind_from_tags(tags: List[str]) -> Optional[str]:
-    """The engine among a repo's tags, named against the launcher registry."""
-    from tt_kernel.launchers import KINDS
-
-    return next((t for t in tags if t in KINDS), None)
-
-
-def _catalog_tags(arch: Optional[str], query: Optional[str], limit: int) -> Dict[str, List[str]]:
-    """Repo tags for the catalog listing, keyed by repo id.
-
-    ``tt-model package`` writes a bundle's board and engine into its repo tags, and the
-    Hub returns them with the listing at no extra cost — so the deploy UI can size a
-    bundle's mesh before anything is downloaded. Separate from ``hub.search`` only
-    because that drops tags on the floor; the caller prefers the tags search returns if
-    a later tt_kernel starts carrying them.
-    """
-    from huggingface_hub import HfApi
-    from tt_kernel import TT_MODEL_CATALOG_TAG
-
-    filters = [TT_MODEL_CATALOG_TAG] + ([arch] if arch else [])
-    found = HfApi().list_models(
-        filter=filters if len(filters) > 1 else TT_MODEL_CATALOG_TAG,
-        search=query or None,
-        limit=limit,
-    )
-    return {
-        m.id: [t for t in (getattr(m, "tags", None) or []) if t]
-        for m in found
-        if getattr(m, "id", None)
-    }
+    doc = json.loads(Path(path).read_text())
+    if not isinstance(doc, dict) or doc.get("schema_version") != CATALOG_SCHEMA_VERSION:
+        raise ValueError(f"{path} has an unsupported schema_version")
+    wanted = (query or "").lower()
+    rows = [
+        row for row in doc.get("bundles") or []
+        if row.get("repo")
+        and (not arch or row.get("arch") == arch)
+        and wanted in row["repo"].lower()
+    ]
+    return rows[:limit]
 
 
 def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
@@ -296,7 +276,7 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
     profiles with different meshes, and only the manifest lists them all.
 
     No image probe: that is a docker call per row and the listing does not report it.
-    Best-effort — a bundle the Hub will not serve stays on its tag fallback rather
+    Best-effort — a bundle the Hub will not serve stays on its catalog row rather
     than failing the whole listing.
     """
     from tt_kernel import hub
@@ -323,19 +303,19 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
         "weights_repo": weights_repo,
         "default_profile": spec.resolved_default(),
         "profiles": profiles,
-        # Kept consistent with `profiles` above rather than left on the tag reading:
-        # a repo carries one hardware tag, which need not be the default profile's.
+        # Kept consistent with `profiles` above rather than left on the catalog row's
+        # smallest verified board, which need not be the default profile's.
         "hardware": default.hardware,
         "chips_required": _chips_for(default.mesh_device, default.hardware),
     }
 
 
 def _annotate_from_manifests(bundles: List[Dict[str, Any]]) -> None:
-    """Replace each row's tag-derived guess with its manifest, in place.
+    """Replace each row's catalog-derived guess with its manifest, in place.
 
     Concurrent because every row is an independent Hub round-trip; bounded because
     this runs while the deploy page waits. A row whose manifest cannot be read keeps
-    whatever its tags said, which is why the tag reading above is not redundant.
+    what the catalog said.
     """
     if not bundles:
         return
@@ -347,52 +327,44 @@ def _annotate_from_manifests(bundles: List[Dict[str, Any]]) -> None:
 
 
 def cmd_catalog(args: argparse.Namespace) -> int:
-    """The community catalog, annotated with what is already installed locally."""
-    from tt_kernel import hub, localdb
+    """The verified community bundles, annotated with what is already installed locally."""
+    from tt_kernel import localdb
 
+    try:
+        rows = _verified_bundles(args.catalog, args.arch, args.query, args.limit)
+    except (OSError, ValueError) as e:
+        emit("warning", message=f"could not read the community catalog: {e}")
+        rows = []
     installed = {e.get("repo_id"): e for e in localdb.all_entries() if e.get("repo_id")}
-    tags = [args.arch] if args.arch else []
-    # One block: fetch_manifest writes progress to stdout, which has to stay pure NDJSON,
-    # and redirect_stdout is process-wide — so the thread pool below must run inside it.
-    with _quiet_tt_kernel():
-        found = hub.search(
-            args.query or "", limit=args.limit, catalog_only=True, tags=tags
+    bundles = []
+    for row in rows:
+        repo_id = row["repo"]
+        entry = installed.get(repo_id) or {}
+        validated = list(row.get("hardware") or [])
+        # Fallback only, for a bundle whose manifest the Hub will not serve: the
+        # smallest board it was verified on. None reads as unknown, not one chip.
+        hardware = validated[0] if validated else None
+        kind = row.get("engine")
+        bundles.append(
+            {
+                "repo_id": repo_id,
+                "author": repo_id.split("/")[0],
+                "installed": bool(entry),
+                "arch": entry.get("arch") or row.get("arch") or args.arch,
+                "default_profile": entry.get("profile"),
+                "profiles": [],
+                "hardware": hardware,
+                "validated_hardware": validated,
+                "validated_on": row.get("validated_on"),
+                "chips_required": _chips_for(None, hardware) if hardware else None,
+                "kind": kind,
+                "supported": _launchable(kind) if kind else None,
+                "weights_repo": None,
+            }
         )
-        try:
-            tags_by_repo = _catalog_tags(args.arch, args.query, args.limit)
-        except Exception as e:
-            emit("warning", message=f"could not read catalog tags: {e}")
-            tags_by_repo = {}
-
-        bundles = []
-        for row in found:
-            repo_id = row.get("id")
-            if not repo_id:
-                continue
-            entry = installed.get(repo_id) or {}
-            repo_tags = row.get("tags") or tags_by_repo.get(repo_id) or []
-            hardware = _hardware_from_tags(repo_tags)
-            kind = _kind_from_tags(repo_tags)
-            bundles.append(
-                {
-                    "repo_id": repo_id,
-                    "author": repo_id.split("/")[0],
-                    "downloads": row.get("downloads"),
-                    "last_modified": row.get("last_modified"),
-                    "installed": bool(entry),
-                    "arch": entry.get("arch") or args.arch,
-                    "default_profile": entry.get("profile"),
-                    "profiles": [],
-                    # Fallback only: the repo's tags, for a row whose manifest the Hub
-                    # will not serve. None means genuinely unknown, which the UI must
-                    # not read as "one chip".
-                    "hardware": hardware,
-                    "chips_required": _chips_for(None, hardware) if hardware else None,
-                    "kind": kind,
-                    "supported": _launchable(kind) if kind else None,
-                    "weights_repo": None,
-                }
-            )
+    # One block: fetch_manifest writes progress to stdout, which has to stay pure NDJSON,
+    # and redirect_stdout is process-wide — so the thread pool must run inside it.
+    with _quiet_tt_kernel():
         _annotate_from_manifests(bundles)
     emit("catalog", arch=args.arch, bundles=bundles)
     return 0
@@ -846,6 +818,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     catalog = sub.add_parser("catalog")
+    catalog.add_argument("--catalog", required=True)
     catalog.add_argument("--arch")
     catalog.add_argument("--query")
     catalog.add_argument("--limit", type=int, default=100)

@@ -14,7 +14,6 @@ import {
   FlaskConical,
   AlertTriangle,
   Copy,
-  Users,
 } from "lucide-react";
 
 import {
@@ -39,12 +38,10 @@ import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { useModels } from "../hooks/useModels";
 import {
-  autoCommunityPlacement,
-  autoPlacement,
-  communityMinDevices,
-  communityPlacement,
+  autoPlacementFor,
   deployabilityReason,
-  getModelPlacement,
+  minDevicesFor,
+  placementFor,
 } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
 
@@ -84,7 +81,7 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
   TRAINING: { label: "Fine-tuning", order: 9 },
-  // Community bundles no TT Studio page drives: deployable and manageable only.
+  // Models no TT Studio page drives: deployable and manageable only.
   OTHER: { label: "Other Models (deploy only)", order: 10 },
 };
 
@@ -315,9 +312,6 @@ export function FirstStepForm({
 
     models.forEach((model) => {
       const displayType = model.display_model_type || "LLM";
-      // Community bundles carry no verification status and fall into Experimental,
-      // which is the honest label for one: the catalog's Complete/Functional grades
-      // mean Tenstorrent verified the model, and nobody has verified these.
       const modelStatus = model.status || "EXPERIMENTAL";
 
       if (!grouped[displayType]) grouped[displayType] = {};
@@ -334,45 +328,34 @@ export function FirstStepForm({
     return grouped;
   };
 
-  // Tenstorrent-verified models and community bundles are listed separately: a
-  // community bundle is published by a Hub user and carries no verification status,
-  // so it must not sit unlabelled among the catalog's Complete/Functional groups.
-  const verifiedModels = filteredModels.filter((m) => m.source !== "community");
-  const communityModels = filteredModels.filter((m) => m.source === "community");
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
   // Yellow only when the board itself is undetected, as the banner above explains;
-  // an unmapped community hardware label is not worth a warning of its own.
+  // an unmapped profile hardware label is not worth a warning of its own.
   const dotClass = currentBoard === "unknown" ? "text-yellow-500" : "text-green-500";
 
   // Render a model row, greying it out (and explaining why) when it can't be
   // deployed against the currently free devices.
   const renderModelItem = (model: Model) => {
-    const chips = model.chips_required ?? 1;
     const totalSlots = chipStatus?.total_slots ?? 4;
-    const isCommunity = model.source === "community";
-    const placement = isCommunity
-      ? communityPlacement(model.profiles, chips, totalSlots)
-      : getModelPlacement(model.name, chips, chipStatus?.board_type, model.model_type);
+    const placement = placementFor(model, chipStatus?.board_type, totalSlots);
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
-    // A community bundle fits when any of its profiles does, not just the preferred one.
+    // A profiled model fits when any of its profiles does, not just the default one.
     const fits =
       isDeploying ||
       !chipStatus ||
-      (isCommunity
-        ? autoCommunityPlacement(model.profiles, chips, model.profile, chipStatus.slots, totalSlots)
-        : autoPlacement(placement, chips, chipStatus.slots, totalSlots)) !== null;
+      autoPlacementFor(model, placement, chipStatus.slots, totalSlots) !== null;
     const reason = !isDeploying && chipStatus
       ? deployabilityReason(
           placement,
-          isCommunity ? communityMinDevices(model.profiles, chips, totalSlots) : chips,
+          minDevicesFor(model, totalSlots),
           chipStatus.slots,
           totalSlots
         )
       : null;
-    // One status line for every source: what the model is, then anything blocking it.
+    // One status line for every model: what it is, then anything blocking it.
     const statusParts: { text: string; className: string; title?: string }[] = [];
     if (model.no_page_reason) {
       statusParts.push({ text: "deploy only", className: MUTED, title: model.no_page_reason });
@@ -407,8 +390,7 @@ export function FirstStepForm({
     );
   };
 
-  // One source's models, grouped by type then verification status. Shared by both
-  // sections so the verified and community lists render identically.
+  // Models grouped by type, then verification status.
   const renderTypeGroups = (models: Model[]) => {
     const groupedModels = groupModelsByType(models);
     return (
@@ -554,23 +536,7 @@ export function FirstStepForm({
                   )}
 
                   {/* Render models grouped by type, then by status */}
-                  {renderTypeGroups(verifiedModels)}
-
-                  {/* Community bundles, labelled and last: published by Hub users and
-                      not verified by Tenstorrent. */}
-                  {communityModels.length > 0 && (
-                    <div>
-                      <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
-                      <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
-                        <Users className="w-3.5 h-3.5" />
-                        <span>Community Models</span>
-                        <span className="font-normal text-xs text-gray-500 dark:text-gray-400">
-                          published by the community, not verified by Tenstorrent
-                        </span>
-                      </div>
-                      {renderTypeGroups(communityModels)}
-                    </div>
-                  )}
+                  {renderTypeGroups(filteredModels)}
 
                   {/* If no models loaded yet */}
                   {filteredModels.length === 0 && !isLoading && (

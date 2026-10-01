@@ -329,7 +329,8 @@ class ContainersView(APIView):
 
 
 def _community_model_entries(current_board, refresh=False):
-    """Community bundles, in the same row shape ContainersView returns for the catalog.
+    """Verified community bundles, in the same row shape ContainersView returns for
+    the catalog, so the deploy UI lists both as one.
 
     Every row is described from its manifest, downloaded or not, because that is what
     carries the mesh size and engine the UI needs: a row listed without them would
@@ -340,7 +341,9 @@ def _community_model_entries(current_board, refresh=False):
     """
     from docker_control.tt_model_client import fetch_bundle, fetch_catalog
     from shared_config.community_model_config import (
+        VERIFIED_COMMUNITY_STATUS,
         build_community_model_impl,
+        devices_for_hardware,
         no_page_reason,
         unavailable_mark,
     )
@@ -395,6 +398,7 @@ def _community_model_entries(current_board, refresh=False):
         impl = build_community_model_impl(
             detail, _preferred_community_profile(detail, current_board, board_slots)
         )
+        profile_devices = [devices_for_hardware(p.get("hardware")) for p in profiles]
         entries.append({
             "id": impl.model_id,
             "name": impl.model_name,
@@ -405,19 +409,17 @@ def _community_model_entries(current_board, refresh=False):
                 board_slots,
                 impl.kind,
             ),
-            "compatible_boards": [],
+            "compatible_boards": _community_boards(profile_devices, impl.kind),
             "model_type": impl.model_type.value,
             "display_model_type": impl.display_model_type,
             "current_board": current_board,
-            "status": None,
+            "status": VERIFIED_COMMUNITY_STATUS,
             # The mesh the bundle's default profile opens, which is exactly what the
             # deploy reserves — tt-model-manager scopes the container to those chips.
             "chips_required": impl.chips_required,
             "hf_model_id": impl.hf_model_id,
             "source": launchers.COMMUNITY,
             "author": impl.author,
-            # Hub popularity is a catalog field; the manifest knows nothing about it.
-            "downloads": row.get("downloads"),
             "profiles": _community_profiles(
                 impl.repo_id, detail, current_board, board_slots
             ),
@@ -495,45 +497,66 @@ def _unreadable_community_entry(row, current_board, board_slots):
     """A catalog row whose manifest could not be read — listed, but nothing asserted.
 
     Only reachable when the Hub refuses the manifest (gated, unpublished, offline).
-    The repo's tags may still name a board, which is enough to rule out a mesh larger
-    than this one; anything finer needs the manifest, so the mesh falls back to the
-    whole board. That is pessimistic in the device preview but never wrong about
-    placement, and the deploy re-reads the manifest before it allocates anything.
+    The row still names the boards the bundle was verified on, which is enough to
+    rule out a mesh larger than this one; anything finer needs the manifest, so the
+    mesh falls back to the whole board. That is pessimistic in the device preview
+    but never wrong about placement, and the deploy re-reads the manifest before it
+    allocates anything. The mesh is offered as the row's one profile, so the deploy
+    UI places it like any other profiled model.
     """
     from shared_config.community_model_config import (
+        VERIFIED_COMMUNITY_STATUS,
         community_model_type,
         devices_for_hardware,
         no_page_reason,
     )
 
     repo_id = row["repo_id"]
-    chips = row.get("chips_required")
+    model_id = community_model_id(repo_id)
+    chips = row.get("chips_required") or board_slots
+    devices = devices_for_hardware(row.get("hardware"))
+    is_compatible = _community_fit(
+        devices, chips, current_board, board_slots, row.get("kind")
+    )
     # With no manifest there is no Hub task, so a task-served engine reads as having
     # no page until the deploy re-reads the manifest.
     model_type = community_model_type(row.get("kind"), None)
     return {
-        "id": community_model_id(repo_id),
+        "id": model_id,
         "name": repo_id,
-        "is_compatible": _community_fit(
-            devices_for_hardware(row.get("hardware")),
-            chips,
-            current_board,
-            board_slots,
+        "is_compatible": is_compatible,
+        "compatible_boards": _community_boards(
+            [devices_for_hardware(h) for h in row.get("validated_hardware") or []],
             row.get("kind"),
         ),
-        "compatible_boards": [],
         "model_type": model_type.value,
         "display_model_type": "LLM" if model_type is ModelTypes.CHAT else "OTHER",
         "no_page_reason": no_page_reason(row.get("kind"), None),
         "current_board": current_board,
-        "status": None,
-        "chips_required": chips or board_slots,
+        "status": VERIFIED_COMMUNITY_STATUS,
+        "chips_required": chips,
         "hf_model_id": None,
         "source": launchers.COMMUNITY,
         "author": row.get("author"),
-        "downloads": row.get("downloads"),
-        "profiles": [],
+        "profiles": [
+            {
+                "name": "default",
+                "id": model_id,
+                "chips_required": chips,
+                "is_compatible": is_compatible,
+            }
+        ],
     }
+
+
+def _community_boards(profile_devices, kind):
+    """Boards any of a bundle's profiles runs on, by the same rule as _community_fit."""
+    return [
+        board
+        for board in _BOARD_TO_DEVICE_CONFIGS
+        if board != "unknown"
+        and any(_community_fit(devices, None, board, None, kind) for devices in profile_devices)
+    ]
 
 
 def _community_fit(

@@ -46,8 +46,8 @@ function HealthStatusCell({
 }: {
   health?: HealthStatus;
   // A model no TT Studio page drives (an unidentified registered container, or a
-  // community bundle deployed without a page): its health is not probed, so
-  // explain the permanent "unknown" badge.
+  // model deployed without a page): its health is not probed, so explain the
+  // permanent "unknown" badge.
   unidentified?: boolean;
 }) {
   const status = health ?? "unknown";

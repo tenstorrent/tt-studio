@@ -5,8 +5,9 @@
 // backend chip allocator so the UI can show a model's availability and valid
 // configurations before deploy instead of failing on the request.
 //
-// To support a new model or change which device configurations a model allows,
-// edit getModelPlacement() below — nothing else in the frontend needs to change.
+// A model that declares serve profiles is placed by them. To support a new model
+// without profiles, or change which device configurations one allows, edit
+// getModelPlacement() below — nothing else in the frontend needs to change.
 
 import {
   isBgeM3Model,
@@ -150,12 +151,27 @@ function meshPlacement(chipsRequired: number, totalSlots: number): ModelPlacemen
   };
 }
 
-// A community bundle's serve profile, as the model list describes it.
+// One serve profile (a mesh the model runs on), as the model list describes it.
 export interface ServeProfile {
   name: string;
   id: string; // model_id that deploys this profile
   chips_required: number;
   is_compatible: boolean | null;
+}
+
+// What placement reads off a model-list row, whichever backend serves it.
+export interface PlacementModel {
+  name: string;
+  chips_required?: number;
+  model_type?: string;
+  // A model that declares serve profiles is placed by them; one that declares none
+  // follows getModelPlacement's per-model rules.
+  profiles?: ServeProfile[];
+  profile?: string; // the profile deployed by default
+}
+
+function hasProfiles(model: PlacementModel): model is PlacementModel & { profiles: ServeProfile[] } {
+  return (model.profiles?.length ?? 0) > 0;
 }
 
 // Devices a profile spans in the UI's terms, where 4 means the whole board.
@@ -184,13 +200,12 @@ function profileTiers(
   return Array.from(new Set(sizes));
 }
 
-// Placement for a community bundle: one tier per mesh among its profiles that fit
-// this board, falling back to `chipsRequired` when none are known. The manifest is
-// authoritative (tt-model-manager scopes the container to exactly the chips it is
-// handed), so getModelPlacement's name-matched catalog rules never apply — a Hub id
+// Placement from serve profiles: one tier per mesh among the profiles that fit this
+// board, falling back to `chipsRequired` when none do. The profiles are
+// authoritative, so getModelPlacement's name-matched rules never apply — a Hub id
 // like "ns/llama-3.1-8b-..." readily matches those names.
-export function communityPlacement(
-  profiles: ServeProfile[] = [],
+function profilePlacement(
+  profiles: ServeProfile[],
   chipsRequired: number,
   totalSlots: number
 ): ModelPlacement {
@@ -204,57 +219,66 @@ export function communityPlacement(
     allowsSingle,
     allowsFullBoard: board > 1 && sizes.includes(board),
     // Alongside a single device a card group is a middle tier; without one it is
-    // the smallest unit the bundle runs on.
+    // the smallest unit the model runs on.
     cardGroups: allowsSingle ? [] : groups,
     pairGroups: allowsSingle && groups.length > 0 ? groups : undefined,
   };
 }
 
-// Devices an automatic deploy of a community bundle uses: its preferred profile's
-// mesh when that fits now, else the largest that does (the backend's
-// _preferred_community_profile rule, applied to current occupancy).
-export function autoCommunityPlacement(
-  profiles: ServeProfile[] = [],
-  chipsRequired: number,
-  preferred: string | undefined,
+// The device configurations a model supports on this board.
+export function placementFor(
+  model: PlacementModel,
+  boardType: string | undefined,
+  totalSlots: number
+): ModelPlacement {
+  const chips = model.chips_required ?? 1;
+  return hasProfiles(model)
+    ? profilePlacement(model.profiles, chips, totalSlots)
+    : getModelPlacement(model.name, chips, boardType, model.model_type);
+}
+
+// Devices an automatic deploy of a model uses given current occupancy, or null when
+// nothing fits. A profiled model takes its default profile's mesh when that fits
+// now, else the largest that does (the backend's _preferred_community_profile rule).
+export function autoPlacementFor(
+  model: PlacementModel,
+  placement: ModelPlacement,
   slots: DeviceSlotLike[],
   totalSlots: number
 ): { deviceIds: number[]; fullBoard: boolean } | null {
-  const sizes = profileTiers(profiles, totalSlots, preferred);
-  for (const n of sizes.length > 0 ? sizes : [chipsRequired]) {
+  const chips = model.chips_required ?? 1;
+  if (!hasProfiles(model)) return autoPlacement(placement, chips, slots, totalSlots);
+  const sizes = profileTiers(model.profiles, totalSlots, model.profile);
+  for (const n of sizes.length > 0 ? sizes : [chips]) {
     const place = autoPlacement(meshPlacement(n, totalSlots), n, slots, totalSlots);
     if (place) return place;
   }
   return null;
 }
 
-// Fewest devices any runnable profile of a community bundle needs.
-export function communityMinDevices(
-  profiles: ServeProfile[] = [],
-  chipsRequired: number,
-  totalSlots: number
-): number {
-  const sizes = profileTiers(profiles, totalSlots);
-  return sizes.length > 0 ? Math.min(...sizes) : chipsRequired;
+// Fewest devices a model can deploy on.
+export function minDevicesFor(model: PlacementModel, totalSlots: number): number {
+  const chips = model.chips_required ?? 1;
+  const sizes = hasProfiles(model) ? profileTiers(model.profiles, totalSlots) : [];
+  return sizes.length > 0 ? Math.min(...sizes) : chips;
 }
 
-// The profile serving a deploy on `deviceCount` devices: `preferred` when its mesh
-// matches, else the first such profile in manifest order. Mirrors the backend's
-// profile_for_chips.
+// The profile serving a deploy on `deviceCount` devices: the model's default when its
+// mesh matches, else the first such profile in manifest order. Mirrors the backend's
+// profile_for_chips. undefined for a model without profiles.
 export function profileForDevices(
-  profiles: ServeProfile[] = [],
+  model: PlacementModel,
   deviceCount: number,
-  totalSlots: number,
-  preferred?: string
+  totalSlots: number
 ): ServeProfile | undefined {
-  const matches = runnableProfiles(profiles, totalSlots).filter(
+  const matches = runnableProfiles(model.profiles ?? [], totalSlots).filter(
     (p) => profileDevices(p, totalSlots) === deviceCount
   );
-  return matches.find((p) => p.name === preferred) ?? matches[0];
+  return matches.find((p) => p.name === model.profile) ?? matches[0];
 }
 
-// SINGLE SOURCE OF TRUTH for per-model device configurations of catalog models
-// (community bundles use communityPlacement).
+// SINGLE SOURCE OF TRUTH for per-model device configurations of models that declare
+// no serve profiles (callers go through placementFor).
 // Add a branch here to support a new flexible/custom model.
 export function getModelPlacement(
   modelName: string,

@@ -72,7 +72,7 @@ export function DeployModelStep({
   placementBlocked?: boolean;
   // True when the model runs on a card group rather than the whole board.
   usesCardGroup?: boolean;
-  // Community bundles: the serve profile the chosen devices deploy.
+  // Profiled models: the serve profile the chosen devices deploy.
   profileName?: string;
   // Reservation-aware chip status from the parent (in-flight deploys overlaid)
   chipStatus?: ChipStatus | null;

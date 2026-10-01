@@ -37,7 +37,13 @@ logger = logging.getLogger(__name__)
 
 RUNNER = str(Path(__file__).parent / "tt_model_runner.py")
 
-# Hub listings are slow and rarely change; the deploy UI reads them on every visit.
+# tt-cli's verified community bundles, fetched here by run.py (tt_setup/model_support).
+COMMUNITY_CATALOG = str(
+    Path(__file__).resolve().parent.parent
+    / "app" / "backend" / "shared_config" / "community_catalog.json"
+)
+
+# Listing reads every bundle's manifest off the Hub; the deploy UI asks on every visit.
 _CATALOG_TTL_SECONDS = 300
 
 # A catalog/inspect call is one bounded Hub request. A serve has no timeout here:
@@ -241,7 +247,7 @@ def create_community_router(
     @router.get("/models")
     async def community_models(arch: Optional[str] = None, query: Optional[str] = None,
                                limit: int = 100, refresh: bool = False):
-        """The community catalog for an arch, cached briefly (one Hub request)."""
+        """The verified community bundles for an arch, cached briefly."""
         key = f"{arch}|{query}|{limit}"
         now = time.time()
         with cache_lock:
@@ -254,7 +260,7 @@ def create_community_router(
             if fresh:
                 return catalog_cache["payload"]
 
-        args = ["catalog", "--limit", str(limit)]
+        args = ["catalog", "--catalog", COMMUNITY_CATALOG, "--limit", str(limit)]
         if arch:
             args += ["--arch", arch]
         if query:

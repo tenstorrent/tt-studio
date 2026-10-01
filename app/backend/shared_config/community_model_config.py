@@ -4,8 +4,9 @@
 
 """Model implementations for community bundles served by tt-model-manager.
 
-Community bundles are published to the Hugging Face Hub by users, so they cannot live
-in the tt-inference-server catalog: that file is regenerated from the release artifact
+Only bundles in tt-cli's verified community catalog are listed (see
+tt_model_runner.cmd_catalog). They are published to the Hugging Face Hub, so they
+cannot live in the tt-inference-server catalog: that file is regenerated from the release artifact
 on every ``--resync`` and hand-added rows there are a maintenance burden by design
 (see sync_models_from_inference_server.HAND_OWNED_KEYS). Instead a bundle's manifest,
 read through tt-model-manager, is turned into a stand-in impl here.
@@ -28,6 +29,10 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.model_type_config import ModelTypes
 
 MODEL_ID_PREFIX = "id_community-"
+
+# Every listed bundle is in tt-cli's verified community catalog: validated to deploy
+# and serve, which is what the catalog's FUNCTIONAL grade means.
+VERIFIED_COMMUNITY_STATUS = "FUNCTIONAL"
 
 SERVICE_ROUTE = "/v1/chat/completions"
 HEALTH_ROUTE = "/health"
@@ -183,7 +188,6 @@ class CommunityModelImpl:
     kind: str = "vllm-plugin"
     image: Optional[str] = None
     author: Optional[str] = None
-    downloads: Optional[int] = None
     installed: bool = False
     max_model_len: Optional[int] = None
     # True for every instance — lets callers tell a community impl from a catalog one.
@@ -239,7 +243,6 @@ def build_community_model_impl(
         kind=kind,
         image=bundle.get("image"),
         author=repo_id.split("/")[0] if "/" in repo_id else None,
-        downloads=bundle.get("downloads"),
         installed=bool(bundle.get("installed")),
         max_model_len=profile.get("max_model_len"),
         profiles=tuple(p.get("name") for p in profiles if p.get("name")),
