@@ -406,15 +406,23 @@ def _resolve_device_ids(raw: Optional[str], chip_count: int, profile_name: str) 
 
 def _ensure_installed(repo_id: str, manifest, installed: bool, *, no_weights: bool):
     """Load the image (and weights) if this bundle has never been pulled here."""
-    from tt_kernel import container, container_cli
+    from tt_kernel import container, container_cli, hub
 
     if installed and container.image_present(container.image_ref(manifest)):
         return manifest
     emit("stage", stage="model_preparation", progress=10,
          message=f"Installing bundle {repo_id}…")
     with _quiet_tt_kernel():
+        if installed:
+            # The pull downloads the Hub tip, so a record from before a republish would
+            # name an image that snapshot no longer carries.
+            manifest = hub.fetch_manifest(repo_id, None)
         container_cli.pull_container(repo_id, None, manifest, no_weights=no_weights)
-        return container_cli.load_pulled(repo_id) or manifest
+        manifest = container_cli.load_pulled(repo_id) or manifest
+    ref = container.image_ref(manifest)
+    if not container.image_present(ref):
+        raise RuntimeError(f"installing {repo_id} did not load its image {ref}")
+    return manifest
 
 
 def _ensure_weights(repo_id: str, manifest, *, no_weights: bool) -> None:

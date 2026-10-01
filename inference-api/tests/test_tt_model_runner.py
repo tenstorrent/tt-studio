@@ -271,6 +271,53 @@ class TestEnsureWeights:
         assert "weights" not in fake_tt_kernel
 
 
+class TestEnsureInstalled:
+    """A reinstall must use the manifest of the snapshot it downloads."""
+
+    @pytest.fixture
+    def kernel(self, monkeypatch):
+        state = {"loaded": set(), "pulled_with": None}
+        hub_manifest = types.SimpleNamespace(image="tt-model/m:new")
+
+        def pull_container(repo_id, revision, manifest, *, no_weights):
+            state["pulled_with"] = manifest
+            # Without skopeo, docker load keeps the tag the snapshot itself carries.
+            state["loaded"].add(hub_manifest.image)
+
+        container = types.SimpleNamespace(
+            image_ref=lambda m: m.image,
+            image_present=lambda ref: ref in state["loaded"],
+        )
+        container_cli = types.SimpleNamespace(
+            pull_container=pull_container, load_pulled=lambda repo_id: state["pulled_with"]
+        )
+        hub = types.SimpleNamespace(fetch_manifest=lambda repo_id, revision: hub_manifest)
+        package = types.ModuleType("tt_kernel")
+        package.container, package.container_cli, package.hub = container, container_cli, hub
+        monkeypatch.setitem(sys.modules, "tt_kernel", package)
+        monkeypatch.setattr(runner, "emit", lambda event, **f: None)
+        return state, hub_manifest
+
+    def test_a_loaded_image_skips_the_install(self, kernel):
+        state, _ = kernel
+        state["loaded"].add("tt-model/m:old")
+        installed = types.SimpleNamespace(image="tt-model/m:old")
+        assert runner._ensure_installed("ns/m", installed, True, no_weights=False) is installed
+        assert state["pulled_with"] is None
+
+    def test_a_stale_record_is_replaced_by_the_hub_manifest(self, kernel):
+        state, hub_manifest = kernel
+        stale = types.SimpleNamespace(image="tt-model/m:old")
+        assert runner._ensure_installed("ns/m", stale, True, no_weights=False) is hub_manifest
+        assert state["pulled_with"] is hub_manifest
+
+    def test_an_image_that_did_not_load_is_reported(self, kernel):
+        state, _ = kernel
+        fresh = types.SimpleNamespace(image="tt-model/m:other")
+        with pytest.raises(RuntimeError, match="did not load its image tt-model/m:other"):
+            runner._ensure_installed("ns/m", fresh, False, no_weights=False)
+
+
 class TestHubErrorClassification:
     """Only a failure from talking to the Hub is reworded as one.
 
