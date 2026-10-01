@@ -25,17 +25,6 @@ CODING_AGENT_ELIGIBLE_MODELS = {
 # Model types coding agents can talk to.
 CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 
-# Models with a toggleable "thinking" mode, mapped to their vLLM --reasoning-parser.
-# The parser splits reasoning into reasoning_content instead of inline <think> text.
-REASONING_MODELS = {
-    "Qwen3-32B": "qwen3",
-    "Qwen3.5-9B": "qwen3",
-    "Qwen3.6-27B": "qwen3",
-    "Qwen3.8-27B": "qwen3",
-    "gemma-4-31B-it": "gemma4",
-    "diffusiongemma-26B-A4B-it": "gemma4",
-}
-
 # Suffix that selects thinking mode for a reasoning model over the gateway,
 # e.g. "Qwen3-32B-thinking" is the thinking variant of "Qwen3-32B".
 THINKING_SUFFIX = "-thinking"
@@ -69,8 +58,18 @@ def is_coding_agent_eligible(model_impl) -> bool:
 
 
 def get_reasoning_parser(model_name) -> str | None:
-    """vLLM --reasoning-parser for a model, or None if it has no thinking mode."""
-    return REASONING_MODELS.get(model_name)
+    """vLLM --reasoning-parser the catalog records for a model, or None."""
+    from shared_config.model_config import model_implmentations
+
+    for impl in model_implmentations.values():
+        if impl.model_name == model_name and impl.reasoning_parser:
+            return impl.reasoning_parser
+    return None
+
+
+def has_thinking_toggle(model_name) -> bool:
+    """True for coding-agent models whose thinking mode can be toggled per request."""
+    return model_name in CODING_AGENT_ELIGIBLE_MODELS and get_reasoning_parser(model_name) is not None
 
 
 def get_gateway_model_names(model_name) -> list[str]:
@@ -78,7 +77,7 @@ def get_gateway_model_names(model_name) -> list[str]:
         Return the names a model is exposed under to coding agents: the plain name, plus a
         "-thinking" variant for reasoning models.
     """
-    if model_name in REASONING_MODELS:
+    if has_thinking_toggle(model_name):
         return [model_name, model_name + THINKING_SUFFIX]
     return [model_name]
 
@@ -87,8 +86,8 @@ def resolve_thinking_variant(requested_model):
     """Map a requested gateway model name to (base_name, enable_thinking)."""
     if requested_model and requested_model.endswith(THINKING_SUFFIX):
         base = requested_model[: -len(THINKING_SUFFIX)]
-        if base in REASONING_MODELS:
+        if has_thinking_toggle(base):
             return base, True
-    if requested_model in REASONING_MODELS:
+    if has_thinking_toggle(requested_model):
         return requested_model, False
     return requested_model, None

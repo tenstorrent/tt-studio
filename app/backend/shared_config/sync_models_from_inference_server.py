@@ -3,9 +3,13 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
-Sync script: reads ../../tt-inference-server/release_model_spec.json (or the
-legacy model_specs_output.json / model_spec.json names) and normalizes it into
-models_from_inference_server.json (co-located with this script).
+Sync script: builds models_from_inference_server.json (co-located with this
+script) from tt-cli's model support spec (model_support.json, fetched beside it
+by run.py from TT_MODEL_SUPPORT_URL) when its release matches the
+tt-inference-server artifact. The artifact's release_model_spec.json (or the
+legacy model_specs_output.json / model_spec.json names) then fills only the
+fields the spec lacks, and model_overrides.toml only adds what the spec does not
+say. Without a matching spec it builds from the artifact and model_overrides.toml.
 
 Run from any directory:
     python app/backend/shared_config/sync_models_from_inference_server.py
@@ -79,6 +83,8 @@ HAND_OWNED_MARKER = "hand_owned"
 from model_overrides import (
     CHIP_TIER_MODELS as STUDIO_CHIP_TIER_MODELS,
     CHIP_TIERS as STUDIO_CHIP_TIERS,
+    PARSER_FIELDS,
+    PARSER_OVERRIDES,
     STUDIO_UNAVAILABLE_DEVICES,
     STUDIO_UNAVAILABLE_MODELS,
     STUDIO_UNAVAILABLE_REASONS,
@@ -210,32 +216,38 @@ def apply_chip_tier_overrides(models: list) -> list:
 def apply_device_availability(models: list) -> list:
     """Drop per-device entries a board can't actually run, recording why.
 
-    Returns [(model_name, device, reason)] for what was removed. Idempotent: the
-    device is already gone on a re-run, and the recorded reason is rebuilt from
-    the table rather than trusted from the file.
+    Marks start from the spec's own (`_spec_unavailable`, set by
+    apply_model_support); the table only adds devices the spec does not mark,
+    so it never rewrites the spec's reason. Returns
+    [(model_name, device, reason)] for what was removed. Idempotent: the device
+    is already gone on a re-run, and the recorded reason is rebuilt rather than
+    trusted from the file.
     """
     removed = []
     for model in models:
         model.pop("unavailable_devices", None)
-        overrides = STUDIO_UNAVAILABLE_DEVICES.get(model["model_name"])
-        if not overrides:
+        marks = model.pop("_spec_unavailable", None) or {}
+        spec_devices = set(model.pop("_spec_devices", None) or ())
+        overrides = STUDIO_UNAVAILABLE_DEVICES.get(model["model_name"]) or {}
+        if not marks and not overrides:
             continue
 
         devices = list(model.get("device_configurations") or [])
-        marks = {}
         for device, (reason, details) in overrides.items():
             if reason not in STUDIO_UNAVAILABLE_REASONS:
                 raise ValueError(
                     f"{model['model_name']}/{device}: unknown reason {reason!r}; "
                     f"expected one of {STUDIO_UNAVAILABLE_REASONS}"
                 )
+            if device in marks:
+                continue
             # Record the mark even if the artifact never claimed this device, so a
             # stale table entry is visible rather than silently doing nothing.
             marks[device] = {"reason": reason, "details": details}
             if device in devices:
                 devices.remove(device)
                 removed.append((model["model_name"], device, reason))
-            else:
+            elif device not in spec_devices:
                 # The key matched no declared device, so nothing was blocked. Nearly
                 # always a typo -- "P150x4" vs the catalog's "P150X4" shipped once
                 # and left the model on offer on a board it was meant to be pulled
@@ -262,6 +274,32 @@ def apply_device_availability(models: list) -> list:
             )
 
     return removed
+
+
+def apply_parser_overrides(models: list) -> list:
+    """Fill [[parser_override]] values into vLLM rows that lack them. Returns the names touched."""
+    touched = []
+    for model in models:
+        parsers = PARSER_OVERRIDES.get(model["model_name"]) or {}
+        if (model.get("inference_engine") or "").lower() != "vllm":
+            continue
+        missing = {k: v for k, v in parsers.items() if not model.get(k)}
+        if missing:
+            model.update(missing)
+            touched.append(model["model_name"])
+    return touched
+
+
+def table_marks_beyond_spec(models: list) -> list:
+    """model_overrides.toml availability marks the spec does not already make."""
+    added = []
+    for model in models:
+        name = model["model_name"]
+        if name in STUDIO_UNAVAILABLE_MODELS:
+            added.append(name)
+        spec_marks = model.get("_spec_unavailable") or {}
+        added += [f"{name}/{d}" for d in STUDIO_UNAVAILABLE_DEVICES.get(name) or {} if d not in spec_marks]
+    return added
 
 
 def apply_studio_availability(models: list) -> list:
@@ -624,6 +662,23 @@ def _iter_v1_entries(model_specs: dict):
                         yield entry
 
 
+# Artifact metadata key -> catalog field.
+ARTIFACT_PARSER_KEYS = {
+    "tool_call_parser_name": "tool_call_parser",
+    "reasoning_parser_name": "reasoning_parser",
+}
+
+
+def artifact_parsers(entries: list[dict]) -> dict:
+    """The vLLM parsers an engine's artifact entries declare in their metadata."""
+    parsers = {}
+    for key, field in ARTIFACT_PARSER_KEYS.items():
+        value = next(((e.get("metadata") or {}).get(key) for e in entries if (e.get("metadata") or {}).get(key)), None)
+        if value:
+            parsers[field] = value
+    return parsers
+
+
 def normalize(source_path: Path) -> list[dict]:
     with open(source_path) as f:
         raw = json.load(f)
@@ -682,6 +737,7 @@ def normalize(source_path: Path) -> list[dict]:
             service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
 
             disambiguating_impl = _impl_selector(first.get("impl")) if needs_disambiguating_impl else None
+            parsers = artifact_parsers(entries)
 
             models.append({
                 "model_name": model_name,
@@ -698,10 +754,123 @@ def normalize(source_path: Path) -> list[dict]:
                 "health_route": map_health_route(inference_engine, service_route),
                 "env_vars": env_vars,
                 "param_count": first.get("param_count"),
+                **parsers,
             })
 
     # Sort: by status (highest first), then alphabetically by model_name
     models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
+    return models
+
+
+# ---------------------------------------------------------------------------
+# Model support spec (tt-cli's model_support.json, fetched here by run.py)
+# ---------------------------------------------------------------------------
+MODEL_SUPPORT_JSON = SCRIPT_DIR / "model_support.json"
+
+# Spec unsupported.reason -> catalog unavailable reason.
+SPEC_UNSUPPORTED_REASONS = {"broken": "known_broken"}
+
+
+def load_model_support(path: Path = MODEL_SUPPORT_JSON) -> dict | None:
+    """The model support spec at `path`, or None if it is missing or malformed."""
+    try:
+        with open(path) as f:
+            spec = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("models"), list):
+        return None
+    return spec
+
+
+def _effective_engines(model: dict, entry: dict) -> list:
+    return entry.get("engines") or model.get("engines") or []
+
+
+def _row_from_spec(model: dict, engine: str, devices: dict, artifact: dict) -> dict:
+    """A catalog row for one (model, engine) of the spec.
+
+    Spec fields win. `artifact`, the same-release artifact row of this identity,
+    fills only what the spec does not carry: env vars, the impl name the server
+    selects on, and the status/version/image of an engine whose devices are all
+    shared with another engine (a multi-engine device entry describes only one).
+    """
+    raw_type = (model.get("model_type") or "llm").upper()
+    entries = list(devices.values())
+    own = [e for e in entries if _effective_engines(model, e) == [engine]]
+    if own or not artifact:
+        status = None
+        for e in own or entries:
+            status = pick_higher_status(status, e.get("status", "EXPERIMENTAL"))
+        canonical = pick_canonical_entry(own or entries)
+        version, docker_image = canonical.get("version", "0.0.0"), canonical.get("docker_image")
+    else:
+        status, version, docker_image = (artifact.get(k) for k in ("status", "version", "docker_image"))
+    service_route = map_service_route(
+        engine, hf_model_id=model.get("hf_repo") or "", raw_model_type=raw_type
+    )
+    row = {
+        "model_name": model["name"],
+        "model_type": map_model_type(raw_type, engine),
+        "display_model_type": raw_type,
+        "device_configurations": [],
+        "hf_model_id": model.get("hf_repo"),
+        "inference_engine": engine,
+        "impl": artifact.get("impl"),
+        "status": status,
+        "version": version,
+        "docker_image": docker_image,
+        "service_route": service_route,
+        "health_route": map_health_route(engine, service_route),
+        "env_vars": artifact.get("env_vars") or {},
+        "param_count": model.get("param_count"),
+    }
+    for field in PARSER_FIELDS:
+        # vLLM flags; a multi-engine device's parser belongs to its vLLM spec.
+        value = engine.lower() == "vllm" and next((e[field] for e in entries if e.get(field)), None)
+        if value:
+            row[field] = value
+    return row
+
+
+def apply_model_support(artifact_models: list, spec: dict) -> list:
+    """Build the model list from the spec: which models exist, the devices each
+    is offered on, what is unsupported, and every field the spec carries."""
+    by_identity = {_entry_identity(m): m for m in artifact_models}
+    models = []
+    for model in spec["models"]:
+        by_engine: dict[str, dict] = {}
+        for device, entry in (model.get("devices") or {}).items():
+            for engine in _effective_engines(model, entry):
+                by_engine.setdefault(engine, {})[device] = entry
+
+        for engine, devices in by_engine.items():
+            native, unavailable = set(), {}
+            for device, entry in devices.items():
+                config = DEVICE_TYPE_TO_CONFIG.get(device.upper())
+                if not config:
+                    continue
+                if not entry.get("supported", True):
+                    info = entry.get("unsupported") or {}
+                    unavailable[config] = {
+                        "reason": SPEC_UNSUPPORTED_REASONS.get(info.get("reason"), "known_broken"),
+                        "details": info.get("details") or "Marked unsupported by the model support spec.",
+                    }
+                elif not entry.get("serve_as"):
+                    # serve_as devices run another device's spec; the deploy path's
+                    # mesh fallback / single-chip routing already offers those.
+                    native.add(config)
+            if not native and not unavailable:
+                continue
+
+            artifact = by_identity.get((model["name"], engine.lower())) or {}
+            row = _row_from_spec(model, engine, devices, artifact)
+            row["device_configurations"] = sorted(native)
+            row["_spec_unavailable"] = unavailable
+            row["_spec_devices"] = sorted(
+                DEVICE_TYPE_TO_CONFIG[d.upper()] for d in devices if d.upper() in DEVICE_TYPE_TO_CONFIG
+            )
+            models.append(row)
     return models
 
 
@@ -728,24 +897,81 @@ def write_catalog(path: Path, catalog: dict) -> bool:
     return True
 
 
+def spec_matches(spec: dict, artifact_version: str) -> bool:
+    """The spec only describes its own release; any other build gets our own rebuild."""
+    return str(spec.get("release_version") or "").lstrip("v") == artifact_version.lstrip("v")
+
+
+def resolve_artifact_version(source_path: Path | None, existing_source: dict) -> str:
+    """The artifact's VERSION, else the configured version/branch, else the last recorded one."""
+    version_file = source_path.parent / "VERSION" if source_path else None
+    if version_file and version_file.exists():
+        version = version_file.read_text().strip()
+        if version:
+            return version
+    return (
+        os.environ.get("TT_INFERENCE_ARTIFACT_VERSION")
+        or os.environ.get("TT_INFERENCE_ARTIFACT_BRANCH")
+        or existing_source.get("artifact_version")
+        or "unknown"
+    )
+
+
+def _resolve_artifact_source(override: str | None) -> Path | None:
+    try:
+        return resolve_source_json(override)
+    except FileNotFoundError as e:
+        if override:
+            raise
+        print(f"Note: {e}")
+        return None
+
+
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Sync model catalog from tt-inference-server")
-    parser.add_argument("--source", default=None, help="Path to model_specs_output.json (overrides auto-detection)")
+    parser = argparse.ArgumentParser(description="Sync the model catalog from the model support spec")
+    parser.add_argument("--source", default=None, help="Path to the artifact's release_model_spec.json (overrides auto-detection)")
+    parser.add_argument("--model-support", default=None, help=f"Path to model_support.json (default: {MODEL_SUPPORT_JSON.name} beside this script)")
     args = parser.parse_args()
 
-    source_path = resolve_source_json(args.source)
-    print(f"Reading: {source_path}")
+    spec_path = Path(args.model_support) if args.model_support else MODEL_SUPPORT_JSON
+    spec = load_model_support(spec_path)
+    if args.model_support and spec is None:
+        raise FileNotFoundError(f"--model-support is not a readable model support spec: {spec_path}")
 
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source not found: {source_path}")
-
-    models = normalize(source_path)
-
-    # Fold in hand-curated state before writing. normalize() rebuilds every entry
-    # purely from the source JSON, so without this the write below silently
-    # discards anything the source can't express (issue #977).
     existing = load_existing_catalog(OUTPUT_JSON.resolve())
+    existing_source = {}
+    try:
+        with open(OUTPUT_JSON) as f:
+            existing_source = json.load(f).get("source") or {}
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    source_path = _resolve_artifact_source(args.source) if spec else resolve_source_json(args.source)
+    if source_path:
+        print(f"Reading: {source_path}")
+    artifact_models = normalize(source_path) if source_path else []
+    artifact_version = resolve_artifact_version(source_path, existing_source)
+
+    spec_release = str(spec.get("release_version") or "") if spec else None
+    if spec and source_path and not spec_matches(spec, artifact_version):
+        print(
+            f"Model support spec is for release {spec_release}, the artifact is {artifact_version}; "
+            "building from the artifact and model_overrides.toml"
+        )
+        spec = None
+    elif not spec:
+        print(f"No model support spec at {spec_path}; building from the artifact and model_overrides.toml")
+    if spec:
+        print(f"Model support spec: {spec_path} (release {spec_release})")
+        models = apply_model_support(artifact_models, spec)
+        additions = table_marks_beyond_spec(models)
+    else:
+        models, additions = artifact_models, []
+
+    # Fold in hand-curated state before writing. The rebuild above derives every
+    # entry from its sources, so without this the write below silently discards
+    # anything they can't express (issue #977).
     models, preserved, retained = merge_hand_owned(models, existing)
 
     # Hand-retained entries bypass normalize() entirely and may carry a stale
@@ -759,6 +985,19 @@ def main():
     chip_tiers = apply_chip_tier_overrides(models)
     if chip_tiers:
         print(f"Applied chip-tier overrides: {', '.join(sorted(chip_tiers))}")
+    parser_overrides = apply_parser_overrides(models)
+    if parser_overrides:
+        print(f"Applied parser overrides: {', '.join(sorted(parser_overrides))}")
+    if spec:
+        additions += [f"{n} (chip tiers)" for n in chip_tiers]
+        additions += [f"{n} (parsers)" for n in parser_overrides]
+        hand_owned = {m["model_name"] for m in models if m.get(HAND_OWNED_MARKER)}
+        additions += [f"{n} (hand-owned row)" for n in hand_owned]
+        additions += [f"{n} (row absent from the spec)" for n in retained if n not in hand_owned]
+        if additions:
+            print(f"TT-Studio additions to the spec ({len(set(additions))}; upstream to tt-cli):")
+            for item in sorted(set(additions)):
+                print(f"  {item}")
 
     # Mark (don't delete) the models TT-Studio won't offer. Keeping the rows means
     # the next resync doesn't silently reintroduce them and the reason travels
@@ -793,21 +1032,14 @@ def main():
     # rather than appended at the end (same key as normalize()).
     models.sort(key=lambda m: (-STATUS_ORDER.get(m["status"], 0), m["model_name"].lower()))
 
-    # Resolve artifact version from VERSION file or env vars (avoid leaking absolute paths)
-    artifact_version = None
-    version_file = source_path.parent / "VERSION"
-    if version_file.exists():
-        artifact_version = version_file.read_text().strip()
-    if not artifact_version:
-        artifact_version = (
-            os.environ.get("TT_INFERENCE_ARTIFACT_VERSION")
-            or os.environ.get("TT_INFERENCE_ARTIFACT_BRANCH")
-            or "unknown"
-        )
+    spec_release = spec_release if spec else existing_source.get("model_support_release")
 
+    source = {"artifact_version": artifact_version}
+    if spec_release:
+        source["model_support_release"] = spec_release
     catalog = {
         "source": {
-            "artifact_version": artifact_version,
+            **source,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         },
         "total_models": len(models),

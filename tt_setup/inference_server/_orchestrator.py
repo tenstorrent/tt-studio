@@ -65,8 +65,11 @@ def _report_extract_failure(exc, artifact_file):
         traceback.print_exc()
 
 
-def setup_tt_inference_server(pull_branch=False):
-    """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
+def setup_tt_inference_server(pull_branch=False, default_version=None):
+    """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch.
+
+    `default_version` is used when .env pins neither a version nor a branch.
+    """
     # Artifact setup — quiet unless downloading or encountering issues
 
     def suggest_semver(version):
@@ -94,7 +97,10 @@ def setup_tt_inference_server(pull_branch=False):
             artifact_branch = None
             console.print(f"[success]✅ Using version '{artifact_version}' — commented out TT_INFERENCE_ARTIFACT_BRANCH in .env[/success]")
     elif not artifact_branch and not artifact_version:
-        artifact_version = "latest"
+        artifact_version = default_version or "latest"
+        if default_version:
+            # Process env only (not .env), so compose and the inference API report it.
+            os.environ["TT_INFERENCE_ARTIFACT_VERSION"] = default_version
 
     # Create artifacts directory early so we can check for local tarballs
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")

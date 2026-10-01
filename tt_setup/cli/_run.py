@@ -26,6 +26,7 @@ from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _catalog_missing_generated_specs, _sync_model_catalog, setup_tt_inference_server
 from tt_setup.model_manager import setup_tt_model_manager
+from tt_setup.model_support import default_artifact_version, refresh_model_support
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -242,7 +243,10 @@ def _run(args):
 
 {C_ORANGE}{C_BOLD}Inference Server Artifact (which tt-inference-server build to use):{C_RESET}
 {'=' * 80}
-  {C_YELLOW}TT_INFERENCE_ARTIFACT_VERSION{C_RESET}       Pinned release to download (e.g. v0.17.0)
+  {C_YELLOW}TT_MODEL_SUPPORT_URL{C_RESET}                Model support spec (tt-cli model_support.json)
+                                      the catalog syncs from; URL or local path.
+                                      Its release_version is the default build
+  {C_YELLOW}TT_INFERENCE_ARTIFACT_VERSION{C_RESET}       Pin a release instead (e.g. v0.17.0)
   {C_YELLOW}TT_INFERENCE_ARTIFACT_BRANCH{C_RESET}        Dev override: fetch a branch/SHA instead
                                       of a release
   {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
@@ -834,7 +838,10 @@ def _run(args):
             original_dir = os.getcwd()
             try:
                 ph.set("TT Inference Server")
-                if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                model_support_changed = refresh_model_support()
+                if not setup_tt_inference_server(
+                    pull_branch=args.pull_branch, default_version=default_artifact_version()
+                ):
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     console.print("[error]⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.[/error]")
                     startup_log.summary(exit_code=1)
@@ -847,6 +854,7 @@ def _run(args):
                     args.resync or
                     args.reconfigure_inference_server or
                     args.pull_branch or
+                    model_support_changed or
                     not os.path.exists(models_json_path) or
                     _catalog_missing_generated_specs(models_json_path)
                 )

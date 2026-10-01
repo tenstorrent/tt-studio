@@ -1,10 +1,12 @@
-# Declarative overrides applied on top of the tt-inference-server release spec
-# by sync_models_from_inference_server.py (unavailable/device_fallback/
-# serve_override) and docker_control/docker_utils.py (device_fallback/
-# serve_override, at deploy time). Mirrors tt-cli's
-# modelhub/model_support_overrides.toml -- same idea, and mostly the same
-# shape: a fix belongs in DATA here, not in code. `chip_tier` is the one
-# addition TT-Studio alone needs (see its own section below).
+# TT-Studio's own model data, read by sync_models_from_inference_server.py
+# (unavailable/chip_tier/parser_override) and docker_control/docker_utils.py
+# (device_fallback/serve_override, at deploy time). With a matching tt-cli model
+# support spec (TT_MODEL_SUPPORT_URL) the sync only adds what the spec does not
+# say, and lists those additions; without one this file is the full set of
+# fixes on top of the artifact. Mirrors tt-cli's
+# modelhub/model_support_overrides.toml: a fix belongs in DATA here, not in
+# code, and should be upstreamed there too. `chip_tier` is the one addition
+# TT-Studio alone needs.
 #
 # INPUT, never generated: sync_models_from_inference_server.py reads and
 # validates this file but never writes it. Deleting an [[unavailable]] entry
@@ -25,12 +27,13 @@ schema_version = 1
 # ===========================================================================
 # Unavailable model/device marks
 # ===========================================================================
-# The source artifact advertises models/devices TT-Studio must not offer.
-# Deleting those rows from the catalog was the old approach and it does not
-# survive: normalize() rebuilds from the source JSON on every sync, so every
-# removal had to be redone by hand, and the catalog lost the record of *why*.
-# These marks are script-owned, NOT hand-owned: this file is the single source
-# of truth, so deleting an entry genuinely unhides the model/device.
+# Models/devices TT-Studio must not offer. Many repeat the spec's own
+# unsupported marks on purpose: this table is what a rebuild from the artifact
+# alone (no matching spec) relies on, so keep it complete. Where the spec marks
+# the same device, the spec's reason is kept. Deleting
+# rows from the catalog does not survive a resync, and loses the record of
+# *why*. These marks are script-owned, NOT hand-owned: deleting an entry
+# genuinely unhides the model/device.
 #
 # reason:
 #   known_broken          - does not deploy, or deploys and does not run. A bug.
@@ -108,6 +111,16 @@ P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it \
 stays available there."""
 
 [[unavailable]]
+model = "mochi-1-preview"
+device = "P150X4"
+reason = "known_broken"
+verified_on = "2026-09-03"
+source = "tt-cli"
+details = """
+Does not deploy on P150X4 either, for the same reason as its P300x2 entry: no \
+image override is known that makes it work on a four-chip Blackhole mesh."""
+
+[[unavailable]]
 model = "DeepSeek-R1-Distill-Llama-70B"
 device = "P150X4"
 reason = "known_broken"
@@ -181,6 +194,32 @@ model = "Llama-3.3-70B-Instruct"
 device = "P150X4"
 reason = "known_broken"
 details = "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
+
+# ===========================================================================
+# vLLM parser overrides
+# ===========================================================================
+# tool_call_parser / reasoning_parser for models the spec gives none (or the
+# wrong one), e.g. coding-agent models verified with a parser upstream has not
+# recorded, or dev-catalog models absent from the spec. Fills only parsers the
+# row lacks.
+
+[[parser_override]]
+model = "diffusiongemma-26B-A4B-it"
+tool_call_parser = "gemma4"
+reasoning_parser = "gemma4"
+details = "Coding-agent eligible; verified with the gemma4 parsers, which the spec omits."
+
+[[parser_override]]
+model = "Qwen3.5-9B"
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"
+details = "Dev-catalog model absent from the spec."
+
+[[parser_override]]
+model = "Qwen3.8-27B"
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"
+details = "Dev-catalog model absent from the spec."
 
 # ===========================================================================
 # vLLM mesh device fallback
