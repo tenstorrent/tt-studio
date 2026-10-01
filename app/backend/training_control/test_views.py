@@ -297,3 +297,97 @@ class TestInspectCustomDataset:
             views_module, "_custom_datasets_dir", lambda: str(tmp_path)
         )
         assert views_module._inspect_custom_dataset("nope.json") == (None, None)
+
+
+class _FakeHttpResponse:
+    def __init__(self, status_code, body=None, reason=""):
+        self.status_code = status_code
+        self.ok = status_code < 400
+        self.reason = reason
+        self._body = body
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+    def raise_for_status(self):
+        pass
+
+
+MERGED_CHECKPOINTS = {
+    "merged_checkpoints": [
+        {"merge_id": "m1", "source_job_id": "t1", "path": "/vol/merged_models/a-m1"},
+        {"merge_id": "m2", "source_job_id": "t1", "path": "/vol/merged_models/a-m2"},
+        {"merge_id": "m3", "source_job_id": "t2", "path": "/vol/merged_models/b-m3"},
+    ]
+}
+
+
+@pytest.fixture
+def serving_setup(monkeypatch, views_module):
+    """Point the guard at one deployment serving merge m2 (a child of job t1)."""
+    views = views_module
+    docker_utils = ModuleType("docker_control.docker_utils")
+    docker_utils.get_training_host_volume = lambda: "/vol"
+    monkeypatch.setitem(sys.modules, "docker_control.docker_utils", docker_utils)
+    monkeypatch.setattr(views.backend_config, "tt_inference_api_url", "http://api", raising=False)
+    monkeypatch.setattr(
+        views,
+        "get_deploy_cache",
+        lambda: {"c1": {"name": "llama-ft", "host_weights_dir": "/vol/merged_models/a-m2/"}},
+    )
+    monkeypatch.setattr(
+        views.requests, "get", lambda *_a, **_k: _FakeHttpResponse(200, MERGED_CHECKPOINTS)
+    )
+    return views
+
+
+class TestProxyDelete:
+    def test_passes_through_no_content(self, monkeypatch, views_module):
+        monkeypatch.setattr(
+            views_module.requests, "delete", lambda *_a, **_k: _FakeHttpResponse(204)
+        )
+        resp = views_module._proxy_delete("http://c/v1/jobs/j1")
+        assert resp.status_code == 204
+        assert resp.data is None
+
+    def test_relays_fastapi_detail_as_error(self, monkeypatch, views_module):
+        conflict = _FakeHttpResponse(409, {"detail": "Only terminal jobs can be deleted"})
+        monkeypatch.setattr(views_module.requests, "delete", lambda *_a, **_k: conflict)
+        resp = views_module._proxy_delete("http://c/v1/jobs/j1")
+        assert resp.status_code == 409
+        assert resp.data == {"error": "Only terminal jobs can be deleted"}
+
+    def test_falls_back_to_reason_without_json(self, monkeypatch, views_module):
+        missing = _FakeHttpResponse(404, reason="Not Found")
+        monkeypatch.setattr(views_module.requests, "delete", lambda *_a, **_k: missing)
+        assert views_module._proxy_delete("http://c").data == {"error": "Not Found"}
+
+
+class TestDeploymentsServingJob:
+    def test_matches_merge_job_and_its_training_job(self, serving_setup):
+        assert serving_setup._deployments_serving_job("m2") == ["llama-ft"]
+        assert serving_setup._deployments_serving_job("t1") == ["llama-ft"]
+
+    def test_ignores_unrelated_jobs(self, serving_setup):
+        assert serving_setup._deployments_serving_job("m1") == []
+        assert serving_setup._deployments_serving_job("t2") == []
+
+    def test_skips_scan_when_nothing_serves_merged_weights(self, monkeypatch, views_module):
+        monkeypatch.setattr(views_module, "get_deploy_cache", lambda: {"c1": {"name": "base"}})
+        monkeypatch.setattr(views_module.requests, "get", lambda *_a, **_k: pytest.fail("scanned"))
+        assert views_module._deployments_serving_job("t1") == []
+
+
+class TestTrainingJobDelete:
+    def test_blocks_delete_while_merged_model_is_deployed(self, monkeypatch, serving_setup):
+        views = serving_setup
+        monkeypatch.setattr(
+            views, "_find_training_container", lambda _id: ({"internal_url": "c:7000"}, None)
+        )
+        monkeypatch.setattr(views.requests, "delete", lambda *_a, **_k: pytest.fail("deleted"))
+        request = SimpleNamespace(GET={})
+        resp = views.TrainingJobDetailView().delete(request, "t1")
+        assert resp.status_code == 409
+        assert "llama-ft" in resp.data["error"]
