@@ -31,6 +31,7 @@ import { useHideDeploymentTray } from "../hooks/useHideDeploymentTray";
 import { compactPercent, transferDetailParts } from "../lib/deployProgress";
 import type { DeploymentProgressData } from "../hooks/useActiveDeployments";
 import { Model, getModelsUrl } from "./SelectionSteps";
+import { placementFor, profileForDevices } from "../utils/deviceFit";
 import {
   isLlama31_8BModel,
   isP300x2Board,
@@ -85,19 +86,37 @@ const STATUS_CONFIG = {
 
 const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPERIMENTAL: 1 };
 
-// Blackhole voice pipeline runs Qwen3.5-9B as its LLM. It is single-chip, so the
-// LLM, Whisper and SpeechT5 each take one device. Where Qwen3.5-9B is compatible
-// (Blackhole boards) it is pinned and the LLM card is fixed rather than a dropdown.
-const PINNED_VOICE_LLM = "Qwen3.5-9B";
-
-// Where Qwen3.5-9B is not compatible, prefer Qwen3-8B before falling through to
-// the Instruct-preferring chat default, so the pipeline still deploys.
+// Default LLM where the board runs it; Qwen3-8B next, then the Instruct-preferring
+// chat default. Any LLM that fits the pipeline can still be picked.
+const PREFERRED_VOICE_LLM = "Qwen3.5-9B";
 const FALLBACK_VOICE_LLM = "Qwen3-8B";
 
 // Qwen3-8B and Llama-3.1-8B run across a whole P300 card. On a P300x2 that card
 // is slots 0,1, which pushes Whisper to 2 and SpeechT5 to 3 and needs 4 slots.
 const usesCardPairLlm = (modelNameOrId: string) =>
   isQwen3_8BModel(modelNameOrId) || isLlama31_8BModel(modelNameOrId);
+
+// Devices a model takes in the pipeline: 1, or 2 for a card pair; null when it
+// needs more. Read from the same placement rules the deploy page uses, so a model
+// with serve profiles counts by its smallest fitting profile.
+function pipelineDevices(m: Model, totalSlots: number): 1 | 2 | null {
+  if (isP300x2Board(m.current_board) && usesCardPairLlm(m.name)) return 2;
+  const placement = placementFor(m, m.current_board, totalSlots);
+  if (placement.allowsSingle) return 1;
+  const groups = [...placement.cardGroups, ...(placement.pairGroups ?? [])];
+  return groups.some((g) => g.length === 2) ? 2 : null;
+}
+
+// The model_id deploying `m` on `devices` devices: the matching serve profile's,
+// else the model's own.
+const deployIdFor = (m: Model | undefined, devices: number, totalSlots: number) =>
+  m ? (profileForDevices(m, devices, totalSlots)?.id ?? m.id) : "";
+
+// The LLM may take one device or a card pair; Whisper and TTS take one each.
+function fitsStage(m: Model, totalSlots: number): boolean {
+  const devices = pipelineDevices(m, totalSlots);
+  return m.model_type === "chat" ? devices !== null : devices === 1;
+}
 
 // ---- helpers --------------------------------------------------------------
 
@@ -394,35 +413,6 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
             : m
         );
         setAllModels(models);
-        const singleDeviceBoards = ["n150", "n300"];
-        const isSingleDevice = (m: Model) =>
-          (m.chips_required ?? 1) === 1 &&
-          m.compatible_boards.some((b) => singleDeviceBoards.includes(b.toLowerCase()));
-        const singleChip = (m: Model) => (m.chips_required ?? 1) === 1;
-        const isInstruct = (m: Model) => /instruct/i.test(m.name ?? "") || /instruct/i.test(m.id ?? "");
-        const firstCompat = (type: string) => {
-          const filter = type === "chat" ? isSingleDevice : singleChip;
-          const compatible = models.filter((m) => m.model_type === type && filter(m) && m.is_compatible === true);
-          if (type === "chat") {
-            const instruct = compatible.find(isInstruct);
-            if (instruct) return instruct.id;
-          }
-          return (
-            compatible[0]?.id ??
-            models.find((m) => m.model_type === type && filter(m))?.id ?? ""
-          );
-        };
-        // Prefer the pinned Qwen3.5-9B where the board supports it, then Qwen3-8B,
-        // then the compatible-chat default (Instruct-preferring).
-        const compatibleByName = (name: string) =>
-          models.find((m) => m.name === name && m.is_compatible === true);
-        setSelectedLlmId(
-          compatibleByName(PINNED_VOICE_LLM)?.id ??
-            compatibleByName(FALLBACK_VOICE_LLM)?.id ??
-            firstCompat("chat")
-        );
-        setSelectedWhisperId(firstCompat("speech_recognition"));
-        setSpeechT5Id(firstCompat("tts"));
       })
       .catch(() => customToast.error("Failed to load model catalog"));
 
@@ -438,6 +428,34 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
   }, [refreshOccupiedDevices]);
+
+  const slots = totalSlots ?? 4;
+
+  // Default picks, once the catalog and the board's slot count are both in.
+  useEffect(() => {
+    if (loadingModels) return;
+    const isInstruct = (m: Model) => /instruct/i.test(m.name ?? "") || /instruct/i.test(m.id ?? "");
+    const firstCompat = (type: string) => {
+      const eligible = allModels.filter((m) => m.model_type === type && fitsStage(m, slots));
+      const compatible = eligible.filter((m) => m.is_compatible === true);
+      if (type === "chat") {
+        const instruct = compatible.find(isInstruct);
+        if (instruct) return instruct.id;
+      }
+      return compatible[0]?.id ?? eligible[0]?.id ?? "";
+    };
+    const compatibleByName = (name: string) =>
+      allModels.find((m) => m.name === name && m.is_compatible === true && fitsStage(m, slots));
+    setSelectedLlmId(
+      (prev) =>
+        prev ||
+        compatibleByName(PREFERRED_VOICE_LLM)?.id ||
+        compatibleByName(FALLBACK_VOICE_LLM)?.id ||
+        firstCompat("chat")
+    );
+    setSelectedWhisperId((prev) => prev || firstCompat("speech_recognition"));
+    setSpeechT5Id((prev) => prev || firstCompat("tts"));
+  }, [loadingModels, allModels, slots]);
 
   // Keep occupancy fresh without polling hard: refresh when the tab regains focus
   // (the common case — the user was elsewhere while a deploy finished) and on a
@@ -461,29 +479,22 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     return () => { clearInterval(tick); clearTimeout(redirect); };
   }, [allDone, navigate]);
 
-  const SINGLE_DEVICE_BOARDS = ["n150", "n300"];
-  const isSingleDevice = (m: Model) =>
-    (m.chips_required ?? 1) === 1 &&
-    m.compatible_boards.some((b) => SINGLE_DEVICE_BOARDS.includes(b.toLowerCase()));
-  const isSingleChip = (m: Model) => (m.chips_required ?? 1) === 1;
-  const chatModels = allModels.filter((m) => m.model_type === "chat" && isSingleDevice(m));
-  const whisperModels = allModels.filter((m) => m.model_type === "speech_recognition" && isSingleChip(m));
-  const ttsModels = allModels.filter((m) => m.model_type === "tts" && isSingleChip(m));
+  const stageModels = (type: string) =>
+    allModels.filter((m) => m.model_type === type && fitsStage(m, slots));
+  const chatModels = stageModels("chat");
+  const whisperModels = stageModels("speech_recognition");
+  const ttsModels = stageModels("tts");
   const selectedLlmModel = allModels.find((m) => m.id === selectedLlmId);
+  const whisperModel = allModels.find((m) => m.id === selectedWhisperId);
   const speechT5Model = allModels.find((m) => m.id === speechT5Id);
-  // Pinned when the selected LLM is Qwen3.5-9B (Blackhole); the card is then fixed
-  // rather than a dropdown.
-  const isPinned = selectedLlmModel?.name === PINNED_VOICE_LLM;
-  const currentBoard = allModels[0]?.current_board;
-  // Qwen3.5-9B is single-chip, so the pinned pipeline is one device per stage. The
-  // fallback LLMs take a whole P300 card, so on a P300x2 they occupy slots 0,1.
-  const useCardPair =
-    !isPinned &&
-    isP300x2Board(currentBoard) &&
-    usesCardPairLlm(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
+  // A card-pair LLM takes slots 0,1, pushing Whisper and TTS up by one.
+  const useCardPair = !!selectedLlmModel && pipelineDevices(selectedLlmModel, slots) === 2;
   const llmDeviceId: number | string = useCardPair ? "0,1" : 0;
   const whisperDeviceId = useCardPair ? 2 : 1;
   const ttsDeviceId = useCardPair ? 3 : 2;
+  const llmDeployId = deployIdFor(selectedLlmModel, useCardPair ? 2 : 1, slots);
+  const whisperDeployId = deployIdFor(whisperModel, 1, slots);
+  const ttsDeployId = deployIdFor(speechT5Model, 1, slots);
 
   // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
   const requiredSlots = useCardPair ? 4 : 3;
@@ -634,9 +645,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     // long weights download afterwards instead of holding both of them behind it.
     // Total time is unchanged; what changes is that no card sits blank for minutes.
     const steps: [string, number | string, (s: DeployState) => void, DeployState, string, boolean][] = [
-      [selectedWhisperId, whisperDeviceId, setWhisperState, whisperState, "Whisper", true],
-      [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
-      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
+      [whisperDeployId, whisperDeviceId, setWhisperState, whisperState, "Whisper", true],
+      [ttsDeployId, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
+      [llmDeployId, llmDeviceId, setLlmState, llmState, "LLM", true],
     ];
 
     // Submit all three at once. The inference server executes deploys one at a
@@ -698,11 +709,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         <div>
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
-            {isPinned
-              ? "Deploys the full voice pipeline: Qwen3.5-9B on device 0, Whisper on device 1, SpeechT5 on device 2."
-              : useCardPair
-                ? `Deploys the full voice pipeline: ${selectedLlmModel?.name ?? "LLM"} on devices 0,1, Whisper on device 2, SpeechT5 on device 3.`
-                : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
+            Deploys the full voice pipeline: {selectedLlmModel?.name ?? "the LLM"} on{" "}
+            {useCardPair ? "devices 0,1" : "device 0"}, {whisperModel?.name ?? "speech-to-text"} on
+            device {whisperDeviceId}, {speechT5Model?.name ?? "text-to-speech"} on device {ttsDeviceId}.
           </p>
         </div>
 
@@ -729,25 +738,14 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 helperContent={
                   <>
                     <Info className="w-2.5 h-2.5 shrink-0 opacity-60" />
-                    <span>
-                      {isPinned
-                        ? "Qwen3.5-9B is experimental on Blackhole"
-                        : "Instruct variants recommended for chat"}
-                    </span>
+                    <span>Any LLM that fits on 1 or 2 devices</span>
                   </>
                 }
               >
-                {isPinned ? (
-                  <div className="flex items-center h-8 px-3 rounded-md border border-input bg-muted/50 text-xs text-muted-foreground">
-                    {selectedLlmModel?.name ?? PINNED_VOICE_LLM}
-                    <span className="ml-auto text-[10px] opacity-60">fixed</span>
-                  </div>
-                ) : (
-                  <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
-                    <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
-                    <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
-                  </Select>
-                )}
+                <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
+                  <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
+                  <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
+                </Select>
               </ModelCard>
 
               <ModelCard

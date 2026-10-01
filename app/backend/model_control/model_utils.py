@@ -337,6 +337,10 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
         "thread_id": json_data["thread_id"],
         "message": json_data["messages"][-1]["content"],
     }
+    # Per-request template flags (the Voice Agent turns thinking off) for the
+    # agent to forward to its LLM call.
+    if json_data.get("chat_template_kwargs"):
+        new_json_data["chat_template_kwargs"] = json_data["chat_template_kwargs"]
     logger.info(f"POST {url} data:={new_json_data}")
     try:
         async with _vllm_client.stream("POST", url, json=new_json_data) as response:

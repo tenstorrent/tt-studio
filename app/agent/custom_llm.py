@@ -29,6 +29,13 @@ import re
 import requests
 import json 
 import os 
+from contextvars import ContextVar
+
+# chat_template_kwargs of the request being served (the Voice Agent turns thinking
+# off). Set per request by agent.handle_requests, so other callers are unaffected.
+REQUEST_CHAT_TEMPLATE_KWARGS: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "request_chat_template_kwargs", default=None
+)
 
 _PYTHON_TAG_RE = re.compile(r'[\[<|]*python_tag[\]>|]*', re.IGNORECASE)
 
@@ -215,6 +222,10 @@ class CustomLLM(BaseChatModel):
             if tools and not is_completions_endpoint:
                 json_data["tools"] = tools
                 json_data["tool_choice"] = "auto"
+
+        request_kwargs = REQUEST_CHAT_TEMPLATE_KWARGS.get()
+        if request_kwargs and "messages" in json_data:
+            json_data["chat_template_kwargs"] = request_kwargs
 
         print(f"***Making request to: {self.server_url}")
         redacted_headers = {key: ("<REDACTED>" if key.lower() == "authorization" else value) for key, value in headers.items()}
