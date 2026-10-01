@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Box, Check, Loader2, Minus, RefreshCw } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import {
   discoverContainers,
@@ -71,6 +71,25 @@ function typeLabel(modelType: string): string {
   return MODEL_TYPE_OPTIONS.find((o) => o.value === modelType)?.label ?? modelType;
 }
 
+// Selection indicator in the app's purple, standing in for a native checkbox.
+function SelectionMark({ state }: { state: "on" | "off" | "some" }) {
+  const Icon = state === "on" ? Check : state === "some" ? Minus : null;
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] transition-colors ${
+        state === "off"
+          ? "border-stone-400 bg-white/60 group-hover:border-TT-purple/70 dark:border-stone-600 dark:bg-stone-900/60"
+          : "border-TT-purple-accent bg-TT-purple-accent text-white"
+      }`}
+    >
+      {Icon && <Icon className="h-3 w-3" strokeWidth={3} />}
+    </span>
+  );
+}
+
+const PILL = "rounded-full px-2 py-0.5 text-[10px] font-medium";
+
 function ContainerRow({
   container,
   catalog,
@@ -105,27 +124,40 @@ function ContainerRow({
 
   return (
     <div
-      className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
+      className={`rounded-xl border-[2px] text-left transition-all duration-200 ${
         selected
-          ? "border-TT-purple-accent/60 bg-TT-purple-shade/15"
-          : "border-stone-700 hover:border-stone-500"
+          ? "border-TT-purple/70 bg-TT-purple/5 shadow-[0_0_20px_rgba(124,104,250,0.18)] dark:bg-TT-purple/10"
+          : "border-stone-200 bg-white/60 hover:border-TT-purple/40 dark:border-stone-700 dark:bg-stone-900/60 dark:hover:border-TT-purple/40"
       }`}
     >
-      <label className="flex items-start gap-3 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          className="accent-TT-purple mt-1"
-        />
+      <div
+        role="checkbox"
+        aria-checked={selected}
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === " " || e.key === "Enter") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className="group flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent/60"
+      >
+        <div
+          className={`rounded-lg p-2 transition-colors ${
+            selected
+              ? "bg-TT-purple/20 text-TT-purple"
+              : "bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400"
+          }`}
+        >
+          <Box className="h-4 w-4" />
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="font-medium text-sm text-foreground truncate">
-              {container.name}
-            </span>
-            <span className="text-xs text-muted-foreground truncate">{image}</span>
+            <span className="truncate text-sm font-semibold text-foreground">{container.name}</span>
+            <span className="truncate font-mono text-[11px] text-muted-foreground">{image}</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {detecting ? (
               <span className="inline-flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -133,29 +165,30 @@ function ContainerRow({
               </span>
             ) : identified ? (
               <>
-                <span className="text-foreground">
+                <span className="truncate text-foreground">
                   {identity.catalogMatch || identity.hfModelId || identity.modelName || "custom model"}
                 </span>
-                {" · "}
-                {typeLabel(identity.modelType)}
+                <span className={`${PILL} bg-TT-purple/10 text-TT-purple dark:bg-TT-purple/20`}>
+                  {typeLabel(identity.modelType)}
+                </span>
               </>
             ) : (
-              "Model not identified"
+              <span>Model not identified</span>
             )}
             {devices && (
-              <>
-                {" · "}
-                {devices.length === 1 ? "device" : "devices"} {devices.join(", ")}
-              </>
+              <span className={`${PILL} bg-stone-100 font-mono text-stone-600 dark:bg-stone-800 dark:text-stone-300`}>
+                {devices.length === 1 ? "Device" : "Devices"} {devices.join(", ")}
+              </span>
             )}
           </div>
         </div>
-      </label>
+        <SelectionMark state={selected ? "on" : "off"} />
+      </div>
 
       {/* Last resort for a model detection could not name. Both stay optional: left
           blank, the container registers for status, logs and delete only. */}
       {selected && !detecting && !identified && (
-        <div className="mt-2.5 ml-7 grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 border-t border-TT-purple/20 px-4 pb-3 pt-3 sm:grid-cols-2">
           <Input
             placeholder="HuggingFace ID, e.g. meta-llama/Llama-3.1-8B-Instruct"
             value={identity.hfModelId}
@@ -283,31 +316,38 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold">Containers</span>
           {containers.length > 0 && (
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="accent-TT-purple"
-            />
-          )}
-          Containers
-          {containers.length > 0 && (
-            <span className="text-xs font-normal text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {selected.size} of {containers.length} selected
             </span>
           )}
-        </label>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={loadContainers}
-          disabled={loadingContainers}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loadingContainers ? "animate-spin" : ""}`} />
-        </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          {containers.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="group flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-stone-100 hover:text-foreground dark:hover:bg-stone-800"
+            >
+              <SelectionMark
+                state={allSelected ? "on" : selected.size > 0 ? "some" : "off"}
+              />
+              Select all
+            </button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={loadContainers}
+            disabled={loadingContainers}
+            aria-label="Refresh containers"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loadingContainers ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {loadingContainers && containers.length === 0 ? (
