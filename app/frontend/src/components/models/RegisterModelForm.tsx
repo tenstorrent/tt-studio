@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import {
   Select,
   SelectContent,
@@ -13,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { Loader2, RefreshCw, Info, AlertTriangle, Cpu, Layers } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import {
   discoverContainers,
@@ -23,7 +21,6 @@ import {
   type CatalogModel,
 } from "../../api/modelsDeployedApis";
 import { useDetectModel } from "../../hooks/useDetectModel";
-import type { ChipStatus } from "../../types/chipStatus";
 
 interface RegisterModelFormProps {
   onSuccess: () => void;
@@ -41,66 +38,171 @@ const MODEL_TYPE_OPTIONS = [
   { value: "object_detection", label: "Object Detection" },
 ] as const;
 
+// What is sent for one container. All optional: the backend derives the model's
+// identity, routes, port and devices from the running container, so these only
+// carry what detection found or the user typed as a last resort.
+interface Identity {
+  modelType: string;
+  modelName: string;
+  hfModelId: string;
+  catalogMatch: string | null;
+}
+
+const EMPTY_IDENTITY: Identity = {
+  modelType: "",
+  modelName: "",
+  hfModelId: "",
+  catalogMatch: null,
+};
+
+// The catalog entry an HF model id names: its display name and model type.
+function matchCatalog(catalog: CatalogModel[], hfModelId: string): Partial<Identity> {
+  const id = hfModelId.trim().toLowerCase();
+  const match = id ? catalog.find((m) => m.hf_model_id?.toLowerCase() === id) : undefined;
+  if (!match) return { catalogMatch: null };
+  return {
+    catalogMatch: match.model_name,
+    modelName: match.model_name,
+    ...(match.model_type ? { modelType: match.model_type.toLowerCase() } : {}),
+  };
+}
+
+function typeLabel(modelType: string): string {
+  return MODEL_TYPE_OPTIONS.find((o) => o.value === modelType)?.label ?? modelType;
+}
+
+function ContainerRow({
+  container,
+  catalog,
+  selected,
+  onToggle,
+  identity,
+  onIdentity,
+}: {
+  container: DiscoveredContainer;
+  catalog: CatalogModel[];
+  selected: boolean;
+  onToggle: () => void;
+  identity: Identity;
+  onIdentity: (patch: Partial<Identity>) => void;
+}) {
+  const { detecting, detected } = useDetectModel(container.id);
+  useEffect(() => {
+    if (!detected) return;
+    onIdentity({
+      ...(detected.model_type ? { modelType: detected.model_type } : {}),
+      ...(detected.hf_model_id
+        ? { hfModelId: detected.hf_model_id, ...matchCatalog(catalog, detected.hf_model_id) }
+        : {}),
+    });
+    // onIdentity is rebuilt every render; only a new detection should apply.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detected, catalog]);
+
+  const image = container.image?.split("/").pop()?.split(":")[0] ?? container.image;
+  const devices = container.device_ids?.length ? container.device_ids : null;
+  const identified = !!identity.modelType;
+
+  return (
+    <div
+      className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
+        selected
+          ? "border-TT-purple-accent/60 bg-TT-purple-shade/15"
+          : "border-stone-700 hover:border-stone-500"
+      }`}
+    >
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          className="accent-TT-purple mt-1"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="font-medium text-sm text-foreground truncate">
+              {container.name}
+            </span>
+            <span className="text-xs text-muted-foreground truncate">{image}</span>
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {detecting ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Identifying model…
+              </span>
+            ) : identified ? (
+              <>
+                <span className="text-foreground">
+                  {identity.catalogMatch || identity.hfModelId || identity.modelName || "custom model"}
+                </span>
+                {" · "}
+                {typeLabel(identity.modelType)}
+              </>
+            ) : (
+              "Model not identified"
+            )}
+            {devices && (
+              <>
+                {" · "}
+                {devices.length === 1 ? "device" : "devices"} {devices.join(", ")}
+              </>
+            )}
+          </div>
+        </div>
+      </label>
+
+      {/* Last resort for a model detection could not name. Both stay optional: left
+          blank, the container registers for status, logs and delete only. */}
+      {selected && !detecting && !identified && (
+        <div className="mt-2.5 ml-7 grid gap-2 sm:grid-cols-2">
+          <Input
+            placeholder="HuggingFace ID, e.g. meta-llama/Llama-3.1-8B-Instruct"
+            value={identity.hfModelId}
+            onChange={(e) => onIdentity({ hfModelId: e.target.value })}
+            onBlur={() => onIdentity(matchCatalog(catalog, identity.hfModelId))}
+          />
+          <Select
+            value={identity.modelType}
+            onValueChange={(v) => onIdentity({ modelType: v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Model type" />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+            Optional. Left blank, it registers for status, logs and delete only, with no
+            chat or TTS page.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps) {
-  // Container discovery
   const [containers, setContainers] = useState<DiscoveredContainer[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
-
   // Catalog for HF model ID matching
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
-
-  // Chip status
-  const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
-  const [loadingChipStatus, setLoadingChipStatus] = useState(false);
-
-  // Form state
-  const [selectedContainerId, setSelectedContainerId] = useState("");
-  const [modelType, setModelType] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [hfModelId, setHfModelId] = useState("");
-
-  // Device selection state
-  const [chipsRequired, setChipsRequired] = useState<1 | 4>(1);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<number | null>(null);
-
-  // Catalog match banner
-  const [catalogMatch, setCatalogMatch] = useState<string | null>(null);
-
-  // Submission
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [identities, setIdentities] = useState<Record<string, Identity>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  // Selected container object
-  const selectedContainer = useMemo(
-    () => containers.find((c) => c.id === selectedContainerId) ?? null,
-    [containers, selectedContainerId]
-  );
-
-  // Chips auto-detected from the container's bound /dev/tenstorrent nodes. When
-  // present these are enforced (the user cannot override); manual selection is
-  // only offered as a last resort when detection yields nothing.
-  const autoDetectedDeviceIds = useMemo<number[] | null>(
-    () =>
-      selectedContainer?.device_ids && selectedContainer.device_ids.length > 0
-        ? selectedContainer.device_ids
-        : null,
-    [selectedContainer]
-  );
-
-  // Multi-chip board check
-  const isMultiSlotBoard = (chipStatus?.total_slots ?? 1) > 1;
-
-  // For multi-chip mode, check whether all slots are free
-  const multiChipConflicts = useMemo(() => {
-    if (!chipStatus) return [];
-    return chipStatus.slots.filter((s) => s.status === "occupied");
-  }, [chipStatus]);
-
-  // Load containers
   const loadContainers = useCallback(async () => {
     setLoadingContainers(true);
     try {
       const result = await discoverContainers();
       setContainers(result);
+      // Keep only selections whose container is still listed.
+      setSelected((prev) => new Set(result.map((c) => c.id).filter((id) => prev.has(id))));
     } catch {
       customToast.error("Failed to discover containers");
       setContainers([]);
@@ -109,468 +211,130 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
     }
   }, []);
 
-  // Load catalog
-  const loadCatalog = useCallback(async () => {
-    try {
-      const result = await fetchModelCatalog();
-      setCatalog(result);
-    } catch {
-      setCatalog([]);
-    }
-  }, []);
-
-  // Load chip status
-  const loadChipStatus = useCallback(async () => {
-    setLoadingChipStatus(true);
-    try {
-      const response = await axios.get<ChipStatus>("/docker-api/chip-status/");
-      setChipStatus(response.data);
-    } catch {
-      setChipStatus(null);
-    } finally {
-      setLoadingChipStatus(false);
-    }
-  }, []);
-
-  // Auto-select first available slot when chip status or chipsRequired changes
-  useEffect(() => {
-    if (!chipStatus) return;
-    if (chipsRequired >= 4) {
-      setSelectedDeviceId(0);
-      return;
-    }
-    const firstAvailable = chipStatus.slots.find((s) => s.status === "available");
-    if (firstAvailable !== undefined) {
-      setSelectedDeviceId(firstAvailable.slot_id);
-    } else {
-      setSelectedDeviceId(null);
-    }
-  }, [chipStatus, chipsRequired]);
-
-  // Load discovery data on mount (state already starts at the reset defaults).
   useEffect(() => {
     loadContainers();
-    loadCatalog();
-    loadChipStatus();
-  }, [loadContainers, loadCatalog, loadChipStatus]);
+    fetchModelCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalog([]));
+  }, [loadContainers]);
 
-  // HF Model ID catalog matching — surfaces the model name/type for the summary.
-  // Routes/port are derived server-side at registration, so we don't set them here.
-  const applyCatalogMatch = useCallback((idValue: string) => {
-    if (!idValue.trim() || catalog.length === 0) {
-      setCatalogMatch(null);
-      return;
-    }
-    const match = catalog.find(
-      (m) => m.hf_model_id?.toLowerCase() === idValue.trim().toLowerCase()
-    );
-    if (match) {
-      setCatalogMatch(match.model_name);
-      const catalogType = match.model_type?.toLowerCase();
-      if (catalogType) setModelType(catalogType);
-      // Prefill the model name from the catalog if the user hasn't typed one.
-      setModelName((prev) => prev || match.model_name);
-    } else {
-      setCatalogMatch(null);
-    }
-  }, [catalog]);
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  const handleHfModelIdBlur = useCallback(
-    () => applyCatalogMatch(hfModelId),
-    [applyCatalogMatch, hfModelId]
-  );
+  const allSelected = containers.length > 0 && selected.size === containers.length;
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(containers.map((c) => c.id)));
 
-  // Switching containers clears the previously-derived identity so a stale
-  // model/type can't linger; detection below refills it for the new container.
-  useEffect(() => {
-    setModelType("");
-    setModelName("");
-    setHfModelId("");
-    setCatalogMatch(null);
-  }, [selectedContainerId]);
+  const setIdentity = (id: string, patch: Partial<Identity>) =>
+    setIdentities((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] ?? EMPTY_IDENTITY), ...patch },
+    }));
 
-  // Auto-detect the model served by the selected container and prefill the form.
-  const { detecting, detected } = useDetectModel(selectedContainerId);
-  useEffect(() => {
-    if (!detected) return;
-    if (detected.model_type) setModelType(detected.model_type);
-    if (detected.hf_model_id) {
-      setHfModelId(detected.hf_model_id);
-      applyCatalogMatch(detected.hf_model_id);
-    }
-  }, [detected, applyCatalogMatch]);
+  const canSubmit = selected.size > 0 && !submitting;
 
-  // Only a container is required. The backend derives model name, type, routes,
-  // port and devices from the running container (live /v1/models → logs → catalog
-  // → bound chip nodes). The form fields are optional overrides / last resort.
-  const canSubmit = selectedContainerId !== "" && !submitting;
-
-  // Submit
+  // One request per container, in turn: each registration writes the shared
+  // deployment store and connects its container to tt_studio_network.
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
     setSubmitting(true);
+    let failed = 0;
     try {
-      const result = await registerExternalModel({
-        container_id: selectedContainerId,
-        model_type: modelType,
-        model_name: modelName.trim(),
-        hf_model_id: hfModelId.trim() || undefined,
-        device_id: chipsRequired >= 4 ? 0 : (selectedDeviceId ?? 0),
-        chips_required: chipsRequired,
-      });
-
-      if (result.status === "success") {
-        const corrections = result.corrections ?? [];
-        if (corrections.length > 0) {
-          customToast.success(
-            `Registered ${result.container_name}. ${corrections.join(". ")}`
-          );
-        } else {
-          customToast.success(
-            `Successfully registered ${result.container_name}`
-          );
+      for (const container of containers.filter((c) => selected.has(c.id))) {
+        const identity = identities[container.id] ?? EMPTY_IDENTITY;
+        try {
+          const result = await registerExternalModel({
+            container_id: container.id,
+            model_type: identity.modelType,
+            model_name: identity.modelName.trim(),
+            hf_model_id: identity.hfModelId.trim() || undefined,
+          });
+          if (result.status === "success") {
+            const corrections = result.corrections ?? [];
+            customToast.success(
+              corrections.length > 0
+                ? `Registered ${result.container_name}. ${corrections.join(". ")}`
+                : `Registered ${result.container_name}`
+            );
+          } else {
+            failed += 1;
+            customToast.error(`${container.name}: ${result.message ?? "Registration failed"}`);
+          }
+        } catch (err: unknown) {
+          failed += 1;
+          const anyErr = err as { response?: { data?: { message?: string } }; message?: string };
+          const msg = anyErr?.response?.data?.message ?? anyErr?.message ?? "Registration failed";
+          customToast.error(`${container.name}: ${msg}`);
         }
-        onSuccess();
-      } else {
-        customToast.error(result.message ?? "Registration failed");
       }
-    } catch (err: unknown) {
-      const anyErr = err as { response?: { data?: { message?: string } }; message?: string };
-      const msg =
-        anyErr?.response?.data?.message ?? anyErr?.message ?? "Registration failed";
-      customToast.error(msg);
     } finally {
       setSubmitting(false);
     }
-  }, [
-    canSubmit,
-    selectedContainerId,
-    modelType,
-    modelName,
-    hfModelId,
-    chipsRequired,
-    selectedDeviceId,
-    onSuccess,
-  ]);
+    // On any failure stay here, with the registered rows gone, so the rest can be retried.
+    if (failed === 0) onSuccess();
+    else loadContainers();
+  }, [canSubmit, containers, selected, identities, onSuccess, loadContainers]);
 
   return (
     <div className="space-y-4">
-      <div className="space-y-4">
-          {/* Container selector */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Container</Label>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={loadContainers}
-                disabled={loadingContainers}
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${loadingContainers ? "animate-spin" : ""}`}
-                />
-              </Button>
-            </div>
-            {loadingContainers ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Discovering containers...
-              </div>
-            ) : containers.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">
-                No unregistered containers found. Make sure a container is running
-                outside tt_studio_network.
-              </p>
-            ) : (
-              <Select
-                value={selectedContainerId}
-                onValueChange={setSelectedContainerId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a container..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {containers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      <span className="font-medium">{c.name}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        ({c.image?.split("/").pop()?.split(":")[0] ?? c.image})
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {/* Model identity — derived from the container. Name is always derived
-              server-side (never asked). Type is derived too; we only ask for it
-              (and the HF id) as a last resort when the model can't be identified.
-              Both stay optional: an unidentified model registers as status-only. */}
-          {selectedContainerId && (
-            detecting ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Identifying model…
-              </div>
-            ) : modelType ? (
-              <div className="flex items-start gap-2 rounded-md bg-blue-950/40 border border-blue-500/25 px-3 py-2 text-xs text-blue-300">
-                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  Detected model:{" "}
-                  <strong className="text-foreground">
-                    {catalogMatch || hfModelId || modelName || "custom model"}
-                  </strong>{" "}
-                  · type{" "}
-                  <strong className="text-foreground">
-                    {MODEL_TYPE_OPTIONS.find((o) => o.value === modelType)?.label ?? modelType}
-                  </strong>
-                </span>
-              </div>
-            ) : (
-              <div className="space-y-3 rounded-md border border-stone-700 bg-stone-900/40 px-3 py-3">
-                <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>
-                    Add the model's HuggingFace ID to auto-fill everything, or just
-                    pick its type. Leave both blank to register the container for
-                    monitoring only — you'll get its status, logs and delete, but
-                    no chat/TTS page.
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  <Label>HuggingFace Model ID</Label>
-                  <Input
-                    placeholder="e.g. meta-llama/Llama-3.1-8B-Instruct"
-                    value={hfModelId}
-                    onChange={(e) => setHfModelId(e.target.value)}
-                    onBlur={handleHfModelIdBlur}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Model Type</Label>
-                  <Select value={modelType} onValueChange={setModelType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select model type..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MODEL_TYPE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+          {containers.length > 0 && (
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="accent-TT-purple"
+            />
           )}
+          Containers
+          {containers.length > 0 && (
+            <span className="text-xs font-normal text-muted-foreground">
+              {selected.size} of {containers.length} selected
+            </span>
+          )}
+        </label>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={loadContainers}
+          disabled={loadingContainers}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${loadingContainers ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
 
-          {/* ── Device Selection ── */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Device</Label>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={loadChipStatus}
-                disabled={loadingChipStatus}
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${loadingChipStatus ? "animate-spin" : ""}`}
-                />
-              </Button>
-            </div>
-
-            {autoDetectedDeviceIds ? (
-              <div className="flex items-start gap-2 rounded-md bg-TT-purple-shade/20 border border-TT-purple-accent/25 px-3 py-2 text-xs text-TT-purple">
-                <Cpu className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  Auto-detected from the container:{" "}
-                  <strong className="text-foreground">
-                    {autoDetectedDeviceIds
-                      .map((d) => `Device ${String(d).padStart(2, "0")}`)
-                      .join(", ")}
-                  </strong>
-                  . These are fixed by the running container and can't be changed.
-                </span>
-              </div>
-            ) : loadingChipStatus ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading device status...
-              </div>
-            ) : chipStatus === null ? (
-              <p className="text-sm text-muted-foreground py-2">
-                Could not load device status. Device 0 will be used.
-              </p>
-            ) : (
-              <>
-                {/* Chips Required — only show on multi-slot boards */}
-                {isMultiSlotBoard && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* Single Chip card */}
-                    <button
-                      type="button"
-                      onClick={() => setChipsRequired(1)}
-                      className={`
-                        flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all duration-150 cursor-pointer text-sm
-                        ${
-                          chipsRequired === 1
-                            ? "border-TT-purple-accent bg-TT-purple-shade/30"
-                            : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50"
-                        }
-                      `}
-                    >
-                      <Cpu className="h-4 w-4 shrink-0 text-TT-purple-accent" />
-                      <div>
-                        <div className="font-medium text-white">Single Device</div>
-                        <div className="text-[10px] text-muted-foreground">1 device slot</div>
-                      </div>
-                    </button>
-
-                    {/* Multi Chip card */}
-                    <button
-                      type="button"
-                      onClick={() => setChipsRequired(4)}
-                      className={`
-                        flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all duration-150 cursor-pointer text-sm
-                        ${
-                          chipsRequired >= 4
-                            ? "border-TT-purple-accent bg-TT-purple-shade/30"
-                            : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/50"
-                        }
-                      `}
-                    >
-                      <Layers className="h-4 w-4 shrink-0 text-TT-purple-accent" />
-                      <div>
-                        <div className="font-medium text-white">Multi-Device</div>
-                        <div className="text-[10px] text-muted-foreground">All {chipStatus.total_slots} slots</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-
-                {/* Multi-chip conflict warning */}
-                {chipsRequired >= 4 && multiChipConflicts.length > 0 && (
-                  <div className="flex items-start gap-2 rounded-md bg-amber-950/40 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      Multi-device requires all slots to be free. Currently occupied:{" "}
-                      {multiChipConflicts
-                        .map((s) => `slot ${s.slot_id} (${s.model_name ?? "unknown"})`)
-                        .join(", ")}
-                      .
-                    </span>
-                  </div>
-                )}
-
-                {/* Slot picker — single chip on multi-slot board */}
-                {chipsRequired === 1 && isMultiSlotBoard && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground">
-                      Select the device slot this model is running on:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {chipStatus.slots.map((slot) => {
-                        const isOccupied = slot.status === "occupied";
-                        const isSelected = selectedDeviceId === slot.slot_id;
-                        return (
-                          <button
-                            key={slot.slot_id}
-                            type="button"
-                            disabled={isOccupied}
-                            onClick={() => setSelectedDeviceId(slot.slot_id)}
-                            title={
-                              isOccupied
-                                ? `Occupied by ${slot.model_name ?? "another model"}`
-                                : `Device ${slot.slot_id}`
-                            }
-                            className={`
-                              relative flex flex-col items-center px-3 py-2 rounded-lg border-2 transition-all duration-150 min-w-[72px]
-                              ${
-                                isOccupied
-                                  ? "border-gray-700 bg-[#0d1117] opacity-50 cursor-not-allowed"
-                                  : isSelected
-                                  ? "border-TT-purple-accent bg-TT-purple-shade/30 shadow-[0_0_12px_rgba(124,104,250,0.3)]"
-                                  : "border-gray-700 bg-[#0d1117] hover:border-TT-purple-accent/60 cursor-pointer"
-                              }
-                            `}
-                          >
-                            <Cpu
-                              className={`h-5 w-5 mb-1 ${
-                                isOccupied
-                                  ? "text-gray-600"
-                                  : isSelected
-                                  ? "text-TT-purple-accent"
-                                  : "text-gray-500"
-                              }`}
-                              strokeWidth={1.4}
-                            />
-                            <span className="text-[10px] font-mono font-bold text-gray-400">
-                              DEVICE {String(slot.slot_id).padStart(2, "0")}
-                            </span>
-                            <span
-                              className={`text-[9px] font-mono mt-0.5 ${
-                                isOccupied ? "text-gray-600" : "text-gray-500"
-                              }`}
-                            >
-                              {isOccupied ? "IN USE" : "IDLE"}
-                            </span>
-                            {isOccupied && slot.model_name && (
-                              <span
-                                className="text-[8px] text-gray-600 truncate max-w-[64px] mt-0.5"
-                                title={slot.model_name}
-                              >
-                                {slot.model_name}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Single-slot board — just show the single device */}
-                {chipsRequired === 1 && !isMultiSlotBoard && (
-                  <div className="flex items-center gap-2 rounded-md bg-stone-900/60 border border-stone-700 px-3 py-2 text-xs text-muted-foreground">
-                    <Cpu className="h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      Single-device board — model will be registered on{" "}
-                      <strong className="text-foreground">Device 00</strong>.
-                    </span>
-                  </div>
-                )}
-
-                {/* Multi-chip: all slots summary */}
-                {chipsRequired >= 4 && multiChipConflicts.length === 0 && (
-                  <div className="flex items-center gap-2 rounded-md bg-TT-purple-shade/20 border border-TT-purple-accent/25 px-3 py-2 text-xs text-TT-purple">
-                    <Layers className="h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      Model will be registered across all {chipStatus.total_slots} device slots.
-                    </span>
-                  </div>
-                )}
-
-                {/* No slots available warning */}
-                {chipsRequired === 1 &&
-                  chipStatus.slots.every((s) => s.status === "occupied") && (
-                    <div className="flex items-start gap-2 rounded-md bg-amber-950/40 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span>
-                        All device slots are occupied. Stop a running model to free
-                        up a slot.
-                      </span>
-                    </div>
-                  )}
-              </>
-            )}
-          </div>
-
+      {loadingContainers && containers.length === 0 ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Discovering containers...
         </div>
+      ) : containers.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-2">
+          No unregistered containers found. Make sure a container is running outside
+          tt_studio_network.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {containers.map((c) => (
+            <ContainerRow
+              key={c.id}
+              container={c}
+              catalog={catalog}
+              selected={selected.has(c.id)}
+              onToggle={() => toggle(c.id)}
+              identity={identities[c.id] ?? EMPTY_IDENTITY}
+              onIdentity={(patch) => setIdentity(c.id, patch)}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="flex justify-end pt-2">
         <Button onClick={handleSubmit} disabled={!canSubmit}>
@@ -579,6 +343,8 @@ export default function RegisterModelForm({ onSuccess }: RegisterModelFormProps)
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Registering...
             </>
+          ) : selected.size > 1 ? (
+            `Register ${selected.size}`
           ) : (
             "Register"
           )}

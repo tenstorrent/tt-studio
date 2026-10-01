@@ -827,8 +827,6 @@ export interface RegisterExternalModelRequest {
   model_type?: string;
   model_name?: string;
   hf_model_id?: string;
-  device_id?: number;
-  chips_required?: number;
 }
 
 export interface RegisterExternalModelResponse {
