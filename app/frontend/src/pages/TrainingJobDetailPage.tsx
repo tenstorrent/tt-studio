@@ -178,6 +178,9 @@ export default function TrainingJobDetailPage() {
   const [cancelRequested, setCancelRequested] = useState(false);
   // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
   const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+  // Checkpoint whose promoted (merged) models are being deleted.
+  const [deletingCkptId, setDeletingCkptId] = useState<string | null>(null);
   // Per-checkpoint merge outcome, surfaced inline next to the Promote button.
   const [mergeStatus, setMergeStatus] = useState<
     Record<string, { status: string; message?: string }>
@@ -380,17 +383,20 @@ export default function TrainingJobDetailPage() {
 
   const handleDeleteJob = async () => {
     if (!jobId) return;
+    setDeletingJob(true);
     try {
       await deleteTrainingJob(jobId);
       customToast.success("Fine-tuning job deleted");
       navigate("/training");
     } catch (err) {
+      setDeletingJob(false);
       customToast.error(getApiErrorMessage(err, "Failed to delete job"));
     }
   };
 
   // Removes every merge of the checkpoint, so it can be promoted again from scratch.
   const handleDeleteMerged = async (ckptId: string) => {
+    setDeletingCkptId(ckptId);
     try {
       for (const mergeId of mergeIdsByCkpt[ckptId] ?? []) {
         await deleteMergedModel(mergeId);
@@ -406,7 +412,9 @@ export default function TrainingJobDetailPage() {
         getApiErrorMessage(err, "Failed to delete promoted model"),
       );
     } finally {
-      loadAll();
+      // Keep the spinner until the refresh drops the deleted model's button.
+      await loadAll();
+      setDeletingCkptId(null);
     }
   };
 
@@ -470,9 +478,13 @@ export default function TrainingJobDetailPage() {
                 confirmText="Delete"
                 onConfirm={handleDeleteJob}
                 alertTrigger={
-                  <Button variant="destructive" size="sm">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete Job
+                  <Button variant="destructive" size="sm" disabled={deletingJob}>
+                    {deletingJob ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {deletingJob ? "Deleting..." : "Delete Job"}
                   </Button>
                 }
               />
@@ -909,10 +921,18 @@ export default function TrainingJobDetailPage() {
                                       <Button
                                         variant="ghost"
                                         size="sm"
-                                        disabled={promotingCkptId !== null}
+                                        disabled={
+                                          promotingCkptId !== null ||
+                                          deletingCkptId !== null
+                                        }
                                         title="Delete promoted model"
                                       >
-                                        <Trash2 className="h-3 w-3" />
+                                        {deletingCkptId === ckpt.id ? (
+                                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3 w-3" />
+                                        )}
+                                        {deletingCkptId === ckpt.id && "Deleting…"}
                                       </Button>
                                     }
                                   />
@@ -921,7 +941,10 @@ export default function TrainingJobDetailPage() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handlePromote(ckpt.id)}
-                                  disabled={promotingCkptId !== null}
+                                  disabled={
+                                    promotingCkptId !== null ||
+                                    deletingCkptId === ckpt.id
+                                  }
                                   title="Merge this adapter into its base model so it can be deployed for inference"
                                 >
                                   {promotingCkptId === ckpt.id ? (
