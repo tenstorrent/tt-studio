@@ -88,7 +88,9 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
 
 `.env` lives at the repo root, auto-created from `.env.default`. Key vars:
 `HF_TOKEN` (gated model downloads), `JWT_SECRET`, `DJANGO_SECRET_KEY`,
-`TAVILY_API_KEY` (agent search), `TT_INFERENCE_ARTIFACT_VERSION`, and the
+`TAVILY_API_KEY` (agent search), `TT_MODEL_SUPPORT_URL` (tt-cli model support
+spec the catalog syncs from; its release is the default inference-server
+build), `TT_INFERENCE_ARTIFACT_VERSION`/`_BRANCH` (override that build), and the
 `CLOUD_*` endpoint/token vars used for deployed/remote-endpoint mode
 (`VITE_ENABLE_DEPLOYED=true`).
 
