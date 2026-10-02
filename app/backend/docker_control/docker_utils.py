@@ -19,7 +19,7 @@ import requests
 from board_control.services import SystemResourceService
 from django.core.cache import caches
 from shared_config.backend_config import backend_config
-from shared_config.coding_agent_config import is_coding_agent_eligible
+from shared_config.coding_agent_config import has_thinking_toggle, is_coding_agent_eligible
 from shared_config.device_config import DeviceConfigurations
 from shared_config.community_model_config import community_impl_from_deployment
 from shared_config.external_model_config import build_external_model_impl
@@ -1765,6 +1765,7 @@ def serialize_canonical_entry_for_http(entry):
     model_impl = entry.get("model_impl")
     # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)
     out["coding_agent_eligible"] = is_coding_agent_eligible(model_impl)
+    out["thinking_toggle"] = model_impl is not None and has_thinking_toggle(model_impl)
     if model_impl is None:
         out["model_impl"] = None
         out.setdefault("model_type", None)

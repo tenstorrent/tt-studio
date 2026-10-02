@@ -46,6 +46,8 @@ export interface DeployedModelInfo {
   health_url?: string;
   max_model_len?: number | null;
   tool_calling_enabled?: boolean;
+  /** True when the model's thinking mode can be switched per request. */
+  thinking_toggle?: boolean;
   /** Set when deployed with merged fine-tuned (LoRA) weights; enables completion/template testing mode in chat. */
   host_weights_dir?: string | null;
   model_impl?: {
@@ -762,6 +764,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
         health_url: modelData.health_url,
         max_model_len: modelData.max_model_len ?? null,
         tool_calling_enabled: modelData.tool_calling_enabled ?? false,
+        thinking_toggle: modelData.thinking_toggle ?? false,
         host_weights_dir: modelData.host_weights_dir ?? null,
         model_impl: modelData.model_impl,
       })
