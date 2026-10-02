@@ -1,6 +1,6 @@
 Django==5.2.17
 django-cors-headers==4.7.0
-djangorestframework==3.16.1
+djangorestframework==3.17.2
 docker==7.0.0
 gunicorn==22.0.0
 httpx==0.27.0
