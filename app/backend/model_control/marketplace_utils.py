@@ -280,10 +280,10 @@ def deployed_model_names() -> List[str]:
 
     names: List[str] = []
     for _, entry in _running_coding_agent_deploys():
-        model_name = getattr(entry.get("model_impl"), "model_name", None)
-        if not model_name:
+        impl = entry.get("model_impl")
+        if not getattr(impl, "model_name", None):
             continue
-        names.extend(n for n in get_gateway_model_names(model_name) if n not in names)
+        names.extend(n for n in get_gateway_model_names(impl) if n not in names)
     return names
 
 

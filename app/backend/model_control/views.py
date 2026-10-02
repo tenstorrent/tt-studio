@@ -573,6 +573,10 @@ class DeployedModelsView(APIView):
         )
 
         canonical = get_canonical_deployments()
+        context_windows = {
+            con_id: cached.get("max_model_len")
+            for con_id, cached in get_deploy_cache().items()
+        }
         deployed_data = {}
         for con_id, entry in canonical.items():
             if entry.get("source") != "managed":
@@ -582,6 +586,7 @@ class DeployedModelsView(APIView):
             if entry.get("model_impl") is None:
                 continue
             serialized = serialize_canonical_entry_for_http(entry)
+            serialized["max_model_len"] = context_windows.get(con_id)
             # Existing consumers don't expect these internal markers.
             serialized.pop("source", None)
             serialized.pop("is_pending", None)
@@ -2008,11 +2013,13 @@ class OpenAIChatCompletionsView(View):
 
         # Reasoning models are exposed as both "<name>" and "<name>-thinking";
         # both resolve to the same deployment but flip vLLM's enable_thinking flag.
-        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
-        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
+        requested_model = data.get("model")
+        deploy, enable_thinking = await asyncio.to_thread(
+            resolve_thinking_variant, requested_model, _resolve_deploy_by_model_name
+        )
         if deploy is None:
             return JsonResponse(
-                {"error": {"message": f"No running model named '{base_model}'.",
+                {"error": {"message": f"No running model named '{requested_model}'.",
                            "type": "model_not_found"}},
                 status=404,
             )
@@ -2086,10 +2093,10 @@ class OpenAIModelsView(APIView):
         seen = set()
         data = []
         for _, entry in _running_coding_agent_deploys():
-            name = getattr(entry.get("model_impl"), "model_name", None)
-            if not name:
+            impl = entry.get("model_impl")
+            if not getattr(impl, "model_name", None):
                 continue
-            for exposed in get_gateway_model_names(name):
+            for exposed in get_gateway_model_names(impl):
                 if exposed in seen:
                     continue
                 seen.add(exposed)
@@ -2273,7 +2280,7 @@ class CodingAgentsView(APIView):
                 getattr(impl, "param_count", None)
             )
             max_tokens = max(1, context_window * 3 // 4)
-            for exposed in get_gateway_model_names(name):
+            for exposed in get_gateway_model_names(impl):
                 if exposed in seen:
                     continue
                 seen.add(exposed)

@@ -67,27 +67,41 @@ def get_reasoning_parser(model_name) -> str | None:
     return None
 
 
-def has_thinking_toggle(model_name) -> bool:
-    """True for coding-agent models whose thinking mode can be toggled per request."""
-    return model_name in CODING_AGENT_ELIGIBLE_MODELS and get_reasoning_parser(model_name) is not None
+def has_thinking_toggle(model_impl) -> bool:
+    """True for coding-agent models whose thinking mode can be toggled per request.
+
+    A community bundle declares its reasoning parser in the manifest; a catalog
+    model is allowlisted by name and takes the parser the catalog records.
+    """
+    if getattr(model_impl, "is_community", False):
+        return bool(model_impl.reasoning_parser)
+    name = getattr(model_impl, "model_name", None)
+    return name in CODING_AGENT_ELIGIBLE_MODELS and get_reasoning_parser(name) is not None
 
 
-def get_gateway_model_names(model_name) -> list[str]:
+def get_gateway_model_names(model_impl) -> list[str]:
     """
         Return the names a model is exposed under to coding agents: the plain name, plus a
         "-thinking" variant for reasoning models.
     """
-    if has_thinking_toggle(model_name):
-        return [model_name, model_name + THINKING_SUFFIX]
-    return [model_name]
+    name = model_impl.model_name
+    if has_thinking_toggle(model_impl):
+        return [name, name + THINKING_SUFFIX]
+    return [name]
 
 
-def resolve_thinking_variant(requested_model):
-    """Map a requested gateway model name to (base_name, enable_thinking)."""
+def resolve_thinking_variant(requested_model, find_deploy):
+    """Map a requested gateway model name to (deploy, enable_thinking).
+
+    `find_deploy` looks up a running deployment by model name. enable_thinking is
+    None when the model has no thinking toggle, and deploy is None when nothing runs.
+    """
+    deploy = find_deploy(requested_model)
+    if deploy is not None:
+        toggle = has_thinking_toggle(deploy["model_impl"])
+        return deploy, False if toggle else None
     if requested_model and requested_model.endswith(THINKING_SUFFIX):
-        base = requested_model[: -len(THINKING_SUFFIX)]
-        if has_thinking_toggle(base):
-            return base, True
-    if has_thinking_toggle(requested_model):
-        return requested_model, False
-    return requested_model, None
+        deploy = find_deploy(requested_model[: -len(THINKING_SUFFIX)])
+        if deploy is not None and has_thinking_toggle(deploy["model_impl"]):
+            return deploy, True
+    return None, None

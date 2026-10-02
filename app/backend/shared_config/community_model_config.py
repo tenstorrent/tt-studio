@@ -284,6 +284,7 @@ def community_impl_from_deployment(deployment) -> Optional[CommunityModelImpl]:
         service_port=getattr(deployment, "port", None) or 7000,
         hf_model_id=getattr(deployment, "hf_model_id", None),
         tool_calling_enabled=bool(getattr(deployment, "tool_calling_enabled", False)),
+        reasoning_parser=getattr(deployment, "reasoning_parser", None),
         chips_required=len(getattr(deployment, "device_ids", None) or [0]),
         arch=getattr(deployment, "device", None) or None,
         author=repo_id.split("/")[0] if "/" in repo_id else None,

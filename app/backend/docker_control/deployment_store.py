@@ -211,6 +211,7 @@ class _Manager:
                 "service_route": kwargs.get("service_route", None),
                 "host_weights_dir": kwargs.get("host_weights_dir", None),
                 "community_model_id": kwargs.get("community_model_id", None),
+                "reasoning_parser": kwargs.get("reasoning_parser", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -275,6 +276,9 @@ class ModelDeployment:
         # (bundle + profile). It is what lets the community launcher stop the
         # right bundle, and what marks the record's source as community.
         self.community_model_id: Optional[str] = None
+        # Community deployments only: the manifest's reasoning parser, which decides
+        # whether the gateway offers a thinking toggle for the model.
+        self.reasoning_parser: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -306,6 +310,7 @@ class ModelDeployment:
         obj.hf_model_id = d.get("hf_model_id")
         obj.host_weights_dir = d.get("host_weights_dir")
         obj.community_model_id = d.get("community_model_id")
+        obj.reasoning_parser = d.get("reasoning_parser")
         return obj
 
     def _to_dict(self) -> dict:
@@ -333,6 +338,7 @@ class ModelDeployment:
             "service_route": self.service_route,
             "host_weights_dir": self.host_weights_dir,
             "community_model_id": self.community_model_id,
+            "reasoning_parser": self.reasoning_parser,
         }
 
     def save(self) -> None:

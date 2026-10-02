@@ -225,6 +225,7 @@ def _create_placeholder(impl, job_id, device_id, device_ids, service_port):
             hf_model_id=impl.hf_model_id,
             service_route=impl.service_route,
             community_model_id=impl.model_id,
+            reasoning_parser=impl.reasoning_parser,
         )
     except Exception as e:
         logger.warning(
