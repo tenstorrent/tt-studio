@@ -13,9 +13,17 @@ them DIFFERENT values: fixtures where impl_id == impl_name cannot tell a correct
 implementation from one that returns impl_id.
 """
 
+import json
+import tempfile
+from pathlib import Path
+
 from django.test import SimpleTestCase
 
-from shared_config.model_config import _impl_selector
+from shared_config.model_config import (
+    _impl_selector,
+    load_model_implementations_from_json,
+    register_model_implementations,
+)
 
 
 class ImplSelectorTests(SimpleTestCase):
@@ -53,3 +61,77 @@ class ImplSelectorTests(SimpleTestCase):
         """Coercion at a trust boundary: never hand a non-string to the server."""
         self.assertIsNone(_impl_selector({"impl_name": 7, "impl_id": ["a"]}))
         self.assertIsNone(_impl_selector(7))
+
+
+def _catalog_row(model_name, engine, *, model_type="CHAT", version="1.0.0", **extra):
+    return {
+        "model_name": model_name,
+        "model_type": model_type,
+        "inference_engine": engine,
+        "hf_model_id": f"org/{model_name}",
+        "device_configurations": ["N150"],
+        "docker_image": f"ghcr.io/x/{engine}:{version}",
+        "service_route": "/v1/chat/completions",
+        "version": version,
+        **extra,
+    }
+
+
+class CrossEngineModelIdTests(SimpleTestCase):
+    """normalize() emits one catalog row per engine, so a model_name can appear
+    twice (vLLM CHAT + forge TRAINING "Llama-3.1-8B-Instruct"). The default
+    model_id must be engine-aware or same-version rows collide and the
+    module-level registration raises on import."""
+
+    def _load(self, rows):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "catalog.json"
+            path.write_text(json.dumps({"models": rows}))
+            return load_model_implementations_from_json(path)
+
+    def test_same_version_cross_engine_rows_get_distinct_ids(self):
+        impls = self._load([
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM", impl="tt-transformers"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING",
+                         impl="trainer-training-lora"),
+        ])
+
+        ids = {impl.inference_engine: impl.model_id for impl in impls}
+        self.assertEqual(ids, {
+            "vLLM": "id_tt-metal-Llama-3.1-8B-Instruct-vllm-v1.0.0",
+            "forge": "id_tt-metal-Llama-3.1-8B-Instruct-forge-v1.0.0",
+        })
+        registry = register_model_implementations(impls)
+        self.assertEqual(len(registry), 2)
+
+    def test_single_engine_model_keeps_legacy_id(self):
+        """Ids name the volume_{model_id} dir holding a model's weights, so
+        models with no cross-engine sibling must keep their existing id."""
+        impls = self._load([
+            _catalog_row("Qwen3-8B", "vLLM"),
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING"),
+        ])
+
+        qwen = next(impl for impl in impls if impl.model_name == "Qwen3-8B")
+        self.assertEqual(qwen.model_id, "id_tt-metal-Qwen3-8B-v1.0.0")
+
+    def test_unavailable_sibling_still_scopes_the_id(self):
+        """Hiding one engine's row must not flip the other row's model_id."""
+        impls = self._load([
+            _catalog_row("Llama-3.2-3B", "vLLM"),
+            _catalog_row("Llama-3.2-3B", "forge", model_type="TRAINING",
+                         available_in_studio=False, unavailable_reason="known_broken"),
+        ])
+
+        self.assertEqual([impl.model_id for impl in impls],
+                         ["id_tt-metal-Llama-3.2-3B-vllm-v1.0.0"])
+
+    def test_same_engine_duplicate_still_fails_loudly(self):
+        impls = self._load([
+            _catalog_row("Qwen3-8B", "vLLM"),
+            _catalog_row("Qwen3-8B", "vLLM"),
+        ])
+
+        with self.assertRaisesRegex(ValueError, "Duplicate model_id"):
+            register_model_implementations(impls)

@@ -113,6 +113,12 @@ class ModelImpl:
     # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
     # files and populate this, and docker_utils.run_container, which consumes it.
     runtime_model_spec_overrides: Optional[Dict[str, str]] = None
+    # Set when the catalog carries this model_name under more than one engine
+    # (vLLM CHAT + forge TRAINING "Llama-3.1-8B-Instruct"). The default model_id
+    # then includes the engine so the rows can't collide when their versions
+    # match. Off for every other model so existing ids, and the volume_{model_id}
+    # dirs that hold their weights, stay unchanged.
+    engine_scoped_model_id: bool = False
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -233,6 +239,9 @@ class ModelImpl:
             logger.info(f"model_name:={self.model_name} does not have a hf_model_id set")
 
     def get_default_model_id(self):
+        if self.engine_scoped_model_id:
+            engine = (self.inference_engine or "").lower()
+            return f"id_{self.impl_id}-{self.model_name}-{engine}-v{self.version}"
         return f"id_{self.impl_id}-{self.model_name}-v{self.version}"
         
     def get_model_env_file(self):
@@ -341,6 +350,13 @@ _CATALOG_DEVICE_MAP = {
 def load_model_implementations_from_json(json_path: Path) -> list:
     with open(json_path) as f:
         catalog = json.load(f)
+    # Counted over every row, unavailable ones included, so toggling a row's
+    # availability doesn't change its same-named sibling's model_id.
+    engines_by_name: Dict[str, Set[str]] = {}
+    for entry in catalog["models"]:
+        engines_by_name.setdefault(entry["model_name"], set()).add(
+            (entry.get("inference_engine") or "vllm").lower()
+        )
     impls = []
     for entry in catalog["models"]:
         # Models the catalog marks unavailable are not offered for deploy. The
@@ -399,6 +415,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
             runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
+            engine_scoped_model_id=len(engines_by_name[entry["model_name"]]) > 1,
         )
         impls.append(impl)
     return impls
@@ -470,22 +487,28 @@ def validate_model_implemenation_config(impl):
 # Build final model_implmentations dict
 # ---------------------------------------------------------------------------
 
+def register_model_implementations(impls) -> dict:
+    registry = {}
+    for impl in impls:
+        validate_model_implemenation_config(impl)
+        # Cross-engine rows get engine-scoped ids (see engine_scoped_model_id), so a
+        # duplicate here means a genuine same-name, same-engine, same-version clash.
+        # Fail loudly instead of silently overwriting.
+        if impl.model_id in registry:
+            existing = registry[impl.model_id]
+            raise ValueError(
+                f"Duplicate model_id '{impl.model_id}': "
+                f"'{existing.model_name}' ({existing.inference_engine}) and "
+                f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+                "Give them different versions or model_ids."
+            )
+        registry[impl.model_id] = impl
+    return registry
+
+
 _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 
-model_implmentations = {}
-for impl in _json_impls + _hardcoded_impls:
-    validate_model_implemenation_config(impl)
-    # model_id omits the engine, so same-name cross-engine rows collide unless
-    # their versions differ. Fail loudly instead of silently overwriting.
-    if impl.model_id in model_implmentations:
-        existing = model_implmentations[impl.model_id]
-        raise ValueError(
-            f"Duplicate model_id '{impl.model_id}': "
-            f"'{existing.model_name}' ({existing.inference_engine}) and "
-            f"'{impl.model_name}' ({impl.inference_engine}) collide. "
-            "Give them different versions or model_ids."
-        )
-    model_implmentations[impl.model_id] = impl
+model_implmentations = register_model_implementations(_json_impls + _hardcoded_impls)
 
 
 # ---------------------------------------------------------------------------
