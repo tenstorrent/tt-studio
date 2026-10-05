@@ -2967,11 +2967,14 @@ class RegisterExternalModelView(APIView):
                     "for monitoring only — no chat/TTS page will be offered."
                 )
 
-            # Record if the model was launched with tool-calling capability and
-            # warn when a tool-capable model was launched without tool-calling capability.
+            # Record whether the container was launched with tool-calling support.
+            # The container's own launch flags are authoritative: a model family we
+            # have no parser mapping for can still be served with tool calling if
+            # the user passed the flags themselves. Only warn (with the flags to
+            # add) when we know the right parser and the container lacks it.
             launch_flags = tool_calling_launch_flags(model_name, hf_model_id or "")
             container_has_tools = _container_has_tool_calling(container_info)
-            tool_calling_enabled = launch_flags is not None and container_has_tools
+            tool_calling_enabled = container_has_tools
             if launch_flags is not None and not container_has_tools:
                 corrections.append(
                     "This container was started without vLLM tool-calling support, so "
