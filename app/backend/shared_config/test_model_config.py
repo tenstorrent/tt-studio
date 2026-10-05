@@ -102,6 +102,18 @@ class TrainingModelIdTests(SimpleTestCase):
         registry = register_model_implementations(impls)
         self.assertEqual(len(registry), 2)
 
+    def test_training_and_chat_containers_get_distinct_names(self):
+        impls = self._load([
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING"),
+        ])
+
+        names = {impl.inference_engine: impl.deployment_container_name for impl in impls}
+        self.assertEqual(names, {
+            "vLLM": "Llama-3.1-8B-Instruct",
+            "forge": "Llama-3.1-8B-Instruct-training",
+        })
+
     def test_non_training_models_keep_legacy_id(self):
         """Ids name the volume_{model_id} dir holding a model's weights."""
         impls = self._load([

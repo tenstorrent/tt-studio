@@ -195,6 +195,14 @@ class ModelImpl:
         return self.image_name.split("/")[-1]
 
     @property
+    def deployment_container_name(self) -> str:
+        # Mirrors get_default_model_id() so a training container doesn't fight a
+        # chat container of the same model_name for one Docker name.
+        if self.model_type == ModelTypes.TRAINING:
+            return f"{self.model_name}-training"
+        return self.model_name
+
+    @property
     def host_path(self) -> Path:
         return Path(backend_config.host_peristent_storage_volume).joinpath(
             self.volume_name
