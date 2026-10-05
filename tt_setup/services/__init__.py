@@ -34,7 +34,6 @@ from tt_setup.services._health import (
     wait_for_service_health,
 )
 from tt_setup.services._fastapi import (
-    apply_media_catalog_env_overlay,
     cleanup_fastapi_server,
     setup_fastapi_environment,
     start_fastapi_server,
@@ -52,7 +51,7 @@ __all__ = [
     "diagnose_service_log", "read_log_tail", "report_service_failure",
     "probe_service", "snapshot_health", "wait_for_service_health", "wait_for_all_services",
     "wait_for_frontend_and_open_browser", "get_frontend_config",
-    "setup_fastapi_environment", "apply_media_catalog_env_overlay", "start_fastapi_server",
+    "setup_fastapi_environment", "start_fastapi_server",
     "cleanup_fastapi_server", "start_docker_control_service", "cleanup_docker_control_service",
     "ensure_frontend_dependencies", "is_valid_git_repo",
 ]
