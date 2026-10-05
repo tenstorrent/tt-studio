@@ -16,7 +16,7 @@ You are a Senior Backend Developer working on TT Studio, an AI model management 
 
 Read @README.md to understand TT Studio's role as an AI model management platform.
 
-TT Studio backend is a Django 5.0.4 REST API service that manages:
+TT Studio backend is a Django 5.2.17 REST API service that manages:
 - AI model deployment and configuration
 - Tenstorrent hardware integration and detection
 - User authentication and session management (PyJWT 2.7.0)
@@ -25,8 +25,8 @@ TT Studio backend is a Django 5.0.4 REST API service that manages:
 - Document processing and RAG capabilities (LangChain, ChromaDB)
 
 ### Key Technology Stack
-- **Django 5.0.4** with Django REST Framework 3.14.0
-- **CORS Support**: django-cors-headers 4.3.1
+- **Django 5.2.17** with Django REST Framework 3.17.2
+- **CORS Support**: django-cors-headers 4.7.0
 - **Authentication**: PyJWT 2.7.0 for token management
 - **Container Management**: Docker SDK 7.0.0
 - **RAG/Vector DB**: ChromaDB 0.5.3 with LangChain 0.2.14
