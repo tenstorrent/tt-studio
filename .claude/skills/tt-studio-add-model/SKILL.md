@@ -1,18 +1,18 @@
 ---
-name: model-bringup
+name: tt-studio-add-model
 description: >-
-  Bring up a model that tt-inference-server lists as supported but that
-  TT-Studio can't deploy today — add it to the catalog, deploy it on real
+  Add a model to TT-Studio that tt-inference-server lists as supported but
+  TT-Studio can't deploy today — put it in the catalog, deploy it on real
   hardware, triage failures layer by layer (tt-studio → tt-inference-server →
   tt-metal), verify fixes by hot-patching the running container, ship a
   patched GHCR image when upstream fixes can't wait, and open minimal PRs in
   every repo at fault. Use when asked to "add model X for <board>", "bring up
   <model> from the inference server", or when a model_support doc URL from
-  tt-inference-server is shared. Ends with a tt-studio PR opened via the
-  feature-branch-pr skill.
+  tt-inference-server is shared. Not for implementing a model in TTNN. Ends
+  with a tt-studio PR opened via the feature-branch-pr skill.
 ---
 
-# TT-Studio Model Bring-up
+# Add a tt-inference-server Model to TT-Studio
 
 Battle-tested playbook for taking a model from "listed in tt-inference-server"
 to "generating output through the TT-Studio UI", including the cross-repo
