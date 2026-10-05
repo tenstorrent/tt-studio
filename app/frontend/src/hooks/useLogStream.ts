@@ -111,7 +111,7 @@ export function useLogStream(
             case "service_unavailable":
               setError(
                 data.message ||
-                  "The docker-control-service is not running. Start it on port 8002 and retry."
+                  "The docker-control-service container is not healthy. Restart TT-Studio and retry."
               );
               setLoading(false);
               if (eventSourceRef.current) {

@@ -41,6 +41,9 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
+DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE = os.path.join(
+    TT_STUDIO_ROOT, "app", "docker-compose.skip-docker-control.yml"
+)
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
 # Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
@@ -64,6 +67,11 @@ FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
 MODEL_RUN_LOG_FILE = os.path.join(LOGS_DIR, "model_run.log")
 MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
+# Docker Control runs as an internal Compose service.  Keep the explicit
+# container name stable so lifecycle/health tooling can inspect it without
+# relying on Compose's project-name suffixes.
+DOCKER_CONTROL_CONTAINER_NAME = "tt_studio_docker_control"
+DOCKER_CONTROL_INTERNAL_URL = "http://docker-control:8002"
 DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 # Previous instances' logs, archived per restart the same way model_run_logs/
