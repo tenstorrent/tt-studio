@@ -3,27 +3,43 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal, time, re
 import copy
+import json
+import os
+import re
+import signal
+import socket
+import subprocess
+import threading
+import time
 from pathlib import Path
+from typing import Optional
 
 import requests
-from django.core.cache import caches
-
-from shared_config.device_config import DeviceConfigurations
-from shared_config.logger_config import get_logger
-from shared_config.model_config import model_implmentations, _impl_selector
-from shared_config.backend_config import backend_config
-from shared_config.model_type_config import ModelTypes
-from shared_config.user_config import get_tavily_api_key
-from shared_config.coding_agent_config import is_coding_agent_eligible
 from board_control.services import SystemResourceService
-from docker_control.models import ModelDeployment
+from django.core.cache import caches
+from shared_config.backend_config import backend_config
+from shared_config.coding_agent_config import is_coding_agent_eligible
+from shared_config.device_config import DeviceConfigurations
+from shared_config.external_model_config import build_external_model_impl
+from shared_config.logger_config import get_logger
+from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_overrides import (
+    MEDIA_IMAGE_OVERRIDES as _MEDIA_IMAGE_OVERRIDES,
+    TRACE_REGION_OVERRIDES as _TRACE_REGION_OVERRIDES,
+    VLLM_MESH_SPEC_FALLBACK as _VLLM_MESH_SPEC_FALLBACK,
+)
+from shared_config.model_type_config import ModelTypes
+from docker_control.artifact_resolution import (
+    resolve_artifact_ref,
+    resolve_override_docker_image,
+    training_image_override,
+)
 from docker_control.docker_control_client import (
     get_docker_client,
     is_service_unreachable,
 )
-
+from docker_control.models import ModelDeployment
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
 logger = get_logger(__name__)
@@ -33,6 +49,33 @@ logger.info(f"importing {__name__}")
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 FASTAPI_BASE_URL = backend_config.tt_inference_api_url
+
+# Shared host-volume subdirectory (under the TT-Studio persistent volume) that
+# training deploys bind-mount via --host-volume. 
+TRAINING_HOST_VOLUME_SUBDIR = "training_volume"
+
+
+def get_training_host_volume() -> str:
+    """
+    Host path passed to run.py as --host-volume for training deploys.
+    """
+    internal_dir = os.path.join(
+        backend_config.persistent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
+    if not os.path.isdir(internal_dir):
+        try:
+            os.makedirs(internal_dir, exist_ok=True)
+            # Dir is created root-owned, but the host user (run.py) and container
+            # (uid 1000) also write here. Sticky world-writable 01777 lets both
+            # write while blocking cross-user deletes.
+            os.chmod(internal_dir, 0o1777)
+        except OSError as e:
+            logger.warning(
+                "Could not create training host-volume dir %s: %s", internal_dir, e
+            )
+    return os.path.join(
+        backend_config.host_peristent_storage_volume, TRAINING_HOST_VOLUME_SUBDIR
+    )
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -276,6 +319,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
+                    model_id=impl.model_id,
                     device=f"device_{device_id}",
                     device_id=deployment_device_ids[0],
                     device_ids=deployment_device_ids,
@@ -303,26 +347,110 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def infer_inference_server_device(impl, board_type=None):
+def _supported_devices(impl):
+    """Inference-server device names this model declares a model_spec for."""
+    return {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
+
+
+def _vllm_mesh_fallback_allowed(impl):
+    """True for vLLM chat models; media/forge pin to one board topology."""
+    engine = getattr(impl, "inference_engine", None)
+    if engine:
+        return str(engine).lower() == "vllm"
+    return impl.model_type == ModelTypes.CHAT
+
+
+def equivalent_mesh_device(impl, device):
+    """For vLLM, swap `device` for the other four-chip Blackhole spec if needed.
+
+    Returns `device` untouched when the model already declares it, when the
+    engine is not vLLM, or when no fallback spec exists. Media models such as
+    FLUX keep the board's own name even if they only list the other mesh.
+    """
+    if not _vllm_mesh_fallback_allowed(impl):
+        return device
+    supported = _supported_devices(impl)
+    if device in supported:
+        return device
+    for alt in _VLLM_MESH_SPEC_FALLBACK.get(device, ()):
+        if alt in supported:
+            logger.info(
+                f"{impl.model_name}: no '{device}' vLLM model_spec; using "
+                f"'{alt}' (four-chip Blackhole mesh fallback)"
+            )
+            return alt
+    return device
+
+
+def vllm_mesh_fallback_fits(impl, board_type):
+    """True when a vLLM model has no native spec for `board_type` but does for
+    the other four-chip Blackhole mesh, so the catalog can still offer it."""
+    if not _vllm_mesh_fallback_allowed(impl):
+        return False
+    board_device = map_board_type_to_device_name(board_type)
+    supported = _supported_devices(impl)
+    if board_device in supported:
+        return False
+    return any(alt in supported for alt in _VLLM_MESH_SPEC_FALLBACK.get(board_device, ()))
+
+
+def claims_whole_board(device, board_device):
+    """True when `device` takes every chip: the board's own name or a vLLM fallback."""
+    return device == board_device or device in _VLLM_MESH_SPEC_FALLBACK.get(
+        board_device, ()
+    )
+
+
+def trace_region_override(model_name, device):
+    """Forced trace region size (bytes) for this pair, or None."""
+    size = _TRACE_REGION_OVERRIDES.get((model_name, device))
+    if size:
+        logger.info(f"{model_name} on {device}: forcing trace_region_size {size} B")
+    return size
+
+
+def media_image_override(model_name, device):
+    """Docker image to force for this model/device pair, or None.
+
+    Shared by run_container and the media pre-pull resolver so the image whose
+    download the UI reports progress for is the image the deploy actually runs.
+    """
+    image = _MEDIA_IMAGE_OVERRIDES.get(
+        (model_name, device)
+    ) or _MEDIA_IMAGE_OVERRIDES.get((model_name, "*"))
+    if image:
+        logger.info(f"{model_name} on {device}: pinning docker image {image}")
+    return image
+
+
+def infer_inference_server_device(impl, board_type=None, device_ids=None):
     """The inference-server device name (n150/p300/…) for `impl`. Single source of
     truth shared by run_container and the pre-pull image resolver so they never
-    disagree on which model_spec (and therefore which image) the deploy uses."""
+    disagree on which model_spec (and therefore which image) the deploy uses.
+
+    `device_ids` is accepted for call-site symmetry but no longer affects the
+    result (training is always pinned to a single p150 chip)."""
     from shared_config.model_config import infer_chips_required
     if board_type is None:
         board_type = detect_board_type()
     chips_required = infer_chips_required(impl.device_configurations)
+    board_device = map_board_type_to_device_name(board_type)
     if chips_required == 1:
         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
         # A constituent single-chip device (e.g. p150 on a P300x2 board) is only valid
         # if the model actually declares support for it. Media models like FLUX have no
         # p150 spec — only the whole-board mesh (p300x2). When the single chip isn't a
         # supported device for this model but the whole board is, deploy on the board mesh.
-        supported = {map_board_type_to_device_name(cfg.name) for cfg in impl.device_configurations}
-        board_device = map_board_type_to_device_name(board_type)
+        supported = _supported_devices(impl)
         if device not in supported and board_device in supported:
             device = board_device
     else:
-        device = map_board_type_to_device_name(board_type)
+        device = board_device
+        device = equivalent_mesh_device(impl, device)
+    # LoRA training is single-chip only upstream, so always pin it to one p150
+    # chip.
+    if impl.model_type == ModelTypes.TRAINING and "p150" in _supported_devices(impl):
+        device = "p150"
     # Speech models need a single n150-class chip even on n300-based boards.
     if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
@@ -342,11 +470,41 @@ def deploys_whole_board(impl, board_type=None):
     return infer_inference_server_device(impl, board_type) not in _SINGLE_CHIP_DEVICE_NAMES
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
+
+CUSTOM_WEIGHTS_NAMESPACE = "tt-studio-finetuned"
+
+
+def derive_custom_weights_label(host_weights_dir) -> Optional[str]:
+    """Namespace a merged-checkpoint directory into a --custom-weights label.
+
+    Uniqueness already comes from the directory name (a merge-job uuid4), so this
+    only prefixes the namespace and clamps the charset. The clamp matters because
+    the inference server turns the label's basename into model_name and builds the
+    docker volume name from it — and merged_models/ entries can be renamed by hand.
+    """
+    if not host_weights_dir:
+        return None
+    dir_name = os.path.basename(os.path.normpath(str(host_weights_dir)))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", dir_name)
+    return f"{CUSTOM_WEIGHTS_NAMESPACE}/{safe}"
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True, force_full_board=False, host_weights_dir=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
     For all other model types, uses TT Inference Server API.
+
+    force_full_board: opt-in whole-board mesh deploy for a model whose default is
+    single-chip via a runtime_model_spec_overrides entry (see
+    shared_config.model_config.ModelImpl and
+    sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS), but which
+    also has a genuine, already-working whole-board spec upstream (e.g.
+    Qwen3-Embedding-0.6B/4B and bge-m3 on P300x2, at 4x throughput). Set by
+    docker_control.views.DeployView from the request's force_full_board flag,
+    gated to models it actually applies to. Bypasses the single-chip override
+    entirely: device resolves to the board mesh name, so runtime_model_spec_json
+    is never set below and normal (already-working) spec resolution runs instead.
     """
     # Face recognition bypasses TT Inference Server — deploy via docker-control-service
     if impl.model_type == ModelTypes.FACE_RECOGNITION:
@@ -362,14 +520,31 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # ("t3k"). We use chips_required + board_type to pick the right name.
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
-        chips_required = infer_chips_required(impl.device_configurations)
-        device = infer_inference_server_device(impl, board_type)
+        if force_full_board:
+            chips_required = 4
+            device = map_board_type_to_device_name(board_type)
+        else:
+            chips_required = infer_chips_required(impl.device_configurations)
+            device = infer_inference_server_device(impl, board_type, device_ids=device_id)
+            # Card-pair promotion: a model with a P300 (2-chip) override spec that's
+            # asked for an explicit 2-slot device_id forming one physical P300 card
+            # ((0,1) or (2,3)) runs as that one card, not two independent p150 chips.
+            # Gated on the override existing so this never touches ordinary
+            # single-chip models -- see STUDIO_CHIP_TIER_MODELS.
+            requested_ids = [x.strip() for x in str(device_id).split(",") if x.strip() != ""]
+            if (
+                device == "p150"
+                and board_type == "P300x2"
+                and len(requested_ids) == 2
+                and sorted(int(x) for x in requested_ids) in ([0, 1], [2, 3])
+                and "p300" in {k.lower() for k in (impl.runtime_model_spec_overrides or {})}
+            ):
+                device = "p300"
+                chips_required = 2
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
-            f"(board={board_type}, chips_required={chips_required})"
+            f"(board={board_type}, chips_required={chips_required}, force_full_board={force_full_board})"
         )
-
-        BASE_SERVICE_PORT = 7000
 
         # Create payload for the API call
         payload = {
@@ -379,12 +554,16 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip).
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
-        # single-card deployments; use the first slot for the service port.
+        # single-card deployments; use the first slot for chip pinning below.
         primary_device_id = int(str(device_id).split(",")[0].strip())
-        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
-        service_port = BASE_SERVICE_PORT + primary_device_id
+        service_port = get_next_service_port()
+        if service_port is None:
+            raise RuntimeError(
+                "No free host port available for the model server. "
+                "Stop an unused deployment and try again."
+            )
+        payload["service_port"] = str(service_port)
 
         # Pin to a specific chip slot only for single-chip models. For multi-chip
         # single-card mode (chips_required == 1 with an explicit slot list) this is a
@@ -400,9 +579,29 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if device in _SINGLE_CHIP_DEVICE_NAMES:
             payload["device_id"] = str(device_id)
 
-        # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
-        if impl.model_name == "Qwen3-32B" and device == "p300x2":
-            payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+        # A model with no upstream ModelConfigs entry for this device (e.g. it only
+        # ships a multi-chip mesh spec, but genuinely runs on one chip -- see
+        # sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS) needs a
+        # hand-authored spec file: run.py's own spec resolution hard-rejects an
+        # undeclared (model, device) pair before any override flag ever runs, and
+        # --runtime-model-spec-json is the documented bypass -- it's used as-is, so
+        # override_tt_config below would be silently ignored and is skipped.
+        spec_overrides = {
+            k.lower(): v for k, v in (impl.runtime_model_spec_overrides or {}).items()
+        }
+        spec_path = spec_overrides.get(device)
+        if spec_path:
+            payload["runtime_model_spec_json"] = str(
+                Path(backend_config.host_tt_studio_root) / spec_path
+            )
+            logger.info(f"Using hand-authored runtime model spec for {impl.model_name} on {device}: {spec_path}")
+        else:
+            # The inference server merges override_tt_config over the spec's, key by key.
+            trace_region_size = trace_region_override(impl.model_name, device)
+            if trace_region_size:
+                payload["override_tt_config"] = json.dumps(
+                    {"trace_region_size": trace_region_size}
+                )
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -416,16 +615,43 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # Wan T2V pinned to the 0.17.0 media image: carries the MODEL_WEIGHTS_DIR fix
-        # (#4107) so it uses the mounted host HF cache instead of re-downloading ~118GB.
-        # Pinned explicitly because per-device resolution would otherwise pick older
-        # images on some boards (e.g. 0.10.0-555f240 for Wan on p150x4) that lack the fix.
-        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+        # Training rows deploy whatever image the catalog pins (the server's own
+        # training spec names a locally built tag). Otherwise, some per-device
+        # model_specs resolve to an image too old to serve our requests, so force
+        # the known-good one.
+        pinned_image = training_image_override(impl) or media_image_override(
+            impl.model_name, device
+        )
+        if pinned_image:
+            payload["override_docker_image"] = pinned_image
+
+        # Point this deploy at a per-model tt-inference-server build, when the
+        # catalog pins one, same functionality as the CHAT path (which calls the
+        # same helpers in artifact_resolution.py before start_chat_deployment).
+        #
+        if impl.requires_dev_catalog:
+            if not payload.get("override_docker_image"):
+                dev_image = resolve_override_docker_image(impl)
+                if dev_image:
+                    payload["override_docker_image"] = dev_image
+            artifact_ref = resolve_artifact_ref(impl, device, board_type)
+            if artifact_ref:
+                payload["dev_mode"] = True
+                payload["artifact_ref"] = artifact_ref
+                logger.info(
+                    f"{impl.model_name}: deploying against tt-inference-server "
+                    f"ref '{artifact_ref}' (dev_mode)"
+                )
+            else:
+                payload["dev_mode"] = True
+                logger.info(
+                    f"{impl.model_name}: dev_mode on, no artifact ref for "
+                    f"device='{device}' board='{board_type}'; using pinned artifact"
+                )
 
         # Disambiguate the target model_spec. Some models share a name+device across
-        # engines (e.g. Llama-3.1-8B has both a vLLM chat spec and a forge training
-        # spec on P150); without an impl the server defaults to the wrong engine and
+        # engines (e.g. Llama-3.1-8B-Instruct has both a vLLM chat spec and a forge
+        # training spec); without an impl the server defaults to the wrong engine and
         # pulls the wrong image. `impl.inference_impl` comes from the catalog.
         # The server declares `impl: Optional[str]` and matches it against
         # spec.impl.impl_name, so send the hyphenated impl_name. _impl_selector()
@@ -434,6 +660,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
         if inference_impl:
             payload["impl"] = inference_impl
+
+        if impl.model_type == ModelTypes.TRAINING:
+            payload["host_volume"] = get_training_host_volume()
+        elif host_weights_dir:
+            payload["host_weights_dir"] = host_weights_dir
+            payload["custom_weights"] = derive_custom_weights_label(host_weights_dir)
 
         # Pass UI-managed secrets explicitly. The inference server runs on the host
         # and cannot read user_config.env in the persistent volume when the backend
@@ -494,6 +726,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         container_id=job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=primary_device_id,
                         device_ids=deployment_device_ids,
@@ -516,6 +749,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 "status": "success",
                 "job_id": job_id,
                 "message": "Deployment started",
+                "service_port": service_port,
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"
@@ -549,35 +783,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         error_msg = f"Unexpected error in run_container: {str(e)}"
         logger.error(error_msg)
         return {"status": "error", "message": error_msg}
-
-def run_agent_container(container_name, port_bindings, impl):
-    # runs agent container after associated llm container runs
-    run_kwargs = copy.deepcopy(impl.docker_config)
-    host_agent_port = get_host_agent_port()
-    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
-
-    docker_client = get_docker_client()
-    docker_client.run_container(
-        image='agent_image:v1',
-        command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
-        name=f'ai_agent_container_p{llm_host_port}',
-        network='tt_studio_network',
-        ports={'8080/tcp': host_agent_port},
-        environment={
-            'TAVILY_API_KEY': get_tavily_api_key() or '',
-            'LLM_CONTAINER_NAME': container_name,
-            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
-            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
-        },
-        volumes={
-            backend_config.host_peristent_storage_volume: {
-                "bind": backend_config.persistent_storage_volume,
-                "mode": "ro",
-            },
-        },
-        detach=True
-    )
 
 def stop_container(container_id):
     """Stop and remove a specific docker container"""
@@ -674,19 +879,61 @@ def get_port_mounts(impl, host_port=None):
 def get_host_port(impl):
     # Reserve ports used by TT-Studio services on the host:
     #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
-    # Model containers start at 8003.
+    # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003.
+    # A live scan of used ports (below) means this can never actually collide
+    # with get_next_service_port()'s 20000+ block even though both can grow.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     RESERVED_PORTS = ["8000", "8001", "8002"]
     used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8003
+    BASE_MODEL_PORT = 21003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8003-8102")
+    logger.warning("Could not find an unused port in block: 21003-21102")
     return None
+
+
+_service_port_lock = threading.Lock()
+
+
+def get_next_service_port(start_port=20000, max_tries=1000):
+    """First free host port at/after start_port, across all currently running
+    managed containers and any deployment still starting up.
+
+    Deliberately independent of chip/device_id: a model still needs only one
+    port no matter how many chip slots it occupies, and scanning live usage
+    (rather than deriving the port from a slot number) means a port freed by
+    a stopped deployment gets reused before this ever has to grow past the
+    lowest few ports in the block.
+
+    A deploy's container can take a while to actually start (image pull,
+    etc.), so live Docker port mappings alone would let two near-simultaneous
+    deploys both pick the same free port before either container exists.
+    Also treating any "starting"/"running" ModelDeployment's port as taken
+    closes most of that window; the lock closes the rest (two callers
+    literally scanning at the same instant), though full atomicity would
+    still need the caller's deployment record created inside this same lock.
+    """
+    with _service_port_lock:
+        managed_containers = get_managed_containers()
+        port_mappings = get_port_mappings(managed_containers)
+        used_host_ports = set(get_used_host_ports(port_mappings))
+        in_flight_ports = {
+            str(dep.port)
+            for dep in ModelDeployment.objects.filter(status__in=["starting", "running"])
+            if dep.port is not None
+        }
+        used_host_ports |= in_flight_ports
+        for port in range(start_port, start_port + max_tries):
+            if str(port) not in used_host_ports:
+                return port
+        logger.warning(
+            f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
+        )
+        return None
 
 
 
@@ -699,6 +946,23 @@ def get_managed_containers():
     containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
+
+    # Containers TT Studio was explicitly told about. An externally-registered
+    # container can run an arbitrary image with none of the env vars checked
+    # below (nothing forces it to be a tt-inference-server image), so without
+    # this it never appears in the listing and get_canonical_deployments
+    # reconciles its perfectly healthy record to "stopped".
+    registered_ids, registered_names = set(), set()
+    try:
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            if dep.container_id:
+                registered_ids.add(dep.container_id)
+                registered_ids.add(dep.container_id[:12])
+            if dep.container_name:
+                registered_names.add(dep.container_name)
+    except Exception as e:
+        logger.warning(f"Could not load registered containers: {e}")
+
     managed_containers = []
 
     for container_data in containers_list:
@@ -739,8 +1003,14 @@ def get_managed_containers():
         # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
+        # Method 2: it has an active deployment record (deployed or registered by us)
+        elif (
+            (container.id and (container.id in registered_ids or container.id[:12] in registered_ids))
+            or (container.name and container.name in registered_names)
+        ):
+            managed_containers.append(container)
         else:
-            # Method 2: Check for TT Inference Server containers by environment variables
+            # Method 3: Check for TT Inference Server containers by environment variables
             # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
             env_list = container.attrs.get("Config", {}).get("Env", [])
             if not env_list:
@@ -849,6 +1119,45 @@ def get_container_status():
     return data
 
 
+def _external_model_impl(con_id, con):
+    """Synthetic model_impl for a container registered via Register Model whose
+    model has no catalog entry. Returns None when the container was not
+    externally registered (so callers keep their existing "unmatched" behaviour).
+
+    The identity was derived from the container at registration time and stored on
+    the deployment record, so we don't have to re-inspect the container here.
+    """
+    try:
+        # Match on either id form: registration stores whatever id the caller
+        # passed (usually the short one), the live listing keys on the full one.
+        active = ModelDeployment.objects.filter(
+            device="external", status__in=["running", "starting"]
+        )
+        dep = (
+            active.filter(container_id__in=[con_id, con_id[:12]]).first()
+            or active.filter(container_name=con["name"]).first()
+        )
+    except Exception as e:
+        logger.warning(f"Could not look up external deployment for {con_id}: {e}")
+        return None
+    if dep is None:
+        return None
+
+    impl = build_external_model_impl(
+        model_name=dep.model_name or con["name"],
+        model_type=dep.model_type,
+        hf_model_id=dep.hf_model_id,
+        service_port=dep.port or 20000,
+        tool_calling_enabled=bool(getattr(dep, "tool_calling_enabled", False)),
+        service_route=getattr(dep, "service_route", None),
+    )
+    logger.debug(
+        f"Using external model_impl for '{con['name']}' "
+        f"(type={impl.model_type.value}, not in catalog)"
+    )
+    return impl
+
+
 def _enrich_container_with_model_impl(con, con_id):
     """Resolve ``model_impl`` for a live Docker container and populate the
     derived fields (``model_id``, ``weights_id``, ``model_impl``,
@@ -879,17 +1188,38 @@ def _enrich_container_with_model_impl(con, con_id):
             deployment_found = False
             try:
                 from docker_control.models import ModelDeployment
-                deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                # Match on either id form (records may hold the short id the
+                # caller passed) and fall back to the name. Registration does not
+                # rename the container, so the record is the only link between a
+                # container and the model it serves — this lookup has to be robust.
+                deployment = (
+                    ModelDeployment.objects.filter(
+                        container_id__in=[con_id, con_id[:12]]
+                    ).first()
+                    or ModelDeployment.objects.filter(
+                        container_name=con["name"]
+                    ).first()
+                )
 
                 if deployment:
-                    for _k, v in model_implmentations.items():
-                        if v.model_name == deployment.model_name:
-                            model_impl = v
-                            logger.info(
-                                f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                            )
-                            deployment_found = True
-                            break
+                    # model_name alone is ambiguous when two model specs share a name
+                    # (e.g. the CHAT and TRAINING "Llama-3.1-8B-Instruct")
+                    stored_model_id = getattr(deployment, "model_id", "") or ""
+                    if stored_model_id and stored_model_id in model_implmentations:
+                        model_impl = model_implmentations[stored_model_id]
+                        logger.info(
+                            f"Matched TT Inference Server container to model_impl by id: {model_impl.model_id}"
+                        )
+                        deployment_found = True
+                    if not model_impl:
+                        for _k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(
+                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
+                                )
+                                deployment_found = True
+                                break
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -919,8 +1249,8 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
                         break
 
-                # Fallback: longest-substring match — prevents "Llama-3.1-8B"
-                # winning over "Llama-3.1-8B-Instruct" on the same name.
+                # Fallback: longest-substring match. Can't tell two same-named
+                # specs apart (CHAT vs TRAINING); model_id above is authoritative.
                 if not model_impl:
                     best_match_len = 0
                     for _k, v in model_implmentations.items():
@@ -932,6 +1262,8 @@ def _enrich_container_with_model_impl(con, con_id):
                             f"Matched container by name substring to model_impl: {model_impl.model_name}"
                         )
 
+                if not model_impl:
+                    model_impl = _external_model_impl(con_id, con)
                 if not model_impl:
                     logger.warning(
                         f"Could not match TT Inference Server container {con['name']} to any model_impl."
@@ -949,11 +1281,14 @@ def _enrich_container_with_model_impl(con, con_id):
                     if v.image_version == con["image_name"]
                 ]
             if not candidates:
-                logger.warning(
-                    f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
-                )
-                return False
-            model_impl = candidates[0]
+                model_impl = _external_model_impl(con_id, con)
+                if not model_impl:
+                    logger.warning(
+                        f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
+                    )
+                    return False
+            else:
+                model_impl = candidates[0]
 
     con["model_id"] = model_impl.model_id
     con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
@@ -1214,7 +1549,17 @@ def get_canonical_deployments():
             match_id, match_data = full_id, live_containers[full_id]
         elif short_id and short_id in live_containers:
             match_id, match_data = short_id, live_containers[short_id]
-        elif dep.container_name and dep.container_name in live_by_name:
+        elif (
+            dep.container_name
+            and not full_id.startswith("imgpull_")
+            and dep.container_name in live_by_name
+        ):
+            # Name matching exists so a record whose real container_id hasn't been
+            # swapped in yet still resolves to its container. An imgpull_ placeholder
+            # provably has no container — it is created before the image is even
+            # pulled — so a name hit there is a *previous* deploy's container. Treating
+            # it as live marks a genuinely in-flight deploy "not pending", which hides
+            # it from the deployment tray and, on redeploy, from slot accounting.
             match_id, match_data = live_by_name[dep.container_name]
 
         if match_data is not None:
@@ -1230,6 +1575,9 @@ def get_canonical_deployments():
             entry["deployment_model_name"] = dep.model_name
             entry["tool_calling_enabled"] = getattr(dep, "tool_calling_enabled", False)
             entry["jwt_secret"] = getattr(dep, "jwt_secret", None)
+            # Fine-tuned deployments carry the merged-weights dir; the chat UI keys
+            # its completion/template testing mode off this being set.
+            entry["host_weights_dir"] = getattr(dep, "host_weights_dir", None)
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
@@ -1239,10 +1587,18 @@ def get_canonical_deployments():
         # No live container — placeholder window or ghost?
         if dep.status == "starting" and dep.deployed_at is not None:
             age = (now_utc - dep.deployed_at).total_seconds()
-            _impl = next(
-                (v for v in model_implmentations.values() if v.model_name == dep.model_name),
-                None,
-            )
+            _stored_model_id = getattr(dep, "model_id", "") or ""
+            if _stored_model_id and _stored_model_id in model_implmentations:
+                _impl_id, _impl = _stored_model_id, model_implmentations[_stored_model_id]
+            else:
+                _impl_id, _impl = next(
+                    (
+                        (k, v)
+                        for k, v in model_implmentations.items()
+                        if v.model_name == dep.model_name
+                    ),
+                    (None, None),
+                )
             _grace = (
                 _CANONICAL_STARTING_GRACE_MEDIA_SECONDS
                 if _impl and getattr(_impl, "inference_engine", None) == "media"
@@ -1263,7 +1619,10 @@ def get_canonical_deployments():
                     "device_ids": list(getattr(dep, "device_ids", None) or [])
                                   or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
-                    "model_id": None,
+                    # Resolved from model_name so clients can tie an in-flight start
+                    # back to a catalog entry. model_impl stays None: this deployment
+                    # has no container yet, and consumers key "is it deployed?" off it.
+                    "model_id": _impl_id,
                     "weights_id": None,
                     "internal_url": None,
                     "health_url": None,

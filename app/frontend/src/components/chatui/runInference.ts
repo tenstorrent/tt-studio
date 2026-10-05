@@ -48,9 +48,14 @@ export const runInference = async (
     console.log("Uploaded files:", request.files);
     console.log("RAG Datasource:", ragDatasource);
 
+    // Raw completion mode (fine-tuned model template testing): the caller
+    // supplied the exact prompt string, so skip RAG, file handling, and all
+    // chat-message assembly — the prompt goes to /v1/completions verbatim.
+    const completionMode = typeof request.prompt === "string";
+
     let ragContext: { documents: string[] } | null = null;
 
-    if (ragDatasource) {
+    if (ragDatasource && !completionMode) {
       console.log(
         `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
       );
@@ -64,7 +69,10 @@ export const runInference = async (
     }
 
     let messages;
-    if (request.files && request.files.length > 0) {
+    if (completionMode) {
+      // No message assembly — the raw prompt is sent as-is below.
+      messages = undefined;
+    } else if (request.files && request.files.length > 0) {
       const file = processUploadedFiles(request.files);
       console.log("Processed file:", file);
 
@@ -221,12 +229,22 @@ export const runInference = async (
         ...(apiUrlDefined
           ? { model: "meta-llama/Llama-3.3-70B-Instruct" }
           : {}),
-        messages: messages,
+        ...(completionMode
+          ? {
+              prompt: request.prompt,
+              ...(request.stop && request.stop.length > 0
+                ? { stop: request.stop }
+                : {}),
+            }
+          : { messages: messages }),
         temperature: request.temperature,
         top_k: request.top_k,
         top_p: request.top_p,
         max_tokens: request.max_tokens,
         ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
+        ...(request.chat_template_kwargs
+          ? { chat_template_kwargs: request.chat_template_kwargs }
+          : {}),
         stream: true,
         stream_options: {
           include_usage: true,
@@ -439,7 +457,7 @@ export const runInference = async (
           const rawReasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
           const reasoning =
             typeof rawReasoning === "string"
-              ? rawReasoning.replace(/<\/?think>/gi, "")
+              ? rawReasoning.replace(/<\/?(think|thought|reasoning)>/gi, "")
               : null;
 
           if (reasoning && !thinkingDone) {
@@ -454,7 +472,7 @@ export const runInference = async (
           // Regular content tokens
           const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
           const content = rawContent
-            .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
+            .replace(/[[<|]*python_tag[\]>|]*/gi, "")
             .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {
@@ -524,6 +542,18 @@ export const runInference = async (
       }
     } finally {
       reader.releaseLock();
+    }
+
+    // The closing </think> is synthesized when the first content delta arrives,
+    // so a reply that ends while still in the reasoning channel never gets one:
+    // a truncated answer (finish_reason "length"), or a block-diffusion model
+    // like diffusiongemma that emits its whole block as reasoning and no
+    // content. Left open, processContent drops the block and the reply renders
+    // empty, losing the reasoning the model did produce.
+    if (thinkingText && !thinkingDone) {
+      thinkingDone = true;
+      accumulatedText = `<think>${thinkingText}</think>${contentText}`;
+      scheduleUiUpdate();
     }
 
     t.end = performance.now();

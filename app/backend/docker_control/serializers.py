@@ -19,6 +19,7 @@ class DeploymentSerializer(serializers.Serializer):
     device_id = serializers.CharField(required=False, default="0", allow_blank=True)
     host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
     force_full_board = serializers.BooleanField(required=False, default=False)
+    host_weights_dir = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_device_id(self, value):
         parts = str(value).split(",")

@@ -11,6 +11,7 @@ import {
   type HfCheckResult,
   type HfCheckStatus,
 } from "../api/settingsApi";
+import { statusLabel } from "../lib/hfStatus";
 
 interface Props {
   /** Optional token to test before saving; if omitted, server uses the stored token. */
@@ -82,20 +83,8 @@ function StatusIcon({ status }: { status: HfCheckStatus }) {
   );
 }
 
-function statusLabel(r: HfCheckResult): string {
-  switch (r.status) {
-    case "granted":
-      return "Access confirmed";
-    case "denied":
-      return "Access not granted yet";
-    case "auth_failed":
-      return "Token invalid or expired";
-    case "no_token":
-      return "No token saved";
-    default:
-      return `Could not reach Hugging Face${r.http_status ? ` (HTTP ${r.http_status})` : ""}`;
-  }
-}
+
+
 
 export default function HfAccessCheck({ token, onChecked, className }: Props) {
   const [results, setResults] = useState<HfCheckResult[]>(GATED_MODELS_PLACEHOLDER);

@@ -26,6 +26,10 @@ import shlex
 import urllib.request
 import urllib.error
 
+# Force a sane umask so files run.py writes for read-only container bind mounts
+# (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
+os.umask(0o022)
+
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
 # Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default artifact location);
 # otherwise fall back to tt-inference-server/ at repo root (manual local dev checkout).
@@ -264,6 +268,38 @@ except ImportError as e:
         f"Failed to import from tt-inference-server: {e}\n"
         f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
     ) from e
+
+# Media and forge runners read configuration from container environment
+# variables rather than vLLM's additional_config. Preserve the artifact's
+# override merge, then mirror trace_region_size into the env_vars that
+# run_docker_server passes as Docker -e arguments.
+import workflows.model_spec as _model_spec_module  # noqa: E402
+
+_orig_apply_model_spec_overrides = _model_spec_module.ModelSpec.apply_overrides
+
+
+def _patched_apply_model_spec_overrides(self, runtime_config):
+    result = _orig_apply_model_spec_overrides(self, runtime_config)
+    if runtime_config.override_tt_config and self.inference_engine in (
+        "media",
+        "forge",
+    ):
+        trace_region_size = self.device_model_spec.override_tt_config.get(
+            "trace_region_size"
+        )
+        if trace_region_size is not None:
+            object.__setattr__(
+                self,
+                "env_vars",
+                {
+                    **self.env_vars,
+                    "TRACE_REGION_SIZE": str(trace_region_size),
+                },
+            )
+    return result
+
+
+_model_spec_module.ModelSpec.apply_overrides = _patched_apply_model_spec_overrides
 
 # Patch HostSetupManager.check_model_weights_dir to guard against partially-downloaded
 #
@@ -532,6 +568,14 @@ _cancel_lock = threading.Lock()
 _cancelled_jobs: set[str] = set()
 _active_run_job_id: Optional[str] = None
 
+# Concurrent deploys are legitimate — the Voice Agent submits three at once — but
+# run_main() mutates process globals, so only one may execute at a time. A waiting
+# job therefore queues instead of being refused, re-checking this often and
+# publishing its wait as progress so it is never mistaken for a hung deploy.
+_RUN_LOCK_POLL_SECONDS = 2
+# Absolute ceiling on queueing, so a wedged holder cannot strand waiters forever.
+_RUN_LOCK_MAX_WAIT_SECONDS = 2 * 60 * 60
+
 
 def _is_job_cancelled(job_id: str) -> bool:
     with _cancel_lock:
@@ -632,6 +676,14 @@ _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist 
 _WORKFLOW_LOGS_PERMISSION_ERROR_RE = re.compile(r"PermissionError.*workflow_logs")
 # setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
 _HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
+# tqdm counter emitted by `hf download`: "Fetching 32 files:  47%|████▋ | 15/32 [...]".
+_HF_FETCH_FILES_RE = re.compile(
+    r"Fetching\s+\d+\s+files:\s*\d+%\|[^|]*\|\s*(?P<done>\d+)/(?P<total>\d+)"
+)
+# Bar band reserved for the host weights download. It runs from the end of setup to
+# the start of container creation, and on a cold deploy it dominates the wall clock.
+_WEIGHTS_PROGRESS_START = 20
+_WEIGHTS_PROGRESS_END = 60
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
@@ -872,6 +924,92 @@ def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
 
 
+# Kept in sync with tt-media-server's MERGE_INFO_FILE_NAME.
+_MERGE_INFO_FILE_NAME = "merge_info.json"
+
+
+def _is_hf_weights_dir(path: Path) -> bool:
+    """
+    True if *path* looks like a loadable HF checkpoint.
+    """
+    try:
+        if not path.is_dir():
+            return False
+        has_config = (path / "config.json").exists() or (path / "params.json").exists()
+        has_tokenizer = (
+            (path / "tokenizer.json").exists()
+            or (path / "tokenizer_config.json").exists()
+            or (path / "tokenizer.model").exists()
+        )
+        has_weights = bool(list(path.glob("*.safetensors")))
+        return has_config and has_tokenizer and has_weights
+    except OSError:
+        return False
+
+
+def _scan_merged_checkpoints(
+    host_volume: str, hf_model_id: Optional[str] = None
+) -> list[Dict[str, Any]]:
+    """Scan a host-volume root for merged LoRA checkpoints on disk.
+
+    Merged checkpoints produced by the training container land at
+    ``<host_volume>/volume_id_<impl>-<model>-v<ver>/merged_models/<merge_id>/`` with
+    a ``merge_info.json`` sidecar. We read that sidecar directly rather than calling
+    a training-server endpoint, so discovery works even after the training container
+    is gone. When *hf_model_id* is given, only checkpoints merged from that base
+    model are returned.
+    """
+    base = Path(host_volume).expanduser()
+    results: list[Dict[str, Any]] = []
+    if not base.is_dir():
+        return results
+
+    for info_path in base.glob(f"volume_id_*/merged_models/*/{_MERGE_INFO_FILE_NAME}"):
+        merged_dir = info_path.parent
+        try:
+            info = json.loads(info_path.read_text())
+        except PermissionError:
+            # Sidecar exists but is unreadable (merge wrote it 0600 under another
+            # uid). Surface it as invalid-with-reason instead of skipping silently.
+            logging.getLogger(__name__).warning(
+                "Merged checkpoint sidecar unreadable (permission denied): %s",
+                info_path,
+            )
+            results.append(
+                {
+                    "merge_id": merged_dir.name,
+                    "model": None,
+                    "source_job_id": None,
+                    "checkpoint_id": None,
+                    "created_at": None,
+                    "path": str(merged_dir),
+                    "valid": False,
+                    "reason": "unreadable: permission denied",
+                }
+            )
+            continue
+        except (OSError, ValueError):
+            continue
+        if hf_model_id and info.get("model") != hf_model_id:
+            continue
+        results.append(
+            {
+                "merge_id": info.get("merge_id", merged_dir.name),
+                "model": info.get("model"),
+                "source_job_id": info.get("source_job_id"),
+                "checkpoint_id": info.get("checkpoint_id"),
+                "created_at": info.get("created_at"),
+                # Host path, ready to pass straight to --host-weights-dir.
+                "path": str(merged_dir),
+                "valid": _is_hf_weights_dir(merged_dir),
+                "reason": None,
+            }
+        )
+
+    results.sort(key=lambda c: c.get("created_at") or 0, reverse=True)
+    return results
+
+
 # ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
 def _stage_preloaded_version_symlink(model, device, impl, override_dir, root, job_id):
     """Link volume_id_<impl>-<model>-v{model_spec.version} -> the preloaded
@@ -940,6 +1078,38 @@ def _build_retry_argv_and_reason(current_argv: list[str], request: "RunRequest")
     return retry_argv, retry_reason
 
 
+# Lines on a subprocess's stderr that actually indicate a problem. Everything else
+# arriving on stderr (tqdm bars, uv resolve/install output, hf CLI hints) is normal
+# progress and must not be surfaced to the user as an error.
+_SUBPROCESS_ERROR_RE = re.compile(
+    r"(?:^|\W)(?:error|errno|traceback|exception|fatal|critical|"
+    r"failed|failure|cannot|could not|permission denied|no such file)\b",
+    re.IGNORECASE,
+)
+# Progress-bar redraws and package-manager chatter — noisy but always benign.
+_SUBPROCESS_BENIGN_RE = re.compile(
+    r"(\d+%\|)|(\bit/s\b)|(\bs/it\b)|(^\s*\+\s\S+==)|"
+    r"(^(Downloading|Downloaded|Installed|Prepared|Resolved|Using|Creating|Activate|Fetching|Hint:))",
+)
+
+
+def _classify_subprocess_line(
+    line: str, levelno: int, levelname: str
+) -> Tuple[int, str]:
+    """Pick the log level for one line of run.py subprocess output.
+
+    Returns the caller's level unchanged for stdout and for error-shaped stderr;
+    downgrades ordinary stderr progress to INFO.
+    """
+    if levelno < logging.WARNING:
+        return levelno, levelname
+    if _SUBPROCESS_BENIGN_RE.search(line):
+        return logging.INFO, "INFO"
+    if _SUBPROCESS_ERROR_RE.search(line):
+        return levelno, levelname
+    return logging.INFO, "INFO"
+
+
 def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
                                pull_state: Dict[str, int], run_logger: logging.Logger) -> None:
     """Read a dev-mode run.py subprocess's stdout/stderr pipe line by line and feed
@@ -953,8 +1123,15 @@ def _stream_subprocess_to_job(pipe, job_id: str, levelno: int, levelname: str,
             line = line.rstrip("\n")
             if not line:
                 continue
-            run_logger.log(levelno, line)
-            _process_run_output_line(job_id, line, levelname, pull_state)
+            # stderr is not an error channel here: uv, the hf CLI and tqdm all write
+            # ordinary progress to it. Logging every such line at WARNING made a
+            # healthy deploy read as "a bunch of errors" in the UI's log view, so
+            # only genuinely error-shaped lines keep the caller's level.
+            line_levelno, line_levelname = _classify_subprocess_line(
+                line, levelno, levelname
+            )
+            run_logger.log(line_levelno, line)
+            _process_run_output_line(job_id, line, line_levelname, pull_state)
 
 
 def _execute_dev_mode_subprocess(
@@ -1774,11 +1951,24 @@ def _process_run_output_line(
         elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
             stage = "model_preparation"
             progress = 28
-        # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
+        # `hf download` file counter (e.g. "Fetching 32 files:  47%|████▋ | 15/32 [...]").
+        # This is the only progress signal emitted during the host weights download,
+        # which is the longest phase of a cold deploy by a wide margin. Flattening it
+        # to a fixed percent left the bar frozen for the entire download and made a
+        # healthy deploy look hung, so map the real file count onto the bar.
+        elif (_fetch_match := _HF_FETCH_FILES_RE.search(message)) is not None:
+            stage = "model_preparation"
+            done = int(_fetch_match.group("done"))
+            total = int(_fetch_match.group("total"))
+            fraction = (done / total) if total > 0 else 0.0
+            progress = _WEIGHTS_PROGRESS_START + int(
+                fraction * (_WEIGHTS_PROGRESS_END - _WEIGHTS_PROGRESS_START)
+            )
+            message = f"Downloading model weights… ({done}/{total} files)"
         elif "fetching" in message.lower() and "files" in message.lower():
             stage = "model_preparation"
-            progress = 20
-            message = "Downloading model configuration files..."
+            progress = _WEIGHTS_PROGRESS_START
+            message = "Downloading model weights…"
         # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
         elif any(keyword in message.lower() for keyword in [
             "pulling from",
@@ -1816,6 +2006,11 @@ def _process_run_output_line(
             stage = "container_started"
             progress = 60
             message = "Container is running..."
+        # Defence in depth for the v0.21.0 readiness gate (see TT_SERVER_BOOT_ATTEMPTS in run_inference).
+        elif "waiting for inference server readiness" in message.lower():
+            stage = "container_started"
+            progress = 61
+            message = "Container is running..."
         elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
             stage = "container_started"
             progress = 64
@@ -1833,7 +2028,13 @@ def _process_run_output_line(
             stage = "complete"
             progress = 100
             status = "completed"
-        elif any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token"]) and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"]):
+        elif (
+            # A real auth-failure signal is required; merely mentioning HF_TOKEN
+            # (e.g. "✅ HF_TOKEN is valid.") must not flip the job to error.
+            any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"])
+            and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"])
+            and not any(p in message.lower() for p in ["✅", "is valid"])
+        ):
             status = "error"
             stage = "error"
             message = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
@@ -1970,7 +2171,7 @@ class RunRequest(BaseModel):
     docker_server: Optional[bool] = False
     interactive: Optional[bool] = False
     workflow_args: Optional[str] = None
-    service_port: Optional[str] = "7000"
+    service_port: Optional[str] = "20000"
     disable_trace_capture: Optional[bool] = False
     dev_mode: Optional[bool] = False
     override_docker_image: Optional[str] = None
@@ -1982,12 +2183,24 @@ class RunRequest(BaseModel):
     device_id: Optional[str] = None
     override_tt_config: Optional[str] = None
     vllm_override_args: Optional[str] = None
+    # Hand-authored ModelSpec JSON path for a (model, device) pair the artifact
+    # doesn't declare a spec for -- taken as-is by run.py, bypassing its normal
+    # spec resolution/matching entirely (see run.py's own resolve_runtime()).
+    # Set by TT-Studio for catalog entries with a runtime_model_spec_overrides
+    # entry (shared_config/model_config.py); mutually exclusive with
+    # --custom-weights (enforced by run.py itself).
+    runtime_model_spec_json: Optional[str] = None
     # Optional secrets - can be passed through API if not set in environment
     jwt_secret: Optional[str] = None
     hf_token: Optional[str] = None
     # Internal flag to track if this is already a retry (to prevent infinite loops)
     is_retry: Optional[bool] = False
     skip_system_sw_validation: Optional[bool] = False
+    host_volume: Optional[str] = None
+    host_weights_dir: Optional[str] = None
+    # Fine-tuning case: label identifying custom weights, paired with host_weights_dir
+    # so the weights are read from local disk instead of HuggingFace.
+    custom_weights: Optional[str] = None
     # Pass --disable-metal-timeout to run.py so the container does not set the
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
@@ -2232,10 +2445,18 @@ async def stream_run_progress(job_id: str):
         }
     )
 
-def sync_tokens_from_tt_studio():
+def sync_tokens_from_tt_studio(
+    request_hf_token: Optional[str] = None,
+    request_jwt_secret: Optional[str] = None,
+):
     """
-    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env 
+    Cross-check and sync JWT_SECRET and HF_TOKEN from TT Studio's .env
     to inference server's .env file if they differ.
+
+    request_hf_token / request_jwt_secret are the current deploy's own secrets
+    (from RunRequest). They're consulted as a fallback, before deciding there's
+    nothing to sync, so a token that only exists on this request still lands in
+    the artifact .env instead of leaving it permanently empty (see below).
     """
     from workflows.utils import load_dotenv
     
@@ -2278,7 +2499,29 @@ def sync_tokens_from_tt_studio():
     if ui_hf:
         tt_studio_hf = ui_hf
 
+    # Consulting the request's own value first stops this job from
+    # writing another job's transient HF_TOKEN/JWT_SECRET into the artifact .env.
+    if not tt_studio_hf:
+        tt_studio_hf = (request_hf_token or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (request_jwt_secret or "").strip() or None
+
+    # Last resort: the process environment so a token exported in the terminal still
+    # reaches the model container even when neither .env, Settings, nor the request itself has one.
+    if not tt_studio_hf:
+        tt_studio_hf = (os.environ.get("HF_TOKEN") or "").strip() or None
+    if not tt_studio_jwt:
+        tt_studio_jwt = (os.environ.get("JWT_SECRET") or "").strip() or None
+
     if not tt_studio_jwt and not tt_studio_hf:
+        # Nothing to sync, but the model launcher still passes this file to
+        # `docker run --env-file`, which fails outright when it is missing.
+        if not inference_server_env.exists():
+            try:
+                inference_server_env.parent.mkdir(parents=True, exist_ok=True)
+                inference_server_env.touch()
+            except OSError as e:
+                logger.warning(f"Could not create empty inference server .env at {inference_server_env}: {e}")
         return
     
     # Read inference server .env values
@@ -2328,11 +2571,49 @@ def sync_tokens_from_tt_studio():
     if updated:
         with open(inference_server_env, 'w') as f:
             f.writelines(env_lines)
+        # Holds JWT_SECRET/HF_TOKEN: pin owner-only so the 0o022 umask can't leave it
+        # world-readable. Containers read these via docker --env-file, so 0600 is safe.
+        os.chmod(inference_server_env, 0o600)
         logger.info(f"Updated inference server .env file at {inference_server_env}")
         # Reload environment variables
         load_dotenv()
     else:
         logger.info("JWT_SECRET and HF_TOKEN are already synchronized")
+
+def _acquire_run_lock(job_id: str) -> None:
+    """Block until this job owns the run lock, reporting the wait as real progress.
+
+    run_main() relies on process globals (sys.argv, os.environ, cwd), so deploys
+    execute one at a time. Submitting several at once is a supported workflow
+    though — the Voice Agent fires LLM + Whisper + TTS together — so a waiting job
+    queues rather than being rejected.
+
+    The wait is recorded additively (waiting_for_job_id) and must stay that way: a
+    queued job still has live progress of its own from its image pull and weights
+    monitor, and a placeholder written here replaces it with "Waiting for ...".
+    """
+    waited = 0.0
+    while not _run_main_lock.acquire(timeout=_RUN_LOCK_POLL_SECONDS):
+        waited += _RUN_LOCK_POLL_SECONDS
+        # Cancelling a queued job must not leave it to start a container later.
+        if _is_job_cancelled(job_id):
+            raise RuntimeError("cancelled")
+        if waited > _RUN_LOCK_MAX_WAIT_SECONDS:
+            raise RuntimeError(
+                f"gave up after {int(waited // 60)} min waiting for deployment "
+                f"{_active_run_job_id} to finish"
+            )
+        with progress_lock:
+            # Record the wait additively — never touch the fields the UI renders.
+            # A queued job is NOT idle: its image pull and its weights monitor both
+            # publish to progress_store before the lock is acquired, so Whisper and
+            # TTS show real numeric progress while they wait their turn behind the
+            # LLM. Writing {stage: "queued", progress: 0, message: "Waiting for
+            # <job id>"} here every poll overwrote exactly that.
+            entry = progress_store.get(job_id)
+            if entry is not None:
+                entry["waiting_for_job_id"] = _active_run_job_id
+
 
 @app.post("/run")
 async def run_inference(request: RunRequest):
@@ -2373,7 +2654,10 @@ async def run_inference(request: RunRequest):
         
         # Sync tokens from TT Studio before setting environment variables
         try:
-            sync_tokens_from_tt_studio()
+            sync_tokens_from_tt_studio(
+                request_hf_token=request.hf_token,
+                request_jwt_secret=request.jwt_secret,
+            )
         except Exception as e:
             logger.warning(f"Failed to sync tokens from TT Studio: {e}")
             # Continue anyway - tokens might be set via request or environment
@@ -2397,9 +2681,22 @@ async def run_inference(request: RunRequest):
         # (e.g., /home/username/.cache/huggingface instead of /root/.cache/huggingface)
         env_vars_to_set = {
             "AUTOMATIC_HOST_SETUP": "True",
+            # tt-inference-server v0.21.0 added a readiness gate to ServerCommand
+            # (workflow_module/commands.py): with TT_SERVER_BOOT_ATTEMPTS > 1 -- its
+            # default of 2 -- bring-up blocks polling /health until the model is fully
+            # warm (up to TT_SERVER_READY_TIMEOUT_SECONDS, default 1h). We call
+            # run_main() in-process and only emit container_started / connect
+            # tt_studio_network / rename *after* it returns, so that gate freezes the
+            # deploy bar at container_setup for the entire warmup and defers the
+            # frontend's redirect to the end of the deploy. Forcing a single attempt
+            # restores v0.20.0's fire-and-forget return (the container is up, the model
+            # is still loading), which is the point we want to hand off from the deploy
+            # bar to the container-log classifier. Warmup progress and hang detection
+            # are already covered on our side by log_classifier + health_monitor.
+            "TT_SERVER_BOOT_ATTEMPTS": "1",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": request.service_port or "7000",  # Use requested port (per-slot)
+            "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
             "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
         
@@ -2421,13 +2718,14 @@ async def run_inference(request: RunRequest):
         base_argv.extend(["--workflow", request.workflow])
         base_argv.extend(["--device", normalized_device])
         base_argv.extend(["--docker-server"])
+        base_argv.append("--no-auth")   # No auth required for local deployment
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
             base_argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
             base_argv.extend(["--skip-system-sw-validation"])
-        base_argv.extend(["--service-port", request.service_port or "7000"])
+        base_argv.extend(["--service-port", request.service_port or "20000"])
         
         # Add optional arguments if they are set
         if request.impl:
@@ -2448,15 +2746,59 @@ async def run_inference(request: RunRequest):
             base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
             base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+        if request.runtime_model_spec_json:
+            # This path comes straight from the request body, so it must be
+            # constrained to TT_STUDIO_ROOT and checked to actually exist
+            # before being handed to run.py -- otherwise a caller could point
+            # this host process at an arbitrary file.
+            spec_path = Path(request.runtime_model_spec_json).resolve()
+            if _tt_studio_root not in spec_path.parents:
+                raise ValueError(
+                    f"runtime_model_spec_json must be under {_tt_studio_root}, "
+                    f"got {spec_path}"
+                )
+            if not spec_path.is_file():
+                raise ValueError(f"runtime_model_spec_json does not exist: {spec_path}")
+            base_argv.extend(["--runtime-model-spec-json", str(spec_path)])
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
+
+        # Explicit host-mount flags from the deploy request (LoRA merge workflow)
+        # take precedence over the model-name-based auto host-volume / host-hf-cache
+        # logic below.
+        explicit_host_mount = False
+        if request.host_weights_dir:
+            base_argv.extend(["--host-weights-dir", request.host_weights_dir])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using explicit --host-weights-dir %s (auto host-volume/hf-cache disabled)",
+                job_id,
+                request.host_weights_dir,
+            )
+        elif request.host_volume:
+            base_argv.extend(["--host-volume", request.host_volume])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using explicit --host-volume %s (auto host-volume/hf-cache disabled)",
+                job_id,
+                request.host_volume,
+            )
+
+        if request.custom_weights:
+            base_argv.extend(["--custom-weights", request.custom_weights])
+            explicit_host_mount = True
+            logger.info(
+                "Job %s: using --custom-weights %s (identity re-keyed; auto host-volume disabled)",
+                job_id,
+                request.custom_weights,
+            )
 
         preferred_host_volume = None
         expected_host_volume_dir: Optional[Path] = None
         expected_host_weights_dir: Optional[Path] = None
         expected_host_tt_metal_cache_dir: Optional[Path] = None
         host_volume_resolution_reason = "model not in host-volume allowlist"
-        if _model_uses_preferred_host_volume(request.model):
+        if not explicit_host_mount and _model_uses_preferred_host_volume(request.model):
             (
                 preferred_host_volume,
                 expected_host_volume_dir,
@@ -2502,11 +2844,17 @@ async def run_inference(request: RunRequest):
             )
         # Default download path: reuse the host's HuggingFace cache via --host-hf-cache (weights download to ~/.cache/huggingface)
         # The preloaded --host-volume path takes precedence and is mutually exclusive with this.
+        # An explicit host mount (--host-weights-dir / --host-volume / --custom-weights)
+        # also disables this auto path.
         # Audio/whisper/TTS runners load via from_pretrained into the container's own HF
         # cache, so --host-hf-cache would only cause a wasteful whole-repo host download —
         # keep them on the in-container/volume download.
         _in_container_dl = _model_downloads_in_container(request.model, normalized_device, request.impl)
-        if "--host-volume" not in initial_argv and not _in_container_dl:
+        if (
+            not explicit_host_mount
+            and "--host-volume" not in initial_argv
+            and not _in_container_dl
+        ):
             host_hf_cache_path = str(_default_hf_home())
             # Ensure the HF cache dir exists. tt-inference-server's
             # validate_bind_mount_permissions() ValueErrors on a non-existent
@@ -2538,6 +2886,7 @@ async def run_inference(request: RunRequest):
             )
             logger.info("Job %s: skipping --host-hf-cache (%s)", job_id, reason)
         def _run_job_in_background():
+            global _active_run_job_id
             weights_stop_event = threading.Event()
             progress_handler = None
             run_logger = logging.getLogger("run_log")
@@ -2586,8 +2935,13 @@ async def run_inference(request: RunRequest):
 
                 # run_main() relies on process globals (sys.argv, os.environ, cwd), so
                 # serialize this setup/execution phase across concurrent /run requests.
-                with _run_main_lock:
-                    global _active_run_job_id
+                # Bounded, not blocking: a second /run used to wait here for as long as the
+                # holder took (a multi-GB weights download = tens of minutes), reporting 0%
+                # the whole time and then starting a second container on the same devices
+                # and port once the lock freed. Fail the job instead so the caller sees a
+                # real error immediately.
+                _acquire_run_lock(job_id)
+                try:
                     if _is_job_cancelled(job_id):
                         raise RuntimeError("cancelled")
                     _active_run_job_id = job_id
@@ -2745,6 +3099,13 @@ async def run_inference(request: RunRequest):
                                 os.environ.update(prev_env)
                             except Exception:
                                 pass
+                finally:
+                    # Defensive: the branches above clear this in their own finally,
+                    # but a stuck marker would make the /run busy-check reject every
+                    # subsequent deploy for the life of the process.
+                    _active_run_job_id = None
+                    _run_main_lock.release()
+
 
                 if return_code == 0:
                     # Always extract from captured job logs — provides docker_log_file_path
@@ -2890,11 +3251,14 @@ async def run_inference(request: RunRequest):
                             )
                 else:
                     # Scan recent logs for auth errors to surface a clear message
-                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token", "gatedrepoerror"]
+                    # "hf_token" is deliberately absent from the failure indicators:
+                    # benign lines like "✅ HF_TOKEN is valid." must not be scored
+                    # as auth errors.
+                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "gatedrepoerror"]
                     auth_error_msg = None
                     for entry in reversed(list(log_store.get(job_id, []))):
                         msg = entry.get("message", "").lower()
-                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]) and not any(p in msg for p in ["✅", "is valid"]):
                             auth_error_msg = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
                             break
                     with progress_lock:
@@ -3044,6 +3408,26 @@ async def resolve_image(model: str, device: str, impl: Optional[str] = None):
         return {"status": "success", "model": model, "device": device, "docker_image": model_spec.docker_image}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Could not resolve image for model={model}, device={device}: {e}")
+
+
+@app.get("/merged_checkpoints")
+async def list_merged_checkpoints(host_volume: str, hf_model_id: Optional[str] = None):
+    """List merged LoRA checkpoints found on disk under a host-volume root.
+
+    Discovery is done by scanning ``host_volume`` for ``merge_info.json`` sidecars
+    rather than querying the training server, so it works regardless of whether the
+    producing training container is still running. Each returned ``path`` is a host
+    path suitable for passing to /run as ``host_weights_dir``. Optionally filtered to
+    a single base model via ``hf_model_id``.
+    """
+    try:
+        checkpoints = _scan_merged_checkpoints(host_volume, hf_model_id)
+    except Exception as e:  # noqa: BLE001 - surface a clean 500 to the caller
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to scan merged checkpoints under {host_volume}: {e}",
+        )
+    return {"merged_checkpoints": checkpoints}
 
 
 @app.get("/models")

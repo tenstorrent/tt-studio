@@ -51,7 +51,7 @@ class AgentConfig:
     # Network Configuration
     BACKEND_URL: str = os.getenv("AGENT_BACKEND_URL", "http://tt-studio-backend-api:8000")
     LOCAL_HOST: str = os.getenv("LOCAL_LLM_HOST", "localhost")
-    LOCAL_PORT: str = os.getenv("LOCAL_LLM_PORT", "7000")
+    LOCAL_PORT: str = os.getenv("LOCAL_LLM_PORT", "20000")
     
     # Authentication Configuration
     JWT_SECRET: Optional[str] = os.getenv("JWT_SECRET")

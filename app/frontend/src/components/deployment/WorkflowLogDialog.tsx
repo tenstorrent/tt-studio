@@ -25,6 +25,9 @@ interface Props {
   open: boolean;
   deploymentId: number | null;
   modelName?: string;
+  failureReason?: string | null;
+  failureMessage?: string | null;
+  hfUrl?: string | null;
   diedUnexpectedly?: boolean;
   stoppedByUser?: boolean;
   onClose: () => void;
@@ -48,6 +51,9 @@ export default function WorkflowLogDialog({
   open,
   deploymentId,
   modelName,
+  failureReason,
+  failureMessage,
+  hfUrl,
   diedUnexpectedly,
   stoppedByUser,
   onClose,
@@ -255,6 +261,106 @@ export default function WorkflowLogDialog({
                 <p className="text-xs mt-0.5" style={{ color: "#16a34a" }}>
                   This model was intentionally stopped. You can deploy a new model from the main page.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Hugging Face model not found banner ── */}
+          {failureReason === "hf_model_not_found" && isComplete && (
+            <div
+              className="shrink-0 flex items-start gap-3 rounded-lg px-4 py-3"
+              style={{
+                background: "linear-gradient(135deg, #2e1005 0%, #1c0802 100%)",
+                border: "1px solid #c2410c",
+                boxShadow: "0 0 24px rgba(249,115,22,0.18), inset 0 1px 0 rgba(249,115,22,0.1)",
+              }}
+            >
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-sm font-bold tracking-wide uppercase"
+                  style={{ fontFamily: "'JetBrains Mono', monospace", color: "#fdba74", letterSpacing: "0.08em" }}
+                >
+                  Hugging Face Model Unavailable
+                </p>
+                <p className="text-xs mt-1" style={{ color: "#fb923c" }}>
+                  {failureMessage || "The requested model repository was not found or is unavailable on Hugging Face. Please verify the model configuration."}
+                </p>
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                  <button
+                    onClick={() => { onClose(); navigate("/deployment-history"); }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all duration-150"
+                    style={{
+                      background: "#431407",
+                      color: "#fdba74",
+                      border: "1px solid #9a3412",
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                    onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "#7c2d12"; }}
+                    onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "#431407"; }}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    View Deployment History
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Hugging Face auth required banner ── */}
+          {failureReason === "hf_auth" && isComplete && (
+            <div
+              className="shrink-0 flex items-start gap-3 rounded-lg px-4 py-3"
+              style={{
+                background: "linear-gradient(135deg, #2e1005 0%, #1c0802 100%)",
+                border: "1px solid #c2410c",
+                boxShadow: "0 0 24px rgba(249,115,22,0.18), inset 0 1px 0 rgba(249,115,22,0.1)",
+              }}
+            >
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-sm font-bold tracking-wide uppercase"
+                  style={{ fontFamily: "'JetBrains Mono', monospace", color: "#fdba74", letterSpacing: "0.08em" }}
+                >
+                  Hugging Face Access Required
+                </p>
+                <p className="text-xs mt-1" style={{ color: "#fb923c" }}>
+                  {failureMessage || "Your Hugging Face token does not have access to this model. Please request access on Hugging Face or update your token in Settings."}
+                </p>
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                  {hfUrl && (
+                    <a
+                      href={hfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all duration-150"
+                      style={{
+                        background: "#431407",
+                        color: "#fdba74",
+                        border: "1px solid #9a3412",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                      onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "#7c2d12"; }}
+                      onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "#431407"; }}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Gain Access on Hugging Face
+                    </a>
+                  )}
+                  <button
+                    onClick={() => { onClose(); navigate("/deployment-history"); }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all duration-150"
+                    style={{
+                      background: "#292524",
+                      color: "#d6d3d1",
+                      border: "1px solid #44403c",
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    View History
+                  </button>
+                </div>
               </div>
             </div>
           )}

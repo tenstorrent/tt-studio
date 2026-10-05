@@ -2,12 +2,27 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useTheme } from "../../hooks/useTheme";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import { Mic, Square } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PipelineStage } from "./types";
 import { useSilenceDetection } from "./hooks/useSilenceDetection";
+import { customToast } from "../CustomToaster";
+import {
+  isAudioRecordingSupported,
+  INSECURE_CONTEXT_MIC_MESSAGE,
+  INSECURE_CONTEXT_TOOLTIP_MESSAGE,
+  getMicrophoneErrorMessage,
+} from "../../lib/mediaUtils";
 
 type Props = {
   className?: string;
@@ -46,6 +61,7 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
 
   const [isRecording, setIsRecording] = useState(false);
   const [levels, setLevels] = useState<number[]>(new Array(LEVEL_BARS).fill(0));
+  const isMicSupported = useMemo(() => isAudioRecordingSupported(), []);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -104,6 +120,10 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
 
   const startRecording = async () => {
     if (disabled) return;
+    if (!isAudioRecordingSupported()) {
+      customToast.warning(INSECURE_CONTEXT_MIC_MESSAGE);
+      return;
+    }
     cleanup();
     // Play before opening the mic so the chime isn't captured into the recording.
     playStartChime();
@@ -149,6 +169,7 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
       startVisualization(analyser);
     } catch (err) {
       console.error("Microphone access error:", err);
+      customToast.error(getMicrophoneErrorMessage(err));
     }
   };
 
@@ -165,6 +186,10 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
   useSilenceDetection({ enabled: isRecording, onSilence: stopRecording });
 
   const toggleRecording = () => {
+    if (!isMicSupported) {
+      customToast.warning(INSECURE_CONTEXT_MIC_MESSAGE);
+      return;
+    }
     if (isRecording) {
       stopRecording();
     } else {
@@ -280,17 +305,21 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
         <motion.button
           onClick={toggleRecording}
           disabled={disabled}
-          whileHover={!disabled ? { scale: 1.06 } : undefined}
-          whileTap={!disabled ? { scale: 0.95 } : undefined}
+          aria-disabled={disabled || !isMicSupported}
+          title={!isMicSupported ? INSECURE_CONTEXT_TOOLTIP_MESSAGE : undefined}
+          whileHover={!disabled && isMicSupported ? { scale: 1.06 } : undefined}
+          whileTap={!disabled && isMicSupported ? { scale: 0.95 } : undefined}
           className={cn(
             "relative z-10 w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 rounded-full flex items-center justify-center transition-all duration-200",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent focus-visible:ring-offset-2",
-            disabled && "opacity-50 cursor-not-allowed",
+            (disabled || !isMicSupported) && "opacity-50 cursor-not-allowed",
             isRecording
               ? "bg-TT-red-accent hover:bg-TT-red-shade text-white shadow-lg shadow-TT-red-accent/30"
-              : theme === "dark"
-                ? "bg-white/[0.05] border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
-                : "bg-white border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
+              : !isMicSupported
+                ? "bg-gray-100 dark:bg-[#1a1a1a] border-2 border-gray-400/40 text-gray-400 dark:text-gray-500"
+                : theme === "dark"
+                  ? "bg-white/[0.05] border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
+                  : "bg-white border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
           )}
         >
           {isRecording ? (

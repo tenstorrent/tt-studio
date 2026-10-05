@@ -3,6 +3,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from './progress';
+import { compactPercent, formatBytes, formatEtaRemaining } from '../../lib/deployProgress';
+import type { DeploymentProgressData } from '../../hooks/useActiveDeployments';
 
 /** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
 function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
@@ -20,19 +22,9 @@ function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
 }
 
 interface DeploymentProgressProps {
-  progress: {
-    status: string;
-    stage: string;
-    progress: number;
-    message: string;
-    last_updated?: number;
-    weights_repo?: string;
-    downloaded_bytes?: number;
-    total_bytes?: number | null;
-    eta_seconds?: number | null;
-    speed_bps?: number | null;
-    weights_cached?: boolean;
-  } | null;
+  // Shared with DeploymentTray/VoiceAgentSolutionStep so this component can
+  // never drift onto its own hand-duplicated shape again (see compactPercent).
+  progress: DeploymentProgressData | null;
   className?: string;
   onRetry?: () => void;
   onCancel?: () => void;
@@ -136,7 +128,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
 
   if (!progress) return null;
 
-  const { status, stage, progress: progressPercent, message } = progress;
+  const { status, stage, message } = progress;
   const isError = status === 'error' || status === 'failed';
   const showProminentSetupMessage =
     !isError && isCacheReadyOrSetupCompleteMessage(message);
@@ -154,37 +146,6 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     EARLY_STALL_STAGES.has(progress.stage) &&
     lastUpdatedMs !== null &&
     Date.now() - lastUpdatedMs > EARLY_STALL_MS;
-
-  const formatBytes = (bytes?: number | null) => {
-    if (bytes === undefined || bytes === null || bytes < 0) return '—';
-    if (bytes === 0) return '0 B';
-    // Decimal (1000-based) units to match HuggingFace's reported sizes
-    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    let value = bytes;
-    let u = 0;
-    while (value >= 1000 && u < units.length - 1) {
-      value /= 1000;
-      u += 1;
-    }
-    const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;
-    return `${value.toFixed(decimals)} ${units[u]}`;
-  };
-
-  /** Human-readable remaining time; avoids noisy seconds when minutes or hours fit better. */
-  const formatEtaRemaining = (eta: number | null | undefined): string | null => {
-    if (eta === undefined || eta === null || !Number.isFinite(eta) || eta < 0) return null;
-    if (eta > 86400 * 2) return 'More than 2 days left';
-    if (eta < 50) return `~${Math.max(1, Math.round(eta))} s left`;
-    if (eta < 90) return '~1 min left';
-    if (eta < 3600) {
-      const mins = Math.max(1, Math.round(eta / 60));
-      return `~${mins} min left`;
-    }
-    const hours = Math.floor(eta / 3600);
-    const mins = Math.round((eta % 3600) / 60);
-    if (mins === 0) return `~${hours} h left`;
-    return `~${hours} h ${mins} min left`;
-  };
 
   // The byte/speed/ETA detail block lights up both for the host-side image pull
   // (stage 'pulling_image') and the in-container weights download ('model_preparation').
@@ -217,45 +178,15 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       ? Math.min(100, Math.max(0, (downloadedBytes / totalBytes) * 100))
       : null;
 
-  // Byte-level download fraction (0–1), used to advance the download segment.
-  const downloadFraction =
-    totalBytes !== null && downloadedBytes !== null && totalBytes > 0
-      ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
-      : null;
-
   const isContainerStarting =
     !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
 
-  // Adaptive three-segment bar: image pull → weight download → container start, in
-  // the order they occur before the Models Deployed page.
-  //   with pull:    pull 0–25, download 25–95, start 95–99
-  //   image cached: download 0–95, start 95–99   (pull segment collapses)
-  // A weights cache-hit fast-forwards the download segment. Pull and download advance
-  // on real byte fractions; container start uses the backend's coarse per-stage progress.
-  const hasPull = isImagePull || imagePulled;
-  const cacheReady = isCacheReadyOrSetupCompleteMessage(message);
-  const [pullLo, pullHi] = hasPull ? [0, 25] : [0, 0];
-  const [dlLo, dlHi] = hasPull ? [25, 95] : [0, 95];
-  const [startLo, startHi] = [95, 99];
-  const lerp = (lo: number, hi: number, f: number) =>
-    lo + (hi - lo) * Math.min(1, Math.max(0, f));
-
-  // Only genuine post-download container-start stages map into the tail band. Early
-  // stages (starting/initialization/setup, or a transient not_found) precede the
-  // download and stay at the start, so the monotonic clamp can't lock the bar high
-  // before the download has even begun.
-  const containerStartStages = new Set([
-    'image_ready', 'container_setup', 'container_started', 'network_setup', 'finalizing', 'complete',
-  ]);
-  const rawPercent = (() => {
-    if (isError || isComplete) return 100;
-    if (isImagePull) return lerp(pullLo, pullHi, downloadFraction ?? 0);
-    if (stage === 'model_preparation')
-      return lerp(dlLo, dlHi, downloadFraction ?? (cacheReady ? 1 : 0));
-    if (containerStartStages.has(stage))
-      return lerp(startLo, startHi, (progressPercent ?? 0) / 100);
-    return hasPull ? pullLo : dlLo;
-  })();
+  // The exact same adaptive three-segment bar (image pull → weight download →
+  // container start) DeploymentTray/VoiceAgentSolutionStep use, so this card's
+  // percentage and the compact tray's can never drift apart again — see
+  // compactPercent's expects_weights handling (models like bge-m3 whose
+  // weights ship in the image skip the download band entirely).
+  const rawPercent = isError ? 100 : compactPercent(progress, isComplete, imagePulled);
 
   // Clamp monotonic so a noisy/coarse backend value can never make the bar jump
   // backwards. The ref resets naturally — the panel unmounts at completion and

@@ -180,6 +180,35 @@ class TestDevModeSubprocess(TestCase):
     def _log_messages(self):
         return [e["message"] for e in self.api.log_store[self.job_id]]
 
+    def _sync_tokens_into(self, env_overrides):
+        """Run sync_tokens_from_tt_studio() against a throwaway TT_STUDIO_ROOT with
+        no .env, pointing the artifact .env at a fresh temp dir. Returns that file."""
+        with tempfile.TemporaryDirectory() as studio_root, tempfile.TemporaryDirectory() as art:
+            env = {k: v for k, v in os.environ.items() if k not in ("HF_TOKEN", "JWT_SECRET")}
+            env.update({"TT_STUDIO_ROOT": studio_root, **env_overrides})
+            from unittest.mock import patch
+            with patch.dict(os.environ, env, clear=True), \
+                 patch.object(self.api, "artifact_path", art), \
+                 patch.object(self.api, "_get_hf_token_from_user_config", return_value=None):
+                self.api.sync_tokens_from_tt_studio()
+            target = Path(art) / ".env"
+            return target.exists(), (target.read_text() if target.exists() else "")
+
+    def test_sync_tokens_falls_back_to_process_env_hf_token(self):
+        # No repo .env and no Settings token: the HF_TOKEN run.py handed this
+        # process (from the user's shell) must still reach the artifact .env that
+        # the model container is launched with.
+        exists, text = self._sync_tokens_into({"HF_TOKEN": "hf_from_shell"})
+        self.assertTrue(exists)
+        self.assertIn("HF_TOKEN=hf_from_shell", text)
+
+    def test_sync_tokens_creates_empty_env_when_nothing_to_sync(self):
+        # `docker run --env-file <artifact>/.env` fails hard when the file is
+        # missing, so an anonymous deploy still needs the file to exist.
+        exists, text = self._sync_tokens_into({})
+        self.assertTrue(exists)
+        self.assertNotIn("HF_TOKEN=", text)
+
     def test_happy_path_populates_log_and_progress_store(self):
         initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
         env_vars = {"AUTOMATIC_HOST_SETUP": "True"}

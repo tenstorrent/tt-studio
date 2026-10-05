@@ -119,6 +119,16 @@ export interface InferenceRequest {
   top_p?: number; // 0-1, default 0.9
   top_k?: number; // 1-100, default 20
   seed?: number; // 0 = random, >0 = reproducible
+  // Passed through to vLLM's chat template (e.g. { enable_thinking: false } to
+  // keep reasoning models such as Qwen3 from thinking out loud).
+  chat_template_kwargs?: Record<string, unknown>;
+  // Raw completion mode: when set, the request is sent to the model's
+  // /v1/completions endpoint with this exact prompt string (no chat-template
+  // wrapping). Used to test fine-tuned models in their training format.
+  prompt?: string;
+  // Stop sequences forwarded to vLLM in completion mode so generation halts at
+  // the next record boundary (e.g. the template's section headers).
+  stop?: string[];
   stream_options?: {
     include_usage: boolean;
     continuous_usage_stats: boolean;

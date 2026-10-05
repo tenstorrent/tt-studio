@@ -67,6 +67,41 @@ MULTI_CHIP_BOARD_SLOTS = {
 STARTING_DEPLOYMENT_GRACE_PERIOD = timedelta(minutes=3)
 
 
+# Container name prefixes that belong to the TT-Studio infrastructure itself. These
+# containers may bind /dev/tenstorrent (the backend does, for tt-smi) without
+# running a model on it.
+INFRA_CONTAINER_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+
+# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
+_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
+
+
+def _detect_device_ids_from_mounts(container_info: dict):
+    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
+
+    This is the ground truth: the launcher binds exactly the chip nodes the model
+    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
+    works regardless of how or where the container was started. Returns a sorted
+    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
+    directory is bound (no per-chip granularity), or None if no TT device is bound.
+    """
+    hc = container_info.get("HostConfig") or {}
+    ids = []
+    whole = False
+    for d in (hc.get("Devices") or []):
+        if not isinstance(d, dict):
+            continue
+        path = (d.get("PathOnHost") or d.get("PathInContainer") or "").rstrip("/")
+        m = _TT_DEVICE_NODE.match(path)
+        if m:
+            ids.append(int(m.group(1)))
+        elif path == "/dev/tenstorrent":
+            whole = True
+    if ids:
+        return sorted(set(ids))
+    return "whole" if whole else None
+
+
 class ChipSlotAllocator:
     """
     Manages automatic chip slot allocation.
@@ -160,6 +195,11 @@ class ChipSlotAllocator:
                         "is_multi_chip": False,
                         "port": deployment.port,
                     }
+
+        # Chips held by containers TT-Studio did not deploy (another launcher, a
+        # manual docker run, ...). A TT-Studio record wins when both claim a slot.
+        for slot_id, info in self._get_external_occupancy(active_deployments).items():
+            occupied_map.setdefault(slot_id, info)
 
         # Build slot status list
         for slot_id in range(self.total_slots):
@@ -269,6 +309,19 @@ class ChipSlotAllocator:
                     "chips": model_chips
                 })
 
+            seen_external = set()
+            for slot_id, info in sorted(self._get_external_occupancy().items()):
+                if info["model_name"] in seen_external:
+                    continue
+                seen_external.add(info["model_name"])
+                conflicts.append({
+                    "model": info["model_name"],
+                    "deployment_id": None,
+                    "slot": slot_id,
+                    "chips": 4 if info["is_multi_chip"] else 1,
+                    "source": "external",
+                })
+
             raise MultiChipConflictError(
                 f"{model_name} requires all 4 chip slots. "
                 f"Currently occupied: {len(occupied_slots)} slot(s). "
@@ -321,6 +374,11 @@ class ChipSlotAllocator:
                     if model_chips == 4:
                         occupying_model = f"{deployment.model_name} (multi-chip)"
                         break
+
+                if occupying_model is None:
+                    external = self._get_external_occupancy().get(device_id)
+                    if external:
+                        occupying_model = f"{external['model_name']} (container not deployed by TT-Studio)"
 
                 return {
                     "valid": False,
@@ -440,7 +498,92 @@ class ChipSlotAllocator:
                     if deployment_slot < self.total_slots:
                         occupied.add(deployment_slot)
 
+        occupied.update(self._get_external_occupancy(active).keys())
         return occupied
+
+    def _get_external_occupancy(self, active_deployments: Optional[List[ModelDeployment]] = None) -> Dict[int, Dict]:
+        """
+        Chips held by running containers that TT-Studio did not deploy.
+
+        Any running container that binds a /dev/tenstorrent node holds that chip,
+        no matter which tool started it (tt-model CLI, tt-inference-server run.py,
+        a manual docker run). The deployment table alone misses those, so the UI
+        showed the chips as free and deploys blocked on the driver's chip lock.
+
+        Skips TT-Studio's own infrastructure containers (the backend binds the whole
+        device directory for tt-smi) and containers already tracked as active
+        deployments, which are counted from their records.
+
+        Returns:
+            {slot_id: {"model_name", "deployment_id", "is_multi_chip", "port", "source"}}
+            Empty when Docker cannot be queried, so status and deploys still work.
+        """
+        try:
+            from docker_control.docker_control_client import get_docker_client
+            response = get_docker_client().list_containers(all=False)
+        except Exception as e:
+            logger.warning(f"Could not list containers for external chip occupancy: {e}")
+            return {}
+
+        if isinstance(response, dict):
+            if response.get("status") == "error":
+                logger.warning(
+                    "Docker control returned an error while listing containers: %s",
+                    response.get("message", "unknown error"),
+                )
+                return {}
+            containers = response.get("containers", []) or []
+        else:
+            containers = response or []
+
+        tracked_ids: Set[str] = set()
+        deployments = (
+            active_deployments
+            if active_deployments is not None
+            else self._get_active_deployments()
+        )
+        for deployment in deployments:
+            container_id = getattr(deployment, "container_id", None) or ""
+            if container_id:
+                tracked_ids.update({container_id, container_id[:12]})
+
+        occupancy: Dict[int, Dict] = {}
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            name = (container.get("name") or "").lstrip("/")
+            container_id = container.get("id") or ""
+            if any(name.lower().startswith(prefix) for prefix in INFRA_CONTAINER_PREFIXES):
+                continue
+            if container_id in tracked_ids or container_id[:12] in tracked_ids:
+                continue
+
+            bound = _detect_device_ids_from_mounts(container)
+            if bound is None:
+                continue
+            if bound == "whole":
+                slots = list(range(self.total_slots))
+            else:
+                slots = [slot for slot in bound if 0 <= slot < self.total_slots]
+            if not slots:
+                continue
+
+            info = {
+                "model_name": name or container_id[:12],
+                "deployment_id": None,
+                "is_multi_chip": len(slots) > 1,
+                "port": None,
+                "source": "external",
+            }
+            for slot in slots:
+                occupancy.setdefault(slot, info)
+
+        if occupancy:
+            logger.debug(
+                "Chips held by containers not deployed by TT-Studio: "
+                + ", ".join(f"{slot}={info['model_name']}" for slot, info in sorted(occupancy.items()))
+            )
+        return occupancy
 
     def _get_deployment_device_ids(self, deployment: ModelDeployment) -> List[int]:
         """Return normalized slot IDs occupied by a deployment."""

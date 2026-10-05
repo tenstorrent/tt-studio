@@ -16,7 +16,10 @@ from tt_setup.services._ports import (
     _process_is_docker,
     check_and_free_ports,
     check_port_available,
+    find_available_port,
+    get_backend_port,
     kill_process_on_port,
+    resolve_backend_port,
     wait_for_port_release,
 )
 from tt_setup.services._health import (
@@ -45,6 +48,7 @@ from tt_setup.services._frontend import ensure_frontend_dependencies, is_valid_g
 __all__ = [
     "check_port_available", "check_and_free_ports", "_process_is_docker", "kill_process_on_port",
     "_kill_port_holder", "wait_for_port_release",
+    "find_available_port", "get_backend_port", "resolve_backend_port",
     "diagnose_service_log", "read_log_tail", "report_service_failure",
     "probe_service", "snapshot_health", "wait_for_service_health", "wait_for_all_services",
     "wait_for_frontend_and_open_browser", "get_frontend_config",

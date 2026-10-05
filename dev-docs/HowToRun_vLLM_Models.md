@@ -223,7 +223,7 @@ This will allow you to check for any startup errors or issues directly from the 
 #### iii. Send Test Requests to the vLLM Server
 
 ```bash
-curl -s --no-buffer -X POST "http://localhost:7000/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"model":"meta-llama/Llama-3.1-70B-Instruct","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Hi"}]}'
+curl -s --no-buffer -X POST "http://localhost:20000/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"model":"meta-llama/Llama-3.1-70B-Instruct","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Hi"}]}'
 ```
 If successful, you will receive a response from the model.
 

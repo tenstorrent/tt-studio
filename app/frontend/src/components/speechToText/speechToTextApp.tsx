@@ -6,18 +6,33 @@ import { AppSidebar } from "@/src/components/speechToText/appSidebar";
 import { MainContent } from "@/src/components/speechToText/mainContent";
 import { SidebarProvider, SidebarTrigger } from "@/src/components/ui/sidebar";
 import { Card } from "../ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Mic, MessageSquare } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import {
+  fetchHealthyModelsByType,
+  type DeployedModelSummary,
+} from "../../api/modelsDeployedApis";
+import type { TranscriptSegment } from "./lib/apiClient";
 
 interface Transcription {
   id: string;
   text: string;
   date: Date;
   audioBlob?: Blob;
+  segments?: TranscriptSegment[];
+  sourceName?: string;
+  durationSec?: number;
 }
 
 interface Conversation {
@@ -42,19 +57,28 @@ export default function SpeechToTextApp() {
 
   const location = useLocation();
   const [modelID, setModelID] = useState<string | null>(null);
+  const [sttModels, setSttModels] = useState<DeployedModelSummary[]>([]);
 
+  // List every healthy (fully warmed up) speech recognition model, so a
+  // second deployment stays reachable even though the navbar only links here
+  // once. Prefer the model the nav button was opened for, when it's actually
+  // one of the healthy ones; otherwise fall back to the first healthy model.
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
+    fetchHealthyModelsByType("speech_recognition").then((models) => {
+      setSttModels(models);
+      const fromNav = location.state?.containerID;
+      if (fromNav && models.some((m) => m.id === fromNav)) {
+        setModelID(fromNav);
+      } else if (models.length > 0) {
+        setModelID(models[0].id);
+      } else {
+        setModelID(null);
         customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
+          "No speech recognition model is ready yet. Deploy or wait for one to finish warming up."
         );
-        return;
       }
-      setModelID(location.state.containerID);
-      console.log(location.state.containerID);
-    }
-  }, [location.state, modelID]);
+    });
+  }, [location.state]);
 
   // Function to create a new conversation
   const handleNewConversation = () => {
@@ -76,13 +100,24 @@ export default function SpeechToTextApp() {
   };
 
   // Function to add a new transcription to a conversation
-  const handleNewTranscription = (text: string, audioBlob: Blob) => {
+  const handleNewTranscription = (
+    text: string,
+    audioBlob?: Blob,
+    meta?: {
+      segments?: TranscriptSegment[];
+      sourceName?: string;
+      durationSec?: number;
+    }
+  ) => {
     const transcriptionId = Date.now().toString();
-    const newTranscription = {
+    const newTranscription: Transcription = {
       id: transcriptionId,
       text,
       date: new Date(),
       audioBlob,
+      segments: meta?.segments,
+      sourceName: meta?.sourceName,
+      durationSec: meta?.durationSec,
     };
 
     // If no conversation is selected, create a new one
@@ -213,8 +248,26 @@ export default function SpeechToTextApp() {
                     </div>
                   )}
                 </div>
-                {selectedConversation && (
-                  <div className="flex items-center">
+                <div className="flex items-center gap-2 md:gap-3">
+                  {/* Model picker: keeps every healthy STT deployment reachable
+                      even though the navbar links here with just one button. */}
+                  <Select
+                    value={modelID ?? ""}
+                    onValueChange={setModelID}
+                    disabled={sttModels.length === 0}
+                  >
+                    <SelectTrigger className="h-8 md:h-9 text-xs md:text-sm w-[120px] md:w-[200px]">
+                      <SelectValue placeholder="No model ready" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sttModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.modelName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedConversation && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -239,8 +292,8 @@ export default function SpeechToTextApp() {
                         </>
                       )}
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 overflow-hidden">

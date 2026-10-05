@@ -57,6 +57,7 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import EmbeddingPage from "../pages/EmbeddingPage";
 import WelcomePage from "../pages/WelcomePage";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
@@ -158,6 +159,11 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
+      path: "/embedding",
+      element: <EmbeddingPage />,
+      condition: true,
+    },
+    {
       path: "/workflows",
       element: <WorkflowsPage />,
       condition: true,
@@ -173,17 +179,14 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      // Hidden for this release — training models are filtered out of the
-      // catalog (shared_config/model_config.py) until the pinned inference
-      // server supports them. Flip back to true when training ships.
       path: "/training",
       element: <TrainingPage />,
-      condition: false,
+      condition: true,
     },
     {
       path: "/training/:jobId",
       element: <TrainingJobDetailPage />,
-      condition: false,
+      condition: true,
     },
     {
       path: "/apps",

@@ -50,6 +50,56 @@ class TestBuildDockerComposeCommand(unittest.TestCase):
         self.assertNotIn("--env-file", cmd)
 
 
+class TestDetectForeignTTStudioStacks(unittest.TestCase):
+    OUR_APP_DIR = __import__("os").path.dirname(M.DOCKER_COMPOSE_FILE)
+
+    def test_own_stack_is_not_foreign(self):
+        ps = MagicMock(returncode=0, stdout=f"{self.OUR_APP_DIR}\n")
+        with patch.object(M.subprocess, "run", return_value=ps):
+            self.assertEqual(M.detect_foreign_tt_studio_stacks(), [])
+
+    def test_other_checkouts_stack_is_reported(self):
+        ps = MagicMock(returncode=0, stdout=f"/srv/other-tt-studio/app\n{self.OUR_APP_DIR}\n")
+        with patch.object(M.subprocess, "run", return_value=ps):
+            self.assertEqual(M.detect_foreign_tt_studio_stacks(), ["/srv/other-tt-studio/app"])
+
+    def test_docker_failure_reports_nothing(self):
+        # A machine without Docker running must not be blocked by this check.
+        with patch.object(M.subprocess, "run", side_effect=OSError("no docker")):
+            self.assertEqual(M.detect_foreign_tt_studio_stacks(), [])
+        ps = MagicMock(returncode=1, stdout="")
+        with patch.object(M.subprocess, "run", return_value=ps):
+            self.assertEqual(M.detect_foreign_tt_studio_stacks(), [])
+
+
+class TestStopTTStudioStack(unittest.TestCase):
+    def test_stops_and_removes_all_stack_containers(self):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["docker", "ps", "-q"]:
+                # First ps lists the stack's containers; the ps after the
+                # stop/rm shows nothing left.
+                return MagicMock(returncode=0, stdout="" if len(calls) > 3 else "aaa\nbbb\n")
+            return MagicMock(returncode=0, stdout="")
+
+        with patch.object(M.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(M.stop_tt_studio_stack("/srv/other-tt-studio/app"))
+        self.assertIn(["docker", "stop", "aaa", "bbb"], calls)
+        self.assertIn(["docker", "rm", "-f", "aaa", "bbb"], calls)
+
+    def test_nothing_running_is_success(self):
+        ps = MagicMock(returncode=0, stdout="")
+        with patch.object(M.subprocess, "run", return_value=ps):
+            self.assertTrue(M.stop_tt_studio_stack("/srv/other-tt-studio/app"))
+
+    def test_survivors_mean_failure(self):
+        ps = MagicMock(returncode=0, stdout="aaa\n")
+        with patch.object(M.subprocess, "run", return_value=ps):
+            self.assertFalse(M.stop_tt_studio_stack("/srv/other-tt-studio/app"))
+
+
 class TestCheckDockerAccess(unittest.TestCase):
     def test_true_when_docker_info_succeeds(self):
         ok = MagicMock(returncode=0)

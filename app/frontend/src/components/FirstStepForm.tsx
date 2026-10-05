@@ -36,7 +36,6 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
 import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
@@ -76,7 +75,7 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
-  TRAINING: { label: "Training", order: 9 },
+  TRAINING: { label: "Fine-tuning", order: 9 },
 };
 
 // Models whose weights are large and frequently fail/stall when Hugging Face
@@ -136,7 +135,7 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider stopping existing models before deploying new ones.`,
         "deployed-models-warning"
       );
     }
@@ -175,7 +174,7 @@ export function FirstStepForm({
   const onSubmit = async (data: z.infer<typeof FirstFormSchema>) => {
     setIsSubmitting(true);
     try {
-      const selectedModel = models.find((model) => model.name === data.model);
+      const selectedModel = models.find((model) => model.id === data.model);
       if (selectedModel) {
         if (selectedModel.is_compatible === false) {
           customToast.error(
@@ -193,7 +192,7 @@ export function FirstStepForm({
         // Extra warning if models are deployed
         if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to stop ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 
@@ -234,7 +233,7 @@ export function FirstStepForm({
 
       if (targetModel) {
         console.log("Auto-selecting model:", targetModel.name);
-        form.setValue("model", targetModel.name);
+        form.setValue("model", targetModel.id);
 
         // Auto-submit the form after a short delay
         setTimeout(() => {
@@ -328,7 +327,7 @@ export function FirstStepForm({
   // deployed against the currently free devices.
   const renderModelItem = (model: Model, dotClass: string) => {
     const chips = model.chips_required ?? 1;
-    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type, model.model_type);
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
     const fits =
@@ -341,7 +340,7 @@ export function FirstStepForm({
     return (
       <SelectItem
         key={model.id}
-        value={model.name}
+        value={model.id}
         disabled={!fits}
         className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
       >
@@ -391,7 +390,12 @@ export function FirstStepForm({
         <FormField
           control={form.control}
           name="model"
-          render={({ field }) => (
+          render={({ field }) => {
+            // field.value holds the unique model id; resolve its display name so
+            // the large-weights download warning can be keyed by name as before.
+            const selectedModelName =
+              models.find((m) => m.id === field.value)?.name ?? "";
+            return (
             <FormItem className="w-full mb-4 p-8">
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 <div className="flex items-center gap-3 mb-4">
@@ -414,7 +418,7 @@ export function FirstStepForm({
                 disabled={isLoading}
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger data-tour="model-select-dropdown">
                     <SelectValue
                       placeholder={
                         isLoading ? "Loading models..." : "Select a model"
@@ -509,7 +513,10 @@ export function FirstStepForm({
 
               {/* Summary info */}
               {filteredModels.length > 0 && !isLoading && (
-                <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
+                <div
+                  data-tour="board-info-box"
+                  className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200"
+                >
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
                       {chipMode === "single" && displayBoard !== currentBoard
@@ -554,7 +561,7 @@ export function FirstStepForm({
               )}
 
               {/* Download-reliability warning: HF often stalls fetching these large weights */}
-              {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
+              {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName] && (
                 <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <div className="space-y-2">
@@ -562,19 +569,19 @@ export function FirstStepForm({
                       Download the weights first to avoid a failed deploy
                     </p>
                     <p>
-                      Hugging Face often stalls downloading {field.value}'s large
+                      Hugging Face often stalls downloading {selectedModelName}'s large
                       weights mid-deploy, which fails the deployment. Pre-fetch them
                       first — run this, let it finish, then deploy:
                     </p>
                     <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
                       <code className="flex-1 break-all">
-                        hf download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                        hf download {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}
                       </code>
                       <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(
-                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}`
                           );
                           customToast.success("Command copied to clipboard");
                         }}
@@ -599,7 +606,8 @@ export function FirstStepForm({
                 {form.formState.errors.model?.message}
               </FormMessage>
             </FormItem>
-          )}
+            );
+          }}
         />
         <StepperFormActions
           form={form}

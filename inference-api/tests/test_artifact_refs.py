@@ -151,3 +151,46 @@ def test_commit_sha_uses_bare_archive_path():
     assert artifact_refs._archive_url("my-branch").endswith(
         "/archive/refs/heads/my-branch.tar.gz"
     )
+
+
+def _add_skill_symlinks(root: Path) -> None:
+    """Reproduce the relative symlinks real tt-inference-server archives carry.
+
+    Both the pinned release tarball and every feature branch ship these four under
+    .claude/skills and .cursor/skills; their targets start with "..".
+    """
+    for d in (".claude/skills", ".cursor/skills"):
+        (root / d).mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "skills" / "build-blaze-images").symlink_to(
+        "../../tt-media-server/cpp_server/.cursor/skills/build-blaze-images"
+    )
+    (root / ".cursor" / "skills" / "extend-workflow-engine").symlink_to(
+        "../../.claude/skills/extend-workflow-engine"
+    )
+
+
+def test_relative_symlinks_do_not_block_extraction(tmp_path, monkeypatch):
+    """A '..' in a symlink target must not abort the fetch.
+
+    Before CPython gh-107845 (fixed in 3.10.13/3.11.5/3.12.0) tarfile's "data"
+    filter resolved a symlink target against the extraction root rather than the
+    symlink's own directory, so these links raised LinkOutsideDestinationError and
+    every artifact_ref fetch failed on Ubuntu 22.04's python3 (3.10.12).
+    """
+    root = tmp_path / "src" / "tt-inference-server-linky"
+    (root / "workflows").mkdir(parents=True)
+    (root / "workflows" / "utils.py").write_text("# stand-in\n")
+    _add_skill_symlinks(root)
+
+    tarball = tmp_path / "archive.tar.gz"
+    with tarfile.open(tarball, "w:gz") as tar:
+        tar.add(root, arcname=root.name)
+    monkeypatch.setattr(artifact_refs, "_archive_url", lambda ref: tarball.as_uri())
+
+    result = resolve_artifact_dir("linky", tmp_path / ".artifacts")
+
+    assert (result / "workflows" / "utils.py").is_file()
+    # Links are dropped rather than recreated, so the outcome does not depend on
+    # which data_filter vintage the running Python ships.
+    assert not (result / ".claude" / "skills" / "build-blaze-images").exists()
+    assert not any(p.is_symlink() for p in result.rglob("*"))
