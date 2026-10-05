@@ -50,6 +50,8 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
         return "deepseek_v3"
     if "gemma-4-" in s or "diffusiongemma" in s:
         return "gemma4"
+    if "gpt-oss" in s or "gpt_oss" in s:
+        return "openai"
     return None
 
 
