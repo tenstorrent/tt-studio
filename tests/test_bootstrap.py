@@ -52,6 +52,7 @@ class TestEnsureEnvironment(unittest.TestCase):
     def test_empty_deps_exits_without_reexec(self):
         # No declared deps -> refuse to bootstrap an empty venv (clean exit, no re-exec).
         with patch.dict(os.environ, {}, clear=False), \
+             patch.object(B.sys, "version_info", (3, 12, 0)), \
              patch.object(B, "_in_target_venv", return_value=False), \
              patch.object(B, "_read_deps", return_value=[]), \
              patch("os.execve") as execve:
@@ -62,6 +63,7 @@ class TestEnsureEnvironment(unittest.TestCase):
 
     def test_reexecs_when_outside_venv_with_deps(self):
         with patch.dict(os.environ, {}, clear=False), \
+             patch.object(B.sys, "version_info", (3, 12, 0)), \
              patch.object(B, "_in_target_venv", return_value=False), \
              patch.object(B, "_read_deps", return_value=["rich>=13"]), \
              patch.object(B, "_ensure_venv_with_deps") as ensure, \

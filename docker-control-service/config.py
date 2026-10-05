@@ -13,8 +13,11 @@ class Settings:
     """Configuration settings for Docker Control Service"""
 
     # Server configuration
-    HOST: str = "0.0.0.0"
-    PORT: int = 8002
+    # Host-mode/manual runs are loopback-only.  The Compose service overrides
+    # this to 0.0.0.0 inside its private bridge network; it has no published
+    # host port, so that does not expose the API on the host LAN.
+    HOST: str = os.getenv("DOCKER_CONTROL_HOST", "127.0.0.1")
+    PORT: int = int(os.getenv("DOCKER_CONTROL_PORT", "8002"))
     DEV_MODE: bool = os.getenv("DEV_MODE", "false").lower() == "true"
 
     # Security configuration

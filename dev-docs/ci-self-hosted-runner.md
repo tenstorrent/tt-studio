@@ -94,7 +94,7 @@ Confirm your machine shows **Idle** with the `pool` label in **Settings → Acti
 ### Operational rules on a shared box (important)
 
 - **One runner per board.** That's what lets GitHub avoid double-booking a device (a busy runner isn't "idle", so it's skipped). Don't register two runners on one box.
-- **Don't run your own TT-Studio stack while CI might run.** The `:8001` (inference-api) and `:8002` (docker-control) host services are single-instance; if your personal stack is up, a CI job on your box **fails fast** with a clear message (it can't stop another user's services). The dedicated CI user from **Step 1** is what prevents this collision; otherwise `python run.py --stop` your own stack before dispatching.
+- **Don't run your own TT-Studio stack while CI might run.** The `:8001` inference-api host service is single-instance; if your personal stack is up, a CI job on your box **fails fast** with a clear message (it can't stop another user's service). Docker Control is internal to the Compose network and does not consume a host port. The dedicated CI user from **Step 1** is what prevents this collision; otherwise `python run.py --stop` your own stack before dispatching.
 
 ---
 
@@ -104,7 +104,7 @@ Confirm your machine shows **Idle** with the `pool` label in **Settings → Acti
 - **Job dispatch only considers online, idle runners** carrying the label. Other machines being off is a non-issue — they're skipped.
 - **If zero matching runners are online**, GitHub does **not** fail fast: the job sits **queued for ~24h** before timing out. It won't proactively tell you the pool is empty.
 
-The workflow does **not** currently preflight runner availability, so if no `pool` runner is online a dispatched job just **queues** (up to ~24h) rather than failing fast. It *does* fail fast on a different problem — a `pool` runner whose `:8001`/`:8002` host services are held by another user (a personal stack left running) — with a clear "ask them to `python run.py --stop`" message.
+The workflow does **not** currently preflight runner availability, so if no `pool` runner is online a dispatched job just **queues** (up to ~24h) rather than failing fast. It *does* fail fast when a `pool` runner's `:8001` host inference service is held by another user (a personal stack left running), with a clear "ask them to `python run.py --stop`" message.
 
 **Team norm:** glance at the Runners tab (green = available) before you **Run workflow**.
 
@@ -126,4 +126,3 @@ The workflow is manual-dispatch only today; a nightly `schedule:` trigger can be
 - **Device contention** — one runner per device + the `concurrency:` group in the workflow keep two runs off the same chip.
 - **Orphaned containers** — personal boxes get rebooted mid-run; the workflow's `if: always()` step runs `python3 run.py --stop` to free the board so a failed run doesn't wedge the next one.
 - **Heterogeneous hardware / TT-Metal versions** — use device labels so a run lands on compatible hardware.
-
