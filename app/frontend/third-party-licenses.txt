@@ -1377,7 +1377,7 @@ The following npm packages may be included in this product:
  - is-alphanumerical@2.0.1
  - is-decimal@2.0.1
  - is-hexadecimal@2.0.1
- - mdast-util-to-hast@13.2.0
+ - mdast-util-to-hast@13.2.1
  - space-separated-tokens@2.0.2
  - unist-util-stringify-position@4.0.0
  - unist-util-visit-parents@6.0.2
