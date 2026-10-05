@@ -34,9 +34,11 @@ export interface StartupPhase {
   total_bytes?: number | null;
   speed_bps?: number | null;
   eta_seconds?: number | null;
-  // Phase template chosen by the backend per model category, so the
-  // PhaseTrack renders that category's phases instead of a hardcoded list.
-  category?: "llm" | "media" | "training";
+  // Category-aware phase template. LLM and media-server models walk through
+  // different sequences (LLM has compile + KV alloc, media has worker pool +
+  // warmup), so the backend tells the frontend which phases to render in the
+  // PhaseTrack instead of the frontend hardcoding the LLM list.
+  category?: "llm" | "media";
   phases?: string[];
   phase_labels?: Record<string, string>;
   phase_base_pct?: Record<string, number>;

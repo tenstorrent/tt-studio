@@ -8,7 +8,7 @@ Parses docker stdout lines from a starting inference container and returns a
 structured snapshot of which phase of warmup it's in. Used by ModelHealthView
 to enrich the 202 response so the frontend banner can show real progress.
 
-Supports three phase templates because the runtime stacks are different:
+Supports two phase templates because the runtime stacks are different:
 
 * LLM template — vLLM + tt-metal containers (Llama, Qwen, DeepSeek, etc.).
   Long compile-graph phase, KV cache allocation, autoregressive decode.
@@ -16,9 +16,6 @@ Supports three phase templates because the runtime stacks are different:
 * MEDIA template — tt-media-inference-server (Whisper, SpeechT5, SDXL, etc.).
   Multi-worker FastAPI service with one-shot encoders/decoders. No KV cache,
   no compile-graph phase.
-
-* TRAINING template — tt-media-inference-server-forge fine-tuning runners.
-  Base-weight download + job workers; nothing loads on device until a job runs.
 
 Pure function — feed it lines + an optional `model_type` hint, get back a dict
 with the right phase template embedded so the frontend knows which pills to
@@ -295,71 +292,6 @@ _DOWNLOAD_MEDIA_HF_LOAD_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# TRAINING template (tt-media-inference-server-forge fine-tuning runners)
-# ---------------------------------------------------------------------------
-# Post-download steps take <0.2 s combined, so they share one pill
-# (verified against a real trainer-training-lora startup on p150).
-TRAINING_PHASES = [
-    "container_starting",
-    "downloading_weights",
-    "starting_workers",
-    "ready",
-]
-
-TRAINING_PHASE_LABELS = {
-    "container_starting":  "Starting container",
-    "downloading_weights": "Downloading base model weights",
-    "starting_workers":    "Starting fine-tuning workers",
-    "ready":               "Ready for fine-tuning jobs",
-}
-
-# The download is nearly all of the wall-clock, so it spans 5-93%.
-TRAINING_PHASE_BASE_PCT = {
-    "container_starting":  2,
-    "downloading_weights": 5,
-    "starting_workers":    95,
-    "ready":               100,
-}
-
-# Not a marker: `get_device_runner: created ...Runner`, which also fires before
-# the download and would latch the phase past it.
-_TRAINING_SUBSTRING_MARKERS: list[tuple[str, str]] = [
-    ("USING CACHE_ROOT",                       "container_starting"),
-    ("MOUNTED VOLUME PERMISSIONS",             "container_starting"),
-    ("SETTINGS INIT: MODEL=",                  "container_starting"),
-    ("CONFIG LOOKUP: RUNNER=",                 "container_starting"),
-    ("SETTINGS RESOLVED:",                     "container_starting"),
-    ("SETTING UP PROMETHEUS METRICS",          "container_starting"),
-    ("PROMETHEUS METRICS AVAILABLE",           "container_starting"),
-    ("STARTED SERVER PROCESS",                 "container_starting"),
-    ("WAITING FOR APPLICATION STARTUP",        "container_starting"),
-    ("CREATING NEW TRAINING SERVICE",          "container_starting"),
-
-    ("DOWNLOADING WEIGHTS FOR MODEL:",         "downloading_weights"),
-    ("ALREADY CACHED, SKIPPING DOWNLOAD",      "downloading_weights"),
-    ("USING CACHED MODEL AT:",                 "downloading_weights"),
-    ("MODEL ALREADY EXISTS LOCALLY AT:",       "downloading_weights"),
-    ("SUCCESSFULLY DOWNLOADED MODEL WEIGHTS",  "downloading_weights"),
-
-    ("JOB PERSISTENCE ENABLED",                "starting_workers"),
-    ("JOB CLEANUP TASK STARTED",               "starting_workers"),
-    ("BASE JOB SERVICE INIT",                  "starting_workers"),
-    ("WORKERS TO START:",                      "starting_workers"),
-    ("STARTING WORKER ",                       "starting_workers"),
-    ("STARTED WORKER ",                        "starting_workers"),
-    ("ALL WORKERS STARTED IN SEQUENCE",        "starting_workers"),
-    ("UVICORN RUNNING ON",                     "starting_workers"),
-    ("APPLICATION STARTUP COMPLETE",           "starting_workers"),
-    ("SETUP_RUNNER_ENVIRONMENT",               "starting_workers"),
-    ("TT_VISIBLE_DEVICES",                     "starting_workers"),
-    ("OPENING USER MODE DEVICE DRIVER",        "starting_workers"),
-    ("SETTING UP TRAINER-BACKED",              "starting_workers"),
-    ("STARTED WITH DEVICE RUNNER",             "starting_workers"),
-    ("REPORTED READY",                         "starting_workers"),
-    ("ALL WORKERS READY",                      "starting_workers"),
-]
-
-# ---------------------------------------------------------------------------
 # Shared regexes / model-type routing
 # ---------------------------------------------------------------------------
 
@@ -432,7 +364,7 @@ _MEDIA_WARMUP_STEP_RE = re.compile(
 MEDIA_WARMUP_TOTAL = 8
 
 # tt-studio ModelTypes (mirror of shared_config.model_type_config.ModelTypes)
-# that should be classified as MEDIA. Everything else except TRAINING → LLM.
+# that should be classified as MEDIA. Everything else → LLM.
 _MEDIA_MODEL_TYPES = frozenset({
     "speech_recognition",
     "tts",
@@ -442,8 +374,6 @@ _MEDIA_MODEL_TYPES = frozenset({
     "cnn",
     "face_recognition",
 })
-
-_TRAINING_MODEL_TYPE = "training"
 
 # Backstop name patterns — used when the caller doesn't pass a model_type
 # hint and we have to guess from the model name.
@@ -469,20 +399,15 @@ _MEDIA_NAME_PATTERNS = [
 
 
 def category_for_model(model_type: Optional[str] = None, model_name: Optional[str] = None) -> str:
-    """Return 'training', 'media' or 'llm' for the given model identifiers.
+    """Return 'media' or 'llm' for the given model identifiers.
 
     Resolution order:
       1. `model_type` from the registry (definitive when present)
       2. `model_name` regex backstop
       3. Default to 'llm' (the more common case)
-
-    Training has no name backstop: its names are shared with chat specs.
     """
     if model_type:
-        mtype = str(model_type).lower()
-        if mtype == _TRAINING_MODEL_TYPE:
-            return "training"
-        if mtype in _MEDIA_MODEL_TYPES:
+        if str(model_type).lower() in _MEDIA_MODEL_TYPES:
             return "media"
         return "llm"
     if model_name:
@@ -496,11 +421,6 @@ def _template_for(category: str) -> tuple[
     list[str], dict[str, str], dict[str, int], list[tuple[str, str]]
 ]:
     """Return (phases, phase_labels, phase_base_pct, substring_markers)."""
-    if category == "training":
-        return (
-            TRAINING_PHASES, TRAINING_PHASE_LABELS, TRAINING_PHASE_BASE_PCT,
-            _TRAINING_SUBSTRING_MARKERS,
-        )
     if category == "media":
         return (MEDIA_PHASES, MEDIA_PHASE_LABELS, MEDIA_PHASE_BASE_PCT, _MEDIA_SUBSTRING_MARKERS)
     return (LLM_PHASES, LLM_PHASE_LABELS, LLM_PHASE_BASE_PCT, _LLM_SUBSTRING_MARKERS)
@@ -522,7 +442,7 @@ def classify_startup_phase(
         lines: log lines in chronological order (oldest first).
         now: optional wall-clock override (tests).
         model_type: registry `ModelTypes` value (e.g. "chat", "speech_recognition").
-            When provided, selects the LLM, MEDIA or TRAINING phase template directly.
+            When provided, selects the LLM or MEDIA phase template directly.
         model_name: fallback identifier — used to regex-route to MEDIA when
             no `model_type` hint is available.
 
@@ -530,7 +450,7 @@ def classify_startup_phase(
         dict with: phase, phase_label, progress, message, last_heartbeat_seconds,
         warmup_seq_len, trace_count, classified_at, weights_repo,
         weights_target_path, weights_cached, phases, phase_labels,
-        phase_base_pct, category ('llm', 'media' or 'training').
+        phase_base_pct, category.
     """
     current_now = now if now is not None else _now()
     category = category_for_model(model_type=model_type, model_name=model_name)
@@ -579,9 +499,8 @@ def classify_startup_phase(
         # Capture download repo + (optional) container path. The LLM variant
         # logs both repo and path; the media variant logs only repo. The
         # registry/model spec lets the backend compute the cache path later
-        # if it ever needs to du(1) into the HF hub layout. Training uses the
-        # media server's download lines.
-        if category in ("media", "training"):
+        # if it ever needs to du(1) into the HF hub layout.
+        if category == "media":
             m = _DOWNLOAD_MEDIA_RE.search(line)
             if m:
                 weights_repo = m.group("repo")
