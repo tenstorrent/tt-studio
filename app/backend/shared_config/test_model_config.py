@@ -78,10 +78,8 @@ def _catalog_row(model_name, engine, *, model_type="CHAT", version="1.0.0", **ex
 
 
 class CrossEngineModelIdTests(SimpleTestCase):
-    """normalize() emits one catalog row per engine, so a model_name can appear
-    twice (vLLM CHAT + forge TRAINING "Llama-3.1-8B-Instruct"). The default
-    model_id must be engine-aware or same-version rows collide and the
-    module-level registration raises on import."""
+    """A model_name can appear once per engine; same-version rows must still get
+    distinct model_ids or registration raises on import."""
 
     def _load(self, rows):
         with tempfile.TemporaryDirectory() as tmp:

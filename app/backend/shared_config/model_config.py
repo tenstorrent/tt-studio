@@ -113,11 +113,8 @@ class ModelImpl:
     # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
     # files and populate this, and docker_utils.run_container, which consumes it.
     runtime_model_spec_overrides: Optional[Dict[str, str]] = None
-    # Set when the catalog carries this model_name under more than one engine
-    # (vLLM CHAT + forge TRAINING "Llama-3.1-8B-Instruct"). The default model_id
-    # then includes the engine so the rows can't collide when their versions
-    # match. Off for every other model so existing ids, and the volume_{model_id}
-    # dirs that hold their weights, stay unchanged.
+    # Adds the engine to the default model_id when the catalog lists this name under
+    # several engines; off otherwise so existing ids (and their volumes) don't change.
     engine_scoped_model_id: bool = False
 
     def __post_init__(self):
@@ -491,9 +488,8 @@ def register_model_implementations(impls) -> dict:
     registry = {}
     for impl in impls:
         validate_model_implemenation_config(impl)
-        # Cross-engine rows get engine-scoped ids (see engine_scoped_model_id), so a
-        # duplicate here means a genuine same-name, same-engine, same-version clash.
-        # Fail loudly instead of silently overwriting.
+        # Cross-engine rows have engine-scoped ids, so a duplicate is a real
+        # same-name/engine/version clash. Fail loudly instead of overwriting.
         if impl.model_id in registry:
             existing = registry[impl.model_id]
             raise ValueError(
