@@ -77,9 +77,9 @@ def _catalog_row(model_name, engine, *, model_type="CHAT", version="1.0.0", **ex
     }
 
 
-class CrossEngineModelIdTests(SimpleTestCase):
-    """A model_name can appear once per engine; same-version rows must still get
-    distinct model_ids or registration raises on import."""
+class TrainingModelIdTests(SimpleTestCase):
+    """A training row can share model_name and version with a chat row; it must
+    still get a distinct model_id or registration raises on import."""
 
     def _load(self, rows):
         with tempfile.TemporaryDirectory() as tmp:
@@ -87,7 +87,7 @@ class CrossEngineModelIdTests(SimpleTestCase):
             path.write_text(json.dumps({"models": rows}))
             return load_model_implementations_from_json(path)
 
-    def test_same_version_cross_engine_rows_get_distinct_ids(self):
+    def test_same_version_training_and_chat_rows_get_distinct_ids(self):
         impls = self._load([
             _catalog_row("Llama-3.1-8B-Instruct", "vLLM", impl="tt-transformers"),
             _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING",
@@ -96,34 +96,23 @@ class CrossEngineModelIdTests(SimpleTestCase):
 
         ids = {impl.inference_engine: impl.model_id for impl in impls}
         self.assertEqual(ids, {
-            "vLLM": "id_tt-metal-Llama-3.1-8B-Instruct-vllm-v1.0.0",
-            "forge": "id_tt-metal-Llama-3.1-8B-Instruct-forge-v1.0.0",
+            "vLLM": "id_tt-metal-Llama-3.1-8B-Instruct-v1.0.0",
+            "forge": "id_tt-metal-Llama-3.1-8B-Instruct-training-v1.0.0",
         })
         registry = register_model_implementations(impls)
         self.assertEqual(len(registry), 2)
 
-    def test_single_engine_model_keeps_legacy_id(self):
-        """Ids name the volume_{model_id} dir holding a model's weights, so
-        models with no cross-engine sibling must keep their existing id."""
+    def test_non_training_models_keep_legacy_id(self):
+        """Ids name the volume_{model_id} dir holding a model's weights."""
         impls = self._load([
             _catalog_row("Qwen3-8B", "vLLM"),
-            _catalog_row("Llama-3.1-8B-Instruct", "vLLM"),
-            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING"),
+            _catalog_row("whisper-large-v3", "media", model_type="SPEECH_RECOGNITION"),
         ])
 
-        qwen = next(impl for impl in impls if impl.model_name == "Qwen3-8B")
-        self.assertEqual(qwen.model_id, "id_tt-metal-Qwen3-8B-v1.0.0")
-
-    def test_unavailable_sibling_still_scopes_the_id(self):
-        """Hiding one engine's row must not flip the other row's model_id."""
-        impls = self._load([
-            _catalog_row("Llama-3.2-3B", "vLLM"),
-            _catalog_row("Llama-3.2-3B", "forge", model_type="TRAINING",
-                         available_in_studio=False, unavailable_reason="known_broken"),
+        self.assertEqual([impl.model_id for impl in impls], [
+            "id_tt-metal-Qwen3-8B-v1.0.0",
+            "id_tt-metal-whisper-large-v3-v1.0.0",
         ])
-
-        self.assertEqual([impl.model_id for impl in impls],
-                         ["id_tt-metal-Llama-3.2-3B-vllm-v1.0.0"])
 
     def test_same_engine_duplicate_still_fails_loudly(self):
         impls = self._load([
