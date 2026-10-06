@@ -1,0 +1,84 @@
+name: Refresh model catalog
+
+# Keeps the committed model catalog current with tt-cli's model support spec.
+# The catalog is what a fresh clone falls back to when it can't reach tt-cli
+# (see tt_setup/model_support.py), so it should not go stale between releases.
+# Runs the same sync run.py does, and opens (or updates) one PR against dev
+# only when the generated catalog actually changes.
+#
+# PRs opened with GITHUB_TOKEN do not trigger other workflows (GitHub suppresses
+# recursive runs), so the PR's checks won't start on their own. Close and
+# reopen the PR, or set a PAT in the CATALOG_PR_TOKEN secret to have them run.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-model-catalog
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # the sync needs tomllib (3.11+)
+
+      - name: Fetch the model support spec
+        run: |
+          # .env.default is the one place the spec URL is defined.
+          url=$(grep -E '^TT_MODEL_SUPPORT_URL=' .env.default | cut -d= -f2-)
+          test -n "$url"
+          curl -fsSL --retry 3 "$url" -o app/backend/shared_config/model_support.json
+          release=$(python -c "import json;print(json.load(open('app/backend/shared_config/model_support.json'))['release_version'])")
+          echo "RELEASE=v${release#v}" >> "$GITHUB_ENV"
+
+      - name: Fetch the matching tt-inference-server artifact
+        run: |
+          mkdir -p .artifacts/tt-inference-server
+          curl -fsSL --retry 3 \
+            "https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/${RELEASE}.tar.gz" \
+            | tar -xz --strip-components=1 -C .artifacts/tt-inference-server
+
+      - name: Sync the catalog
+        env:
+          TT_INFERENCE_ARTIFACT_PATH: ${{ github.workspace }}/.artifacts/tt-inference-server
+        run: |
+          python app/backend/shared_config/sync_models_from_inference_server.py
+          # The sync silently falls back to artifact-only when the spec and the
+          # artifact disagree; that would overwrite the catalog with a downgrade.
+          python - <<'EOF'
+          import json, os
+          src = json.load(open("app/backend/shared_config/models_from_inference_server.json"))["source"]
+          want = os.environ["RELEASE"].lstrip("v")
+          got = str(src.get("model_support_release", "")).lstrip("v")
+          assert got == want, f"catalog was not built from the spec (release {got!r}, expected {want!r})"
+          EOF
+
+      - name: Open or update the PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.CATALOG_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          base: dev
+          branch: automation/refresh-model-catalog
+          add-paths: app/backend/shared_config/models_from_inference_server.json
+          commit-message: "chore: refresh model catalog from the model support spec"
+          title: "chore: refresh model catalog from the model support spec"
+          body: |
+            Regenerated `models_from_inference_server.json` from tt-cli's model
+            support spec (release ${{ env.RELEASE }}) with the standard catalog sync.
+
+            This catalog is the offline fallback for fresh clones, so it is kept
+            current here. Runtime syncs on users' machines are unaffected.
+          delete-branch: true
