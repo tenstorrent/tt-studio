@@ -379,6 +379,10 @@ export function TrainingConfigDialog({
     isCustomDataset && sampleTotal > 0 && validMaxLength;
   const lengthWarning = lengthEstimateReady && sampleKept < sampleTotal;
   const lengthAllFit = lengthEstimateReady && sampleKept === sampleTotal;
+  // The estimate only covers a leading slice of a large file, so a clean result
+  // can't vouch for the rows it never saw.
+  const lengthEstimatePartial =
+    datasetSampled || datasetSampleRows.length > sampleTotal;
 
   const onSubmit = async (values: FormValues) => {
     if (!device) {
@@ -793,9 +797,10 @@ export function TrainingConfigDialog({
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
                   <p className="text-green-800 dark:text-green-200">
                     At a Sequence Length of{" "}
-                    <span className="font-semibold">{maxLength}</span>, all
-                    examples fit and would be used for training (estimated,
-                    template included).
+                    <span className="font-semibold">{maxLength}</span>,{" "}
+                    {lengthEstimatePartial
+                      ? `all ${sampleTotal} sampled examples fit (estimated from the start of the file, template included). Longer examples later in the file would still be dropped.`
+                      : "all examples fit and would be used for training (estimated, template included)."}
                   </p>
                 </div>
               )}
