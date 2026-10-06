@@ -878,8 +878,11 @@ def get_port_mounts(impl, host_port=None):
 
 
 def get_host_port(impl):
-    # Reserve ports used by TT-Studio services on the host:
-    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
+    # Reserve ports used by TT-Studio services and the control plane:
+    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = reserved
+    # control-plane port. Docker Control itself is internal-only, but keeping
+    # 8002 out of model allocation prevents any model from recreating a host
+    # listener on the retired public control port.
     # Direct-container models (legacy YOLOv4/Stable-Diffusion) start at 21003.
     # A live scan of used ports (below) means this can never actually collide
     # with get_next_service_port()'s 20000+ block even though both can grow.
@@ -1132,13 +1135,13 @@ def _external_model_impl(con_id, con):
     try:
         # Match on either id form: registration stores whatever id the caller
         # passed (usually the short one), the live listing keys on the full one.
+        # Do not fall back to container_name here: a stale external record can
+        # legitimately share a name with a newer catalog deployment, and external
+        # registration is supposed to describe one specific container identity.
         active = ModelDeployment.objects.filter(
             device="external", status__in=["running", "starting"]
         )
-        dep = (
-            active.filter(container_id__in=[con_id, con_id[:12]]).first()
-            or active.filter(container_name=con["name"]).first()
-        )
+        dep = active.filter(container_id__in=[con_id, con_id[:12]]).first()
     except Exception as e:
         logger.warning(f"Could not look up external deployment for {con_id}: {e}")
         return None
@@ -1238,7 +1241,14 @@ def _enrich_container_with_model_impl(con, con_id):
     It is now reusable from both that function and ``get_canonical_deployments``.
     """
     con_model_id = con['env_vars'].get("MODEL_ID")
-    model_impl = model_implmentations.get(con_model_id)
+    # A container the user registered is described by its deployment record, not
+    # by the catalog: it gets the external stand-in impl even when a catalog model
+    # shares its name (e.g. a community gpt-oss-120b build). Matching it to the
+    # catalog entry instead would judge it by the catalog allowlist and route it
+    # with the catalog's port/route rather than the ones registration observed.
+    model_impl = _external_model_impl(con_id, con)
+    if not model_impl:
+        model_impl = model_implmentations.get(con_model_id)
     if not model_impl:
         model_impl = _community_model_impl(con_id, con)
     if not model_impl:

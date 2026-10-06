@@ -9,7 +9,9 @@ community_catalog.json lists the community bundles verified to deploy.
 
 import json
 import os
+import time
 import urllib.request
+from datetime import datetime
 
 from dotenv import dotenv_values
 
@@ -22,7 +24,12 @@ _SHARED_CONFIG = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config")
 MODEL_SUPPORT_CACHE = os.path.join(_SHARED_CONFIG, "model_support.json")
 CATALOG_PATH = os.path.join(_SHARED_CONFIG, "models_from_inference_server.json")
 COMMUNITY_CATALOG_CACHE = os.path.join(_SHARED_CONFIG, "community_catalog.json")
+COMMUNITY_CATALOG_BUNDLED = os.path.join(_SHARED_CONFIG, "community_catalog_bundled.json")
 COMMUNITY_CATALOG_SCHEMA_VERSION = 1
+
+# Where this run's lists came from, by cache path: "live" (fetched now), "cached" (the
+# last fetched spec) or "bundled" (the catalog committed in the repo).
+LIST_SOURCE = {}
 
 
 def _env_or_default(name):
@@ -66,8 +73,31 @@ def _read(url, timeout):
         return resp.read()
 
 
+def describe_list_source(cache=MODEL_SUPPORT_CACHE, label="Model list", spec="model support spec", fallback="bundled catalog"):
+    """One line saying where a list came from, for the detail output."""
+    source = LIST_SOURCE.get(cache, "bundled")
+    if source == "live":
+        return f"{label}: live from the {spec}"
+    if source == "cached":
+        try:
+            fetched = os.path.getmtime(cache)
+        except OSError:
+            return f"{label}: cached copy of the {spec}"
+        when = datetime.fromtimestamp(fetched).strftime("%Y-%m-%d")
+        days = int((time.time() - fetched) // 86400)
+        return f"{label}: cached copy of the {spec} (last fetched {when}, {days}d ago)"
+    return f"{label}: {fallback} ({spec} unavailable)"
+
+
+def describe_community_source():
+    return describe_list_source(
+        COMMUNITY_CATALOG_CACHE, "Community list", "community catalog", "bundled community catalog"
+    )
+
+
 def _refresh(name, url, cache, is_valid, label, kept, timeout):
     """Download ``url`` into ``cache``. Returns True when the cached copy changed."""
+    LIST_SOURCE[cache] = "cached" if _load(cache, is_valid) else "bundled"
     if not url:
         console.print(f"[warning]⚠️  {name} is unset; keeping the existing {kept}[/warning]")
         return False
@@ -87,9 +117,11 @@ def _refresh(name, url, cache, is_valid, label, kept, timeout):
         console.print(f"[warning]⚠️  {url} is not a valid {label}; ignoring it[/warning]")
         return False
 
+    LIST_SOURCE[cache] = "live"
     try:
         with open(cache, "rb") as f:
             if f.read() == body:
+                os.utime(cache)  # mtime = last successful fetch
                 return False
     except OSError:
         pass

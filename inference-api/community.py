@@ -38,10 +38,15 @@ logger = logging.getLogger(__name__)
 RUNNER = str(Path(__file__).parent / "tt_model_runner.py")
 
 # tt-cli's verified community bundles, fetched here by run.py (tt_setup/model_support).
-COMMUNITY_CATALOG = str(
-    Path(__file__).resolve().parent.parent
-    / "app" / "backend" / "shared_config" / "community_catalog.json"
-)
+_SHARED_CONFIG = Path(__file__).resolve().parent.parent / "app" / "backend" / "shared_config"
+# The committed copy is the offline fallback, as models_from_inference_server.json is
+# for the model list: a fresh clone that cannot reach tt-cli still lists the bundles.
+_CATALOG_CACHE = _SHARED_CONFIG / "community_catalog.json"
+_CATALOG_BUNDLED = _SHARED_CONFIG / "community_catalog_bundled.json"
+
+
+def _catalog_path() -> str:
+    return str(_CATALOG_CACHE if _CATALOG_CACHE.exists() else _CATALOG_BUNDLED)
 
 # Listing reads every bundle's manifest off the Hub; the deploy UI asks on every visit.
 _CATALOG_TTL_SECONDS = 300
@@ -260,7 +265,7 @@ def create_community_router(
             if fresh:
                 return catalog_cache["payload"]
 
-        args = ["catalog", "--catalog", COMMUNITY_CATALOG, "--limit", str(limit)]
+        args = ["catalog", "--catalog", _catalog_path(), "--limit", str(limit)]
         if arch:
             args += ["--arch", arch]
         if query:

@@ -1,0 +1,586 @@
+{
+ "schema_version": 1,
+ "bundles": [
+  {
+   "repo": "anirud/devstral-small-2-24b-instruct-2512",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/Alpamayo2-Super-p300x2",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/depth-anything-3-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/gaze-lle-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/GR00T-N1.5-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/GR00T-N1.6-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/GR00T-N1.7-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/hamer-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/locate-anything-3b-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/mast3r-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/moge-2-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/qwen-image-2.1-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-dflash2-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-p150x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/rf-detr-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/RLDX-1-PT-IMG-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/RLDX-1-PT-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/sam3-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/superpoint-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/vggt-1b-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "changh95/xvla-base-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "jashansinghTT/kimi-linear-48b-a3b-instruct-blackhole",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "jashansinghTT/minimax-music3-blackhole",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "jashansinghTT/olmo-3.1-32b-instruct-blackhole",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "jashansinghTT/s2-pro-blackhole",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300",
+    "p300x2",
+    "p300x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "mando2222/laguna-s-2.1-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "mando2222/llama-3.2-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "mando2222/qwen3-32b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "mando2222/qwen3.8-27b-dflash2-p300x2-q4kv",
+   "kind": null,
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": "2026-09-17"
+  },
+  {
+   "repo": "mando2222/vibethinker-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "ndaly/Mistral-Small-4-119B-2603-tt-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "ndaly/Nemotron-3.5-Lightning-30B-A3B-NVFP4-tt-p300x2-vllm026",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "raahemnabeel/ornith-1.5-35b-a3b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "raahemnabeel/qwen3-5-122b-a10b-blackholex4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": "2026-10-01"
+  },
+  {
+   "repo": "raahemnabeel/qwen3-coder-30b-a3b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "sjettTT/qwen3.8-flash-next_p150x4",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": null
+  },
+  {
+   "repo": "stisiTT/flux2-dev-qb2",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "stisiTT/gemma-4-12b-it-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "stisiTT/llama-3.2-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "stisiTT/smollm2-135m-instruct-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null
+  },
+  {
+   "repo": "tt-hous/gpt-oss-120b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null
+  },
+  {
+   "repo": "tt-hous/gpt-oss-20b-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/laguna-xs-2.1",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/muse-glimmer-30b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/ornith-1.0-35b-p150",
+   "kind": "container",
+   "engine": "vllm-fork",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/ornith-1.5-9b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null
+  },
+  {
+   "repo": "tt-hous/qwen3.6-27b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/qwen3.8-27b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  },
+  {
+   "repo": "tt-hous/qwen3.8-flash-next-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25"
+  }
+ ]
+}
