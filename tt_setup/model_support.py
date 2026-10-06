@@ -5,7 +5,9 @@
 
 import json
 import os
+import time
 import urllib.request
+from datetime import datetime
 
 from dotenv import dotenv_values
 
@@ -17,6 +19,10 @@ _SHARED_CONFIG = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config")
 # Gitignored; the catalog sync script reads it from the same path.
 MODEL_SUPPORT_CACHE = os.path.join(_SHARED_CONFIG, "model_support.json")
 CATALOG_PATH = os.path.join(_SHARED_CONFIG, "models_from_inference_server.json")
+
+# Where this run's model list came from: "live" (fetched now), "cached" (the
+# last fetched spec) or "bundled" (the catalog committed in the repo).
+LIST_SOURCE = "bundled"
 
 
 def model_support_url():
@@ -48,8 +54,25 @@ def _read(url, timeout):
         return resp.read()
 
 
+def describe_list_source():
+    """One line saying where the model list came from, for the detail output."""
+    if LIST_SOURCE == "live":
+        return "Model list: live from the model support spec"
+    if LIST_SOURCE == "cached":
+        try:
+            fetched = os.path.getmtime(MODEL_SUPPORT_CACHE)
+        except OSError:
+            return "Model list: cached copy of the model support spec"
+        when = datetime.fromtimestamp(fetched).strftime("%Y-%m-%d")
+        days = int((time.time() - fetched) // 86400)
+        return f"Model list: cached copy of the model support spec (last fetched {when}, {days}d ago)"
+    return "Model list: bundled catalog (model support spec unavailable)"
+
+
 def refresh_model_support(timeout=10):
     """Download the spec into the cache. Returns True when the cached copy changed."""
+    global LIST_SOURCE
+    LIST_SOURCE = "cached" if load_model_support() else "bundled"
     url = model_support_url()
     if not url:
         console.print(
@@ -76,9 +99,11 @@ def refresh_model_support(timeout=10):
         )
         return False
 
+    LIST_SOURCE = "live"
     try:
         with open(MODEL_SUPPORT_CACHE, "rb") as f:
             if f.read() == body:
+                os.utime(MODEL_SUPPORT_CACHE)  # mtime = last successful fetch
                 return False
     except OSError:
         pass

@@ -25,7 +25,7 @@ from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
 from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_backend_port, get_frontend_config, report_service_failure, resolve_backend_port, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
 from tt_setup.inference_server import _catalog_missing_generated_specs, _sync_model_catalog, setup_tt_inference_server
-from tt_setup.model_support import default_artifact_version, refresh_model_support
+from tt_setup.model_support import default_artifact_version, describe_list_source, refresh_model_support
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -838,6 +838,8 @@ def _run(args):
             try:
                 ph.set("TT Inference Server")
                 model_support_changed = refresh_model_support()
+                if show_detail():
+                    console.print(f"[muted]{describe_list_source()}[/muted]")
                 if not setup_tt_inference_server(
                     pull_branch=args.pull_branch, default_version=default_artifact_version()
                 ):
