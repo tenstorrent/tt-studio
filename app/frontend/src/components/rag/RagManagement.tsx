@@ -47,7 +47,6 @@ import {
   SelectValue,
 } from "@/src/components/ui/select";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
-import { v4 as uuidv4 } from "uuid";
 import type { ReactElement } from "react";
 
 // Spinner component with size variants
@@ -75,42 +74,6 @@ const Spinner = ({ size = "md" }: SpinnerProps): ReactElement => {
       <span className="sr-only">Loading</span>
     </div>
   );
-};
-
-// LocalStorage key for browser ID
-const BROWSER_ID_KEY = "tt_studio_browser_id";
-
-// Get browser ID from localStorage or create a new one
-const getBrowserId = (): string => {
-  let browserId = localStorage.getItem(BROWSER_ID_KEY);
-
-  if (!browserId) {
-    browserId = uuidv4();
-    localStorage.setItem(BROWSER_ID_KEY, browserId);
-  }
-
-  return browserId;
-};
-
-// Add browser ID to headers for all fetch requests
-const originalFetch = window.fetch;
-window.fetch = function (
-  input: string | URL | Request,
-  init?: globalThis.RequestInit
-): Promise<Response> {
-  // Create new options object to avoid mutating the original
-  const newInit: globalThis.RequestInit = { ...(init || {}) };
-
-  // Initialize headers if not present
-  newInit.headers = newInit.headers || {};
-
-  // Add browser ID header to all requests
-  newInit.headers = {
-    ...newInit.headers,
-    "X-Browser-ID": getBrowserId(),
-  };
-
-  return originalFetch(input, newInit);
 };
 
 interface RagDataSource {
@@ -165,7 +128,9 @@ export default function RagManagement() {
   // Embedding model for newly-created datasources: "" is the default local
   // model, otherwise a deployed embedding model's stable identity (see
   // EmbeddingDemo, which introduced TT-hardware-backed collections).
-  const [embeddingModels, setEmbeddingModels] = useState<DeployedEmbeddingModel[]>([]);
+  const [embeddingModels, setEmbeddingModels] = useState<
+    DeployedEmbeddingModel[]
+  >([]);
   const [embeddingModel, setEmbeddingModel] = useState("");
 
   // State to track expanded rows
@@ -182,7 +147,10 @@ export default function RagManagement() {
   };
 
   // Helper to start smooth simulated progress while backend creates embeddings
-  const startProgressSimulation = (uploadId: string, collectionName: string) => {
+  const startProgressSimulation = (
+    uploadId: string,
+    collectionName: string
+  ) => {
     if (progressIntervals.current.has(uploadId)) {
       clearInterval(progressIntervals.current.get(uploadId)!);
     }
@@ -249,12 +217,6 @@ export default function RagManagement() {
       currentTimeouts.forEach((timer) => clearTimeout(timer));
       currentTimeouts.clear();
     };
-  }, []);
-
-  // Ensure browser ID is initialized on component mount
-  useEffect(() => {
-    // This just makes sure browser ID is initialized
-    getBrowserId();
   }, []);
 
   // Offer any deployed embedding model as an alternative to the default local
@@ -396,25 +358,27 @@ export default function RagManagement() {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
       );
+      const isAlreadyExists =
+        error?.message === "Collection name already exists" ||
+        error?.message?.includes("already exists");
       if (uploadId) {
         stopProgressSimulation(uploadId);
         setActiveUploads((prev) =>
           prev.map((item) =>
             item.id === uploadId
               ? {
-                  ...item,
-                  status: "error",
-                  progress: 100,
-                  errorMessage:
-                    error.message === "Collection name already exists"
-                      ? `Collection "${collectionName}" already exists.`
-                      : error.message || "Failed to create datasource",
-                }
+                ...item,
+                status: "error",
+                progress: 100,
+                errorMessage: isAlreadyExists
+                  ? `Collection "${collectionName}" already exists.`
+                  : error.message || "Failed to create datasource",
+              }
               : item
           )
         );
       }
-      if (error.message === "Collection name already exists") {
+      if (isAlreadyExists) {
         customToast.error(
           `Collection "${collectionName}" already exists. Please choose a different name.`
         );
@@ -434,11 +398,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                  ...item,
-                  status: "success",
-                  progress: 100,
-                  statusText: `Datasource "${collectionName}" created successfully`,
-                }
+                ...item,
+                status: "success",
+                progress: 100,
+                statusText: `Datasource "${collectionName}" created successfully`,
+              }
               : item
           )
         );
@@ -586,7 +550,11 @@ export default function RagManagement() {
     },
     onError: (
       error: Error,
-      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+      {
+        file,
+        collectionName,
+        uploadId,
+      }: { file: File; collectionName: string; uploadId?: string }
     ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
@@ -597,11 +565,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                  ...item,
-                  status: "error",
-                  progress: 100,
-                  errorMessage: error.message || "Upload failed",
-                }
+                ...item,
+                status: "error",
+                progress: 100,
+                errorMessage: error.message || "Upload failed",
+              }
               : item
           )
         );
@@ -612,7 +580,11 @@ export default function RagManagement() {
     },
     onSuccess: async (
       response,
-      { file, collectionName, uploadId }: { file: File; collectionName: string; uploadId?: string }
+      {
+        file,
+        collectionName,
+        uploadId,
+      }: { file: File; collectionName: string; uploadId?: string }
     ) => {
       setCollectionsUploading((prev) =>
         prev.filter((e) => e !== collectionName)
@@ -623,11 +595,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                  ...item,
-                  status: "success",
-                  progress: 100,
-                  statusText: `Uploaded "${file.name}" to "${collectionName}"`,
-                }
+                ...item,
+                status: "success",
+                progress: 100,
+                statusText: `Uploaded "${file.name}" to "${collectionName}"`,
+              }
               : item
           )
         );
@@ -1145,12 +1117,19 @@ export default function RagManagement() {
             <span className="font-medium text-gray-600 dark:text-gray-400 shrink-0">
               Embed new datasources with:
             </span>
-            <Select value={embeddingModel || "__default__"} onValueChange={(v) => setEmbeddingModel(v === "__default__" ? "" : v)}>
+            <Select
+              value={embeddingModel || "__default__"}
+              onValueChange={(v) =>
+                setEmbeddingModel(v === "__default__" ? "" : v)
+              }
+            >
               <SelectTrigger className="h-9 w-auto min-w-[220px] text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__">Default (local model)</SelectItem>
+                <SelectItem value="__default__">
+                  Default (local model)
+                </SelectItem>
                 {embeddingModels.map((m) => (
                   <SelectItem key={m.id} value={m.hfModelId || m.modelName}>
                     {m.modelName}
@@ -1163,11 +1142,10 @@ export default function RagManagement() {
 
         {/* File Upload Area */}
         <Card
-          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${
-            isDragging
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${isDragging
               ? "border-TT-purple-accent bg-TT-purple-tint2 dark:bg-TT-purple-accent/20 shadow-lg"
               : "hover:border-TT-purple-accent dark:hover:border-TT-purple-accent"
-          }`}
+            }`}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
