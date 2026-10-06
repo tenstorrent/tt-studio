@@ -154,7 +154,7 @@ Never print the last N lines of a log and leave the reader to grep. Classify, th
 
 ```python
 if show_detail():
-    console.print("[success]✅ Docker Control Service ready at http://localhost:8002[/success]")
+    console.print("[success]✅ Docker Control Service ready inside the tt_studio_network bridge[/success]")
 ```
 
 - Inside a phase on a normal run → **folded** (the phase rule is the "done" signal; endpoint URLs
