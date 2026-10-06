@@ -9,16 +9,13 @@ container and cannot touch /dev/tenstorrent, the docker socket or the host HF ca
 every operation goes to inference-api on the host, which owns the tt-model-manager
 artifact.
 
-Catalog reads are cached: they cost a Hugging Face Hub request, the deploy UI asks for
-them on every visit, and a Hub outage must degrade to "no community models" rather than
-break the model list.
+An inference-api outage must degrade to "no community models" rather than break the
+model list, so reads here never raise into the caller.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -33,12 +30,6 @@ from shared_config.community_model_config import (
 
 logger = logging.getLogger(__name__)
 
-_CATALOG_TTL_SECONDS = 300
-_BUNDLE_TTL_SECONDS = 300
-_STATUS_TTL_SECONDS = 60
-
-_lock = threading.Lock()
-_cache: Dict[str, Dict[str, Any]] = {}
 
 
 @dataclass(frozen=True)
@@ -55,35 +46,6 @@ def _url(path: str) -> str:
     return f"{backend_config.tt_inference_api_url.rstrip('/')}/community/{path.lstrip('/')}"
 
 
-def _cached(key: str, ttl: int, producer):
-    """Return a cached value, refreshing it when stale.
-
-    On a refresh failure a previously cached value is served rather than dropped: a
-    transient Hub or inference-api hiccup should not empty the community model list.
-    """
-    now = time.time()
-    with _lock:
-        entry = _cache.get(key)
-        if entry and now - entry["at"] < ttl:
-            return entry["value"]
-    try:
-        value = producer()
-    except Exception as e:
-        logger.warning(f"community fetch '{key}' failed: {e}")
-        with _lock:
-            entry = _cache.get(key)
-        return entry["value"] if entry else None
-    with _lock:
-        _cache[key] = {"at": now, "value": value}
-    return value
-
-
-def invalidate_cache() -> None:
-    """Drop cached catalog/bundle data (after an install, removal, or explicit refresh)."""
-    with _lock:
-        _cache.clear()
-
-
 def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: int = 20) -> Any:
     response = requests.get(_url(path), params=params or {}, timeout=timeout)
     response.raise_for_status()
@@ -91,44 +53,35 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: int = 20) 
 
 
 def community_status() -> Dict[str, Any]:
-    """Whether the host can deploy community models. Cached; never raises."""
-    value = _cached("status", _STATUS_TTL_SECONDS, lambda: _get("status", timeout=5))
-    return value or {"available": False, "python": None, "ref": None}
+    """Whether the host can deploy community models. Never raises."""
+    try:
+        return _get("status", timeout=5) or {}
+    except Exception as e:
+        logger.warning(f"community status failed: {e}")
+        return {"available": False, "python": None, "ref": None}
 
 
 def community_available() -> bool:
     return bool(community_status().get("available"))
 
 
-def fetch_catalog(arch: Optional[str] = None, refresh: bool = False) -> List[Dict[str, Any]]:
+def fetch_catalog(arch: Optional[str] = None) -> List[Dict[str, Any]]:
     """Community bundles published for ``arch``. Empty when unavailable."""
-    if refresh:
-        invalidate_cache()
     if not community_available():
         return []
-    key = f"catalog:{arch}"
-
-    def produce():
-        params: Dict[str, Any] = {"arch": arch} if arch else {}
-        # inference-api caches the catalog too, so an explicit refresh has to reach it
-        # or the user gets a listing up to its own TTL stale.
-        if refresh:
-            params["refresh"] = "true"
-        return (_get("models", params, timeout=60) or {}).get("bundles") or []
-
-    return _cached(key, _CATALOG_TTL_SECONDS, produce) or []
+    params: Dict[str, Any] = {"arch": arch} if arch else {}
+    return (_get("models", params) or {}).get("bundles") or []
 
 
-def fetch_bundle(repo_id: str, refresh: bool = False) -> Optional[Dict[str, Any]]:
+def fetch_bundle(repo_id: str) -> Optional[Dict[str, Any]]:
     """Deployable metadata for one bundle (profiles, mesh, weights, engine)."""
-    key = f"bundle:{repo_id}"
-    if refresh:
-        with _lock:
-            _cache.pop(key, None)
     if not community_available():
         return None
-    return _cached(key, _BUNDLE_TTL_SECONDS,
-                   lambda: _get(f"models/{repo_id}", timeout=60))
+    try:
+        return _get(f"models/{repo_id}", timeout=60)
+    except Exception as e:
+        logger.warning(f"community bundle '{repo_id}' failed: {e}")
+        return None
 
 
 def get_community_impl(model_id: str, service_port: int = 7000) -> Optional[CommunityModelImpl]:

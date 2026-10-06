@@ -17,6 +17,8 @@ never corrupt the stream.
 Commands (all emit JSON objects, one per line, on stdout):
     catalog --catalog F --arch A [--query Q] [--limit N]
                                               verified community bundles for this arch
+    enrich  --catalog F --out F [--previous F ...]
+                                              write F's rows plus each bundle's manifest
     inspect <repo_id>                         deployable metadata for one bundle
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
@@ -50,9 +52,8 @@ _READY_TAIL_LINES = 20
 # tt-cli's community_catalog.json format this reads.
 CATALOG_SCHEMA_VERSION = 1
 
-# Manifests are read concurrently for the whole catalog listing. Measured at ~1.1s
-# for 43 bundles cold and ~0.4s warm, against ~0.2s each serially; the backend caches
-# the result, so this is paid once per refresh rather than per page view.
+# Manifests are read concurrently by `enrich`: ~1.1s for 43 bundles cold, against
+# ~0.2s each serially.
 _MANIFEST_WORKERS = 8
 
 
@@ -310,20 +311,22 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def _annotate_from_manifests(bundles: List[Dict[str, Any]]) -> None:
-    """Replace each row's catalog-derived guess with its manifest, in place.
-
-    Concurrent because every row is an independent Hub round-trip; bounded because
-    this runs while the deploy page waits. A row whose manifest cannot be read keeps
-    what the catalog said.
-    """
-    if not bundles:
-        return
+def _fetch_manifests(repo_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Each readable bundle's manifest detail, keyed by repo. Unreadable ones are omitted."""
+    if not repo_ids:
+        return {}
     with ThreadPoolExecutor(max_workers=_MANIFEST_WORKERS) as pool:
-        details = pool.map(_catalog_entry, [b["repo_id"] for b in bundles])
-    for bundle, detail in zip(bundles, details):
-        if detail:
-            bundle.update(detail)
+        details = pool.map(_catalog_entry, repo_ids)
+    return {repo: detail for repo, detail in zip(repo_ids, details) if detail}
+
+
+def _stored_manifests(path: str) -> Dict[str, Dict[str, Any]]:
+    """The manifests an enriched catalog carries, keyed by repo; {} if it is unreadable."""
+    try:
+        rows = _verified_bundles(path, None, None, sys.maxsize)
+    except (OSError, ValueError):
+        return {}
+    return {row["repo"]: row["manifest"] for row in rows if row.get("manifest")}
 
 
 def cmd_catalog(args: argparse.Namespace) -> int:
@@ -360,13 +363,37 @@ def cmd_catalog(args: argparse.Namespace) -> int:
                 "kind": kind,
                 "supported": _launchable(kind) if kind else None,
                 "weights_repo": None,
+                **(row.get("manifest") or {}),
             }
         )
-    # One block: fetch_manifest writes progress to stdout, which has to stay pure NDJSON,
-    # and redirect_stdout is process-wide — so the thread pool must run inside it.
-    with _quiet_tt_kernel():
-        _annotate_from_manifests(bundles)
     emit("catalog", arch=args.arch, bundles=bundles)
+    return 0
+
+
+def cmd_enrich(args: argparse.Namespace) -> int:
+    """Write the catalog rows to ``--out``, each with its bundle's manifest detail.
+
+    A bundle the Hub cannot serve this time keeps the manifest from ``--out`` or, failing
+    that, from a ``--previous`` file.
+    """
+    rows = _verified_bundles(args.catalog, None, None, sys.maxsize)
+    # fetch_manifest writes progress to stdout, which has to stay pure NDJSON, and
+    # redirect_stdout is process-wide, so the thread pool must run inside it.
+    with _quiet_tt_kernel():
+        fetched = _fetch_manifests([row["repo"] for row in rows])
+    stored: Dict[str, Dict[str, Any]] = {}
+    for path in reversed([args.out, *(args.previous or [])]):
+        stored.update(_stored_manifests(path))
+    enriched = []
+    for row in rows:
+        manifest = fetched.get(row["repo"]) or stored.get(row["repo"])
+        enriched.append({**row, "manifest": manifest} if manifest else row)
+    doc = {"schema_version": CATALOG_SCHEMA_VERSION, "bundles": enriched}
+    tmp = f"{args.out}.tmp"
+    Path(tmp).write_text(json.dumps(doc, indent=1))
+    os.replace(tmp, args.out)
+    emit("enriched", total=len(rows), fetched=len(fetched),
+         stored=sum(1 for row in enriched if row.get("manifest")))
     return 0
 
 
@@ -831,6 +858,12 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.add_argument("--query")
     catalog.add_argument("--limit", type=int, default=100)
     catalog.set_defaults(func=cmd_catalog)
+
+    enrich = sub.add_parser("enrich")
+    enrich.add_argument("--catalog", required=True)
+    enrich.add_argument("--out", required=True)
+    enrich.add_argument("--previous", action="append")
+    enrich.set_defaults(func=cmd_enrich)
 
     inspect = sub.add_parser("inspect")
     inspect.add_argument("repo_id")

@@ -64,6 +64,7 @@ from tt_setup.model_support import (
     default_artifact_version,
     describe_community_source,
     describe_list_source,
+    enrich_community_catalog,
     refresh_community_catalog,
     refresh_model_support,
 )
@@ -918,6 +919,7 @@ def _run(args):
                 with step("tt-model-manager artifact", spinner=True):
                     setup_tt_model_manager()
                 refresh_community_catalog()
+                enrich_community_catalog()
                 if show_detail():
                     console.print(f"[muted]{describe_community_source()}[/muted]")
             finally:

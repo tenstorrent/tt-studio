@@ -320,15 +320,11 @@ class ContainersView(APIView):
                 "source": launchers.INFERENCE_SERVER,
             })
 
-        data.extend(
-            _community_model_entries(
-                current_board, refresh=request.query_params.get("refresh") in ("1", "true")
-            )
-        )
+        data.extend(_community_model_entries(current_board))
         return Response(data, status=status.HTTP_200_OK)
 
 
-def _community_model_entries(current_board, refresh=False):
+def _community_model_entries(current_board):
     """Verified community bundles, in the same row shape ContainersView returns for
     the catalog, so the deploy UI lists both as one.
 
@@ -339,7 +335,7 @@ def _community_model_entries(current_board, refresh=False):
     Best-effort by design: tt-model-manager may not be installed and the Hub may be
     unreachable, and neither must break the catalog model list.
     """
-    from docker_control.tt_model_client import fetch_bundle, fetch_catalog
+    from docker_control.tt_model_client import fetch_catalog
     from shared_config.community_model_config import (
         VERIFIED_COMMUNITY_STATUS,
         build_community_model_impl,
@@ -350,7 +346,7 @@ def _community_model_entries(current_board, refresh=False):
 
     arch = arch_for_board(current_board)
     try:
-        bundles = fetch_catalog(arch, refresh=refresh)
+        bundles = fetch_catalog(arch)
     except Exception as e:
         logger.warning(f"Could not list community models: {e}")
         return []
@@ -370,11 +366,9 @@ def _community_model_entries(current_board, refresh=False):
         repo_id = row.get("repo_id")
         if not repo_id:
             continue
-        # An installed bundle is described from the manifest on disk, which is what
-        # would actually be served. Otherwise the catalog row carries the Hub's copy:
-        # the runner reads every bundle's manifest (one small file, no image and no
-        # weights), so a bundle that has never been pulled is described just as fully.
-        detail = (fetch_bundle(repo_id) if row.get("installed") else None) or row
+        # The catalog row carries the manifest `run.py` stored, so a bundle that has
+        # never been pulled is described just as fully as an installed one.
+        detail = row
         if detail.get("supported") is False:
             # An engine tt-model-manager cannot launch. Refused at deploy time anyway,
             # so listing it only wastes the user's click.

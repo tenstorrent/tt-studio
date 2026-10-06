@@ -11,8 +11,9 @@ name: Refresh model catalog
 # reopen the PR, or set a PAT in the CATALOG_PR_TOKEN secret to have them run.
 
 on:
-  schedule:
-    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  # Keep runs manual until this is validated.
+  # schedule:
+  #   - cron: "0 6 * * 1" # Mondays, 06:00 UTC
   workflow_dispatch:
 
 concurrency:
@@ -67,11 +68,19 @@ jobs:
           EOF
 
       - name: Refresh the bundled community catalog
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_PR_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
+          # The same enrichment run.py does; the output is the committed fallback.
           url=$(grep -E '^TT_COMMUNITY_CATALOG_URL=' .env.default | cut -d= -f2-)
+          ref=$(grep -E '^TT_MODEL_MANAGER_REF=' .env.default | cut -d= -f2-)
           test -n "$url"
-          curl -fsSL --retry 3 "$url" -o app/backend/shared_config/community_catalog_bundled.json
-          python -c "import json;d=json.load(open('app/backend/shared_config/community_catalog_bundled.json'));assert d['schema_version']==1 and isinstance(d['bundles'],list)"
+          curl -fsSL --retry 3 "$url" -o "$RUNNER_TEMP/community_catalog.json"
+          python -m venv .mm-venv
+          .mm-venv/bin/pip install "tt-model @ git+https://x-access-token:${GH_TOKEN}@github.com/tenstorrent/tt-model-manager@${ref}"
+          .mm-venv/bin/python inference-api/tt_model_runner.py enrich \
+            --catalog "$RUNNER_TEMP/community_catalog.json" \
+            --out app/backend/shared_config/community_catalog_bundled.json
 
       - name: Open or update the PR
         uses: peter-evans/create-pull-request@v7
@@ -89,6 +98,6 @@ jobs:
             support spec (release ${{ env.RELEASE }}) with the standard catalog sync.
 
             Also refreshes `community_catalog_bundled.json` from tt-cli's community
-            catalog. Both are the offline fallbacks for fresh clones, so it is kept
+            catalog, with each bundle's manifest attached. Both are the offline fallbacks for fresh clones, so it is kept
             current here. Runtime syncs on users' machines are unaffected.
           delete-branch: true

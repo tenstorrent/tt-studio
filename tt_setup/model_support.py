@@ -9,6 +9,7 @@ community_catalog.json lists the community bundles verified to deploy.
 
 import json
 import os
+import subprocess
 import time
 import urllib.request
 from datetime import datetime
@@ -25,6 +26,7 @@ MODEL_SUPPORT_CACHE = os.path.join(_SHARED_CONFIG, "model_support.json")
 CATALOG_PATH = os.path.join(_SHARED_CONFIG, "models_from_inference_server.json")
 COMMUNITY_CATALOG_CACHE = os.path.join(_SHARED_CONFIG, "community_catalog.json")
 COMMUNITY_CATALOG_BUNDLED = os.path.join(_SHARED_CONFIG, "community_catalog_bundled.json")
+COMMUNITY_CATALOG_ENRICHED = os.path.join(_SHARED_CONFIG, "community_catalog_enriched.json")
 COMMUNITY_CATALOG_SCHEMA_VERSION = 1
 
 # Where this run's lists came from, by cache path: "live" (fetched now), "cached" (the
@@ -155,6 +157,40 @@ def refresh_community_catalog(timeout=10):
         "TT_COMMUNITY_CATALOG_URL", community_catalog_url(), COMMUNITY_CATALOG_CACHE,
         _is_valid_community_catalog, "community catalog", "community model list", timeout,
     )
+
+
+def enrich_community_catalog(timeout=300):
+    """Write the community catalog with each bundle's manifest. Returns True on success.
+
+    Runs the tt-model-manager runner, so it needs the artifact installed. Failure is
+    non-fatal: inference-api falls back to the bundled catalog.
+    """
+    from tt_setup.model_manager import model_manager_python
+
+    python = model_manager_python()
+    if not os.path.exists(python):
+        return False
+    if _load(COMMUNITY_CATALOG_CACHE, _is_valid_community_catalog):
+        catalog = COMMUNITY_CATALOG_CACHE
+    else:
+        catalog = COMMUNITY_CATALOG_BUNDLED
+    runner = os.path.join(TT_STUDIO_ROOT, "inference-api", "tt_model_runner.py")
+    env = os.environ.copy()
+    token = get_env_var("HF_TOKEN")
+    if token:
+        env["HF_TOKEN"] = token
+    cmd = [
+        python, runner, "enrich", "--catalog", catalog,
+        "--out", COMMUNITY_CATALOG_ENRICHED, "--previous", COMMUNITY_CATALOG_BUNDLED,
+    ]
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        failure = None if done.returncode == 0 else ((done.stderr or "").strip().splitlines() or ["no output"])[-1]
+    except (OSError, subprocess.TimeoutExpired) as e:
+        failure = str(e)
+    if failure:
+        console.print(f"[warning]⚠️  Couldn't read the community bundle manifests ({failure}); using the bundled catalog[/warning]")
+    return failure is None
 
 
 def load_model_support():

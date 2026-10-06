@@ -99,7 +99,6 @@ class TestVerifiedCatalog:
             all_entries=lambda: [{"repo_id": "ns/chat", "arch": "blackhole", "profile": "p150"}]
         )
         sys.modules["tt_kernel"].localdb = localdb
-        monkeypatch.setattr(runner, "_annotate_from_manifests", lambda bundles: None)
         events = []
         monkeypatch.setattr(runner, "emit", lambda event, **f: events.append((event, f)))
         args = types.SimpleNamespace(catalog=path, arch="blackhole", query=None, limit=100)
@@ -115,6 +114,44 @@ class TestVerifiedCatalog:
         # The smallest verified board stands in until the manifest is read.
         assert (chat["hardware"], chat["chips_required"]) == ("p150", 1)
         assert (image["kind"], image["supported"]) == ("tt-dit-server", True)
+
+    def test_a_row_with_a_manifest_uses_it(self, monkeypatch, fake_tt_kernel, tmp_path):
+        rows = [{**self.ROWS[0], "manifest": {"hardware": "p300x2", "chips_required": 4}}, self.ROWS[1]]
+        path = tmp_path / "enriched.json"
+        path.write_text(json.dumps({"schema_version": 1, "bundles": rows}))
+        [(_, fields)] = self._catalog_rows(monkeypatch, fake_tt_kernel, str(path))
+        chat, image = fields["bundles"]
+        assert (chat["hardware"], chat["chips_required"]) == ("p300x2", 4)
+        assert image["profiles"] == []
+
+    def _enrich(self, monkeypatch, catalog, out, fetched, previous=None):
+        monkeypatch.setattr(runner, "_fetch_manifests", lambda ids: fetched)
+        events = []
+        monkeypatch.setattr(runner, "emit", lambda event, **f: events.append((event, f)))
+        args = types.SimpleNamespace(catalog=catalog, out=str(out), previous=previous)
+        assert runner.cmd_enrich(args) == 0
+        return {r["repo"]: r.get("manifest") for r in json.loads(out.read_text())["bundles"]}, events
+
+    def test_enrich_attaches_each_manifest(self, monkeypatch, catalog, tmp_path):
+        got, events = self._enrich(monkeypatch, catalog, tmp_path / "out.json", {"ns/chat": {"hardware": "p300x2"}})
+        assert got["ns/chat"] == {"hardware": "p300x2"}
+        assert got["ns/image"] is None
+        assert events[-1][1] == {"total": 3, "fetched": 1, "stored": 1}
+
+    def test_enrich_keeps_stored_manifests_when_the_hub_fails(self, monkeypatch, catalog, tmp_path):
+        out = tmp_path / "out.json"
+        bundled = tmp_path / "bundled.json"
+        out.write_text(json.dumps({"schema_version": 1, "bundles": [{**self.ROWS[0], "manifest": {"v": "out"}}]}))
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[0], "manifest": {"v": "bundled"}}, {**self.ROWS[1], "manifest": {"v": "bundled"}}]}))
+        got, _ = self._enrich(monkeypatch, catalog, out, {}, previous=[str(bundled)])
+        assert got["ns/chat"] == {"v": "out"}
+        assert got["ns/image"] == {"v": "bundled"}
+
+    def test_enriched_catalog_is_a_valid_catalog(self, monkeypatch, catalog, tmp_path):
+        out = tmp_path / "out.json"
+        self._enrich(monkeypatch, catalog, out, {"ns/chat": {"hardware": "p300x2"}})
+        assert [r["repo"] for r in runner._verified_bundles(str(out), "blackhole", None, 100)] == ["ns/chat", "ns/image"]
 
     def test_a_missing_catalog_lists_nothing(self, monkeypatch, fake_tt_kernel, tmp_path):
         events = self._catalog_rows(monkeypatch, fake_tt_kernel, str(tmp_path / "nope.json"))
@@ -162,47 +199,13 @@ class TestTask:
         assert runner._task("tt-dit-server", "ns/missing", None) is None
 
 
-class TestAnnotateFromManifests:
-    """The manifest overrides the catalog row, because a row names verified boards
-    while a bundle may declare several profiles with different meshes."""
-
-    def _rows(self):
-        return [
-            {"repo_id": "ns/tagged", "hardware": "p150x4", "chips_required": 4,
-             "kind": "vllm-plugin", "supported": True, "profiles": []},
-            {"repo_id": "ns/unreadable", "hardware": "p150", "chips_required": 1,
-             "kind": "vllm-plugin", "supported": True, "profiles": []},
-        ]
-
-    def test_manifest_wins_over_the_catalog_row(self, monkeypatch):
-        detail = {
-            "arch": "blackhole",
-            "kind": "vllm-plugin",
-            "supported": True,
-            "weights_repo": "org/weights",
-            "default_profile": "p300x2",
-            "profiles": [{"name": "p300x2", "hardware": "p300x2", "chips_required": 4},
-                         {"name": "p150x4", "hardware": "p150x4", "chips_required": 4}],
-            "hardware": "p300x2",
-            "chips_required": 4,
-        }
+class TestFetchManifests:
+    def test_unreadable_bundles_are_omitted(self, monkeypatch):
         monkeypatch.setattr(
             runner, "_catalog_entry",
-            lambda repo_id: detail if repo_id == "ns/tagged" else None,
+            lambda repo_id: {"hardware": "p300x2"} if repo_id == "ns/tagged" else None,
         )
-        rows = self._rows()
-        runner._annotate_from_manifests(rows)
-        assert rows[0]["hardware"] == "p300x2"
-        assert rows[0]["default_profile"] == "p300x2"
-        assert len(rows[0]["profiles"]) == 2
-
-    def test_an_unreadable_manifest_leaves_the_catalog_row(self, monkeypatch):
-        monkeypatch.setattr(runner, "_catalog_entry", lambda repo_id: None)
-        rows = self._rows()
-        runner._annotate_from_manifests(rows)
-        assert rows[1]["hardware"] == "p150"
-        assert rows[1]["chips_required"] == 1
-        assert rows[1]["profiles"] == []
+        assert runner._fetch_manifests(["ns/tagged", "ns/unreadable"]) == {"ns/tagged": {"hardware": "p300x2"}}
 
 
 class TestChipsFor:

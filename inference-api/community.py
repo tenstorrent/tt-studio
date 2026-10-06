@@ -37,21 +37,17 @@ logger = logging.getLogger(__name__)
 
 RUNNER = str(Path(__file__).parent / "tt_model_runner.py")
 
-# tt-cli's verified community bundles, fetched here by run.py (tt_setup/model_support).
 _SHARED_CONFIG = Path(__file__).resolve().parent.parent / "app" / "backend" / "shared_config"
-# The committed copy is the offline fallback, as models_from_inference_server.json is
-# for the model list: a fresh clone that cannot reach tt-cli still lists the bundles.
-_CATALOG_CACHE = _SHARED_CONFIG / "community_catalog.json"
+# The catalog with each bundle's manifest. The committed copy is the offline fallback.
+_CATALOG_LOCAL = _SHARED_CONFIG / "community_catalog_enriched.json"
 _CATALOG_BUNDLED = _SHARED_CONFIG / "community_catalog_bundled.json"
 
 
 def _catalog_path() -> str:
-    return str(_CATALOG_CACHE if _CATALOG_CACHE.exists() else _CATALOG_BUNDLED)
+    return str(_CATALOG_LOCAL if _CATALOG_LOCAL.exists() else _CATALOG_BUNDLED)
 
-# Listing reads every bundle's manifest off the Hub; the deploy UI asks on every visit.
-_CATALOG_TTL_SECONDS = 300
 
-# A catalog/inspect call is one bounded Hub request. A serve has no timeout here:
+# A catalog/inspect call is one bounded query. A serve has no timeout here:
 # a first-time bundle install downloads an image and weights.
 _QUERY_TIMEOUT_SECONDS = 90
 
@@ -206,8 +202,6 @@ def create_community_router(
     stays independently testable.
     """
     router = APIRouter(prefix="/community", tags=["community"])
-    catalog_cache: Dict[str, Any] = {"fetched_at": 0.0, "key": None, "payload": None}
-    cache_lock = threading.Lock()
 
     def _set_progress(job_id: str, **fields: Any) -> None:
         with progress_lock:
@@ -251,29 +245,14 @@ def create_community_router(
 
     @router.get("/models")
     async def community_models(arch: Optional[str] = None, query: Optional[str] = None,
-                               limit: int = 100, refresh: bool = False):
-        """The verified community bundles for an arch, cached briefly."""
-        key = f"{arch}|{query}|{limit}"
-        now = time.time()
-        with cache_lock:
-            fresh = (
-                not refresh
-                and catalog_cache["key"] == key
-                and catalog_cache["payload"] is not None
-                and now - catalog_cache["fetched_at"] < _CATALOG_TTL_SECONDS
-            )
-            if fresh:
-                return catalog_cache["payload"]
-
+                               limit: int = 100):
+        """The verified community bundles for an arch."""
         args = ["catalog", "--catalog", _catalog_path(), "--limit", str(limit)]
         if arch:
             args += ["--arch", arch]
         if query:
             args += ["--query", query]
-        payload = _run_query(args)
-        with cache_lock:
-            catalog_cache.update({"fetched_at": now, "key": key, "payload": payload})
-        return payload
+        return _run_query(args)
 
     @router.get("/models/{repo_id:path}")
     async def community_model(repo_id: str):
