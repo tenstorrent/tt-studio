@@ -96,9 +96,7 @@ interface DocumentInfo {
 
 const TableWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="w-full h-full dark:bg-black bg-white p-4">
-      {children}
-    </div>
+    <div className="w-full h-full dark:bg-black bg-white p-4">{children}</div>
   );
 };
 
@@ -367,13 +365,13 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                ...item,
-                status: "error",
-                progress: 100,
-                errorMessage: isAlreadyExists
-                  ? `Collection "${collectionName}" already exists.`
-                  : error.message || "Failed to create datasource",
-              }
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage: isAlreadyExists
+                    ? `Collection "${collectionName}" already exists.`
+                    : error.message || "Failed to create datasource",
+                }
               : item
           )
         );
@@ -398,11 +396,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                ...item,
-                status: "success",
-                progress: 100,
-                statusText: `Datasource "${collectionName}" created successfully`,
-              }
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Datasource "${collectionName}" created successfully`,
+                }
               : item
           )
         );
@@ -565,11 +563,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                ...item,
-                status: "error",
-                progress: 100,
-                errorMessage: error.message || "Upload failed",
-              }
+                  ...item,
+                  status: "error",
+                  progress: 100,
+                  errorMessage: error.message || "Upload failed",
+                }
               : item
           )
         );
@@ -595,11 +593,11 @@ export default function RagManagement() {
           prev.map((item) =>
             item.id === uploadId
               ? {
-                ...item,
-                status: "success",
-                progress: 100,
-                statusText: `Uploaded "${file.name}" to "${collectionName}"`,
-              }
+                  ...item,
+                  status: "success",
+                  progress: 100,
+                  statusText: `Uploaded "${file.name}" to "${collectionName}"`,
+                }
               : item
           )
         );
@@ -763,6 +761,18 @@ export default function RagManagement() {
         return;
       }
 
+      // Check if collection already exists
+      const existingCollection = ragDataSources.find(
+        (rds) => rds.name === collectionName
+      );
+      if (existingCollection) {
+        customToast.error(
+          `Collection "${collectionName}" already exists. Please choose a different name.`
+        );
+        setUploadBoxKey((prev) => prev + 1);
+        return;
+      }
+
       const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const newUpload: UploadFileItem = {
         id: uploadId,
@@ -775,25 +785,15 @@ export default function RagManagement() {
       setActiveUploads((prev) => [...prev, newUpload]);
       startProgressSimulation(uploadId, collectionName);
 
-      // Check if collection already exists
-      const existingCollection = ragDataSources.find(
-        (rds) => rds.name === collectionName
-      );
-      if (existingCollection) {
-        // Upload to existing collection -- its embedding function is already
-        // fixed from when it was created, so there's nothing to pass here.
-        uploadDocumentMutation.mutate({ file, collectionName, uploadId });
-      } else {
-        // Create new collection and upload. embeddingModel is "" for the
-        // default local model, or a deployed model's identity to back this
-        // new datasource with it instead (see the picker above the dropzone).
-        autoCreateAndUploadMutation.mutate({
-          file,
-          collectionName,
-          uploadId,
-          ttEmbeddingModel: embeddingModel || undefined,
-        });
-      }
+      // Create new collection and upload. embeddingModel is "" for the
+      // default local model, or a deployed model's identity to back this
+      // new datasource with it instead (see the picker above the dropzone).
+      autoCreateAndUploadMutation.mutate({
+        file,
+        collectionName,
+        uploadId,
+        ttEmbeddingModel: embeddingModel || undefined,
+      });
     });
   };
 
@@ -1142,10 +1142,11 @@ export default function RagManagement() {
 
         {/* File Upload Area */}
         <Card
-          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${isDragging
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${
+            isDragging
               ? "border-TT-purple-accent bg-TT-purple-tint2 dark:bg-TT-purple-accent/20 shadow-lg"
               : "hover:border-TT-purple-accent dark:hover:border-TT-purple-accent"
-            }`}
+          }`}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -1233,6 +1234,19 @@ export default function RagManagement() {
                           const target = e.target as HTMLInputElement;
                           if (target.files && target.files[0]) {
                             const file = target.files[0];
+
+                            // Check if document already exists in this collection
+                            if (
+                              rds.documents?.some(
+                                (doc) => doc.filename === file.name
+                              )
+                            ) {
+                              customToast.error(
+                                `Document "${file.name}" already exists in collection "${rds.name}".`
+                              );
+                              return;
+                            }
+
                             const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
                             const newUpload: UploadFileItem = {
                               id: uploadId,
