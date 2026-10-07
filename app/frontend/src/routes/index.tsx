@@ -11,11 +11,11 @@ import { ModelsProvider } from "../providers/ModelsContext";
 import { DeviceStateProvider } from "../providers/DeviceStateContext";
 import { BackendHealthProvider } from "../providers/BackendHealthProvider";
 import { getRoutes } from "./route-config";
-import { MainLayout } from "../layouts/MainLayout";
 import { getSettings } from "../api/settingsApi";
 import { cancelDeployment } from "../api/modelsDeployedApis";
 import { DeploymentTray } from "../components/DeploymentTray";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
+import { Layout } from "../vesper/layout";
 
 function FirstRunGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -69,11 +69,14 @@ const AppRouter = () => {
                         key={route.path}
                         path={route.path}
                         element={
-                          route.bare ? (
-                            route.element
-                          ) : (
-                            <MainLayout>{route.element}</MainLayout>
-                          )
+                          <Layout
+                            title={route.title}
+                            hideSidebar={route.hideSidebar}
+                            hideHeader={route.hideHeader}
+                            hideFooter={route.hideFooter}
+                          >
+                            {route.element}
+                          </Layout>
                         }
                       />
                     ))}
