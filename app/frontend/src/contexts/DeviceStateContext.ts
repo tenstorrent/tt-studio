@@ -34,6 +34,11 @@ export interface DeviceStateContextType {
   error: string | null;
   /** Immediately re-fetch device state and reschedule polling. */
   refresh: () => void;
+  /**
+   * Indicates whether device state is being refreshed.
+   * `true` when polling after initial fetch from the server.
+   * */
+  refreshing: boolean;
 }
 
 export const DeviceStateContext = createContext<

@@ -24,6 +24,7 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [deviceState, setDeviceState] = useState<DeviceStateData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Store the current state in a ref so the scheduled callback always reads
@@ -43,9 +44,13 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
     timerRef.current = setTimeout(() => pollRef.current(), interval);
   }, []);
 
+  const hasLoaded = useRef(false);
+
   useEffect(() => {
     const poll = async () => {
       try {
+        if (hasLoaded.current) setRefreshing(true);
+
         const response = await fetch("/board-api/device-state/");
         if (!response.ok)
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -72,6 +77,8 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
         setLoading(false);
+        setRefreshing(false);
+        hasLoaded.current = true;
         scheduleNext();
       }
     };
@@ -91,7 +98,9 @@ export const DeviceStateProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   return (
-    <DeviceStateContext.Provider value={{ deviceState, loading, error, refresh }}>
+    <DeviceStateContext.Provider
+      value={{ deviceState, loading, error, refresh, refreshing }}
+    >
       {children}
     </DeviceStateContext.Provider>
   );
