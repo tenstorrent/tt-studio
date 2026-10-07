@@ -41,6 +41,7 @@ const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 import React from "react";
 import { Navigate } from "react-router-dom";
 import HomePage from "../pages/HomePage";
+import SettingsPage from "@/src/vesper/pages/settings";
 import ModelsDeployed from "../pages/ModelsDeployed";
 import RegisterModelPage from "../pages/RegisterModelPage";
 import ChatUI from "../pages/ChatUIPage";
@@ -208,6 +209,12 @@ export const getRoutes = (): RouteConfig[] => {
       hideHeader: true,
       hideSidebar: true,
       hideFooter: true,
+    },
+    {
+      path: "/app-settings",
+      element: <SettingsPage />,
+      condition: true,
+      title: "Settings",
     },
     {
       // catch all for all other routes

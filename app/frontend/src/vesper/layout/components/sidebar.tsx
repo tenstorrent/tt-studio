@@ -7,6 +7,7 @@ import {
   AIData,
   ClockCounterClockwise,
   Document,
+  Gear,
   QuietBox,
   Tenstorrent,
   Sidebar as SidebarIcon,
@@ -63,6 +64,12 @@ export function Sidebar() {
           className="pt-vesper-6"
         />
         <div className="px-vesper-4 pt-vesper-3 flex-1 flex flex-col justify-end">
+          <SidebarItem
+            href="/app-settings"
+            icon={Gear}
+            label="Settings"
+            collapsed={collapsed}
+          />
           <div className="h-16 flex items-center justify-end">
             <IconButton
               icon={<SidebarIcon />}
