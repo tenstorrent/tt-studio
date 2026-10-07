@@ -1234,19 +1234,6 @@ export default function RagManagement() {
                           const target = e.target as HTMLInputElement;
                           if (target.files && target.files[0]) {
                             const file = target.files[0];
-
-                            // Check if document already exists in this collection
-                            if (
-                              rds.documents?.some(
-                                (doc) => doc.filename === file.name
-                              )
-                            ) {
-                              customToast.error(
-                                `Document "${file.name}" already exists in collection "${rds.name}".`
-                              );
-                              return;
-                            }
-
                             const uploadId = `${file.name}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
                             const newUpload: UploadFileItem = {
                               id: uploadId,
