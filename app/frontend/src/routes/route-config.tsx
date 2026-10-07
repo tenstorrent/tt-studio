@@ -40,7 +40,7 @@ const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 
 import React from "react";
 import { Navigate } from "react-router-dom";
-import HomePage from "../pages/HomePage";
+import HomePage from "@/src/vesper/pages/home";
 import SettingsPage from "@/src/vesper/pages/settings";
 import ModelsDeployed from "../pages/ModelsDeployed";
 import RegisterModelPage from "../pages/RegisterModelPage";
@@ -92,6 +92,7 @@ export const getRoutes = (): RouteConfig[] => {
       path: HOMEPAGE_PATH,
       element: isDeployedEnabled ? <DeployedHomePage /> : <HomePage />,
       condition: true,
+      title: "Hardware",
     },
     {
       path: "/register-model",
