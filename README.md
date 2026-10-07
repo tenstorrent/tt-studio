@@ -27,7 +27,7 @@
 
 You'll need:
 
-- **Python 3.8+** and **Docker** installed
+- **Python 3.12+** and **Docker** installed
 - Your user in the `docker` group so you don't need `sudo` — `sudo usermod -aG docker $USER`, then log out and back in
 - A **Hugging Face token** for any gated models you want to run (Llama, etc.)
 - First time on Tenstorrent hardware? Do the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) first.
@@ -38,19 +38,18 @@ Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#
 
 ## Quickstart
 
-The easiest way is the pip package — it installs the latest release into
-`~/.tt-studio` for you and keeps itself updated with each new release
-(requires Python 3.12+ and git; running from a source clone works with older Python versions):
+The easiest way is the pip package, which contains the whole application:
 
 ```bash
 pipx install tt-studio   # or: pip install tt-studio
 tt-studio
 ```
 
-Every `run.py` flag below works through `tt-studio` too. Add `--no-update` to
-skip the release check for one launch, or `--pin vX.Y.Z` to stay on a specific
-release (`--pin latest` to resume auto-updates). Set `TT_STUDIO_HOME` to move
-the install location.
+`tt-studio` takes the same flags as `run.py` below (except the source-only
+ones: `--dev`, `--switch`, and the maintainer tools). Its files, `.env` and logs
+live in `~/.tt-studio` (set `TT_STUDIO_HOME` to move them). Upgrade with
+`pipx upgrade tt-studio`; startup tells you when a new release is out. See the
+[pip package guide](dev-docs/pip-package.md).
 
 Or run straight from a clone (what you want when developing TT-Studio itself):
 

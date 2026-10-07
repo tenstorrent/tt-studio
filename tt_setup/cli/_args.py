@@ -9,6 +9,7 @@ import sys
 import typer
 from types import SimpleNamespace
 from typing import List, Optional
+from tt_setup import install_mode
 from tt_setup.console import console, ensure_region_reset, set_no_clear, set_verbose
 from tt_setup.constants import *
 from tt_setup.constants import _PURGE_MODEL_PICKER, _RC_BUMP_PICKER
@@ -178,6 +179,13 @@ def _validate_device_id(value: Optional[str]) -> Optional[str]:
     return ",".join(parts)
 
 
+def _print_version(value: bool):
+    """Eager --version callback: print and exit before any setup work."""
+    if value:
+        print(f"tt-studio {install_mode.studio_version()}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     add_completion=False,
     rich_markup_mode="rich",
@@ -235,6 +243,7 @@ def _entry(
     report_bug: bool = typer.Option(False, "--report-bug", help="Collect a diagnostics bundle and draft a support email (support@tenstorrent.com).", rich_help_panel="Troubleshooting & Info"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary.", rich_help_panel="Troubleshooting & Info"),
     no_clear: bool = typer.Option(False, "--no-clear", help="Keep the terminal's contents and show full startup detail (don't clear the screen).", rich_help_panel="Troubleshooting & Info"),
+    show_version: bool = typer.Option(False, "--version", is_eager=True, callback=_print_version, help="Show the TT Studio version and exit.", rich_help_panel="Troubleshooting & Info"),
     # ── Deprecated / hidden ──────────────────────────────────────────────────
     fix_docker: bool = typer.Option(False, "--fix-docker", hidden=True, help="Deprecated. Start Docker yourself; see the links shown when the daemon isn't running."),
     # ── Deprecated aliases (hidden) ──────────────────────────────────────────

@@ -1,9 +1,9 @@
 # TT Studio
 
 Web interface for running AI models on [Tenstorrent](https://tenstorrent.com)
-hardware. This package is a small installer/launcher: it keeps a managed copy
-of [tenstorrent/tt-studio](https://github.com/tenstorrent/tt-studio) under
-`~/.tt-studio/checkout`, pinned to the latest GitHub release, and runs it.
+hardware. It wraps [TT Inference Server](https://github.com/tenstorrent/tt-inference-server)
+packaging and [TT-Metal](https://github.com/tenstorrent/tt-metal) execution
+behind a Django + React + agent stack, deployed with Docker.
 
 ## Install
 
@@ -13,31 +13,40 @@ pipx install tt-studio   # recommended (isolated)
 pip install tt-studio
 ```
 
-Requires Python ≥ 3.12, git, and Docker. Full local deployment needs a
-Tenstorrent accelerator; the frontend can also run against remote endpoints.
+Requires Python 3.12+ and Docker (with your user in the `docker` group). Full
+local deployment needs a Tenstorrent accelerator; the web UI can also run
+against remote inference endpoints with no local hardware.
 
 ## Use
 
 ```bash
-tt-studio            # first run installs the latest release, then starts the stack
-tt-studio --stop     # every run.py flag passes through
-tt-studio --logs
+tt-studio               # set up and start the stack, then open http://localhost:3000
+tt-studio run <model>   # start the stack and deploy a model from the terminal
+tt-studio --stop        # stop the containers (keeps your data)
+tt-studio --help        # every option
 ```
 
-On each launch the shim checks GitHub for a newer release and updates the
-managed checkout automatically (offline runs use the installed version).
+The package carries the whole application. On first run — and after each
+upgrade — `tt-studio` copies its app files into `~/.tt-studio` (set
+`TT_STUDIO_HOME` to use another folder), which also holds your `.env`, logs
+and downloaded models. Prebuilt container images matching the installed
+version are pulled from `ghcr.io/tenstorrent/tt-studio`.
 
-Shim-specific flags:
+## Upgrade or uninstall
 
-- `--no-update` — skip the update check for this launch
-- `--pin vX.Y.Z` — stay on a specific release (`--pin latest` to unpin)
-- `--shim-version` — print the shim's own version
-- `TT_STUDIO_HOME` — move the managed root (default `~/.tt-studio`)
+```bash
+pipx upgrade tt-studio                  # or: pip install -U tt-studio
+pipx install tt-studio==X.Y.Z --force   # pin a specific release
+tt-studio --uninstall && pipx uninstall tt-studio
+```
 
-Developing TT Studio itself? Clone the repo and use `python run.py` — the shim
-never touches clones it didn't create.
+`tt-studio` tells you at startup when a newer release is on PyPI.
 
 ## Links
 
 - Source & docs: https://github.com/tenstorrent/tt-studio
 - Issues: https://github.com/tenstorrent/tt-studio/issues
+
+Developing TT Studio itself? Clone the repository and use `python run.py`
+(including `--dev` for hot reload) — see the
+[setup guide](https://github.com/tenstorrent/tt-studio/blob/main/dev-docs/detailed-setup.md).

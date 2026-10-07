@@ -31,7 +31,7 @@ import zipfile
 from datetime import datetime
 from uuid import uuid4
 
-from tt_setup import support_email
+from tt_setup import install_mode, support_email
 from tt_setup.console import console, notice_panel
 from tt_setup.constants import (
     DOCKER_CONTROL_LOG_FILE,
@@ -70,13 +70,16 @@ def _git(git_args):
 def _system_info(exc, args):
     """Environment snapshot for triage. Never includes .env contents — only its
     presence — so secrets don't leak into a shared bundle."""
-    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    # A pip install's root isn't a checkout; don't let git find an enclosing repo.
+    pip_install = install_mode.is_pip_install()
     info = {
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "os": platform.platform(),
         "python_version": sys.version.split()[0],
-        "git_branch": branch,
-        "git_commit": _git(["rev-parse", "--short", "HEAD"]),
+        "install_mode": "pip" if pip_install else "checkout",
+        "tt_studio_version": install_mode.studio_version(),
+        "git_branch": "" if pip_install else _git(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "git_commit": "" if pip_install else _git(["rev-parse", "--short", "HEAD"]),
         "tt_hardware_present": os.path.exists("/dev/tenstorrent"),
         "env_file_present": os.path.exists(ENV_FILE_PATH),
         "argv": sys.argv,

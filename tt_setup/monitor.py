@@ -15,7 +15,7 @@ table instead of launching the full-screen app.
 import os
 import sys
 
-from tt_setup.constants import DOCKER_CONTROL_CONTAINER_NAME, MODEL_RUN_LOG_FILE, TT_STUDIO_ROOT
+from tt_setup.constants import DOCKER_CONTROL_CONTAINER_NAME, LAUNCH_CMD, MODEL_RUN_LOG_FILE, TT_STUDIO_ROOT
 from tt_setup.services import get_backend_port, snapshot_container_health, snapshot_health
 
 _BACKEND_PORT = get_backend_port()
@@ -51,7 +51,7 @@ def run_status(dev_mode=False):
         if exc.name in ("textual", "monitor_app", "tt_setup.monitor_app"):
             from tt_setup.console import console
             console.print("[warning]The monitor TUI needs the 'textual' package. "
-                          "Re-run `python run.py` once to rebuild the environment.[/warning]")
+                          f"Re-run `{LAUNCH_CMD}` once to rebuild the environment.[/warning]")
             return _print_text_snapshot()
         raise
     MonitorApp(dev_mode=dev_mode).run()
