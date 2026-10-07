@@ -193,6 +193,22 @@ class VectorCollectionsAPIView(ViewSet):
             
             return Response(data=serialized)
         except Exception as e:
+            # Handle race condition where Chroma raises UniqueConstraintError
+            # when two concurrent requests try to create the same collection.
+            if "already exists" in str(e).lower() or type(e).__name__ == "UniqueConstraintError":
+                col_name = (
+                    request.data.get("name")
+                    if isinstance(request.data, dict)
+                    else "unknown"
+                )
+                logger.warning(
+                    f"Collection with name '{col_name}' already exists (concurrency race): {e}"
+                )
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"error": f"A collection with name '{col_name}' already exists."},
+                )
+
             logger.error(f"Error creating collection: {str(e)}", exc_info=True)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

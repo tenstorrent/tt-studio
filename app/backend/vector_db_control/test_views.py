@@ -198,6 +198,55 @@ class TestPostCollection:
         assert "user_id" not in kwargs["metadata"]
         assert kwargs["metadata"]["custom"] == "field"
 
+    def test_concurrent_creation_race_returns_400_when_chroma_raises_unique_constraint_error(
+        self, views_module, monkeypatch
+    ):
+        views = views_module
+        view = views.VectorCollectionsAPIView()
+
+        # Simulate list_collections returning empty (both concurrent requests passed the check)
+        monkeypatch.setattr(views, "list_collections", lambda: [])
+
+        # Simulate Chroma raising UniqueConstraintError on create_collection
+        class UniqueConstraintError(Exception):
+            pass
+
+        def create_mock(*args, **kwargs):
+            raise UniqueConstraintError("Collection 'race_coll' already exists")
+
+        monkeypatch.setattr(views, "create_collection", create_mock)
+
+        request = SimpleNamespace(
+            headers={},
+            data={"name": "race_coll", "metadata": {}}
+        )
+        response = view.post(request)
+
+        assert response.status_code == 400
+        assert response.data == {"error": "A collection with name 'race_coll' already exists."}
+
+    def test_unexpected_error_during_creation_returns_500(
+        self, views_module, monkeypatch
+    ):
+        views = views_module
+        view = views.VectorCollectionsAPIView()
+
+        monkeypatch.setattr(views, "list_collections", lambda: [])
+
+        def create_mock(*args, **kwargs):
+            raise RuntimeError("Database disk full")
+
+        monkeypatch.setattr(views, "create_collection", create_mock)
+
+        request = SimpleNamespace(
+            headers={},
+            data={"name": "fail_coll", "metadata": {}}
+        )
+        response = view.post(request)
+
+        assert response.status_code == 500
+        assert "Failed to create collection" in response.data["error"]
+
 
 class TestRetrieveCollection:
     def test_retrieve_succeeds_without_ownership_check(self, views_module, monkeypatch):
