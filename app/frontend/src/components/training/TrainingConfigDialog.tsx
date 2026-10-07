@@ -370,10 +370,16 @@ export function TrainingConfigDialog({
     return sampleTokenLengths.filter((len) => len <= maxLength).length;
   }, [sampleTokenLengths, maxLength, validMaxLength, sampleTotal]);
 
-  // Rounded, but never round a non-zero share down to "0%" (shown as "<1%").
-  const rawPercent = sampleTotal > 0 ? (sampleKept / sampleTotal) * 100 : 100;
-  const includedPercentLabel =
-    sampleKept > 0 && rawPercent < 1 ? "<1" : String(Math.round(rawPercent));
+  const sampleDropped = sampleTotal - sampleKept;
+  // Rounded, but a partial share never reads as "0%" or "100%" ("<1%" / ">99%").
+  const rawDroppedPercent =
+    sampleTotal > 0 ? (sampleDropped / sampleTotal) * 100 : 0;
+  const droppedPercentLabel =
+    sampleDropped > 0 && rawDroppedPercent < 1
+      ? "<1"
+      : sampleDropped < sampleTotal && rawDroppedPercent > 99
+        ? ">99"
+        : String(Math.round(rawDroppedPercent));
 
   const lengthEstimateReady =
     isCustomDataset && sampleTotal > 0 && validMaxLength;
@@ -769,17 +775,19 @@ export function TrainingConfigDialog({
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                     <p className="text-amber-800 dark:text-amber-200">
                       At a Sequence Length of{" "}
-                      <span className="font-semibold">{maxLength}</span>, only
-                      about{" "}
+                      <span className="font-semibold">{maxLength}</span>,{" "}
+                      {sampleDropped} of {sampleTotal}{" "}
+                      {lengthEstimatePartial ? "sampled " : ""}
+                      {sampleTotal === 1 ? "example" : "examples"} (
                       <span className="font-semibold">
-                        {includedPercentLabel}%
-                      </span>{" "}
-                      of examples would be used for training (estimated, template
-                      included) — examples longer than the limit are silently
-                      dropped.{" "}
+                        {droppedPercentLabel}%
+                      </span>
+                      ) {sampleDropped === 1 ? "is" : "are"}{" "}
+                      longer than the limit and would be silently dropped from
+                      training (estimated, template included).{" "}
                       {sampleKept === 0
                         ? "Every sampled example exceeds the limit, so fine-tuning would fail with an empty dataset."
-                        : "Raise Sequence Length to include more examples."}
+                        : "Raise Sequence Length to include them."}
                     </p>
                   </div>
                   <div className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
