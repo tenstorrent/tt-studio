@@ -69,6 +69,7 @@ export function Sidebar() {
               variant="ghost"
               type="button"
               onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               className="w-11"
             />
           </div>
