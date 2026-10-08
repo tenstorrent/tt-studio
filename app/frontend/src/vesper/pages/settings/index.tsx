@@ -4,7 +4,9 @@
 import { useState } from "react";
 import { Tabs } from "@tenstorrent/vesper/tabs";
 import { Bug, Lock, Server } from "@tenstorrent/vesper/icons";
-import { Keys, BugReport, ServingBackend } from "./components";
+import { Keys } from "./components/keys";
+import { BugReport } from "./components/bug-report";
+import { ServingBackend } from "./components/serving-backend";
 
 const DEFAULT_TAB = "keys";
 
