@@ -18,7 +18,7 @@
  * }
  *
  * Notes:
- * - All routes will automatically be wrapped with MainLayout
+ * - All routes will automatically be wrapped with the shared app Layout
  * - Use the 'condition' property for feature flags or environment-specific routes
  */
 
@@ -71,8 +71,10 @@ export interface RouteConfig {
   path: string;
   element: React.ReactNode;
   condition?: boolean;
-  /** When true, the route renders without the MainLayout (no navbar / footer). */
-  bare?: boolean;
+  hideFooter?: boolean;
+  hideHeader?: boolean;
+  hideSidebar?: boolean;
+  title?: string;
 }
 
 // Function to generate routes based on environment variables
@@ -203,7 +205,9 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/welcome",
       element: <WelcomePage />,
       condition: true,
-      bare: true,
+      hideHeader: true,
+      hideSidebar: true,
+      hideFooter: true,
     },
     {
       // catch all for all other routes
