@@ -98,7 +98,7 @@ export default function TrainingPage() {
   const [noContainer, setNoContainer] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Guided tour: the "New Training Job" dialog must be open while the active
+  // Guided tour: the "New Fine-tuning Job" dialog must be open while the active
   // step points at something inside it, and closed again afterwards.
   const {
     run: tourRun,

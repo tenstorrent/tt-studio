@@ -36,7 +36,7 @@ export const TOUR_REGISTRY: Record<string, TourDefinition> = {
     id: FINE_TUNE_TOUR_ID,
     title: "Fine-Tune & Promote a Model",
     description:
-      "Upload a custom dataset, configure and launch a LoRA training job, then promote a checkpoint for inference.",
+      "Upload a custom dataset, configure and launch a LoRA fine-tuning job, then promote a checkpoint for inference.",
     steps: fineTuneModelSteps,
     route: "/training",
   },

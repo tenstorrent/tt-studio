@@ -6,7 +6,7 @@ import type { Step } from "react-joyride";
 export const FINE_TUNE_TOUR_ID = "fine-tune-model";
 
 /**
- * Marker shared by every step that lives inside the "New Training Job" dialog.
+ * Marker shared by every step that lives inside the "New Fine-tuning Job" dialog.
  * TrainingPage opens the dialog while the active step targets one of these.
  */
 export const TRAINING_DIALOG_TOUR_PREFIX = '[data-tour="training-dialog-';
@@ -19,16 +19,16 @@ export const fineTuneModelSteps: Step[] = [
     skipScroll: true,
     title: "Fine-Tune on Tenstorrent Hardware",
     content:
-      "This page runs LoRA fine-tuning jobs against a deployed training container. If none is running yet, deploy a Training model from the Home page first — it then shows up under Models Deployed as Training (Beta).",
+      "This page runs LoRA fine-tuning jobs against a deployed fine-tuning container. If none is running yet, deploy a Fine-tuning model from the Home page first — it then shows up under Models Deployed as Fine-tuning (Beta).",
     skipBeacon: true,
     placement: "bottom-start",
   },
   {
     target: '[data-tour="training-new-job-button"]',
     skipScroll: true,
-    title: "Start a New Training Job",
+    title: "Start a New Fine-tuning Job",
     content:
-      "Click New Training Job to configure a fine-tuning run. The next steps walk through the dialog that opens.",
+      "Click New Fine-tuning Job to configure a run. The next steps walk through the dialog that opens.",
     skipBeacon: true,
     placement: "bottom-end",
   },
@@ -36,7 +36,7 @@ export const fineTuneModelSteps: Step[] = [
     target: '[data-tour="training-dialog-model"]',
     title: "Choose a Base Model",
     content:
-      "Select the model to fine-tune. Only models supported by the running training container and your detected hardware are listed.",
+      "Select the model to fine-tune. Only models supported by the running fine-tuning container and your detected hardware are listed.",
     skipBeacon: true,
     placement: "bottom-start",
   },
@@ -66,9 +66,9 @@ export const fineTuneModelSteps: Step[] = [
   },
   {
     target: '[data-tour="training-dialog-submit"]',
-    title: "Launch Training",
+    title: "Launch Fine-tuning",
     content:
-      "Click Start Training to queue the job. It appears in the Jobs table immediately and moves to Running once compilation finishes.",
+      "Click Start Fine-tuning to queue the job. It appears in the Jobs table immediately and moves to Running once compilation finishes.",
     skipBeacon: true,
     placement: "top-end",
   },
@@ -86,7 +86,7 @@ export const fineTuneModelSteps: Step[] = [
     skipScroll: true,
     title: "Bring Your Own Dataset",
     content:
-      "To fine-tune on your own data, upload it here as a JSON or JSONL file. Drag a file into the drop zone (or browse for one) to preview its rows and columns before uploading it to the training container.",
+      "To fine-tune on your own data, upload it here as a JSON or JSONL file. Drag a file into the drop zone (or browse for one) to preview its rows and columns before uploading it to the fine-tuning container.",
     skipBeacon: true,
     placement: "top",
   },
@@ -95,7 +95,7 @@ export const fineTuneModelSteps: Step[] = [
     skipScroll: true,
     title: "Reuse Uploaded Datasets",
     content:
-      "Everything you have uploaded is listed here. Select one to preview it again; each upload is offered under Custom Datasets in the New Training Job dialog.",
+      "Everything you have uploaded is listed here. Select one to preview it again; each upload is offered under Custom Datasets in the New Fine-tuning Job dialog.",
     skipBeacon: true,
     placement: "bottom",
   },

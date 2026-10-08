@@ -4,16 +4,16 @@
 import { test, expect } from "@playwright/test";
 import { mockBackend, collectPageErrors } from "./helpers";
 
-// Titles in tour order; the dialog-driven steps must open the New Training Job
-// dialog and it must close again once the tour moves past them.
+// Titles in tour order; the dialog-driven steps must open the New Fine-tuning
+// Job dialog and it must close again once the tour moves past them.
 const STEP_TITLES = [
   "Fine-Tune on Tenstorrent Hardware",
-  "Start a New Training Job",
+  "Start a New Fine-tuning Job",
   "Choose a Base Model",
   "Pick a Dataset",
   "Tune Hyperparameters",
   "LoRA Configuration",
-  "Launch Training",
+  "Launch Fine-tuning",
   "Monitor Your Jobs",
   "Bring Your Own Dataset",
   "Reuse Uploaded Datasets",
@@ -48,7 +48,7 @@ test.describe("fine-tune guided tour", () => {
     await expect(page).toHaveURL(/\/training$/);
 
     const tooltip = page.locator('[data-test-id="tooltip"], .react-joyride__tooltip').first();
-    const dialog = page.getByRole("dialog", { name: "New Training Job" });
+    const dialog = page.getByRole("dialog", { name: "New Fine-tuning Job" });
 
     for (let i = 0; i < STEP_TITLES.length; i++) {
       await expect(tooltip).toContainText(STEP_TITLES[i], { timeout: 10_000 });
