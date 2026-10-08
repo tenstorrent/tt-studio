@@ -132,8 +132,8 @@ function SystemResourcesInfo() {
 
     // Fetch initial data
     fetchSystemResources();
-    // Poll every 5s to keep data fresh
-    const interval = setInterval(fetchSystemResources, 5000);
+    // Poll every minute to keep data fresh
+    const interval = setInterval(fetchSystemResources, 60_000);
 
     return () => {
       mounted = false;
