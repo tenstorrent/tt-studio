@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import "./App.css";
 
+import { Toasts } from "@tenstorrent/vesper/toast";
 import { ThemeProvider } from "./providers/ThemeProvider";
 import { TourProvider } from "./providers/TourProvider";
 import AppRouter from "./routes/index.tsx";
@@ -31,6 +32,7 @@ function App() {
               <FooterVisibilityProvider>
                 <ActiveDeploymentsProvider>
                   <AppRouter />
+                  <Toasts />
                 </ActiveDeploymentsProvider>
               </FooterVisibilityProvider>
             </HeroSectionProvider>
