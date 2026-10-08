@@ -54,6 +54,7 @@
     "@tabler/icons-react": "^3.26.0",
     "@tailwindcss/vite": "^4.1.12",
     "@tanstack/react-query": "^5.28.4",
+    "@tenstorrent/vesper": "^0.4.0",
     "@types/uuid": "^10.0.0",
     "@xyflow/react": "12.10.2",
     "axios": "^1.7.7",
