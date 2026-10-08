@@ -21,7 +21,7 @@ type SidebarItemConfig = {
   label: string;
 };
 
-const PRIMARY_SIDEBAR_ITEMS: SidebarItemConfig[] = [
+const SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { icon: QuietBox, href: "/", label: "Hardware" },
   { icon: AIData, href: "/models-deployed", label: "Deployments" },
   {
@@ -31,8 +31,6 @@ const PRIMARY_SIDEBAR_ITEMS: SidebarItemConfig[] = [
   },
   { icon: Document, href: "/rag-management", label: "Knowledge Base" },
 ];
-
-const SECONDARY_SIDEBAR_ITEMS: SidebarItemConfig[] = [];
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -61,16 +59,9 @@ export function Sidebar() {
       <div className="overflow-auto flex flex-col flex-1 shrink min-h-0">
         <SidebarItemList
           collapsed={collapsed}
-          items={PRIMARY_SIDEBAR_ITEMS}
+          items={SIDEBAR_ITEMS}
           className="pt-vesper-6"
         />
-        {SECONDARY_SIDEBAR_ITEMS.length > 0 && (
-          <SidebarItemList
-            collapsed={collapsed}
-            items={SECONDARY_SIDEBAR_ITEMS}
-            className="pt-vesper-6 mt-vesper-6 border-t border-t-vesper-border-secondary"
-          />
-        )}
         <div className="px-vesper-4 pt-vesper-3 flex-1 flex flex-col justify-end">
           <div className="h-16 flex items-center justify-end">
             <IconButton
