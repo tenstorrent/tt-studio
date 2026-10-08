@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { Success } from "@tenstorrent/vesper/icons";
+import { addToast } from "@tenstorrent/vesper/toast";
 import { updateSettings } from "@/src/api/settingsApi";
 import { StepLayout } from "./step-layout";
 import { usePrevStep } from "../utils";
@@ -13,7 +14,7 @@ export function Step4() {
   const navigate = useNavigate();
   const prevStep = usePrevStep();
 
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
   const finishSetup = useMutation({
     mutationFn: () => updateSettings({ setup_complete: true }),
     onSuccess: async () => {
@@ -21,9 +22,13 @@ export function Step4() {
       navigate("/", { replace: true });
     },
     onError: (err: any) => {
-      // customToast.error(
-      //   err?.response?.data?.error || err?.message || "Failed to finish setup."
-      // );
+      addToast({
+        variant: "danger",
+        content:
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to finish setup.",
+      });
     },
   });
 
