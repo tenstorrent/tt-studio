@@ -12,6 +12,11 @@ export function CardMenu() {
 
   return (
     <Menu
+      as={IconButton}
+      icon={<Ellipses />}
+      size="xs"
+      variant="ghost"
+      className={cn(isOpen && "bg-vesper-tint-neutral-200")}
       open={isOpen}
       onOpenChange={setIsOpen}
       items={[
@@ -23,13 +28,6 @@ export function CardMenu() {
           style: "danger",
         },
       ]}
-    >
-      <IconButton
-        icon={<Ellipses />}
-        size="xs"
-        variant="ghost"
-        className={cn(isOpen && "bg-vesper-tint-neutral-200")}
-      />
-    </Menu>
+    />
   );
 }
