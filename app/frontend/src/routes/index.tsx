@@ -15,7 +15,7 @@ import { getSettings } from "../api/settingsApi";
 import { cancelDeployment } from "../api/modelsDeployedApis";
 import { DeploymentTray } from "../components/DeploymentTray";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
-import { Layout } from "../vesper/layout";
+import { Layout } from "@/src/vesper/layout";
 
 function FirstRunGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
