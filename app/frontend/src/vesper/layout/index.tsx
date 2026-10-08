@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { type ReactNode } from "react";
-import { Footer, Header, Sidebar } from "./components";
+import { Footer } from "./components/footer";
+import { Header } from "./components/header";
+import { Sidebar } from "./components/sidebar";
 
 export function Layout({
   title,
@@ -22,9 +24,7 @@ export function Layout({
       {!hideSidebar && <Sidebar />}
       <div className="flex-1 flex flex-col h-full shrink min-w-0">
         {!hideHeader && <Header title={title} />}
-        <main className="flex-1 shrink min-h-0 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 shrink min-h-0 overflow-auto">{children}</main>
         {!hideFooter && <Footer />}
       </div>
     </div>
