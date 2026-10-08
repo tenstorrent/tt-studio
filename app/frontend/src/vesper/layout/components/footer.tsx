@@ -39,7 +39,7 @@ export function Footer() {
             variant="label-md-mono"
             className="text-vesper-text-tertiary uppercase"
           >
-            hardware:
+            Hardware:
           </Typography>
           <HardwareBadge />
         </div>
