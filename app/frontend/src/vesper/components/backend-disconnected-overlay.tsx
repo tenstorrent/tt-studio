@@ -7,8 +7,7 @@ import { Button } from "@tenstorrent/vesper/button";
 import { Code } from "@tenstorrent/vesper/code";
 import { Error, Spinner } from "@tenstorrent/vesper/icons";
 import { Typography } from "@tenstorrent/vesper/typography";
-
-import type { BackendStatus } from "../../contexts/BackendHealthContext";
+import type { BackendStatus } from "@/src/contexts/BackendHealthContext";
 
 // Sit above the toaster (z-index 99999) so any lingering per-feature error
 // toasts are covered by the screen rather than showing through it.
