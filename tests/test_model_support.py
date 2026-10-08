@@ -30,14 +30,30 @@ class TestModelSupport(unittest.TestCase):
         with open(self.source, "w") as f:
             f.write(data if isinstance(data, str) else json.dumps(data))
 
-    def _refresh(self):
+    def _fetch(self):
         with patch.object(M, "model_support_url", return_value=self.source):
-            return M.refresh_model_support()
+            return M.fetch_model_support()
+
+    def _refresh(self):
+        body = self._fetch()
+        return bool(body) and M.save_model_support(body)
 
     def test_first_fetch_writes_the_cache(self):
         self._write_source(SPEC)
         self.assertTrue(self._refresh())
         self.assertEqual(M.load_model_support(), SPEC)
+
+    def test_fetch_does_not_cache(self):
+        self._write_source(SPEC)
+        self.assertEqual(json.loads(self._fetch()), SPEC)
+        self.assertFalse(os.path.exists(self.cache))
+
+    def test_fetched_spec_sets_the_default_version(self):
+        self._write_source(SPEC)
+        self._refresh()
+        self._write_source({**SPEC, "release_version": "0.23.0"})
+        self.assertEqual(M.default_artifact_version(self._fetch()), "v0.23.0")
+        self.assertEqual(M.default_artifact_version(), "v0.22.0")
 
     def test_unchanged_spec_reports_no_change(self):
         self._write_source(SPEC)
@@ -92,7 +108,7 @@ class TestModelSupport(unittest.TestCase):
 
     def test_no_url_keeps_the_cache_untouched(self):
         with patch.object(M, "model_support_url", return_value=""):
-            self.assertFalse(M.refresh_model_support())
+            self.assertIsNone(M.fetch_model_support())
         self.assertFalse(os.path.exists(self.cache))
 
     def test_env_default_ships_a_url(self):

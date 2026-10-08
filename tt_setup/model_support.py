@@ -69,8 +69,12 @@ def describe_list_source():
     return "Model list: bundled catalog (model support spec unavailable)"
 
 
-def refresh_model_support(timeout=10):
-    """Download the spec into the cache. Returns True when the cached copy changed."""
+def fetch_model_support(timeout=10):
+    """The upstream spec's bytes, or None when it is unset, unreachable or invalid.
+
+    Nothing is cached here: save_model_support() does that once the matching
+    inference server artifact is installed.
+    """
     global LIST_SOURCE
     LIST_SOURCE = "cached" if load_model_support() else "bundled"
     url = model_support_url()
@@ -78,7 +82,7 @@ def refresh_model_support(timeout=10):
         console.print(
             "[warning]⚠️  TT_MODEL_SUPPORT_URL is unset; keeping the existing model catalog[/warning]"
         )
-        return False
+        return None
     try:
         body = _read(url, timeout)
         spec = json.loads(body)
@@ -92,13 +96,18 @@ def refresh_model_support(timeout=10):
             console.print(
                 f"[warning]⚠️  Couldn't fetch the model support spec from {url} ({e}); keeping the existing model catalog[/warning]"
             )
-        return False
+        return None
     if not _is_valid(spec):
         console.print(
             f"[warning]⚠️  {url} is not a model support spec (missing models/release_version); ignoring it[/warning]"
         )
-        return False
+        return None
+    return body
 
+
+def save_model_support(body):
+    """Cache a fetched spec. Returns True when the cached copy changed."""
+    global LIST_SOURCE
     LIST_SOURCE = "live"
     try:
         with open(MODEL_SUPPORT_CACHE, "rb") as f:
@@ -124,12 +133,13 @@ def load_model_support():
     return spec if _is_valid(spec) else None
 
 
-def default_artifact_version():
-    """The tt-inference-server release tag the spec was validated against.
+def default_artifact_version(body=None):
+    """The tt-inference-server release tag a spec was validated against.
 
-    Falls back to the release the committed catalog was synced from, else None.
+    Uses `body` (a fetched spec), else the cached spec, else the release the
+    committed catalog was synced from; None when there is none.
     """
-    spec = load_model_support()
+    spec = json.loads(body) if body else load_model_support()
     release = spec["release_version"] if spec else None
     if not release:
         try:

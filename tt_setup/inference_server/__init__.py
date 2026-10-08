@@ -4,7 +4,7 @@
 """TT Inference Server artifact setup (download/extract/validate/sync).
 
 Split into focused submodules (_config, _git, _metadata, _env, _catalog,
-_privileges, _orchestrator). Re-exports the full prior surface so
+_privileges, _orchestrator, _upgrade). Re-exports the full prior surface so
 `from tt_setup.inference_server import X` / `import tt_setup.inference_server as M`
 keep working unchanged.
 """
@@ -26,10 +26,12 @@ from tt_setup.inference_server._privileges import (
     request_sudo_authentication,
 )
 from tt_setup.inference_server._orchestrator import setup_tt_inference_server
+from tt_setup.inference_server._upgrade import setup_artifact_with_fallback
 
 __all__ = [
     "configure_inference_server_artifact",
     "setup_tt_inference_server",
+    "setup_artifact_with_fallback",
     "_sync_model_catalog",
     "_catalog_missing_generated_specs",
     "_set_artifact_environment_variables",

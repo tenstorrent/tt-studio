@@ -57,9 +57,14 @@ from tt_setup.services import (
 from tt_setup.inference_server import (
     _catalog_missing_generated_specs,
     _sync_model_catalog,
-    setup_tt_inference_server,
+    setup_artifact_with_fallback,
 )
-from tt_setup.model_support import default_artifact_version, describe_list_source, refresh_model_support
+from tt_setup.model_support import (
+    default_artifact_version,
+    describe_list_source,
+    fetch_model_support,
+    save_model_support,
+)
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -875,12 +880,15 @@ def _run(args):
             original_dir = os.getcwd()
             try:
                 ph.set("TT Inference Server")
-                model_support_changed = refresh_model_support()
+                # The fetched spec is only cached once its artifact is installed, so the
+                # model list and the artifact version always match.
+                spec = fetch_model_support()
+                target_version = default_artifact_version(spec)
+                target_installed = setup_artifact_with_fallback(target_version, pull_branch=args.pull_branch)
+                model_support_changed = bool(spec and target_installed and save_model_support(spec))
                 if show_detail():
                     console.print(f"[muted]{describe_list_source()}[/muted]")
-                if not setup_tt_inference_server(
-                    pull_branch=args.pull_branch, default_version=default_artifact_version()
-                ):
+                if target_installed is None:
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     console.print("[error]⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.[/error]")
                     startup_log.summary(exit_code=1)
