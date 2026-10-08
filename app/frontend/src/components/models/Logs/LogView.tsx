@@ -8,7 +8,7 @@ interface Props {
   logs: string[];
   filterLog: (line: string) => boolean;
   onScroll: () => void;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export default function LogView({

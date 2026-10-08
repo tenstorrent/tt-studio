@@ -18,10 +18,11 @@ inference endpoints with no local hardware.
 | Inference server | 8001 | Host | FastAPI wrapper over tt-inference-server (`inference-api/`) |
 | Agent | 8080 | Docker | LLM agent service (`app/agent/`) |
 | ChromaDB | 8111 | Docker | Vector DB for RAG |
-| Docker control | 8002 | Host | JWT-secured Docker API wrapper (`docker-control-service/`) |
+| Docker control | internal 8002 | Docker (`tt_studio_network`) | JWT-secured Docker API wrapper (`docker-control-service/`) |
 
-Containers share the `tt_studio_network` bridge; the backend reaches host
-services via `host.docker.internal`. Health checks: backend `GET /up/` and
+Containers share the `tt_studio_network` bridge; the backend reaches Docker
+Control at `http://docker-control:8002` and the inference API via
+`host.docker.internal`. Health checks: backend `GET /up/` and
 `GET /models/health/`, inference server `GET /health`, frontend `GET /`.
 
 ## Repo layout
@@ -54,7 +55,7 @@ python run.py --purge-model   # uninstall specific model(s); bare flag opens a p
 python run.py --logs          # stream all container logs (docker compose logs -f, env-file wired)
 python run.py --info          # re-show the "TT Studio is ready" summary (URLs, mode, hardware)
 python run.py --no-clear      # start without clearing the terminal; stream full startup detail
-python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + draft a support email
+python run.py --report-bug    # bundle logs (logs/tt-studio-logs-ttbr-*.zip) + a ready-to-send support email (.eml) with it attached
 python run.py --install-shortcut # add a `tt-studio` shell shortcut (~/.zshrc/~/.bashrc)
 python run.py --switch REF    # fetch + check out a tt-studio branch/tag (e.g. an RC), then re-run
 python run.py --uninstall     # --purge-all teardown + remove the `tt-studio` shell shortcut
@@ -106,6 +107,6 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
   `docker-deployment`, `ai-models`, `project-overview`.
 - `.claude/skills/` — skills: `tt-studio-overview` (project map),
   `feature-branch-pr` (branch/PR workflow), `tt-studio-debug-bundle` (log triage),
-  `model-bringup` (bring up an inference-server model that TT-Studio can't
+  `tt-studio-add-model` (add an inference-server model that TT-Studio can't
   deploy yet: catalog entry, hardware deploy, cross-repo triage, patched image,
   upstream PRs).

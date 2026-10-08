@@ -10,6 +10,7 @@ from .views import (
     BugReportDataView,
     BugReportDownloadView,
     SupportEmailView,
+    SupportEmailEmlView,
 )
 
 urlpatterns = [
@@ -19,6 +20,7 @@ urlpatterns = [
     path("bug-report/", BugReportDataView.as_view(), name="bug_report_data"),
     path("bug-report/download/", BugReportDownloadView.as_view(), name="bug_report_download"),
     path("support-email/", SupportEmailView.as_view(), name="support_email"),
+    path("support-email/eml/", SupportEmailEmlView.as_view(), name="support_email_eml"),
     path("", ListLogsView.as_view(), name="list_logs"),
     path("<path:filename>/", GetLogView.as_view(), name="get_log"),  # catch-all
 ]

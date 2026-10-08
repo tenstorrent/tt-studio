@@ -44,10 +44,11 @@ tooling for diagnosing a failed or unhealthy run.
 
 - **Bundle everything for a bug report.** `--report-bug` collects the host-side
   logs plus a non-secret system snapshot into
-  `logs/tt-studio-logs-ttbr-*.zip` and drafts a pre-filled support email to
-  support@tenstorrent.com — attach the ZIP and send. The bundle never includes
-  your `.env`. If `python run.py` itself errors, it offers this same flow from
-  the "Next steps" panel.
+  `logs/tt-studio-logs-ttbr-*.zip` and writes a ready-to-send email to
+  support@tenstorrent.com with the ZIP already attached
+  (`logs/tt-studio-bug-report-ttbr-*.eml`) — open it in your mail client and
+  send. The bundle never includes your `.env`. If `python run.py` itself
+  errors, it offers this same flow from the "Next steps" panel.
 
   ```bash
   python run.py --report-bug
@@ -59,8 +60,9 @@ tooling for diagnosing a failed or unhealthy run.
 
 - **Port already in use.** The launcher checks its core ports (3000, 8000, 8080,
   8111) and automatically frees a non-Docker process holding one; ports held by a
-  running TT Studio container are left alone. The FastAPI (8001) and Docker
-  Control (8002) ports are checked separately as those services start. If a port
+  running TT Studio container are left alone. The FastAPI (8001) port is checked
+  separately as that service starts. Docker Control is internal to the Compose
+  network and has no host port. If a port
   can't be freed, run `python run.py --stop` and re-run, or free it manually.
 
 ---
@@ -146,8 +148,8 @@ If the frontend app doesn't load despite running `docker compose up --build`, th
 3. Rebuild without cache:
 
 ```bash
-docker compose build --no-cache
-docker compose up
+docker compose --profile docker-control build --no-cache
+docker compose --profile docker-control up
 ```
 
 ### Module Not Found Error
@@ -169,8 +171,8 @@ This error often occurs due to missing or corrupted dependencies:
 
 3. Re-run app using Docker:
    ```bash
-   docker compose down
-   docker compose up --build
+   docker compose --profile docker-control down
+   docker compose --profile docker-control up --build
    ```
 
 ---

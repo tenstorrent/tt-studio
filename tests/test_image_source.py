@@ -2,6 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """Tests for the pull-vs-build decision helpers (tt_setup/image_source.py)."""
+import json
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -105,12 +108,18 @@ class TestRequiredImageRefs(unittest.TestCase):
             "ghcr.io/tenstorrent/tt-studio/backend:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/agent:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/frontend:v2.9.0",
+            "ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0",
         ])
 
     def test_dev_uses_frontend_dev(self):
         refs = M.required_image_refs(True, "localhost:5000/tt-studio", "sha-abc123def456")
         self.assertIn("localhost:5000/tt-studio/frontend-dev:sha-abc123def456", refs)
         self.assertNotIn("localhost:5000/tt-studio/frontend:sha-abc123def456", refs)
+        self.assertIn("localhost:5000/tt-studio/docker-control:sha-abc123def456", refs)
+
+    def test_skip_docker_control_omits_docker_control_ref(self):
+        refs = M.required_image_refs(False, "ghcr.io/tenstorrent/tt-studio", "v2.9.0", include_docker_control=False)
+        self.assertNotIn("ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0", refs)
 
 
 class TestIsWorktreeDirty(unittest.TestCase):
@@ -140,6 +149,52 @@ class TestIsWorktreeDirty(unittest.TestCase):
     def test_git_exception_counts_as_dirty(self):
         with patch.object(M.subprocess, "run", side_effect=OSError("no git")):
             self.assertTrue(M.is_worktree_dirty())
+
+    def test_timestamp_only_catalog_change_is_clean(self):
+        status = self._result(0, f" M {M.CATALOG_PATH}\n")
+        with patch.object(M.subprocess, "run", return_value=status), \
+             patch.object(M, "_catalog_matches_head", return_value=True):
+            self.assertFalse(M.is_worktree_dirty())
+
+    def test_real_catalog_change_is_dirty(self):
+        status = self._result(0, f" M {M.CATALOG_PATH}\n")
+        with patch.object(M.subprocess, "run", return_value=status), \
+             patch.object(M, "_catalog_matches_head", return_value=False):
+            self.assertTrue(M.is_worktree_dirty())
+
+    def test_catalog_plus_other_change_is_dirty(self):
+        status = self._result(0, f" M {M.CATALOG_PATH}\n M app/backend/urls.py\n")
+        with patch.object(M.subprocess, "run", return_value=status), \
+             patch.object(M, "_catalog_matches_head", return_value=True):
+            self.assertTrue(M.is_worktree_dirty())
+
+
+class TestCatalogMatchesHead(unittest.TestCase):
+    def _check(self, working, head, head_rc=0):
+        result = type("R", (), {"returncode": head_rc, "stdout": json.dumps(head)})()
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, M.CATALOG_PATH)
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w") as f:
+                json.dump(working, f)
+            with patch.object(M, "TT_STUDIO_ROOT", root), \
+                 patch.object(M.subprocess, "run", return_value=result):
+                return M._catalog_matches_head()
+
+    def test_only_timestamp_differs(self):
+        self.assertTrue(self._check(
+            {"source": {"artifact_version": "1", "generated_at": "t2"}, "models": []},
+            {"source": {"artifact_version": "1", "generated_at": "t1"}, "models": []},
+        ))
+
+    def test_content_differs(self):
+        self.assertFalse(self._check(
+            {"source": {"artifact_version": "2", "generated_at": "t2"}, "models": []},
+            {"source": {"artifact_version": "1", "generated_at": "t1"}, "models": []},
+        ))
+
+    def test_missing_from_head(self):
+        self.assertFalse(self._check({"models": []}, {}, head_rc=128))
 
 
 class TestDescribePullFallback(unittest.TestCase):

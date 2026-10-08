@@ -323,9 +323,12 @@ def _pid_is_zombie(pid):
     except FileNotFoundError:
         if os.path.isdir("/proc"):
             return False  # no such process
-        result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
-                                capture_output=True, text=True, check=False)
-        state = result.stdout.strip()
+        try:
+            result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                                    capture_output=True, text=True, check=False)
+            state = result.stdout.strip()
+        except (OSError, Exception):
+            return False
     except (OSError, IndexError, ValueError):
         return False
     return state[:1] == "Z"

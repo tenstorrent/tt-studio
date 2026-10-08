@@ -81,6 +81,11 @@ jobs:
             file: app/agent/Dockerfile
             cache: gha
             cache_scope: agent
+          - name: docker-control
+            context: docker-control-service
+            file: docker-control-service/Dockerfile
+            cache: gha
+            cache_scope: docker-control
     steps:
       - uses: actions/checkout@v4
 
