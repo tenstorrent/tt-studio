@@ -21,13 +21,11 @@ export function FinishOnboarding() {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       navigate("/", { replace: true });
     },
-    onError: (err: any) => {
+    onError: () => {
       addToast({
         variant: "danger",
         content:
-          err?.response?.data?.error ||
-          err?.message ||
-          "Failed to finish setup.",
+          "Failed to finish setup. Try again or restart the application.",
       });
     },
   });
