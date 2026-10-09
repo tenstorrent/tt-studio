@@ -52,8 +52,7 @@ from .artifact_resolution import (
     resolve_override_docker_image as _resolve_override_docker_image,
 )
 from .artifact_resolution import training_image_override as _training_image_override
-from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
-from shared_config.coding_agent_config import get_reasoning_parser
+from .tt_inference_client import start_chat_deployment, tool_calling_launch_flags, resolve_deploy_image
 from .docker_control_client import (
     ContainerNotFound,
     get_docker_client,
@@ -749,22 +748,18 @@ class DeployView(APIView):
                     overrides["override_tt_config"] = tt_config
                 # Enable vLLM tool calling for chat-completions models so coding
                 # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
-                # Only for /v1/chat/completions models with a known parser — base
-                # (/v1/completions) models and unknown families are left untouched.
+                # Only for /v1/chat/completions models the catalog gives a parser —
+                # base (/v1/completions) models and the rest are left untouched.
                 vllm_override_args = None
                 tool_calling_supported = False
                 if impl.service_route == "/v1/chat/completions":
-                    tool_parser = tool_call_parser_for(
-                        impl.model_name, getattr(impl, "hf_model_id", "")
-                    )
-                    if tool_parser:
+                    if impl.tool_call_parser:
                         overrides["enable-auto-tool-choice"] = True
-                        overrides["tool-call-parser"] = tool_parser
+                        overrides["tool-call-parser"] = impl.tool_call_parser
                         tool_calling_supported = True
                     # Reasoning models: split thinking into reasoning_content.
-                    reasoning_parser = get_reasoning_parser(impl.model_name)
-                    if reasoning_parser:
-                        overrides["reasoning-parser"] = reasoning_parser
+                    if impl.reasoning_parser:
+                        overrides["reasoning-parser"] = impl.reasoning_parser
                     overrides.update(_local_weights_overrides(impl))
                 if overrides:
                     vllm_override_args = json.dumps(overrides)

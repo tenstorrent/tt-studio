@@ -10,6 +10,7 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
+    PARSER_OVERRIDES,
     STUDIO_UNAVAILABLE_DEVICES,
     STUDIO_UNAVAILABLE_MODELS,
     STUDIO_UNAVAILABLE_REASONS,
@@ -18,8 +19,15 @@ from sync_models_from_inference_server import (
     _impl_selector,
     _iter_v1_entries,
     apply_device_availability,
+    apply_model_support,
+    apply_parser_overrides,
+    resolve_artifact_version,
+    spec_matches,
+    table_marks_beyond_spec,
     apply_studio_availability,
+    artifact_parsers,
     load_existing_catalog,
+    load_model_support,
     map_service_route,
     merge_hand_owned,
     normalize,
@@ -737,6 +745,213 @@ class TestDeviceAvailability:
         finally:
             del STUDIO_UNAVAILABLE_MODELS["m"]
         assert models[0]["available_in_studio"] is False
+
+
+def _spec_device(**overrides):
+    entry = {
+        "engines": ["vLLM"], "status": "FUNCTIONAL", "supported": True,
+        "docker_image": "img:1.0.0", "version": "1.0.0",
+        "tool_call_parser": None, "reasoning_parser": None,
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _spec(devices, name="m", model_type="llm"):
+    return {"release_version": "0.22.0", "models": [{
+        "name": name, "hf_repo": f"org/{name}-Instruct", "model_type": model_type,
+        "engines": ["vLLM"], "param_count": 8, "devices": devices,
+    }]}
+
+
+class TestApplyModelSupport:
+    """The spec decides the model list and devices; the artifact row supplies the rest."""
+
+    def test_native_devices_only(self):
+        spec = _spec({
+            "p300x2": _spec_device(),
+            "p150x4": _spec_device(serve_as="p300x2", support_source="mesh-equivalent"),
+            "gpu": _spec_device(),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["device_configurations"] == ["P300x2"]
+
+    def test_unsupported_device_becomes_a_mark(self):
+        spec = _spec({
+            "n150": _spec_device(),
+            "p300x2": _spec_device(supported=False, unsupported={"reason": "broken", "details": "hangs"}),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["device_configurations"] == ["N150"]
+        apply_device_availability([row])
+        assert row["unavailable_devices"] == {"P300x2": {"reason": "known_broken", "details": "hangs"}}
+        assert "_spec_unavailable" not in row
+
+    def test_parsers_come_from_the_spec(self):
+        spec = _spec({"n150": _spec_device(tool_call_parser="hermes", reasoning_parser="qwen3")})
+        [row] = apply_model_support([], spec)
+        assert (row["tool_call_parser"], row["reasoning_parser"]) == ("hermes", "qwen3")
+
+    def test_spec_fields_win_and_the_artifact_fills_env_and_impl(self):
+        artifact = [{
+            "model_name": "m", "inference_engine": "vLLM", "version": "0.9.0",
+            "docker_image": "artifact:0.9.0", "env_vars": {"A": "1"}, "impl": "tt-transformers",
+            "device_configurations": ["N150", "P300x2"],
+        }]
+        [row] = apply_model_support(artifact, _spec({"n150": _spec_device(version="2.0.0", docker_image="img:2.0.0")}))
+        assert (row["version"], row["docker_image"]) == ("2.0.0", "img:2.0.0")
+        assert row["env_vars"] == {"A": "1"} and row["impl"] == "tt-transformers"
+        assert row["device_configurations"] == ["N150"]
+
+    def test_version_spans_every_device_so_model_id_matches_the_artifact(self):
+        spec = _spec({
+            "n150": _spec_device(version="1.0.0"),
+            "p300x2": _spec_device(version="3.0.0", supported=False),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["version"] == "3.0.0"
+
+    def test_engine_with_only_shared_devices_keeps_the_artifact_status_and_image(self):
+        """A multi-engine device entry describes its vLLM spec, not the forge one."""
+        artifact = [{
+            "model_name": "m", "inference_engine": "forge", "status": "EXPERIMENTAL",
+            "version": "0.12.0", "docker_image": "forge:0.12.0",
+        }]
+        spec = _spec({"n150": _spec_device(engines=["vLLM", "forge"], version="0.3.0")})
+        rows = {r["inference_engine"]: r for r in apply_model_support(artifact, spec)}
+        assert (rows["forge"]["status"], rows["forge"]["version"]) == ("EXPERIMENTAL", "0.12.0")
+        assert rows["forge"]["docker_image"] == "forge:0.12.0"
+        assert rows["vLLM"]["version"] == "0.3.0"
+
+    def test_model_missing_from_artifact_is_built_from_the_spec(self):
+        [row] = apply_model_support([], _spec({"n150": _spec_device()}))
+        assert row["model_type"] == "CHAT"
+        assert row["service_route"] == "/v1/chat/completions"
+        assert (row["version"], row["docker_image"]) == ("1.0.0", "img:1.0.0")
+
+    def test_artifact_model_absent_from_spec_is_dropped(self):
+        artifact = [{"model_name": "gone", "inference_engine": "vLLM"}]
+        rows = apply_model_support(artifact, _spec({"n150": _spec_device()}))
+        assert [r["model_name"] for r in rows] == ["m"]
+
+    def test_multi_engine_device_yields_a_row_per_engine(self):
+        spec = _spec({"p150": _spec_device(engines=["vLLM", "forge"], tool_call_parser="hermes")})
+        rows = {r["inference_engine"]: r for r in apply_model_support([], spec)}
+        assert sorted(rows) == ["forge", "vLLM"]
+        assert rows["vLLM"]["tool_call_parser"] == "hermes"
+        assert "tool_call_parser" not in rows["forge"], "parsers are vLLM flags"
+
+    def test_spec_clears_a_stale_artifact_parser(self):
+        artifact = [{"model_name": "m", "inference_engine": "vLLM", "tool_call_parser": "old"}]
+        [row] = apply_model_support(artifact, _spec({"n150": _spec_device()}))
+        assert "tool_call_parser" not in row
+
+    def test_device_with_no_mapping_and_no_mark_yields_no_row(self):
+        assert apply_model_support([], _spec({"gpu": _spec_device()})) == []
+
+    def test_spec_marked_device_repeated_in_the_table_does_not_warn(self, capsys):
+        spec = _spec({"n150": _spec_device(), "p300x2": _spec_device(supported=False)})
+        [row] = apply_model_support([], spec)
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "local")}
+        try:
+            apply_device_availability([row])
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+        assert "WARNING" not in capsys.readouterr().out
+        assert row["unavailable_devices"]["P300x2"]["details"] != "local", "the spec's reason stands"
+
+    def test_serve_as_device_in_the_table_does_not_warn(self, capsys):
+        """The table keeps it for spec-less rebuilds, where it is a native device."""
+        spec = _spec({"p300x2": _spec_device(), "p150x4": _spec_device(serve_as="p300x2")})
+        [row] = apply_model_support([], spec)
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P150X4": ("known_broken", "local")}
+        try:
+            apply_device_availability([row])
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+        assert "WARNING" not in capsys.readouterr().out
+        assert "_spec_devices" not in row
+
+
+class TestArtifactParsers:
+    def test_reads_parser_names_from_metadata(self):
+        entries = [
+            {"metadata": {}},
+            {"metadata": {"tool_call_parser_name": "openai", "reasoning_parser_name": "openai_gptoss"}},
+        ]
+        assert artifact_parsers(entries) == {
+            "tool_call_parser": "openai", "reasoning_parser": "openai_gptoss",
+        }
+
+    def test_no_metadata_means_no_parsers(self):
+        assert artifact_parsers([{}, {"metadata": None}]) == {}
+
+
+class TestLoadModelSupport:
+    def test_missing_file_is_none(self, tmp_path):
+        assert load_model_support(tmp_path / "nope.json") is None
+
+    def test_non_spec_json_is_none(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps({"models": {}}))
+        assert load_model_support(path) is None
+
+    def test_spec_without_release_is_none(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps({"models": []}))
+        assert load_model_support(path) is None
+
+    def test_valid_spec_loads(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps(_spec({})))
+        assert load_model_support(path)["release_version"] == "0.22.0"
+
+
+class TestParserOverrides:
+    def test_override_fills_missing_parsers_on_vllm_rows_only(self):
+        rows = [
+            {"model_name": "m", "inference_engine": "vLLM", "tool_call_parser": "x"},
+            {"model_name": "m", "inference_engine": "forge"},
+        ]
+        PARSER_OVERRIDES["m"] = {"tool_call_parser": "hermes", "reasoning_parser": "qwen3"}
+        try:
+            assert apply_parser_overrides(rows) == ["m"]
+        finally:
+            del PARSER_OVERRIDES["m"]
+        assert (rows[0]["tool_call_parser"], rows[0]["reasoning_parser"]) == ("x", "qwen3")
+        assert "tool_call_parser" not in rows[1]
+
+
+class TestSpecAdditions:
+    def test_reports_only_marks_the_spec_does_not_make(self):
+        [row] = apply_model_support([], _spec({
+            "n150": _spec_device(), "p300x2": _spec_device(supported=False),
+        }))
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "x"), "N150": ("known_broken", "y")}
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "z")
+        try:
+            assert table_marks_beyond_spec([row]) == ["m", "m/N150"]
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"], STUDIO_UNAVAILABLE_MODELS["m"]
+
+
+class TestSpecMatches:
+    def test_same_release_with_or_without_v_prefix(self):
+        assert spec_matches({"release_version": "0.22.0"}, "v0.22.0")
+        assert spec_matches({"release_version": "v0.22.0"}, "0.22.0")
+
+    def test_other_release_or_branch_does_not_match(self):
+        assert not spec_matches({"release_version": "0.22.0"}, "0.23.0")
+        assert not spec_matches({"release_version": "0.22.0"}, "main")
+
+    def test_artifact_version_prefers_the_version_file(self, tmp_path):
+        (tmp_path / "VERSION").write_text("0.22.0\n")
+        assert resolve_artifact_version(tmp_path / "release_model_spec.json", {}) == "0.22.0"
+
+    def test_artifact_version_falls_back_to_the_last_recorded_one(self, tmp_path, monkeypatch):
+        for var in ("TT_INFERENCE_ARTIFACT_VERSION", "TT_INFERENCE_ARTIFACT_BRANCH"):
+            monkeypatch.delenv(var, raising=False)
+        assert resolve_artifact_version(None, {"artifact_version": "0.21.0"}) == "0.21.0"
 
 
 if __name__ == "__main__":
