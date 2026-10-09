@@ -12,6 +12,7 @@ contexts whenever a pull cannot succeed or would produce the wrong bits
 
 import subprocess
 
+from tt_setup import install_mode
 from tt_setup.constants import TT_STUDIO_ROOT
 
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/tenstorrent/tt-studio"
@@ -104,7 +105,12 @@ def is_worktree_dirty():
     """True when app/ differs from HEAD (or git state can't be read — build is
     the safe default: never run prebuilt bits over modified sources). The model
     catalog doesn't count: it is resynced from the model support spec, and the
-    backend reads it through the ./backend bind mount, not from the image."""
+    backend reads it through the ./backend bind mount, not from the image.
+
+    A pip install has no git metadata: its app/ is the released package's own
+    copy (tt_setup/install_mode.py), so it is never dirty."""
+    if install_mode.is_pip_install():
+        return False
     try:
         result = subprocess.run(
             ["git", "-C", TT_STUDIO_ROOT, "status", "--porcelain", "--", "app/"],

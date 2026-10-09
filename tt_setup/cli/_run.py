@@ -9,6 +9,7 @@ import sys
 import subprocess
 import time
 from datetime import datetime
+from tt_setup import install_mode
 from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.console import _fmt_duration, add_note, begin_phase, build_note, confirm, console, end_phase, end_run, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, rename_phase, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
@@ -136,15 +137,15 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     footer = []
     if run_start is not None:
         footer.append(f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]")
-    footer.append("[muted]Stop · python run.py --stop[/muted]")
-    footer.append("[muted]Logs · python run.py --logs[/muted]")
+    footer.append(f"[muted]Stop · {LAUNCH_CMD} --stop[/muted]")
+    footer.append(f"[muted]Logs · {LAUNCH_CMD} --logs[/muted]")
     if is_verbose():
         if fastapi_enabled:
             footer.append(f"[muted]     · tail -f {MODEL_RUN_LOG_FILE}[/muted]")
         if docker_control_enabled:
             footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
-    footer.append("[muted]Info · python run.py --info[/muted]")
-    footer.append("[muted]Help · python run.py --help[/muted]")
+    footer.append(f"[muted]Info · {LAUNCH_CMD} --info[/muted]")
+    footer.append(f"[muted]Help · {LAUNCH_CMD} --help[/muted]")
 
     console.print()
     console.print(ready_panel("TT Studio is ready", rows, footer))
@@ -207,7 +208,7 @@ def _preflight_device_availability(args):
 
     lines = [f"Requested --device-id {device_id}, but:"] + busy
     lines.append("")
-    lines.append("Free the chips (stop that model in the UI, or python run.py --stop) or")
+    lines.append(f"Free the chips (stop that model in the UI, or {LAUNCH_CMD} --stop) or")
     lines.append("pick different slots, then re-run.")
     console.print(notice_panel("Requested chips are busy", lines, border_style="error"))
     sys.exit(1)
@@ -246,10 +247,68 @@ def _headless_deploy(args):
     return run_headless_deploy(dh, args, frontend=(fe_host, fe_port))
 
 
+def _checkout_only_flag(args):
+    """The first requested flag that needs a git checkout of tt-studio, or None."""
+    checks = (
+        ("--dev", args.dev),
+        ("--switch", getattr(args, "switch", None)),
+        ("--make-rc-branch", getattr(args, "make_rc_branch", None)),
+        ("--update-rc-branch", getattr(args, "update_rc_branch", False)),
+        ("--merge-rc-branch", getattr(args, "merge_rc_branch", False)),
+        ("--check-headers", getattr(args, "check_headers", False)),
+        ("--add-headers", getattr(args, "add_headers", False)),
+    )
+    return next((flag for flag, requested in checks if requested), None)
+
+
+def _refuse_checkout_only_flag(flag):
+    """Explain why `flag` doesn't apply to a pip install. Returns exit code 1."""
+    if flag == "--switch":
+        lines = [
+            "[muted]This TT Studio was installed with pip, so pip manages its version:[/muted]",
+            "[info]pipx install tt-studio==X.Y.Z --force[/info]   [muted](or: pip install tt-studio==X.Y.Z)[/muted]",
+        ]
+    else:
+        lines = [
+            f"[muted]{flag} works on TT Studio's source code, which needs a git clone:[/muted]",
+            "[info]git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio[/info]",
+            f"[info]python run.py {flag}[/info]",
+        ]
+    console.print(notice_panel(
+        f"[bold]⛔ {flag} isn't available in a pip install[/bold]", lines, border_style="error",
+    ))
+    return 1
+
+
+def _finish_pip_uninstall():
+    """--uninstall in a pip install, after the purge: delete the install folder
+    (only when it carries tt-studio's install marker) and say how to remove the
+    package itself."""
+    root = TT_STUDIO_ROOT
+    if install_mode.read_marker(root) is not None:
+        os.chdir(os.path.dirname(root))  # don't sit inside the folder being deleted
+        shutil.rmtree(root, ignore_errors=True)
+        if os.path.exists(root):
+            console.print(f"[warning]⚠  Some files in {root} couldn't be removed (a container may have "
+                          f"created them as root). Remove them with: sudo rm -rf {root}[/warning]")
+        else:
+            console.print(f"[success]✓[/success] Removed {root}")
+    console.print(notice_panel(
+        "[bold]Last step — remove the tt-studio package[/bold]",
+        ["[info]pipx uninstall tt-studio[/info]   [muted](or: pip uninstall tt-studio)[/muted]"],
+        border_style="accent",
+    ))
+
+
 def _run(args):
     """Orchestrate setup for the parsed arguments."""
     try:
-        
+        # A pip install has no git checkout to develop in, switch, or release from.
+        if install_mode.is_pip_install():
+            flag = _checkout_only_flag(args)
+            if flag:
+                sys.exit(_refuse_checkout_only_flag(flag))
+
         if args.help_env:
             print(f"""
 {C_TT_PURPLE}{C_BOLD}TT Studio Environment Variables Help{C_RESET}
@@ -332,27 +391,27 @@ def _run(args):
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
-  {C_CYAN}python run.py{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
-  {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
-  {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
-  {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
-  {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
-  {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
-  {C_CYAN}python run.py --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
-  {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
-  {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
-  {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
-  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + draft a support email
-  {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
-  {C_CYAN}python run.py --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
-  {C_CYAN}python run.py --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
-  {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
-  {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
-  {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
-  {C_CYAN}python run.py --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
-  {C_CYAN}python run.py --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
-  {C_CYAN}python run.py --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
+  {C_CYAN}{LAUNCH_CMD}{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}{LAUNCH_CMD} --configure-env{C_RESET}        Interactively configure all environment variables
+  {C_CYAN}{LAUNCH_CMD} --dev{C_RESET}                  Development mode with defaults
+  {C_CYAN}{LAUNCH_CMD} --reconfigure{C_RESET}          Reset preferences and reconfigure
+  {C_CYAN}{LAUNCH_CMD} --stop{C_RESET}                 Stop containers only (keeps your data)
+  {C_CYAN}{LAUNCH_CMD} --purge-all{C_RESET}            Full teardown (wipe data + config)
+  {C_CYAN}{LAUNCH_CMD} --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
+  {C_CYAN}{LAUNCH_CMD} --info{C_RESET}                 Re-show the "TT Studio is ready" summary
+  {C_CYAN}{LAUNCH_CMD} --logs{C_RESET}                 Stream all container logs (compose logs -f)
+  {C_CYAN}{LAUNCH_CMD} --status{C_RESET}               Open the live monitor TUI
+  {C_CYAN}{LAUNCH_CMD} --report-bug{C_RESET}           Bundle logs + draft a support email
+  {C_CYAN}{LAUNCH_CMD} --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
+  {C_CYAN}{LAUNCH_CMD} --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
+  {C_CYAN}{LAUNCH_CMD} --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
+  {C_CYAN}{LAUNCH_CMD} --skip-fastapi{C_RESET}         Skip FastAPI server setup
+  {C_CYAN}{LAUNCH_CMD} --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
+  {C_CYAN}{LAUNCH_CMD} --check-headers{C_RESET}        Check for missing SPDX license headers
+  {C_CYAN}{LAUNCH_CMD} --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}{LAUNCH_CMD} --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+  {C_CYAN}{LAUNCH_CMD} --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
+  {C_CYAN}{LAUNCH_CMD} --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -421,7 +480,10 @@ def _run(args):
         # shell shortcut too.
         if getattr(args, "uninstall", False):
             if cleanup_resources(args):
-                uninstall_shortcut()
+                if install_mode.is_pip_install():
+                    _finish_pip_uninstall()
+                else:
+                    uninstall_shortcut()
             return
 
         if args.cleanup or args.cleanup_all:
@@ -470,15 +532,18 @@ def _run(args):
         # shell shortcut at this checkout. Silent no-op otherwise.
         maybe_repair_shortcut()
 
-        # Get git hash for startup log
-        try:
-            _git_hash = subprocess.run(
-                ["git", "-C", TT_STUDIO_ROOT, "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, check=False,
-            ).stdout.strip() or "unknown"
-        except Exception:
-            _git_hash = "unknown"
-        startup_log.header(f"git:{_git_hash}")
+        # Build identity for the startup log: git hash, or the pip package version.
+        if install_mode.is_pip_install():
+            startup_log.header(f"pip:{install_mode.package_version()}")
+        else:
+            try:
+                _git_hash = subprocess.run(
+                    ["git", "-C", TT_STUDIO_ROOT, "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                ).stdout.strip() or "unknown"
+            except Exception:
+                _git_hash = "unknown"
+            startup_log.header(f"git:{_git_hash}")
 
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
         ph = begin_phase(1, 5, "Checks")
@@ -542,7 +607,7 @@ def _run(args):
                 [f"tt-smi is installed but did not report a working Tenstorrent device ({reason}).",
                  "Your Tenstorrent tooling or board may need attention.",
                  "",
-                 "Fix your TT tooling and re-run [accent]python run.py[/accent],",
+                 f"Fix your TT tooling and re-run [accent]{LAUNCH_CMD}[/accent],",
                  "or set [accent]IS_QB2=false[/accent] in .env if this isn't a QB2 "
                  "(dev laptop, cloud mode, or a different board).",
                  "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
@@ -720,12 +785,12 @@ def _run(args):
                         console.print(
                             f"[error]⛔ Could not stop the TT Studio running from "
                             f"{os.path.dirname(wd) or wd}. Stop it there with "
-                            f"[bold]python run.py --stop[/bold], then re-run.[/error]")
+                            f"[bold]{LAUNCH_CMD} --stop[/bold], then re-run.[/error]")
                         sys.exit(1)
                 console.print("[success]✓ Stopped the other TT Studio[/success]")
             else:
                 console.print(
-                    "[info]Stop it with [bold]python run.py --stop[/bold] in that "
+                    f"[info]Stop it with [bold]{LAUNCH_CMD} --stop[/bold] in that "
                     "checkout (or use TT Studio from there), then re-run.[/info]")
                 sys.exit(1)
 
@@ -773,7 +838,7 @@ def _run(args):
             print(f"     {C_WHITE}kill -9 <PID>{C_RESET}")
             print()
             print(f"  3. Or run with sudo to automatically free ports:")
-            print(f"     {C_WHITE}python run.py{C_RESET} (without --no-sudo)")
+            print(f"     {C_WHITE}{LAUNCH_CMD}{C_RESET} (without --no-sudo)")
             print()
             sys.exit(1)
 
@@ -1135,7 +1200,7 @@ def _run(args):
                     s.fail()
             if s.failed:
                 print(f"\n{C_RED}⛔ Not all services became healthy{C_RESET}")
-                print(f"{C_CYAN}   Review logs above. Try: python run.py --stop && python run.py{C_RESET}")
+                print(f"{C_CYAN}   Review logs above. Try: {LAUNCH_CMD} --stop && {LAUNCH_CMD}{C_RESET}")
                 sys.exit(1)
         
         
@@ -1156,7 +1221,7 @@ def _run(args):
             browser_model = args.auto_deploy if browser_deploy else None
             if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val):
                 print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{C_RESET}")
-                print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
+                print(f"{C_CYAN}💡 Run: {C_WHITE}{LAUNCH_CMD} --stop && {LAUNCH_CMD}{C_RESET}")
         elif not headless_deploy:
             auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
@@ -1213,7 +1278,7 @@ def _run(args):
         startup_log.close()
 
         # Build the original command with flags for the resume hint.
-        original_cmd = "python run.py"
+        original_cmd = LAUNCH_CMD
         if 'args' in locals():
             if args.dev:
                 original_cmd += " --dev"
@@ -1226,8 +1291,8 @@ def _run(args):
             "[bold]🛑 Setup interrupted (Ctrl+C)[/bold]",
             [
                 f"[muted]Resume     →[/muted]  {original_cmd}",
-                "[muted]Clean up   →[/muted]  python run.py --stop",
-                "[muted]Help       →[/muted]  python run.py --help",
+                f"[muted]Clean up   →[/muted]  {LAUNCH_CMD} --stop",
+                f"[muted]Help       →[/muted]  {LAUNCH_CMD} --help",
             ],
             border_style="warning",
         ))
@@ -1250,9 +1315,9 @@ def _run(args):
             [
                 "[muted]Check the error details above[/muted]",
                 f"[muted]Startup log →[/muted]  {STARTUP_LOG_FILE}",
-                "[muted]Help        →[/muted]  python run.py --help",
-                "[muted]Clean up    →[/muted]  python run.py --stop",
-                "[muted]Report bug  →[/muted]  python run.py --report-bug",
+                f"[muted]Help        →[/muted]  {LAUNCH_CMD} --help",
+                f"[muted]Clean up    →[/muted]  {LAUNCH_CMD} --stop",
+                f"[muted]Report bug  →[/muted]  {LAUNCH_CMD} --report-bug",
             ],
             border_style="error",
         ))
