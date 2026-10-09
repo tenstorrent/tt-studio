@@ -51,10 +51,10 @@ export function BugReport() {
   });
 
   // log state
-  const [downloadingLogs, setDownloadingLogs] = useState(false);
+  const [fetchingLogs, setFetchingLogs] = useState(false);
   const [logs, setLogs] = useState<null | Blob>(null);
   const [error, setError] = useState<null | string>(null);
-  const didDownloadLogs = !downloadingLogs && logs !== null;
+  const didFetchLogs = !fetchingLogs && logs !== null;
 
   const resetForm = useCallback(() => {
     setTitle("");
@@ -62,7 +62,7 @@ export function BugReport() {
     setSteps("");
     setExpected("");
     setActual("");
-    setDownloadingLogs(false);
+    setFetchingLogs(false);
     setLogs(null);
     setError(null);
     setDiagnosticsRef(createDiagnosticsRef);
@@ -72,7 +72,7 @@ export function BugReport() {
     e.preventDefault();
     try {
       setError(null);
-      setDownloadingLogs(true);
+      setFetchingLogs(true);
       const response = await fetch("/logs-api/bug-report/download/");
       if (!response.ok) {
         throw new Error(`Logs download failed: HTTP ${response.status}`);
@@ -82,9 +82,14 @@ export function BugReport() {
       setLogs(null);
       setError(`Logs download failed`);
     } finally {
-      setDownloadingLogs(false);
+      setFetchingLogs(false);
     }
   }, []);
+
+  const downloadLogs = useCallback(() => {
+    if (logs === null) return;
+    saveBlob(logs, diagnosticsRef);
+  }, [logs, diagnosticsRef]);
 
   return (
     <form
@@ -96,7 +101,7 @@ export function BugReport() {
           step={1}
           title="Describe"
           rightChild={
-            didDownloadLogs && (
+            didFetchLogs && (
               <SuccessSolid
                 width={24}
                 className="text-vesper-icon-success ml-auto"
@@ -104,7 +109,7 @@ export function BugReport() {
             )
           }
         />
-        {!downloadingLogs && !didDownloadLogs && (
+        {!fetchingLogs && !didFetchLogs && (
           <div className="flex flex-col gap-vesper-5">
             <BugReportField title="Issue Title*">
               <TextInput
@@ -152,14 +157,14 @@ export function BugReport() {
             </BugReportField>
           </div>
         )}
-        {!didDownloadLogs && (
+        {!didFetchLogs && (
           <Button
             className="w-full"
             type="submit"
-            disabled={downloadingLogs}
-            iconLeft={downloadingLogs && <Spinner className="animate-spin" />}
+            disabled={fetchingLogs}
+            iconLeft={fetchingLogs && <Spinner className="animate-spin" />}
           >
-            {downloadingLogs ? "Collecting logs" : (error ?? "Save")}
+            {fetchingLogs ? "Collecting logs" : (error ?? "Save")}
           </Button>
         )}
       </BugReportStep>
@@ -168,10 +173,10 @@ export function BugReport() {
           step={2}
           title="Submit"
           rightChild={
-            didDownloadLogs && <CopyToClipboardButton text={gitHubIssueBody} />
+            didFetchLogs && <CopyToClipboardButton text={gitHubIssueBody} />
           }
         />
-        {didDownloadLogs && (
+        {didFetchLogs && (
           <div className="flex flex-col gap-vesper-4">
             <div className="bg-vesper-tint-neutral-100 border border-vesper-border-tertiary p-vesper-4 flex flex-col gap-vesper-6 rounded-vesper-3">
               <Typography variant="copy-sm">
@@ -183,7 +188,7 @@ export function BugReport() {
                 iconLeft={<Download />}
                 type="button"
                 size="sm"
-                onClick={() => saveBlob(logs, diagnosticsRef)}
+                onClick={downloadLogs}
               >
                 Download .ZIP
               </Button>
@@ -208,7 +213,7 @@ export function BugReport() {
             </div>
           </div>
         )}
-        {didDownloadLogs && (
+        {didFetchLogs && (
           <div className="flex justify-end">
             <Button
               variant="subtle"
