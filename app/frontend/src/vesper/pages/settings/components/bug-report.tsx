@@ -175,7 +175,7 @@ export function BugReport() {
           <div className="flex flex-col gap-vesper-4">
             <div className="bg-vesper-tint-neutral-100 border border-vesper-border-tertiary p-vesper-4 flex flex-col gap-vesper-6 rounded-vesper-3">
               <Typography variant="copy-sm">
-                1. Download Logs as a ZIP. You will attach this to your Github
+                1. Download Logs as a ZIP. You will attach this to your GitHub
                 issue
               </Typography>
               <Button
