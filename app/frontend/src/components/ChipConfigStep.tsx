@@ -123,7 +123,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     run: tourRun,
     activeTourId,
     stepIndex: tourStepIndex,
-    setStepIndex,
     steps,
   } = useTour();
   const isDeployTour = tourRun && activeTourId === "deploy-model";
@@ -234,16 +233,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
       setSelectedMode("single");
     }
   }, [isDeployTour, steps, tourStepIndex, selectedMode]);
-
-  const handleContinue = () => {
-    if (isDeployTour) {
-      setStepIndex(tourStepIndex + 1);
-    }
-    const deployEl =
-      document.querySelector('[data-tour="deploy-summary-info"]') ||
-      document.querySelector('[data-tour="deploy-button"]');
-    deployEl?.scrollIntoView({ behavior: "smooth" });
-  };
 
   const needsSlotPicker =
     selectedMode === "single" &&
@@ -453,18 +442,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             Fetching hardware status...
           </div>
         )}
-      </div>
-
-      {/* Confirm / Continue button */}
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          data-tour="hardware-config-continue"
-          onClick={handleContinue}
-          className="px-6 py-2 rounded-lg font-mono font-semibold text-sm transition-all duration-200 bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)] cursor-pointer"
-        >
-          Continue →
-        </button>
       </div>
     </div>
   );

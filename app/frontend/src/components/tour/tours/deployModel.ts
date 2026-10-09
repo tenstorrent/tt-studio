@@ -83,16 +83,6 @@ export const CHIP_SLOT_PICKER_STEP: Step = {
   placement: "top",
 };
 
-// Hardware config: Continue / Next
-export const HARDWARE_CONFIG_CONTINUE_STEP: Step = {
-  target: '[data-tour="hardware-config-continue"]',
-  title: "Continue to Deployment",
-  content:
-    "Proceed to the final deployment step once your model and device choices are confirmed.",
-  skipBeacon: true,
-  placement: "top-end",
-};
-
 // Deploy: Summary info
 export const DEPLOY_SUMMARY_STEP: Step = {
   target: '[data-tour="deploy-summary-info"]',
@@ -123,7 +113,7 @@ export interface DeployTourOptions {
  * Dynamically generates tour steps tailored to the user's detected hardware and view state.
  * - Single-chip boards (N150): 6 steps (no hardware config steps)
  * - P300x2 simplified flow (collapsed config): 7 steps (points to the Advanced toggle)
- * - Multi-chip full flow (expanded config): 10 steps (all device cards + slot picker)
+ * - Multi-chip full flow (expanded config): 9 steps (all device cards + slot picker)
  * - Skips mode selection steps if hasModeSelection is false
  */
 export function getDeployModelSteps(options?: DeployTourOptions): Step[] {
@@ -148,8 +138,7 @@ export function getDeployModelSteps(options?: DeployTourOptions): Step[] {
       steps.push(
         HARDWARE_MODE_SINGLE_STEP,
         HARDWARE_MODE_MULTI_STEP,
-        CHIP_SLOT_PICKER_STEP,
-        HARDWARE_CONFIG_CONTINUE_STEP
+        CHIP_SLOT_PICKER_STEP
       );
     }
   }
@@ -159,7 +148,7 @@ export function getDeployModelSteps(options?: DeployTourOptions): Step[] {
 }
 
 /**
- * Base 10-step definition for tour registry and static references.
+ * Base 9-step definition for tour registry and static references.
  */
 export const deployModelSteps: Step[] = getDeployModelSteps({
   isMultiChip: true,

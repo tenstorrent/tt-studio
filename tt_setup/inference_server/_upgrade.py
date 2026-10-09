@@ -70,6 +70,7 @@ def setup_artifact_with_fallback(target_version, pull_branch=False):
     if os.path.isdir(PREVIOUS_ARTIFACT) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
         _restore()  # an earlier upgrade was killed mid-download
 
+    if get_env_var("TT_INFERENCE_ARTIFACT_VERSION") in ("latest", "v0.22.0"): os.environ["TT_INFERENCE_ARTIFACT_VERSION"] = ""  # old .env defaults, not pins
     pinned = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
     current = _installed_version()
     if pinned or not target_version or not current or current == target_version.lstrip("v"):

@@ -261,7 +261,8 @@ class TestLegacyDockerControlCleanup(unittest.TestCase):
                 return MagicMock(returncode=0)
             if cmd[0] == "kill" and cmd[1] == "-0":
                 return MagicMock(returncode=1)
-            return MagicMock(stdout="", returncode=0)
+            # Anything else (the final port guard's ss/nc probes) finds nothing.
+            return MagicMock(stdout="", returncode=1)
 
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
