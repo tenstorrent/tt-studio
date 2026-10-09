@@ -65,7 +65,7 @@ export function Sidebar() {
         />
         <div className="px-vesper-4 pt-vesper-3 flex-1 flex flex-col justify-end">
           <SidebarItem
-            href="/app-settings"
+            href="/settings"
             icon={Gear}
             label="Settings"
             collapsed={collapsed}

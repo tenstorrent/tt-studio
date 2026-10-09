@@ -210,7 +210,7 @@ export const getRoutes = (): RouteConfig[] => {
       hideSidebar: true,
     },
     {
-      path: "/app-settings",
+      path: "/settings",
       element: <SettingsPage />,
       condition: true,
       title: "Settings",
