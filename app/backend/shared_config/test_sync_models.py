@@ -896,6 +896,11 @@ class TestLoadModelSupport:
         path.write_text(json.dumps({"models": {}}))
         assert load_model_support(path) is None
 
+    def test_spec_without_release_is_none(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps({"models": []}))
+        assert load_model_support(path) is None
+
     def test_valid_spec_loads(self, tmp_path):
         path = tmp_path / "s.json"
         path.write_text(json.dumps(_spec({})))

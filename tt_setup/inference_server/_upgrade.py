@@ -9,6 +9,7 @@ import shutil
 from tt_setup.console import console
 from tt_setup.constants import INFERENCE_ARTIFACT_DIR, TT_STUDIO_ROOT
 from tt_setup.env_config import get_env_var
+from tt_setup.inference_server._env import _set_artifact_environment_variables
 from tt_setup.inference_server._orchestrator import setup_tt_inference_server
 from tt_setup.inference_server._privileges import remove_artifact_with_sudo
 
@@ -94,6 +95,7 @@ def setup_artifact_with_fallback(target_version, pull_branch=False):
         f"keeping {previous} and its model list[/warning]"
     )
     _restore()
-    # setup_tt_inference_server exported the target version; drop it so it isn't treated as pinned.
-    os.environ.pop("TT_INFERENCE_ARTIFACT_VERSION", None)
-    return False if setup_tt_inference_server(pull_branch, previous) else None
+    # Use the restored artifact as is: setting it up again would swap a branch artifact for a release download.
+    os.environ["TT_INFERENCE_ARTIFACT_VERSION"] = previous
+    _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+    return False

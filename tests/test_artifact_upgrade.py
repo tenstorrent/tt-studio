@@ -80,14 +80,21 @@ class TestSetupArtifactWithFallback(unittest.TestCase):
 
     def test_failed_download_keeps_the_installed_artifact(self):
         self.assertIs(self._run(fail={"v0.23.0"}), False)
-        self.assertEqual(self.calls, ["v0.23.0", "v0.22.0"])
+        self.assertEqual(self.calls, ["v0.23.0"])
         self.assertEqual(self._version(), "0.22.0")
         with open(self.info) as f:
             self.assertIn("v0.22.0", f.read())
         self.assertFalse(os.path.exists(self.previous))
+        self.assertEqual(os.environ["TT_INFERENCE_ARTIFACT_VERSION"], "v0.22.0")
+        self.assertEqual(os.environ["TT_INFERENCE_ARTIFACT_PATH"], self.artifact)
 
-    def test_failed_fallback_reports_failure(self):
-        self.assertIsNone(self._run(fail={"v0.23.0", "v0.22.0"}))
+    def test_failed_download_keeps_an_installed_branch_artifact(self):
+        with open(self.info, "w") as f:
+            f.write("artifact_type=branch\nartifact_value=my-branch\n")
+        self.assertIs(self._run(fail={"v0.23.0"}), False)
+        self.assertEqual(self.calls, ["v0.23.0"])
+        with open(self.info) as f:
+            self.assertIn("artifact_value=my-branch", f.read())
 
     def test_interrupted_download_restores_the_artifact(self):
         def interrupted(pull_branch, version):

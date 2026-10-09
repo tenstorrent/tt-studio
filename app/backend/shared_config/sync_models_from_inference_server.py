@@ -778,7 +778,7 @@ def load_model_support(path: Path = MODEL_SUPPORT_JSON) -> dict | None:
             spec = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(spec, dict) or not isinstance(spec.get("models"), list):
+    if not isinstance(spec, dict) or not isinstance(spec.get("models"), list) or not spec.get("release_version"):
         return None
     return spec
 
