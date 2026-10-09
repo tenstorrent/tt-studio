@@ -24,6 +24,7 @@ import {
   SuccessSolid,
 } from "@tenstorrent/vesper/icons";
 import { TextButton } from "@tenstorrent/vesper/text-button";
+import { copyToClipboard } from "@/src/utils/clipboard";
 import {
   createDiagnosticsRef,
   createNewGitHubIssueUrl,
@@ -236,10 +237,20 @@ export function BugReport() {
 }
 
 function CopyToClipboardButton({ text }: { text: string }) {
+  const [error, setError] = useState<null | string>(null);
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => clearTimeout(timeout.current), []);
+
+  const handleClick = useCallback(async () => {
+    const error = await copyToClipboard(text);
+    setError(error);
+    timeout.current = setTimeout(() => {
+      setCopied(false);
+      setError(null);
+    }, 3000);
+  }, [text]);
 
   return (
     <TextButton
@@ -247,13 +258,10 @@ function CopyToClipboardButton({ text }: { text: string }) {
       className="ml-auto"
       variant="subtle"
       type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        timeout.current = setTimeout(() => setCopied(false), 3000);
-      }}
+      onClick={handleClick}
     >
-      {copied ? "Report copied to clipboard" : "copy report to clipboard"}
+      {error ??
+        (copied ? "Report copied to clipboard" : "copy report to clipboard")}
     </TextButton>
   );
 }
