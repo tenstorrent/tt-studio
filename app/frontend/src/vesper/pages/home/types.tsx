@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-export interface DeviceCardData {
-  paired: boolean;
+import { TtSmiDevice } from "@/src/api/telemetryApi";
+
+export interface HardwarePageData {
+  boards: BoardData[];
+}
+
+export interface BoardData {
+  id: string;
   name: string;
-  boards: DeviceBoardData[];
-};
-
-export type DeviceBoardState = "idle" | "deploying" | "busy" | "error";
-
-export interface DeviceBoardData {
-  tag: string;
-  state: DeviceBoardState;
-  cpu: number;
-  ram: number;
-  temp: number;
-};
+  devices: TtSmiDevice[];
+}

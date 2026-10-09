@@ -2,79 +2,59 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { Tag } from "@tenstorrent/vesper/tag";
-import { StatusIndicator } from "@tenstorrent/vesper/status-indicator";
+import { Chip } from "@tenstorrent/vesper/icons";
 import { cn } from "@/src/lib/utils";
-import { DeviceBoardData } from "../types";
-import { BoardStat } from "./board-stat";
-import { BoardStateIndicator } from "./board-state-indicator";
-import { CardMenu } from "./card-menu";
+import { BoardData } from "../types";
+import { Device } from "./device";
+import { Typography } from "@tenstorrent/vesper/typography";
 
-export interface BoardProps extends DeviceBoardData {
-  index: number;
-  linked: boolean;
+export interface BoardProps {
+  board: BoardData;
+  label?: string;
 }
 
-export function Board({
-  tag,
-  state,
-  cpu,
-  ram,
-  temp,
-  linked,
-}: DeviceBoardData & { linked: boolean }) {
-  const metricsAvailable = state !== "idle" && state !== "deploying";
-
+export function Board({ board, label }: BoardProps) {
   return (
-    <div className="flex flex-col gap-vesper-2 flex-1 relative">
-      <div
-        className={cn(
-          "p-vesper-5 flex flex-col gap-vesper-5 rounded-vesper-2 border",
-          state === "idle" &&
-            "bg-vesper-background-secondary border-vesper-border-secondary",
-          state !== "idle" &&
-            "bg-vesper-background-primary border-vesper-border-primary",
-          linked &&
-            "bg-vesper-background-primary border-vesper-border-accent-base"
+    <div className="flex flex-col gap-vesper-2 w-full max-w-125 mx-auto">
+      <div className="flex items-center gap-vesper-4">
+        <Tag icon={<Chip />}>{board.name}</Tag>
+        {!!label && (
+          <Typography
+            variant="label-sm-mono"
+            className="text-vesper-text-secondary"
+          >
+            {label}
+          </Typography>
         )}
-      >
-        <div className="flex items-center justify-between">
-          <Tag>{tag}</Tag>
-          <CardMenu />
-        </div>
-        <div className="flex flex-col items-center gap-vesper-3">
-          <BoardStateIndicator linked={linked} state={state} />
-          <StatusIndicator
-            label={state.toUpperCase()}
-            animated={state !== "idle"}
-            state={
-              state === "busy"
-                ? "ready"
-                : state === "deploying"
-                  ? "progress"
-                  : state === "error"
-                    ? "error"
-                    : "cancelled"
-            }
-          />
-        </div>
-        <div className="flex flex-col gap-vesper-3">
-          <BoardStat
-            name="RAM"
-            value={!metricsAvailable ? 0 : ram}
-            valueText={!metricsAvailable ? "---" : `${ram.toFixed(1)}%`}
-          />
-          <BoardStat
-            name="CPU"
-            value={!metricsAvailable ? 0 : cpu}
-            valueText={!metricsAvailable ? "---" : `${cpu.toFixed(1)}%`}
-          />
-          <BoardStat
-            name="Temp"
-            value={!metricsAvailable ? 0 : Math.min(temp, 100)}
-            valueText={!metricsAvailable ? "---" : `${temp.toFixed(1)}°C`}
-          />
-        </div>
+      </div>
+      <div className="p-vesper-4 grid sm:grid-cols-2 grid-cols-1 gap-vesper-6 rounded-vesper-4 bg-vesper-tint-neutral-100 border border-vesper-border-secondary relative">
+        {board.devices.map((device, index) => (
+          <Device key={index} device={device} index={index} />
+        ))}
       </div>
     </div>
+  );
+}
+
+function Connector() {
+  return (
+    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+      <div className="relative flex items-center w-[calc(var(--vesper-spacing-6)+1px)] h-0 sm:rotate-0 rotate-90">
+        <ConnectorNode className="-left-1.5" />
+        <div className="h-px w-full bg-vesper-border-accent-base" />
+        <ConnectorNode className="-right-1.5" />
+      </div>
+    </div>
+  );
+}
+
+function ConnectorNode({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "absolute size-3 rounded-full border border-vesper-border-accent-base bg-vesper-background-primary",
+        className
+      )}
+    />
   );
 }
