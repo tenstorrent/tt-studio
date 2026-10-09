@@ -303,6 +303,7 @@ class ReservationTests(unittest.TestCase):
         """Stands in for ChipSlotAllocator, recording what it was asked to allocate."""
 
         total_slots = 4
+        board_type = "P300x2"
 
         def __init__(self, base=0, error=None):
             self._base = base
@@ -374,6 +375,15 @@ class ReservationTests(unittest.TestCase):
         conflict = MultiChipConflictError("board busy")
         with self.assertRaises(MultiChipConflictError):
             self._allocate(self._Allocator(error=conflict))
+
+    def test_a_profile_for_another_board_is_refused(self):
+        from docker_control.chip_allocator import AllocationError
+
+        allocator = self._Allocator()
+        allocator.board_type = "N300"
+        with self.assertRaises(AllocationError):
+            self._allocate(allocator)
+        self.assertIsNone(allocator.call)
 
 
 class RequestedDeviceIdTests(unittest.TestCase):

@@ -195,6 +195,14 @@ def _allocate_slots(impl, manual_device_id: Optional[int]):
             f"{impl.repo_id} needs {chips} chips, but this board has "
             f"{allocator.total_slots}."
         )
+    from docker_control.views import _community_fit  # views imports this module
+
+    if _community_fit(
+        impl.device_configurations, chips, allocator.board_type, allocator.total_slots, impl.kind
+    ) is False:
+        raise AllocationError(
+            f"{impl.repo_id} ({impl.profile}) does not run on this {allocator.board_type} board."
+        )
     device_id = allocator.allocate_chip_slot(
         impl.model_name, manual_override=manual_device_id, chips_required=chips
     )

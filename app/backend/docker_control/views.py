@@ -3493,12 +3493,16 @@ async def _astream_stop_remove_container(container_id, truncated):
 
     Raises _StopFailed if the container could not be stopped.
     """
+    from docker_control.models import ModelDeployment
+
+    previous = {}
+
     def _mark_stopped():
-        from docker_control.models import ModelDeployment
         from django.utils import timezone
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
+        previous.update(status=deployment.status, stopped_at=deployment.stopped_at)
         # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
         # The only reliable signal is whether the container is actually alive right now.
         # Tri-state: True = still running, False = confirmed gone, None = we
@@ -3558,6 +3562,11 @@ async def _astream_stop_remove_container(container_id, truncated):
         for line in community_stop["lines"]:
             yield line
         if community_stop["error"]:
+            # Still running and holding its chips, so it must keep its slots.
+            if previous:
+                await asyncio.to_thread(
+                    ModelDeployment.objects.filter(container_id=container_id).update, **previous
+                )
             raise _StopFailed(community_stop["error"])
         try:
             await asyncio.to_thread(update_deploy_cache)

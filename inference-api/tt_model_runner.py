@@ -32,7 +32,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -695,24 +694,13 @@ def _ensure_hf_modules_dir() -> None:
         emit("warning", message=f"could not create {container.hf_home() / 'modules'}: {e}")
 
 
-def _connect_network(container_id: str) -> None:
-    """Attach the container to TT Studio's bridge, by the id docker reported for it.
+def _on_studio_network(run_argv: list) -> list:
+    """``run_argv`` with the container attached to TT Studio's bridge at creation.
 
-    tt_kernel composes no ``--network``, so the container lands on the default
+    tt_kernel composes no ``--network``, so the container would land on the default
     bridge, where the backend never resolves an internal URL for it.
     """
-    if not re.fullmatch(r"[0-9a-f]{64}", container_id):
-        emit("warning", message=f"could not connect to {STUDIO_NETWORK}: no container id")
-        return
-    result = subprocess.run(
-        ["docker", "network", "connect", STUDIO_NETWORK, container_id],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        emit("log", level="INFO", message=f"connected to {STUDIO_NETWORK}")
-    else:
-        emit("warning", message=f"could not connect to {STUDIO_NETWORK}: "
-                                f"{result.stderr.strip()}")
+    return [*run_argv[:2], "--network", STUDIO_NETWORK, *run_argv[2:]]
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -755,9 +743,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # Re-resolved rather than reusing the pre-check: nothing is reserved, and the
     # install above can run for hours, so a chip picked back then may now be taken.
     device_ids = _resolve_device_ids(args.device_id, chip_count, profile.name)
-    run_argv = container.compose_run(
+    run_argv = _on_studio_network(container.compose_run(
         manifest, profile, argv, env, detach=True, device_ids=device_ids
-    )
+    ))
     name = container.container_name(manifest, profile)
     port = profile.port or 8000
 
@@ -782,7 +770,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     container_id = container.run_or_empty(
         ["docker", "inspect", "--format", "{{.Id}}", name]
     ).strip()
-    _connect_network(container_id)
     emit(
         "started",
         container_name=name,

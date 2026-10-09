@@ -491,10 +491,6 @@ def test_parser_accepts_hub_names():
     assert (args.repo_id, args.profile) == ("tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "p300x2-longctx")
 
 
-def test_network_connect_uses_only_docker_reported_ids(monkeypatch):
-    calls = []
-    monkeypatch.setattr(runner.subprocess, "run",
-                        lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
-    runner._connect_network("--alias=x")
-    runner._connect_network("a" * 64)
-    assert calls == [["docker", "network", "connect", runner.STUDIO_NETWORK, "a" * 64]]
+def test_serve_joins_studio_network_at_creation():
+    argv = runner._on_studio_network(["docker", "run", "--detach", "image"])
+    assert argv == ["docker", "run", "--network", runner.STUDIO_NETWORK, "--detach", "image"]
