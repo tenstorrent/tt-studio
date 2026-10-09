@@ -4,7 +4,14 @@
 import { Typography } from "@tenstorrent/vesper/typography";
 import { TextArea } from "@tenstorrent/vesper/text-area";
 import { TextInput } from "@tenstorrent/vesper/text-input";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type SubmitEventHandler,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@tenstorrent/vesper/button";
 import {
   Checkmark,
@@ -49,7 +56,7 @@ export function BugReport() {
   const [error, setError] = useState<null | string>(null);
   const didDownloadLogs = !downloadingLogs && logs !== null;
 
-  function resetForm() {
+  const resetForm = useCallback(() => {
     setTitle("");
     setDescription("");
     setSteps("");
@@ -59,28 +66,30 @@ export function BugReport() {
     setLogs(null);
     setError(null);
     setDiagnosticsRef(createDiagnosticsRef);
-  }
+  }, []);
+
+  const handleSubmit: SubmitEventHandler = useCallback(async (e) => {
+    e.preventDefault();
+    try {
+      setError(null);
+      setDownloadingLogs(true);
+      const response = await fetch("/logs-api/bug-report/download/");
+      if (!response.ok) {
+        throw new Error(`Logs download failed: HTTP ${response.status}`);
+      }
+      setLogs(await response.blob());
+    } catch {
+      setLogs(null);
+      setError(`Logs download failed`);
+    } finally {
+      setDownloadingLogs(false);
+    }
+  }, []);
 
   return (
     <form
       className="mt-vesper-8 flex flex-col gap-vesper-4"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        try {
-          setError(null);
-          setDownloadingLogs(true);
-          const response = await fetch("/logs-api/bug-report/download/");
-          if (!response.ok) {
-            throw new Error(`Logs download failed: HTTP ${response.status}`);
-          }
-          setLogs(await response.blob());
-        } catch {
-          setLogs(null);
-          setError(`Logs download failed`);
-        } finally {
-          setDownloadingLogs(false);
-        }
-      }}
+      onSubmit={handleSubmit}
     >
       <BugReportStep>
         <BugReportStepTitle
