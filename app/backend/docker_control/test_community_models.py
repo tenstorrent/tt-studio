@@ -514,3 +514,86 @@ class CommunityHealthRouteTests(unittest.TestCase):
         route, _ = self._route("c4", error=requests.ConnectionError("refused"))
         self.assertEqual(route, "/health")
         self.assertNotIn("c4", self.docker_utils._community_health_routes)
+
+
+class VerifiedCatalogTests(unittest.TestCase):
+    """A community deploy is checked against the verified catalog, as a catalog
+    deploy is against models_from_inference_server.json."""
+
+    def _deploy(self, model_id, verified=True, bundle=BUNDLE):
+        from types import SimpleNamespace
+
+        from docker_control import community_deploy
+
+        impl = build_community_model_impl(bundle, parse_community_model_id(model_id)[1])
+        with patch.object(community_deploy, "is_verified_bundle", return_value=verified), \
+             patch.object(community_deploy, "get_community_impl", return_value=impl) as resolve:
+            response = community_deploy.deploy_community_model(
+                SimpleNamespace(data={"model_id": model_id})
+            )
+        return response, resolve
+
+    def test_an_unverified_repo_is_refused_before_it_is_resolved(self):
+        response, resolve = self._deploy(community_model_id("someone/anything"), verified=False)
+        self.assertEqual(response.status_code, 400)
+        resolve.assert_not_called()
+
+    def test_an_unknown_profile_is_refused(self):
+        response, _ = self._deploy(community_model_id(BUNDLE["repo_id"], "no-such-profile"))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no-such-profile", response.data["message"])
+
+    def test_reads_the_catalog_file(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from shared_config import community_model_config as config
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "catalog.json"
+            path.write_text(json.dumps({"schema_version": 1, "bundles": [{"repo": "ns/listed"}]}))
+            with patch.object(config, "_CATALOG", path):
+                self.assertTrue(config.is_verified_bundle("ns/listed"))
+                self.assertFalse(config.is_verified_bundle("ns/other"))
+
+
+class StopInFlightTests(unittest.TestCase):
+    """Stopping a deploy that has no container yet cancels its job instead."""
+
+    def _stop(self, container_id, cancel_reply):
+        from types import SimpleNamespace
+
+        from docker_control.launchers import model_manager
+
+        deployment = SimpleNamespace(
+            container_id=container_id,
+            model_name=BUNDLE["repo_id"],
+            community_model_id=community_model_id(BUNDLE["repo_id"], "batch1-latency"),
+        )
+        with patch.object(model_manager, "cancel_community_deployment", return_value=cancel_reply) as cancel, \
+             patch.object(model_manager, "stop_community_deployment",
+                          return_value={"status": "success"}) as stop:
+            result = model_manager.TTModelManagerLauncher().stop(deployment)
+        return result, cancel, stop
+
+    def test_an_in_flight_job_is_cancelled(self):
+        result, cancel, stop = self._stop("ab12cd34", {"status": "cancelled", "community": True})
+        self.assertEqual(result.status, "success")
+        cancel.assert_called_once_with("ab12cd34")
+        stop.assert_not_called()
+
+    def test_a_job_that_already_finished_is_stopped(self):
+        result, _, stop = self._stop("ab12cd34", {"status": "cancelled", "community": False})
+        self.assertEqual(result.status, "success")
+        stop.assert_called_once()
+
+    def test_a_failed_cancel_is_reported(self):
+        result, _, stop = self._stop("ab12cd34", {"status": "error", "message": "stop failed"})
+        self.assertEqual(result.status, "error")
+        stop.assert_not_called()
+
+    def test_a_running_container_is_stopped_without_a_cancel(self):
+        result, cancel, stop = self._stop("a" * 64, {})
+        cancel.assert_not_called()
+        stop.assert_called_once()

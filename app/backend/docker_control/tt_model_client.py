@@ -91,7 +91,7 @@ def get_community_impl(model_id: str, service_port: int = 7000) -> Optional[Comm
     except ValueError:
         return None
     bundle = fetch_bundle(repo_id)
-    if not bundle:
+    if not bundle or bundle.get("supported") is False:
         return None
     return build_community_model_impl(bundle, profile, service_port=service_port)
 
@@ -183,6 +183,24 @@ def stop_community_deployment(
         return response.json() or {}
     except ValueError:
         return {"status": "error", "message": f"Bad response stopping {repo_id}"}
+
+
+def cancel_community_deployment(job_id: str, timeout_seconds: int = 180) -> Dict[str, Any]:
+    """Cancel an in-flight deploy job through the inference-server path's cancel.
+
+    ``community`` in the reply says whether a community serve was still running.
+    """
+    url = f"{backend_config.tt_inference_api_url.rstrip('/')}/run/cancel/{job_id}"
+    try:
+        response = requests.post(url, timeout=timeout_seconds)
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "message": f"Network error cancelling job {job_id}: {e}"}
+    if response.status_code != 200:
+        return {"status": "error", "message": _error_message(response, f"could not cancel job {job_id}")}
+    try:
+        return response.json() or {}
+    except ValueError:
+        return {"status": "error", "message": f"Bad response cancelling job {job_id}"}
 
 
 def _error_message(response, fallback: str) -> str:

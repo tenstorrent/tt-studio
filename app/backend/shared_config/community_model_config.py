@@ -21,7 +21,9 @@ bundle with no page is still listed and deployable, as ModelTypes.UNKNOWN: track
 and manageable, but offered no interaction page that would 404.
 """
 
+import json
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from shared_config.community_overrides import CommunityOverrides, Mark
@@ -127,6 +129,22 @@ def community_model_id(repo_id: str, profile: Optional[str] = None) -> str:
 
 def is_community_model_id(model_id: Optional[str]) -> bool:
     return bool(model_id) and str(model_id).startswith(MODEL_ID_PREFIX)
+
+
+# tt-cli's verified community catalog, as run.py stores it; the bundled copy is the
+# offline fallback. The same files the listing reads through inference-api.
+_CATALOG = Path(__file__).parent / "community_catalog_enriched.json"
+_CATALOG_BUNDLED = Path(__file__).parent / "community_catalog_bundled.json"
+
+
+def is_verified_bundle(repo_id: str) -> bool:
+    """Whether ``repo_id`` is in the verified community catalog."""
+    path = _CATALOG if _CATALOG.exists() else _CATALOG_BUNDLED
+    try:
+        rows = json.loads(path.read_text()).get("bundles") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    return any(row.get("repo") == repo_id for row in rows)
 
 
 def parse_community_model_id(model_id: str) -> Tuple[str, Optional[str]]:

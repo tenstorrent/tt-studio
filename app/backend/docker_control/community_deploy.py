@@ -35,6 +35,8 @@ from docker_control.launchers.base import StartRequest
 from docker_control.tt_model_client import fetch_bundle, get_community_impl
 from shared_config.community_model_config import (
     build_community_model_impl,
+    is_verified_bundle,
+    parse_community_model_id,
     profile_for_chips,
     unavailable_mark,
 )
@@ -47,6 +49,15 @@ BASE_SERVICE_PORT = 7000
 def deploy_community_model(request) -> Response:
     """Handle a POST /docker/deploy/ whose model_id is a community bundle."""
     model_id = request.data.get("model_id")
+    repo_id, profile = parse_community_model_id(model_id)
+    if not is_verified_bundle(repo_id):
+        return Response(
+            {
+                "status": "error",
+                "message": f"{repo_id} is not in the verified community catalog.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     impl = get_community_impl(model_id)
     if impl is None:
         return Response(
@@ -54,9 +65,15 @@ def deploy_community_model(request) -> Response:
                 "status": "error",
                 "message": (
                     f"Community model '{model_id}' could not be resolved. It may have "
-                    "been unpublished, or tt-model-manager may be unavailable."
+                    "been unpublished, tt-model-manager may be unavailable, or its engine "
+                    "cannot be launched."
                 ),
             },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if profile and profile not in impl.profiles:
+        return Response(
+            {"status": "error", "message": f"{repo_id} has no profile '{profile}'."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
