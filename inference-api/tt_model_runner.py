@@ -52,6 +52,10 @@ _READY_TAIL_LINES = 20
 # tt-cli's community_catalog.json format this reads.
 CATALOG_SCHEMA_VERSION = 1
 
+# Request-supplied names that reach docker and the Hub; a leading "-" would read as a flag.
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_REPO_ID = re.compile(rf"{_NAME.pattern}/{_NAME.pattern}")
+
 # Manifests are read concurrently by `enrich`: ~1.1s for 43 bundles cold, against
 # ~0.2s each serially.
 _MANIFEST_WORKERS = 8
@@ -848,6 +852,15 @@ def cmd_stop(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------------- entry
 
 
+def _matching(pattern: re.Pattern, what: str) -> Callable[[str], str]:
+    """An argparse type accepting only values that fully match ``pattern``."""
+    def check(value: str) -> str:
+        if not pattern.fullmatch(value):
+            raise argparse.ArgumentTypeError(f"invalid {what}: {value!r}")
+        return value
+    return check
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tt_model_runner", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -866,25 +879,25 @@ def build_parser() -> argparse.ArgumentParser:
     enrich.set_defaults(func=cmd_enrich)
 
     inspect = sub.add_parser("inspect")
-    inspect.add_argument("repo_id")
+    inspect.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
     inspect.set_defaults(func=cmd_inspect)
 
     serve = sub.add_parser("serve")
-    serve.add_argument("repo_id")
-    serve.add_argument("--profile")
+    serve.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    serve.add_argument("--profile", type=_matching(_NAME, "profile name"))
     serve.add_argument("--port", type=int)
     # Comma-separated chip indices, as tt-model's own --device-id takes them. Omitted
     # means "pick the lowest free chips", which is tt_kernel's default behaviour.
     serve.add_argument("--device-id", dest="device_id")
-    serve.add_argument("--network")
+    serve.add_argument("--network", type=_matching(_NAME, "network name"))
     serve.add_argument("--no-weights", action="store_true")
     serve.add_argument("--wait-ready", action="store_true")
     serve.add_argument("--ready-timeout", type=int, default=1800)
     serve.set_defaults(func=cmd_serve)
 
     stop = sub.add_parser("stop")
-    stop.add_argument("repo_id")
-    stop.add_argument("--profile")
+    stop.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    stop.add_argument("--profile", type=_matching(_NAME, "profile name"))
     stop.set_defaults(func=cmd_stop)
     return parser
 

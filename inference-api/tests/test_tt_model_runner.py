@@ -468,3 +468,27 @@ runner.emit("result", status="success")
         done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
         assert done.returncode == 0, done.stderr
         assert "visible again" in done.stdout
+
+
+@pytest.mark.parametrize("argv", [
+    ["serve", "-x"],
+    ["serve", "--network=bridge"],
+    ["serve", "owner/model;rm"],
+    ["serve", "owner/model", "--network", "--alias=x"],
+    ["serve", "owner/model", "--network=-x"],
+    ["serve", "owner/model", "--profile=-p"],
+    ["stop", "../model"],
+    ["inspect", "model"],
+])
+def test_parser_rejects_names_that_could_read_as_flags(argv):
+    with pytest.raises(SystemExit):
+        runner.build_parser().parse_args(argv)
+
+
+def test_parser_accepts_hub_names():
+    args = runner.build_parser().parse_args(
+        ["serve", "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "--profile", "p300x2-longctx",
+         "--network", "tt_studio_network"]
+    )
+    assert (args.repo_id, args.profile, args.network) == (
+        "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "p300x2-longctx", "tt_studio_network")
