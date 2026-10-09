@@ -59,7 +59,7 @@ MODEL_MANAGER_REPO_URL = "https://github.com/tenstorrent/tt-model-manager"
 # Must be at or after PR #50 (mounts /weight-cache; bundles pointing a weight cache
 # there fail to boot without it) and PR #102, which scopes a serve to the chips its
 # profile needs — community device selection depends on it.
-MODEL_MANAGER_DEFAULT_REF = "5d3ca115f88bd8fb0a5b0698907714599688158d"
+MODEL_MANAGER_DEFAULT_REF = "f14f5a87b690e3adadfb15633a84978014133c58"
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 # All host-side runtime logs and PID files live under a single logs/ directory so

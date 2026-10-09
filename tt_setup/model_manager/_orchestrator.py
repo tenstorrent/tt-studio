@@ -7,7 +7,7 @@ The community-model deploy path drives tt-model-manager as a library. It cannot 
 installed into inference-api's venv: inference-api pins ``pydantic<2`` (FastAPI <0.69
 requires it) and tt_kernel requires ``pydantic>=2``. So it gets its own venv, treated
 like the tt-inference-server artifact — pinned in .env, resolved once at startup, and
-recreated only when the pin changes.
+recreated only when the pin changes, keeping the working install if the new one fails.
 
 Failure here is never fatal: the inference-server deploy path is unaffected, and the
 backend hides community models when the artifact is absent.
@@ -29,6 +29,10 @@ from tt_setup.shell import run_command
 # Written next to the venv so a re-run can tell "already installed at this pin" from
 # "installed at a different pin" without importing anything out of the venv.
 _STAMP_NAME = "artifact-info.json"
+# The working venv, set aside while a different ref installs, then moved to
+# _DISCARDED_VENV once the new one works, so a half-deleted venv is never restored.
+_PREVIOUS_VENV = ".venv.previous"
+_DISCARDED_VENV = ".venv.discarded"
 
 
 def model_manager_python(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR):
@@ -92,6 +96,14 @@ def _install_package(venv_dir, python, ref):
     return False, stderr.splitlines()[-1] if stderr else "pip install failed"
 
 
+def _install(venv_dir, python, ref):
+    """Create the venv and install ``ref`` into it. Returns an error message, or None."""
+    if not _create_venv(venv_dir):
+        return "could not create the venv"
+    ok, detail = _install_package(venv_dir, python, ref)
+    return None if ok else detail
+
+
 def setup_tt_model_manager(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR, force=False):
     """Ensure the pinned tt-model-manager venv exists. Returns True when usable.
 
@@ -100,30 +112,45 @@ def setup_tt_model_manager(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR, force=False)
     """
     ref = _resolve_ref()
     python = model_manager_python(artifact_dir)
+    venv_dir = os.path.join(artifact_dir, ".venv")
+    previous_dir = os.path.join(artifact_dir, _PREVIOUS_VENV)
+    discarded_dir = os.path.join(artifact_dir, _DISCARDED_VENV)
+    shutil.rmtree(discarded_dir, ignore_errors=True)
+    if os.path.isdir(previous_dir):
+        # An earlier install was interrupted; the set-aside venv still matches the stamp.
+        shutil.rmtree(venv_dir, ignore_errors=True)
+        os.rename(previous_dir, venv_dir)
+
     if not force and os.path.exists(python) and _installed_ref(artifact_dir) == ref:
         if show_detail():
             console.print(f"[muted]tt-model-manager already at {ref}[/muted]")
         return True
 
-    venv_dir = os.path.join(artifact_dir, ".venv")
-    if os.path.exists(venv_dir):
-        # A ref change means a different tt_kernel; replace rather than install over
-        # it, so a downgrade cannot leave newer files behind.
+    # Replace rather than install over the old venv, so a downgrade cannot leave
+    # newer files behind.
+    has_previous = os.path.exists(python)
+    if has_previous:
+        os.rename(venv_dir, previous_dir)
+    else:
         shutil.rmtree(venv_dir, ignore_errors=True)
     os.makedirs(artifact_dir, exist_ok=True)
 
-    if not _create_venv(venv_dir):
-        console.print("[warning]⚠️  Could not create the tt-model-manager venv — "
+    error = _install(venv_dir, python, ref)
+    if error:
+        shutil.rmtree(venv_dir, ignore_errors=True)
+        if has_previous:
+            os.rename(previous_dir, venv_dir)
+            console.print(f"[warning]⚠️  Could not install tt-model-manager@{ref} ({error}); "
+                          f"keeping {_installed_ref(artifact_dir) or 'the installed version'}[/warning]")
+            return True
+        console.print(f"[warning]⚠️  Could not install tt-model-manager@{ref} ({error}) — "
                       "community models will be unavailable[/warning]")
         return False
 
-    ok, detail = _install_package(venv_dir, python, ref)
-    if not ok:
-        console.print(f"[warning]⚠️  Could not install tt-model-manager@{ref}: "
-                      f"{detail} — community models will be unavailable[/warning]")
-        return False
-
+    if has_previous:
+        os.rename(previous_dir, discarded_dir)
     _write_stamp(artifact_dir, ref)
+    shutil.rmtree(discarded_dir, ignore_errors=True)
     if show_detail():
         console.print(f"[success]✅ tt-model-manager installed at {ref}[/success]")
     return True

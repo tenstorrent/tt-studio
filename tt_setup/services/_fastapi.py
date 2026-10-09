@@ -10,7 +10,7 @@ import time
 import tempfile
 import signal
 from tt_setup.constants import *
-from tt_setup.model_manager import model_manager_python
+from tt_setup.model_manager import model_manager_python, model_manager_status
 from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
@@ -174,7 +174,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     mm_python = model_manager_python()
     if os.path.exists(mm_python):
         env["TT_MODEL_MANAGER_PYTHON"] = mm_python
-        mm_ref = get_env_var("TT_MODEL_MANAGER_REF")
+        mm_ref = model_manager_status()["ref"]
         if mm_ref:
             env["TT_MODEL_MANAGER_REF"] = mm_ref
 
