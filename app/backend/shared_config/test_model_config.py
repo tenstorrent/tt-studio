@@ -13,9 +13,17 @@ them DIFFERENT values: fixtures where impl_id == impl_name cannot tell a correct
 implementation from one that returns impl_id.
 """
 
+import json
+import tempfile
+from pathlib import Path
+
 from django.test import SimpleTestCase
 
-from shared_config.model_config import _impl_selector
+from shared_config.model_config import (
+    _impl_selector,
+    load_model_implementations_from_json,
+    register_model_implementations,
+)
 
 
 class ImplSelectorTests(SimpleTestCase):
@@ -53,3 +61,76 @@ class ImplSelectorTests(SimpleTestCase):
         """Coercion at a trust boundary: never hand a non-string to the server."""
         self.assertIsNone(_impl_selector({"impl_name": 7, "impl_id": ["a"]}))
         self.assertIsNone(_impl_selector(7))
+
+
+def _catalog_row(model_name, engine, *, model_type="CHAT", version="1.0.0", **extra):
+    return {
+        "model_name": model_name,
+        "model_type": model_type,
+        "inference_engine": engine,
+        "hf_model_id": f"org/{model_name}",
+        "device_configurations": ["N150"],
+        "docker_image": f"ghcr.io/x/{engine}:{version}",
+        "service_route": "/v1/chat/completions",
+        "version": version,
+        **extra,
+    }
+
+
+class TrainingModelIdTests(SimpleTestCase):
+    """A training row can share model_name and version with a chat row; it must
+    still get a distinct model_id or registration raises on import."""
+
+    def _load(self, rows):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "catalog.json"
+            path.write_text(json.dumps({"models": rows}))
+            return load_model_implementations_from_json(path)
+
+    def test_same_version_training_and_chat_rows_get_distinct_ids(self):
+        impls = self._load([
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM", impl="tt-transformers"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING",
+                         impl="trainer-training-lora"),
+        ])
+
+        ids = {impl.inference_engine: impl.model_id for impl in impls}
+        self.assertEqual(ids, {
+            "vLLM": "id_tt-metal-Llama-3.1-8B-Instruct-v1.0.0",
+            "forge": "id_tt-metal-Llama-3.1-8B-Instruct-training-v1.0.0",
+        })
+        registry = register_model_implementations(impls)
+        self.assertEqual(len(registry), 2)
+
+    def test_training_and_chat_containers_get_distinct_names(self):
+        impls = self._load([
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING"),
+        ])
+
+        names = {impl.inference_engine: impl.deployment_container_name for impl in impls}
+        self.assertEqual(names, {
+            "vLLM": "Llama-3.1-8B-Instruct",
+            "forge": "Llama-3.1-8B-Instruct-training",
+        })
+
+    def test_non_training_models_keep_legacy_id(self):
+        """Ids name the volume_{model_id} dir holding a model's weights."""
+        impls = self._load([
+            _catalog_row("Qwen3-8B", "vLLM"),
+            _catalog_row("whisper-large-v3", "media", model_type="SPEECH_RECOGNITION"),
+        ])
+
+        self.assertEqual([impl.model_id for impl in impls], [
+            "id_tt-metal-Qwen3-8B-v1.0.0",
+            "id_tt-metal-whisper-large-v3-v1.0.0",
+        ])
+
+    def test_same_engine_duplicate_still_fails_loudly(self):
+        impls = self._load([
+            _catalog_row("Qwen3-8B", "vLLM"),
+            _catalog_row("Qwen3-8B", "vLLM"),
+        ])
+
+        with self.assertRaisesRegex(ValueError, "Duplicate model_id"):
+            register_model_implementations(impls)

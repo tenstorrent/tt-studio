@@ -552,6 +552,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "workflow": "server",  # Default workflow for container runs
             "device": device,  # Use mapped device name
             "docker_server": True,
+            "container_name": impl.deployment_container_name,
         }
 
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
@@ -724,7 +725,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
                         container_id=job_id,
-                        container_name=impl.model_name,
+                        container_name=impl.deployment_container_name,
                         model_name=impl.model_name,
                         model_id=impl.model_id,
                         device=device,

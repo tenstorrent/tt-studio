@@ -2205,6 +2205,9 @@ class RunRequest(BaseModel):
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
     disable_metal_timeout: Optional[bool] = False
+    # Name to give the container once it's up; defaults to the model name. Lets a
+    # training and a chat deploy of the same model hold distinct Docker names.
+    container_name: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -3223,7 +3226,7 @@ async def run_inference(request: RunRequest):
                                 pass
                             _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
-                            model_name = request.model.replace("/", "-")
+                            model_name = (request.container_name or request.model).replace("/", "-")
                             if original_name != model_name:
                                 try:
                                     new_container.rename(model_name)

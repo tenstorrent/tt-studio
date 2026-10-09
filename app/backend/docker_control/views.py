@@ -999,7 +999,7 @@ class DeployView(APIView):
                     try:
                         ModelDeployment.objects.create(
                             container_id=pull_id,
-                            container_name=impl.model_name,
+                            container_name=impl.deployment_container_name,
                             model_name=impl.model_name,
                             device=media_device,
                             device_id=device_id,
