@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
+const SUPPORT_ROTATION = [
+  { name: "Anirudh", email: "aramchandran@tenstorrent.com" },
+  { name: "Jashan", email: "jashansingh@tenstorrent.com" },
+  { name: "Raheem", email: "rnabeel@tenstorrent.com" },
+] as const;
+
 export function createNewGitHubIssueUrl(title: string, body: string) {
   const url = new URL("https://github.com/tenstorrent/tt-studio/issues/new");
   url.searchParams.set("title", title);
@@ -62,12 +68,6 @@ export function saveBlob(blob: Blob, diagnosticsRef: string): void {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-
-const SUPPORT_ROTATION = [
-  { name: "Anirudh", email: "aramchandran@tenstorrent.com" },
-  { name: "Jashan", email: "jashansingh@tenstorrent.com" },
-  { name: "Raheem", email: "rnabeel@tenstorrent.com" },
-] as const;
 
 function getCurrentSupportAssignee(): string {
   const today = new Date();
