@@ -5,8 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { getSettings, SettingsResponse } from "@/src/api/settingsApi";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { Snippet } from "@tenstorrent/vesper/snippet";
-import { TextInput } from "@tenstorrent/vesper/text-input";
 import { Lock } from "@tenstorrent/vesper/icons";
+import { Code } from "@tenstorrent/vesper/code";
 
 export function ServingBackend() {
   const settings = useQuery<SettingsResponse>({
@@ -32,7 +32,7 @@ export function ServingBackend() {
           tt-inference artifact
         </Typography>
         <Typography variant="copy-xs" className="text-vesper-text-secondary">
-          Pins which tt-inference server release TT-Studio is built against.
+          Pins which <Code>tt-inference server</Code> release TT-Studio is built against.
         </Typography>
       </div>
       <Typography
