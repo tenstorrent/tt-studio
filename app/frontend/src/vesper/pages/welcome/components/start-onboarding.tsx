@@ -6,7 +6,7 @@ import { StepLayout } from "./step-layout";
 import { Tenstorrent } from "@tenstorrent/vesper/icons";
 import { useNextStep } from "../utils";
 
-export function Step1() {
+export function StartOnboarding() {
   const nextStep = useNextStep()
 
   return (

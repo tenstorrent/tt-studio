@@ -10,7 +10,7 @@ import { updateSettings } from "@/src/api/settingsApi";
 import { useHfToken, useNextStep, usePrevStep, useSettings } from "../utils";
 import { StepLayout } from "./step-layout";
 
-export function Step2() {
+export function AddHFToken() {
   const [hfToken, setHfToken] = useHfToken();
   const nextStep = useNextStep();
   const prevStep = usePrevStep();

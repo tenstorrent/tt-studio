@@ -10,7 +10,7 @@ import { updateSettings } from "@/src/api/settingsApi";
 import { StepLayout } from "./step-layout";
 import { usePrevStep } from "../utils";
 
-export function Step4() {
+export function FinishOnboarding() {
   const navigate = useNavigate();
   const prevStep = usePrevStep();
 

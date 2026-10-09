@@ -5,12 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSettings, SettingsResponse } from "@/src/api/settingsApi";
 import { OnboardingContext } from "./context";
-import { Step1 } from "./components/step1";
-import { Step2 } from "./components/step2";
-import { Step3 } from "./components/step3";
-import { Step4 } from "./components/step4";
+import { StartOnboarding } from "./components/start-onboarding";
+import { AddHFToken } from "./components/add-hf-token";
+import { CheckHFAccess } from "./components/check-hf-access";
+import { FinishOnboarding } from "./components/finish-onboarding";
 
-const steps = [Step1, Step2, Step3, Step4];
+const steps = [StartOnboarding, AddHFToken, CheckHFAccess, FinishOnboarding];
 
 export default function WelcomePage() {
   const numSteps = steps.length;

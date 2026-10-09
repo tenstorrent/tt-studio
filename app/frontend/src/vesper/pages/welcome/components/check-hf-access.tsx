@@ -7,7 +7,7 @@ import { HFAccessCheckResults } from "@/src/vesper/components/hf-access-check-re
 import { useHfToken, useNextStep, usePrevStep } from "../utils";
 import { StepLayout } from "./step-layout";
 
-export function Step3() {
+export function CheckHFAccess() {
   const nextStep = useNextStep();
   const prevStep = usePrevStep();
 
