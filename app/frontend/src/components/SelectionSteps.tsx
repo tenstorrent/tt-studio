@@ -473,8 +473,7 @@ export default function StepperDemo() {
     else if (
       currentTarget === '[data-tour="hardware-mode-single"]' ||
       currentTarget === '[data-tour="hardware-mode-multi"]' ||
-      currentTarget === '[data-tour="chip-slot-picker"]' ||
-      currentTarget === '[data-tour="hardware-config-continue"]'
+      currentTarget === '[data-tour="chip-slot-picker"]'
     ) {
       if (deployMode !== "single") {
         setDeployMode("single");
