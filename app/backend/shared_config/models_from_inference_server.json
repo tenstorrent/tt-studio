@@ -1,8 +1,8 @@
 {
   "source": {
-    "artifact_version": "0.22.0",
-    "model_support_release": "0.22.0",
-    "generated_at": "2026-10-06T17:21:58.775810+00:00"
+    "artifact_version": "0.23.0",
+    "model_support_release": "0.23.0",
+    "generated_at": "2026-10-09T14:58:35.835821+00:00"
   },
   "total_models": 74,
   "models": [
@@ -36,11 +36,11 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
         },
         "P300x2": {
           "reason": "known_broken",
-          "details": "Non-functional deploy (#869). Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+          "details": "Non-functional deploy (tt-studio#869)."
         }
       }
     },
@@ -114,6 +114,35 @@
       "param_count": null
     },
     {
+      "model_name": "gemma-4-31B-it",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "google/gemma-4-31B-it",
+      "inference_engine": "vLLM",
+      "impl": "tt-transformers",
+      "status": "COMPLETE",
+      "version": "0.23.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.23.0-2fd9445-7250ddf",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "GEMMA4_PAGE_BLOCK_SIZE": "64",
+        "GEMMA4_MAX_TOKENS_ALL_USERS": "49152"
+      },
+      "param_count": 31,
+      "tool_call_parser": "gemma4",
+      "reasoning_parser": "gemma4",
+      "requires_dev_catalog": true
+    },
+    {
       "model_name": "Llama-3.1-70B",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -142,11 +171,11 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
         },
         "P300x2": {
           "reason": "known_broken",
-          "details": "Base (non-instruct) 70B pulled alongside the Instruct variant in #904; deploy does not resolve a usable image. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+          "details": "Deploy does not resolve a usable image (tt-studio#904)."
         }
       }
     },
@@ -179,11 +208,11 @@
       "unavailable_devices": {
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry below: both four-chip Blackhole meshes are known bad for it, so neither is offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay available."
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
         },
         "P300x2": {
           "reason": "known_broken",
-          "details": "Removed from the deploy UI in #904 - deploy needs a docker image override the catalog cannot express. Use Llama-3.3-70B-Instruct. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+          "details": "Deploy needs a docker image override tt cannot express (tt-studio#904). Use Llama-3.3-70B-Instruct instead."
         }
       }
     },
@@ -354,13 +383,13 @@
       "env_vars": {},
       "param_count": null,
       "unavailable_devices": {
-        "P300x2": {
-          "reason": "known_broken",
-          "details": "Deploy fails with the catalog-pinned image; needs a newer media image plus a spec-level env override the artifact does not carry. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
-        },
         "P150X4": {
           "reason": "known_broken",
-          "details": "Does not deploy on P150X4 either, for the same reason as its P300x2 entry: no image override is known that makes it work on a four-chip Blackhole mesh."
+          "details": "Does not deploy on p150x4 either, for the same reason as its p300x2 entry: no image override is known that makes it work on a four-chip Blackhole mesh."
+        },
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Deploy fails with the spec-pinned image; needs a newer media image plus a spec-level env override the release artifact does not carry."
         }
       }
     },
@@ -386,7 +415,7 @@
       "unavailable_devices": {
         "P300x2": {
           "reason": "known_broken",
-          "details": "Media container never reaches a healthy state. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+          "details": "The media container never reaches a healthy state."
         }
       }
     },
@@ -1100,12 +1129,12 @@
       "unavailable_devices": {
         "P300x2": {
           "reason": "known_broken",
-          "details": "Wedges Blackhole P300 devices during warmup (eth-core init timeout or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-enable once the media image ships a tt-metal/firmware combo validated on fw 19.7.0."
+          "details": "Wedges Blackhole p300 devices during warmup (eth-core init timeout, or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-check once the media image ships a tt-metal/firmware combination validated on firmware 19.7.0."
         }
       },
       "available_in_studio": false,
       "unavailable_reason": "known_broken",
-      "unavailable_details": "No supported device left: P300x2: Wedges Blackhole P300 devices during warmup (eth-core init timeout or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-enable once the media image ships a tt-metal/firmware combo validated on fw 19.7.0."
+      "unavailable_details": "No supported device left: P300x2: Wedges Blackhole p300 devices during warmup (eth-core init timeout, or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-check once the media image ships a tt-metal/firmware combination validated on firmware 19.7.0."
     },
     {
       "model_name": "AFM-4.5B",
@@ -1385,35 +1414,6 @@
       "param_count": 4
     },
     {
-      "model_name": "gemma-4-31B-it",
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
-      "device_configurations": [
-        "P300x2"
-      ],
-      "hf_model_id": "google/gemma-4-31B-it",
-      "inference_engine": "vLLM",
-      "impl": null,
-      "status": "EXPERIMENTAL",
-      "version": "0.18.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.18.0-c49bb76-6b4a3a7",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1",
-        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
-        "GEMMA4_PAGE_BLOCK_SIZE": "64",
-        "GEMMA4_MAX_TOKENS_ALL_USERS": "49152"
-      },
-      "param_count": 31,
-      "tool_call_parser": "gemma4",
-      "reasoning_parser": "gemma4",
-      "requires_dev_catalog": true
-    },
-    {
       "model_name": "gpt-oss-120b",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -1442,7 +1442,7 @@
       "unavailable_devices": {
         "P300x2": {
           "reason": "known_broken",
-          "details": "vLLM container never reaches a healthy state. Verified broken on a P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it stays available there."
+          "details": "The vLLM container never reaches a healthy state."
         }
       }
     },
