@@ -50,10 +50,12 @@ def deploy_community_model(request) -> Response:
     """Handle a POST /docker/deploy/ whose model_id is a community bundle."""
     model_id = request.data.get("model_id")
     repo_id, profile = parse_community_model_id(model_id)
-    if not is_verified_bundle(repo_id):
+    # The UI lists only verified bundles; the CLI asks before sending allow_unverified.
+    if not is_verified_bundle(repo_id) and request.data.get("allow_unverified") is not True:
         return Response(
             {
                 "status": "error",
+                "error_type": "unverified_community_model",
                 "message": f"{repo_id} is not in the verified community catalog.",
             },
             status=status.HTTP_400_BAD_REQUEST,

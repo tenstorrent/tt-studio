@@ -913,6 +913,50 @@ class TestRunHeadlessDeployEndToEnd(unittest.TestCase):
         self.assertIn("is starting", printed)
 
 
+class TestUnverifiedCommunityDeploy(unittest.TestCase):
+    """A Hub repo the catalog lacks deploys as a community bundle, after a y/n when unverified."""
+
+    def _deploy(self, answer):
+        bodies = []
+
+        def miss(client, name, explicit):
+            raise _FakeSmokeTestError("no catalog model matches")
+
+        dh = _fake_driver(bodies, resolve_fn=miss)
+
+        class UnverifiedClient(dh.Client):
+            def post(self, key, body, timeout=60):
+                bodies.append(dict(body))
+                if not body.get("allow_unverified"):
+                    return 400, {"status": "error", "error_type": "unverified_community_model",
+                                 "message": "ns/model is not in the verified community catalog."}
+                return 200, {"status": "success", "job_id": "job-1"}
+        dh.Client = UnverifiedClient
+        args = _cli_args._build_args(auto_deploy="ns/model")
+        with patch.object(_cli_deploy, "confirm", return_value=answer) as ask, \
+             patch.object(_cli_deploy.sys.stdin, "isatty", return_value=True), \
+             patch.object(_cli_deploy, "watch_progress"), \
+             patch.object(_cli_deploy, "find_deployed_entry", return_value=(None, None)), \
+             patch.object(_cli_deploy, "console"):
+            _cli_deploy.run_headless_deploy(dh, args)
+        return bodies, ask
+
+    def test_confirmed_deploy_is_sent_with_allow_unverified(self):
+        bodies, ask = self._deploy(True)
+        ask.assert_called_once()
+        self.assertEqual([b["model_id"] for b in bodies], ["id_community-ns/model"] * 2)
+        self.assertNotIn("allow_unverified", bodies[0])
+        self.assertIs(bodies[1]["allow_unverified"], True)
+
+    def test_declined_deploy_is_not_sent_again(self):
+        bodies, _ = self._deploy(False)
+        self.assertEqual(len(bodies), 1)
+
+    def test_hub_repo_ids_skip_the_catalog_name_check(self):
+        with patch.object(_cli_args, "_catalog_model_names", return_value=["Qwen3-32B"]):
+            _cli_args._validate_model_name("ns/model")  # must not exit
+
+
 class TestStopModelDispatch(unittest.TestCase):
     def test_stop_model_dispatches_with_names_and_skips_teardown(self):
         with patch.object(_cli_stop, "stop_models", return_value=0) as stop, \

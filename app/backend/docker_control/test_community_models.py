@@ -520,7 +520,7 @@ class VerifiedCatalogTests(unittest.TestCase):
     """A community deploy is checked against the verified catalog, as a catalog
     deploy is against models_from_inference_server.json."""
 
-    def _deploy(self, model_id, verified=True, bundle=BUNDLE):
+    def _deploy(self, model_id, verified=True, bundle=BUNDLE, **data):
         from types import SimpleNamespace
 
         from docker_control import community_deploy
@@ -529,14 +529,21 @@ class VerifiedCatalogTests(unittest.TestCase):
         with patch.object(community_deploy, "is_verified_bundle", return_value=verified), \
              patch.object(community_deploy, "get_community_impl", return_value=impl) as resolve:
             response = community_deploy.deploy_community_model(
-                SimpleNamespace(data={"model_id": model_id})
+                SimpleNamespace(data={"model_id": model_id, **data})
             )
         return response, resolve
 
-    def test_an_unverified_repo_is_refused_before_it_is_resolved(self):
+    def test_an_unverified_repo_needs_confirmation_before_it_is_resolved(self):
         response, resolve = self._deploy(community_model_id("someone/anything"), verified=False)
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error_type"], "unverified_community_model")
         resolve.assert_not_called()
+
+    def test_a_confirmed_unverified_repo_is_resolved(self):
+        _, resolve = self._deploy(
+            community_model_id("someone/anything"), verified=False, allow_unverified=True
+        )
+        resolve.assert_called_once()
 
     def test_an_unknown_profile_is_refused(self):
         response, _ = self._deploy(community_model_id(BUNDLE["repo_id"], "no-such-profile"))
