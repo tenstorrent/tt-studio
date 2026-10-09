@@ -58,7 +58,7 @@ import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import EmbeddingPage from "../pages/EmbeddingPage";
-import WelcomePage from "../pages/WelcomePage";
+import WelcomePage from "@/src/vesper/pages/welcome";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
@@ -207,7 +207,6 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
       hideHeader: true,
       hideSidebar: true,
-      hideFooter: true,
     },
     {
       // catch all for all other routes
