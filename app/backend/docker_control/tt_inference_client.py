@@ -23,48 +23,28 @@ class TTInferenceRunResult:
     api_response: Optional[Dict[str, Any]] = None
 
 
-def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
-    """Return the vLLM ``--tool-call-parser`` for a model family, or None.
+def _catalog_parsers(model_name: str = "", hf_model_id: str = "") -> tuple[Optional[str], Optional[str]]:
+    """(tool_call_parser, reasoning_parser) the catalog records for a model.
 
-    Coding agents (Claude Code, Cursor) send ``tool_choice: "auto"`` with tool
-    definitions; vLLM rejects those unless launched with
-    ``--enable-auto-tool-choice --tool-call-parser <parser>``. The correct parser
-    is model-family specific. Unknown families return None so we DON'T enable tool
-    calling rather than risk a wrong parser breaking model startup.
+    Matches the catalog model name or HF repo against either argument, since an
+    externally launched container may be served under its HF id.
     """
-    s = f"{hf_model_id} {model_name}".lower()
-    if "llama-3" in s or "llama3" in s:
-        return "llama3_json"
-    # Qwen3.5 / Qwen3.6 / Qwen3.8 blackhole builds ship with the qwen3_coder
-    # parser; older Qwen families use hermes.
-    if (
-        "qwen3.5" in s or "qwen3.6" in s or "qwen3.8" in s
-        or "qwen35" in s or "qwen36" in s or "qwen38" in s
-    ):
-        return "qwen3_coder"
-    if "qwen" in s or "qwq" in s:
-        return "hermes"
-    if "mistral" in s:
-        return "mistral"
-    if "deepseek" in s:
-        return "deepseek_v3"
-    if "gemma-4-" in s or "diffusiongemma" in s:
-        return "gemma4"
-    if "gpt-oss" in s or "gpt_oss" in s:
-        return "openai"
-    return None
+    from shared_config.model_config import model_implmentations
+
+    keys = {k for k in (model_name, hf_model_id) if k}
+    for impl in model_implmentations.values():
+        if impl.tool_call_parser and keys & {impl.model_name, impl.hf_model_id}:
+            return impl.tool_call_parser, impl.reasoning_parser
+    return None, None
 
 
 def tool_calling_launch_flags(model_name: str = "", hf_model_id: str = "") -> Optional[str]:
     """The vLLM flags a container must be launched with for coding-agent tool
-    calling, or None if the model family has no known tool-call parser."""
-    from shared_config.coding_agent_config import get_reasoning_parser
-
-    parser = tool_call_parser_for(model_name, hf_model_id)
+    calling, or None if the catalog records no tool-call parser for the model."""
+    parser, reasoning = _catalog_parsers(model_name, hf_model_id)
     if not parser:
         return None
     flags = f"--enable-auto-tool-choice --tool-call-parser {parser}"
-    reasoning = get_reasoning_parser(model_name)
     if reasoning:
         flags += f" --reasoning-parser {reasoning}"
     return flags
