@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Button, type ButtonProps } from "@tenstorrent/vesper/button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
