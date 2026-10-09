@@ -22,7 +22,7 @@ The [main README](../README.md) has the quickstart. This guide covers everything
 
 Then make sure you have:
 
-- **Python 3.8+** — [download](https://www.python.org/downloads/)
+- **Python 3.12+** — [download](https://www.python.org/downloads/)
 - **Docker** — [install guide](https://docs.docker.com/engine/install/)
 - **Your user in the `docker` group** so you don't need `sudo`:
 

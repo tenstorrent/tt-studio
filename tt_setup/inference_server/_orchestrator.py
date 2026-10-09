@@ -389,7 +389,7 @@ def setup_tt_inference_server(pull_branch=False):
                         console.print(f"[error]⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).[/error]")
                         console.print("[muted]   The branch name you configured does not exist.[/muted]")
                     console.print(f"[muted]   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}[/muted]")
-                    console.print("[muted]   Run: python run.py --reconfigure-inference-server[/muted]")
+                    console.print(f"[muted]   Run: {LAUNCH_CMD} --reconfigure-inference-server[/muted]")
                     console.print("[muted]   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches[/muted]")
                 else:
                     console.print(f"[error]⛔ Failed to download from GitHub: {e}[/error]")
@@ -633,7 +633,7 @@ def setup_tt_inference_server(pull_branch=False):
                         suggested = suggest_semver(artifact_version)
                         if suggested:
                             console.print(f"[muted]   Did you mean: {suggested} (semantic versioning uses vMAJOR.MINOR.PATCH)[/muted]")
-                        console.print("[muted]   Run: python run.py --reconfigure-inference-server[/muted]")
+                        console.print(f"[muted]   Run: {LAUNCH_CMD} --reconfigure-inference-server[/muted]")
                         console.print("[muted]   Valid releases: https://github.com/tenstorrent/tt-inference-server/releases[/muted]")
                     else:
                         console.print(f"[error]⛔ Failed to download from GitHub release: {e}[/error]")

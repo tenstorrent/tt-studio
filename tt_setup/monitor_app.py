@@ -20,6 +20,7 @@ from textual.widgets import DataTable, Footer, Header, RichLog
 from rich.text import Text
 
 from tt_setup.console import _fmt_duration
+from tt_setup.constants import LAUNCH_CMD
 from tt_setup.monitor import SERVICES, _APP_DIR, _compose_base
 from tt_setup.services import snapshot_container_health, snapshot_health
 
@@ -205,7 +206,7 @@ class MonitorApp(App):
         else:
             # Host services start/stop with their own sudo/console output, which
             # would corrupt the TUI — point the user at run.py instead.
-            self.notify(f"{svc['name']} is a host service — restart it with `python run.py`.",
+            self.notify(f"{svc['name']} is a host service — restart it with `{LAUNCH_CMD}`.",
                         severity="warning")
 
     @work(thread=True, group="restart")

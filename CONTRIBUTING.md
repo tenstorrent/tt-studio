@@ -168,6 +168,10 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
   instead of building locally. Nothing is published from `dev` or feature
   branches; ad-hoc publishes go through the workflow's manual dispatch with
   its explicit `push` input.
+- The same tag push triggers the **Publish PyPI package** workflow: a
+  `vX.Y.Z` tag publishes `tt-studio` X.Y.Z to PyPI (a `vX.Y.Z-rcN` tag goes to
+  TestPyPI). The package version comes from the tag, so there is nothing to
+  bump by hand. See [dev-docs/pip-package.md](dev-docs/pip-package.md).
 
 ---
 

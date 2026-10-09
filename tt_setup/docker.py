@@ -555,7 +555,7 @@ def fix_docker_issues():
         "[bold success]🎉 Docker fix completed successfully![/bold success]",
         [
             "[success]✅ Docker is working correctly![/success]",
-            "[info]You can now run: [bold]python run.py[/bold][/info]",
+            f"[info]You can now run: [bold]{LAUNCH_CMD}[/bold][/info]",
         ],
         border_style="success",
     ))

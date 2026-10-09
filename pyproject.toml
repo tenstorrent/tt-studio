@@ -2,10 +2,17 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 [project]
-name = "tt-studio-setup"
-version = "0.1.0"
-description = "TT Studio setup / orchestration CLI"
+name = "tt-studio"
+# Single-sourced from the git release tag by hatch-vcs: building at vX.Y.Z
+# yields X.Y.Z; any other commit yields X.Y.Z.devN+g<sha>, a local version
+# PyPI refuses to accept, so only tagged builds can be published.
+dynamic = ["version"]
+description = "Web interface for running AI models on Tenstorrent hardware"
+readme = "packaging/pypi/README.md"
 requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["tenstorrent", "tt-studio", "ai", "inference"]
 dependencies = [
     "rich>=13.7",
     "typer>=0.12",
@@ -17,12 +24,31 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/tenstorrent/tt-studio"
+Issues = "https://github.com/tenstorrent/tt-studio/issues"
+
 [project.scripts]
-tt-studio = "tt_setup.cli:main"
+tt-studio = "tt_setup.install_mode:main"
 
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.packages.find]
-include = ["tt_setup*"]
+[tool.hatch.version]
+source = "vcs"
+# Only used when there is no git metadata at all (e.g. a GitHub "Download ZIP");
+# the local "+dev.test.build" segment marks it as a non-release build.
+fallback-version = "0.0.0+dev.test.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tt_setup"]
+
+# hatch_build.py adds the app tree (compose files, build contexts, host
+# services, .env.default) to both targets — see its docstring.
+[tool.hatch.build.targets.wheel.hooks.custom]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["tt_setup", "hatch_build.py", "packaging/pypi/README.md", "LICENSE"]
+
+[tool.hatch.build.targets.sdist.hooks.custom]
