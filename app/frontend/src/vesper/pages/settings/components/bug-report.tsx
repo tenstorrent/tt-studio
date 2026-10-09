@@ -9,6 +9,7 @@ import {
   type SubmitEventHandler,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -41,14 +42,18 @@ export function BugReport() {
   const [expected, setExpected] = useState("");
   const [actual, setActual] = useState("");
 
-  const gitHubIssueBody = getGitHubIssueBody({
-    title,
-    description,
-    steps,
-    expected,
-    actual,
-    diagnosticsRef,
-  });
+  const gitHubIssue = useMemo(() => {
+    const body = getGitHubIssueBody({
+      title,
+      description,
+      steps,
+      expected,
+      actual,
+      diagnosticsRef,
+    });
+    const url = createNewGitHubIssueUrl(title, body);
+    return { body, url };
+  }, [title, description, steps, expected, actual, diagnosticsRef]);
 
   // log state
   const [fetchingLogs, setFetchingLogs] = useState(false);
@@ -173,7 +178,7 @@ export function BugReport() {
           step={2}
           title="Submit"
           rightChild={
-            didFetchLogs && <CopyToClipboardButton text={gitHubIssueBody} />
+            didFetchLogs && <CopyToClipboardButton text={gitHubIssue.body} />
           }
         />
         {didFetchLogs && (
@@ -200,7 +205,7 @@ export function BugReport() {
               </Typography>
               <Button
                 as="a"
-                href={createNewGitHubIssueUrl(title, gitHubIssueBody)}
+                href={gitHubIssue.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 variant="contrast"
