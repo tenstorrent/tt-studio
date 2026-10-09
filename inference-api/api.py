@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
+import asyncio
 import sys
 import os
 import inspect
@@ -25,7 +26,7 @@ import math
 import shlex
 import urllib.request
 import urllib.error
-from community import create_community_router
+from community import cancel_serve, create_community_router
 
 # Force a sane umask so files run.py writes for read-only container bind mounts
 # (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
@@ -2376,8 +2377,10 @@ async def cancel_run(job_id: str):
     # from _cancelled_jobs — don't record them. The pull is cancelled backend-side.
     if job_id.startswith("imgpull_"):
         return {"job_id": job_id, "status": "cancelled", "killed_processes": 0}
+    community = await asyncio.to_thread(cancel_serve, job_id)
     with _cancel_lock:
-        _cancelled_jobs.add(job_id)
+        if not community:  # only run_main() clears this, and it never sees a community job
+            _cancelled_jobs.add(job_id)
         is_active = _active_run_job_id == job_id
     killed = _kill_hf_download_children() if is_active else 0
     with progress_lock:
@@ -2392,7 +2395,7 @@ async def cancel_run(job_id: str):
                 }
             )
     logger.info("Job %s: cancel requested (active=%s, killed=%d)", job_id, is_active, killed)
-    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed}
+    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed, "community": community}
 
 
 @app.get("/run/stream/{job_id}")

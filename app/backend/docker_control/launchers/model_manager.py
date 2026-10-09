@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from docker_control.launchers.base import StartRequest, StartResult, StopResult
 from docker_control.tt_model_client import (
+    cancel_community_deployment,
     community_available,
     start_community_deployment,
     stop_community_deployment,
@@ -63,6 +65,15 @@ class TTModelManagerLauncher:
                 pass
         if not repo_id:
             return StopResult(status="error", message="No bundle id on this deployment")
+
+        # Until the deploy job finishes, the record holds its job id, not a container's.
+        job_id = getattr(deployment, "container_id", "") or ""
+        if job_id and not re.fullmatch(r"[0-9a-f]{64}", job_id):
+            response = cancel_community_deployment(job_id)
+            if response.get("status") == "error":
+                return StopResult(status="error", message=response.get("message") or "")
+            if response.get("community"):
+                return StopResult(status="success", message=f"Cancelled deployment of {repo_id}")
 
         response = stop_community_deployment(repo_id, profile)
         if response.get("status") != "success":

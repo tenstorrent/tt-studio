@@ -187,6 +187,51 @@ print(json.dumps({"event": "result", "status": "success"}), flush=True)
         assert any(entry["level"] == "ERROR" for entry in logs)
 
 
+class TestCancelServe:
+    """A cancel ends a serve still installing, so it cannot start a container later."""
+
+    STUB = """
+import json, sys, time
+if sys.argv[1] == "stop":
+    open(sys.argv[0] + ".stop", "w").write(" ".join(sys.argv[2:]))
+    print(json.dumps({"event": "result", "status": "success"}), flush=True)
+    sys.exit(0)
+print(json.dumps({"event": "stage", "stage": "model_preparation", "progress": 10, "message": "Installing…"}), flush=True)
+time.sleep(60)
+"""
+
+    def test_cancel_ends_the_serve_and_stops_the_bundle(self, tmp_path, monkeypatch):
+        runner = tmp_path / "stub_runner.py"
+        runner.write_text(self.STUB)
+        monkeypatch.setattr(community, "RUNNER", str(runner))
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+        progress_store: dict = {}
+        router = community.create_community_router(
+            progress_store=progress_store, log_store={},
+            progress_lock=threading.Lock(), max_log_messages=50,
+        )
+        run_route = next(r for r in router.routes if r.path == "/community/run")
+        job_id = asyncio.run(run_route.endpoint(
+            community.CommunityRunRequest(repo_id="ns/name", profile="p150")
+        ))["job_id"]
+
+        deadline = time.monotonic() + 10
+        while progress_store[job_id].get("progress") != 10 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        process = community._serves[job_id]["process"]
+
+        assert community.cancel_serve(job_id) is True
+        assert process.poll() is not None
+        assert (tmp_path / "stub_runner.py.stop").read_text() == "ns/name --profile p150"
+        deadline = time.monotonic() + 5
+        while job_id in community._serves and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert progress_store[job_id].get("status") not in ("completed", "error")
+
+    def test_unknown_job_is_not_a_community_serve(self):
+        assert community.cancel_serve("nope") is False
+
+
 class TestDownloadProgress:
     """``download`` events land on the progress record in inference-api's own shape."""
 

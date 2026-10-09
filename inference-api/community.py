@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -62,6 +63,10 @@ _TRANSFER_FIELDS = ("downloaded_bytes", "total_bytes", "speed_bps", "eta_seconds
 
 # Deploy-log lines read for the failure message when the runner exits without one.
 _ERROR_TAIL_LINES = 40
+
+# Serves still running, by job id, so a cancel can end one before it starts a container.
+_serves: Dict[str, Dict[str, Any]] = {}
+_serves_lock = threading.Lock()
 
 
 class CommunityRunRequest(BaseModel):
@@ -185,6 +190,37 @@ def _error_detail(event: Dict[str, Any]) -> str:
     if actions:
         parts.append(f"Try: {actions[0]}")
     return " ".join(parts)
+
+
+def cancel_serve(job_id: str) -> bool:
+    """End a community serve still in flight, and its container if it got one.
+
+    False when ``job_id`` is no running community serve. Raises HTTPException when the
+    container could not be stopped, since it then still holds its chips.
+    """
+    with _serves_lock:
+        serve = _serves.get(job_id)
+        if serve is None:
+            return False
+        serve["cancelled"] = True
+    process = serve["process"]
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+            process.wait(timeout=30)
+            break
+        except ProcessLookupError:
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    request = serve["request"]
+    try:
+        _run_query(["stop", request.repo_id, *(["--profile", request.profile] if request.profile else [])])
+    except HTTPException:
+        # Killed before `docker run`, the bundle may not even be installed yet.
+        if serve["started"]:
+            raise
+    return True
 
 
 def create_community_router(
@@ -323,7 +359,12 @@ def create_community_router(
                 stderr=log_files.get(job_id) or subprocess.DEVNULL,
                 text=True,
                 env=_runner_env(request.hf_token),
+                start_new_session=True,  # so a cancel can signal its children too
             )
+            with _serves_lock:
+                _serves[job_id] = {
+                    "process": process, "request": request, "started": False, "cancelled": False,
+                }
             for line in process.stdout:
                 event = _parse_event(line)
                 if event is None:
@@ -349,6 +390,8 @@ def create_community_router(
                     level = "WARNING" if kind == "warning" else event.get("level", "INFO")
                     _append_log(job_id, level, event.get("message", ""))
                 elif kind == "started":
+                    with _serves_lock:
+                        _serves[job_id]["started"] = True
                     # The container exists; warmup is now tracked from its own logs by
                     # the backend's health monitor, exactly as for an inference-server
                     # deploy that returns before the model is loaded.
@@ -374,6 +417,13 @@ def create_community_router(
         except Exception as exc:  # noqa: BLE001 - a thread boundary; report, never raise
             logger.exception("Community deploy %s failed", job_id)
             error = {"message": str(exc)}
+
+        with _serves_lock:
+            serve = _serves.pop(job_id, None)
+        if serve and serve["cancelled"]:
+            _append_log(job_id, "INFO", "Deployment cancelled by user")
+            _close_deploy_log(job_id)
+            return
 
         if error is not None or result is None:
             message = _error_detail(error or {"message": "deployment produced no result"})
