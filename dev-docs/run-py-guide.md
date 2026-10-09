@@ -88,7 +88,6 @@ comma-separated list (e.g. `--device-id 0,1`).
 | Option | Description |
 | --- | --- |
 | `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
-| `--resync` | Force a resync of the model catalog (also runs automatically when the model support spec changes). |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
 | `--build-images` | Build the container images locally instead of pulling prebuilt ones from ghcr.io. By default `run.py` pulls the images CI published for the exact checkout (release tag, else `sha-<12>`) and falls back to a local build automatically when they aren't available (feature branch, local changes, offline, custom frontend config). |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |

@@ -55,7 +55,6 @@ from tt_setup.services import (
     wait_for_frontend_and_open_browser,
 )
 from tt_setup.inference_server import (
-    _catalog_missing_generated_specs,
     _sync_model_catalog,
     setup_artifact_with_fallback,
 )
@@ -885,7 +884,8 @@ def _run(args):
                 spec = fetch_model_support()
                 target_version = default_artifact_version(spec)
                 target_installed = setup_artifact_with_fallback(target_version, pull_branch=args.pull_branch)
-                model_support_changed = bool(spec and target_installed and save_model_support(spec))
+                if spec and target_installed:
+                    save_model_support(spec)
                 if show_detail():
                     console.print(f"[muted]{describe_list_source()}[/muted]")
                 if target_installed is None:
@@ -895,21 +895,9 @@ def _run(args):
                     startup_log.close()
                     sys.exit(1)
 
-                # Sync model catalog from artifact
-                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                should_sync = (
-                    args.resync or
-                    args.reconfigure_inference_server or
-                    args.pull_branch or
-                    model_support_changed or
-                    not os.path.exists(models_json_path) or
-                    _catalog_missing_generated_specs(models_json_path)
-                )
-                if should_sync:
-                    with step("Syncing model catalog", spinner=True):
-                        _sync_model_catalog()
-                elif show_detail():
-                    console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
+                # Rebuilt every run; unchanged content isn't rewritten.
+                with step("Syncing model catalog", spinner=True):
+                    _sync_model_catalog()
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
@@ -1223,8 +1211,6 @@ def _run(args):
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
-            if args.resync:
-                original_cmd += " --resync"
 
         console.print(notice_panel(
             "[bold]🛑 Setup interrupted (Ctrl+C)[/bold]",

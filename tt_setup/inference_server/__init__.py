@@ -18,7 +18,6 @@ from tt_setup.inference_server._metadata import (
     validate_artifact_structure,
 )
 from tt_setup.inference_server._catalog import (
-    _catalog_missing_generated_specs,
     _sync_model_catalog,
 )
 from tt_setup.inference_server._privileges import (
@@ -33,7 +32,6 @@ __all__ = [
     "setup_tt_inference_server",
     "setup_artifact_with_fallback",
     "_sync_model_catalog",
-    "_catalog_missing_generated_specs",
     "_set_artifact_environment_variables",
     "_is_commit_sha",
     "fetch_branch_commit_sha",
