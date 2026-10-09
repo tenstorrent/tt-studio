@@ -27,7 +27,7 @@
 
 You'll need:
 
-- **Python 3.8+** and **Docker** installed
+- **Python 3.12+** and **Docker** installed
 - Your user in the `docker` group so you don't need `sudo` — `sudo usermod -aG docker $USER`, then log out and back in
 - A **Hugging Face token** for any gated models you want to run (Llama, etc.)
 - First time on Tenstorrent hardware? Do the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) first.
@@ -37,6 +37,21 @@ Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#
 ---
 
 ## Quickstart
+
+The easiest way is the pip package, which contains the whole application:
+
+```bash
+pipx install tt-studio   # or: pip install tt-studio
+tt-studio
+```
+
+`tt-studio` takes the same flags as `run.py` below (except the source-only
+ones: `--dev`, `--switch`, and the maintainer tools). Its files, `.env` and logs
+live in `~/.tt-studio` (set `TT_STUDIO_HOME` to move them). Upgrade with
+`pipx upgrade tt-studio`; startup tells you when a new release is out. See the
+[pip package guide](dev-docs/pip-package.md).
+
+Or run straight from a clone (what you want when developing TT-Studio itself):
 
 ```bash
 git clone https://github.com/tenstorrent/tt-studio.git

@@ -155,9 +155,9 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
         reconfigure = confirm("Reconfigure all environment variables?", default=False)
     except KeyboardInterrupt:
         console.print("\n\n[warning]🛑 Setup interrupted by user (Ctrl+C)[/warning]")
-        console.print("[info]🔄 To resume setup later, run:[/info] [bold]python run.py[/bold]")
-        console.print("[info]🧹 To clean up any partial setup:[/info] [bold]python run.py --stop[/bold]")
-        console.print("[info]❓ For help:[/info] [bold]python run.py --help[/bold]")
+        console.print(f"[info]🔄 To resume setup later, run:[/info] [bold]{LAUNCH_CMD}[/bold]")
+        console.print(f"[info]🧹 To clean up any partial setup:[/info] [bold]{LAUNCH_CMD} --stop[/bold]")
+        console.print(f"[info]❓ For help:[/info] [bold]{LAUNCH_CMD} --help[/bold]")
         sys.exit(0)
 
     if reconfigure:

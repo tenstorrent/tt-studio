@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 
+from tt_setup import install_mode
 from tt_setup.constants import TT_STUDIO_ROOT
 
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/tenstorrent/tt-studio"
@@ -125,7 +126,12 @@ def _catalog_matches_head():
 def is_worktree_dirty():
     """True when app/ differs from HEAD (or git state can't be read — build is
     the safe default: never run prebuilt bits over modified sources). A catalog
-    whose only change is its sync timestamp doesn't count."""
+    whose only change is its sync timestamp doesn't count.
+
+    A pip install has no git metadata: its app/ is the released package's own
+    copy (tt_setup/install_mode.py), so it is never dirty."""
+    if install_mode.is_pip_install():
+        return False
     try:
         result = subprocess.run(
             ["git", "-C", TT_STUDIO_ROOT, "status", "--porcelain", "--", "app/"],

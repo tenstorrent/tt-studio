@@ -183,7 +183,7 @@ def check_and_free_ports(ports, no_sudo=False):
         names = ", ".join(f"{port} ({name})" for port, name in docker_ports)
         console.print(f"[muted]↻ {len(docker_ports)} port(s) held by running TT Studio "
                       f"containers — left for compose to recreate ([/muted]"
-                      f"[muted]python run.py --stop[/muted][muted] to free them): {names}[/muted]")
+                      f"[muted]{LAUNCH_CMD} --stop[/muted][muted] to free them): {names}[/muted]")
 
     if freed_ports:
         # The transient "🔓 Freeing…" line already showed the work; keep the

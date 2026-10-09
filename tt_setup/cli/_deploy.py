@@ -19,6 +19,7 @@ import time
 from rich.progress import BarColumn, Progress, TextColumn
 from tt_setup.console import console, is_verbose, notice_panel, ready_panel
 from tt_setup.console._theme import _real_console
+from tt_setup.constants import LAUNCH_CMD
 
 # Backend progress `stage` -> what the user sees. Mirrors the web UI's labels so a
 # terminal deploy and a browser deploy tell the same story.
@@ -367,8 +368,8 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
         console.print()
         console.print(notice_panel("Stopped watching", [
             f"{model_name} keeps deploying in the backend.",
-            f"Follow it at {web_ui}, or run python run.py --status.",
-            f"To cancel it: python run.py --stop-model {model_name}",
+            f"Follow it at {web_ui}, or run {LAUNCH_CMD} --status.",
+            f"To cancel it: {LAUNCH_CMD} --stop-model {model_name}",
         ], border_style="warning"))
         return False
 
@@ -392,7 +393,7 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
     if example:
         footer.append("[muted]Try it:[/muted]")
         footer.append(f"  [info]{example}[/info]")
-    footer.append("[muted]python run.py --stop to stop · python run.py --logs for logs[/muted]")
+    footer.append(f"[muted]{LAUNCH_CMD} --stop to stop · {LAUNCH_CMD} --logs for logs[/muted]")
 
     title = f"{model_name} is ready" if healthy else f"{model_name} is starting"
     console.print()
