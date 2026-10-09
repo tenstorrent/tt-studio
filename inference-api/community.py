@@ -76,7 +76,6 @@ class CommunityRunRequest(BaseModel):
     # Chips to scope the container to, matching the profile's own chip count. Omitted
     # lets tt-model-manager pick the lowest free chips itself.
     device_ids: Optional[List[int]] = None
-    network: Optional[str] = "tt_studio_network"
     hf_token: Optional[str] = None
     wait_ready: bool = False
 
@@ -308,8 +307,6 @@ def create_community_router(
             args += ["--port", str(request.service_port)]
         if request.device_ids:
             args += ["--device-id", ",".join(str(d) for d in request.device_ids)]
-        if request.network:
-            args += ["--network", request.network]
         if request.wait_ready:
             args.append("--wait-ready")
 

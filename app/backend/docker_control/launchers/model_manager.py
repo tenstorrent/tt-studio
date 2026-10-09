@@ -14,7 +14,6 @@ from docker_control.tt_model_client import (
     start_community_deployment,
     stop_community_deployment,
 )
-from shared_config.backend_config import backend_config
 from shared_config.community_model_config import parse_community_model_id
 
 logger = logging.getLogger(__name__)
@@ -39,9 +38,6 @@ class TTModelManagerLauncher:
             profile=impl.profile,
             service_port=request.service_port,
             device_ids=request.device_ids,
-            # Without this the container lands on the default bridge and the backend
-            # never resolves an internal URL for it.
-            network=backend_config.docker_bridge_network_name,
         )
         return StartResult(
             status=result.status,

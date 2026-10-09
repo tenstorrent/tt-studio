@@ -52,6 +52,10 @@ _READY_TAIL_LINES = 20
 # tt-cli's community_catalog.json format this reads.
 CATALOG_SCHEMA_VERSION = 1
 
+# The backend resolves a deployment's internal URL only for containers on this bridge
+# (backend_config.docker_bridge_network_name).
+STUDIO_NETWORK = "tt_studio_network"
+
 # Request-supplied names that reach docker and the Hub; a leading "-" would read as a flag.
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _REPO_ID = re.compile(rf"{_NAME.pattern}/{_NAME.pattern}")
@@ -691,21 +695,23 @@ def _ensure_hf_modules_dir() -> None:
         emit("warning", message=f"could not create {container.hf_home() / 'modules'}: {e}")
 
 
-def _connect_network(name: str, network: str) -> None:
-    """Attach the container to TT Studio's bridge.
+def _connect_network(container_id: str) -> None:
+    """Attach the container to TT Studio's bridge, by the id docker reported for it.
 
     tt_kernel composes no ``--network``, so the container lands on the default
-    bridge. The backend resolves a deployment's internal URL only for containers on
-    tt_studio_network, so without this the model would run but never be reachable.
+    bridge, where the backend never resolves an internal URL for it.
     """
+    if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+        emit("warning", message=f"could not connect to {STUDIO_NETWORK}: no container id")
+        return
     result = subprocess.run(
-        ["docker", "network", "connect", network, name],
+        ["docker", "network", "connect", STUDIO_NETWORK, container_id],
         capture_output=True, text=True,
     )
     if result.returncode == 0:
-        emit("log", level="INFO", message=f"connected {name} to {network}")
+        emit("log", level="INFO", message=f"connected to {STUDIO_NETWORK}")
     else:
-        emit("warning", message=f"could not connect {name} to {network}: "
+        emit("warning", message=f"could not connect to {STUDIO_NETWORK}: "
                                 f"{result.stderr.strip()}")
 
 
@@ -773,12 +779,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
             container.remove(name, force=True)
         raise
 
-    if args.network:
-        _connect_network(name, args.network)
-
     container_id = container.run_or_empty(
         ["docker", "inspect", "--format", "{{.Id}}", name]
     ).strip()
+    _connect_network(container_id)
     emit(
         "started",
         container_name=name,
@@ -889,7 +893,6 @@ def build_parser() -> argparse.ArgumentParser:
     # Comma-separated chip indices, as tt-model's own --device-id takes them. Omitted
     # means "pick the lowest free chips", which is tt_kernel's default behaviour.
     serve.add_argument("--device-id", dest="device_id")
-    serve.add_argument("--network", type=_matching(_NAME, "network name"))
     serve.add_argument("--no-weights", action="store_true")
     serve.add_argument("--wait-ready", action="store_true")
     serve.add_argument("--ready-timeout", type=int, default=1800)

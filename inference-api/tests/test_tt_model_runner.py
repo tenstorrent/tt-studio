@@ -472,10 +472,9 @@ runner.emit("result", status="success")
 
 @pytest.mark.parametrize("argv", [
     ["serve", "-x"],
-    ["serve", "--network=bridge"],
+    ["serve", "--profile=p300"],
     ["serve", "owner/model;rm"],
-    ["serve", "owner/model", "--network", "--alias=x"],
-    ["serve", "owner/model", "--network=-x"],
+    ["serve", "owner/model", "--profile", "--port=1"],
     ["serve", "owner/model", "--profile=-p"],
     ["stop", "../model"],
     ["inspect", "model"],
@@ -487,8 +486,15 @@ def test_parser_rejects_names_that_could_read_as_flags(argv):
 
 def test_parser_accepts_hub_names():
     args = runner.build_parser().parse_args(
-        ["serve", "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "--profile", "p300x2-longctx",
-         "--network", "tt_studio_network"]
+        ["serve", "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "--profile", "p300x2-longctx"]
     )
-    assert (args.repo_id, args.profile, args.network) == (
-        "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "p300x2-longctx", "tt_studio_network")
+    assert (args.repo_id, args.profile) == ("tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4", "p300x2-longctx")
+
+
+def test_network_connect_uses_only_docker_reported_ids(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runner.subprocess, "run",
+                        lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    runner._connect_network("--alias=x")
+    runner._connect_network("a" * 64)
+    assert calls == [["docker", "network", "connect", runner.STUDIO_NETWORK, "a" * 64]]

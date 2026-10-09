@@ -71,11 +71,8 @@ class TestRouter:
             "/community/stop",
         }
 
-    def test_run_request_defaults_to_the_studio_network(self):
-        # Without this the container lands on the default bridge and the backend
-        # never resolves an internal URL for it.
+    def test_run_request_does_not_wait_for_ready_by_default(self):
         request = community.CommunityRunRequest(repo_id="ns/name")
-        assert request.network == "tt_studio_network"
         assert request.wait_ready is False
 
 
