@@ -932,10 +932,11 @@ def main():
     parser = argparse.ArgumentParser(description="Sync the model catalog from the model support spec")
     parser.add_argument("--source", default=None, help="Path to the artifact's release_model_spec.json (overrides auto-detection)")
     parser.add_argument("--model-support", default=None, help=f"Path to model_support.json (default: {MODEL_SUPPORT_JSON.name} beside this script)")
+    parser.add_argument("--no-model-support", action="store_true", help="Ignore the model support spec and build from the artifact and model_overrides.toml")
     args = parser.parse_args()
 
     spec_path = Path(args.model_support) if args.model_support else MODEL_SUPPORT_JSON
-    spec = load_model_support(spec_path)
+    spec = None if args.no_model_support else load_model_support(spec_path)
     if args.model_support and spec is None:
         raise FileNotFoundError(f"--model-support is not a readable model support spec: {spec_path}")
 
@@ -960,6 +961,8 @@ def main():
             "building from the artifact and model_overrides.toml"
         )
         spec = None
+    elif args.no_model_support:
+        print("Ignoring the model support spec; building from the artifact and model_overrides.toml")
     elif not spec:
         print(f"No model support spec at {spec_path}; building from the artifact and model_overrides.toml")
     if spec:

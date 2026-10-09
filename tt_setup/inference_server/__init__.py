@@ -19,6 +19,7 @@ from tt_setup.inference_server._metadata import (
 )
 from tt_setup.inference_server._catalog import (
     _sync_model_catalog,
+    catalog_matches_artifact,
 )
 from tt_setup.inference_server._privileges import (
     remove_artifact_with_sudo,
@@ -32,6 +33,7 @@ __all__ = [
     "setup_tt_inference_server",
     "setup_artifact_with_fallback",
     "_sync_model_catalog",
+    "catalog_matches_artifact",
     "_set_artifact_environment_variables",
     "_is_commit_sha",
     "fetch_branch_commit_sha",

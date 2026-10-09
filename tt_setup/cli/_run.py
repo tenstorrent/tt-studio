@@ -56,6 +56,7 @@ from tt_setup.services import (
 )
 from tt_setup.inference_server import (
     _sync_model_catalog,
+    catalog_matches_artifact,
     setup_artifact_with_fallback,
 )
 from tt_setup.model_support import (
@@ -897,7 +898,16 @@ def _run(args):
 
                 # Rebuilt every run; unchanged content isn't rewritten.
                 with step("Syncing model catalog", spinner=True):
-                    _sync_model_catalog()
+                    synced = _sync_model_catalog()
+                if not synced and not catalog_matches_artifact():
+                    startup_log.step("fastapi_server", "FAIL", "model catalog sync failed")
+                    console.print(
+                        "[error]⛔ Cannot start TT Studio: the model catalog couldn't be synced with the "
+                        "installed TT Inference Server. Re-run with -v for details.[/error]"
+                    )
+                    startup_log.summary(exit_code=1)
+                    startup_log.close()
+                    sys.exit(1)
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
