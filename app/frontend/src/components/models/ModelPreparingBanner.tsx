@@ -33,14 +33,27 @@ const FALLBACK_PHASE_ORDER: { key: string; label: string }[] = [
   { key: "ready", label: "Ready" },
 ];
 
+// Keeps fine-tuning rows off the vLLM pills before the first poll.
+// Keep in sync with TRAINING_PHASES in log_classifier.py.
+const TRAINING_FALLBACK_PHASE_ORDER: { key: string; label: string }[] = [
+  { key: "container_starting", label: "Starting container" },
+  { key: "starting_workers", label: "Starting fine-tuning workers" },
+  { key: "ready", label: "Ready for fine-tuning jobs" },
+];
+
+function isTrainingRow(model: ModelRow, phase: StartupPhase | null | undefined): boolean {
+  return phase?.category === "training" || model.model_type?.toLowerCase() === "training";
+}
+
 function resolvePhaseOrder(
   phase: StartupPhase | null | undefined,
+  isTraining: boolean,
 ): { key: string; label: string }[] {
   if (phase?.phases && phase.phases.length > 0) {
     const labels = phase.phase_labels ?? {};
     return phase.phases.map((key) => ({ key, label: labels[key] ?? key }));
   }
-  return FALLBACK_PHASE_ORDER;
+  return isTraining ? TRAINING_FALLBACK_PHASE_ORDER : FALLBACK_PHASE_ORDER;
 }
 
 function formatBytes(n?: number | null): string {
@@ -195,15 +208,16 @@ function PhaseTrack({
   phase,
   phaseKey,
   hideDownload,
+  isTraining,
 }: {
   phase: StartupPhase | null | undefined;
   phaseKey: string;
   hideDownload: boolean;
+  isTraining: boolean;
 }) {
   // Horizontal sequential strip
-  // Phase list is dynamic per-model: LLMs get the vLLM-flavored sequence (compile + KV alloc); media models get the FastAPI worker-pool sequence.
-  // Source of truth is the backend's `phase.phases` array.
-  const allPhases = resolvePhaseOrder(phase);
+  // Phase list is per model category; source of truth is the backend's `phase.phases`.
+  const allPhases = resolvePhaseOrder(phase, isTraining);
   const visiblePhases = hideDownload
     ? allPhases.filter((p) => p.key !== "downloading_weights")
     : allPhases;
@@ -384,6 +398,7 @@ function PreparingRow({
         phase={phase}
         phaseKey={phaseKey}
         hideDownload={isCached || !phase?.download_in_container}
+        isTraining={isTrainingRow(model, phase)}
       />
     </div>
   );
@@ -395,6 +410,7 @@ export default function ModelPreparingBanner({
   onViewLogs,
   onDismiss,
 }: ModelPreparingBannerProps): ReactElement {
+  const allTraining = models.every((m) => isTrainingRow(m, phaseMap[m.id]));
   return (
     <div className="mx-6 mb-4 rounded-lg border border-amber-500/20 bg-gradient-to-r from-amber-950/25 via-stone-900/30 to-transparent overflow-hidden">
       {/* Thin amber top accent line */}
@@ -406,7 +422,7 @@ export default function ModelPreparingBanner({
           <div className="flex items-center gap-2 mb-3">
             <Zap className="h-3.5 w-3.5 text-amber-400 shrink-0" />
             <span className="font-mono text-amber-400 text-xs font-semibold tracking-widest uppercase">
-              Warming Up
+              {allTraining ? "Preparing Fine-Tuning" : "Warming Up"}
             </span>
             {models.length > 1 && (
               <span className="text-stone-500 text-xs">
