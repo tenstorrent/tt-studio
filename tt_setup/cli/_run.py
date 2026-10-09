@@ -55,9 +55,9 @@ from tt_setup.services import (
     wait_for_frontend_and_open_browser,
 )
 from tt_setup.inference_server import (
-    _catalog_missing_generated_specs,
     _sync_model_catalog,
-    setup_tt_inference_server,
+    catalog_matches_artifact,
+    setup_artifact_with_fallback,
 )
 from tt_setup.model_manager import setup_tt_model_manager
 from tt_setup.model_support import (
@@ -65,8 +65,9 @@ from tt_setup.model_support import (
     describe_community_source,
     describe_list_source,
     enrich_community_catalog,
+    fetch_model_support,
     refresh_community_catalog,
-    refresh_model_support,
+    save_model_support,
 )
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
@@ -885,33 +886,34 @@ def _run(args):
             original_dir = os.getcwd()
             try:
                 ph.set("TT Inference Server")
-                model_support_changed = refresh_model_support()
+                # The fetched spec is only cached once its artifact is installed, so the
+                # model list and the artifact version always match.
+                spec = fetch_model_support()
+                target_version = default_artifact_version(spec)
+                target_installed = setup_artifact_with_fallback(target_version, pull_branch=args.pull_branch)
+                if spec and target_installed:
+                    save_model_support(spec)
                 if show_detail():
                     console.print(f"[muted]{describe_list_source()}[/muted]")
-                if not setup_tt_inference_server(
-                    pull_branch=args.pull_branch, default_version=default_artifact_version()
-                ):
+                if target_installed is None:
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     console.print("[error]⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.[/error]")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
 
-                # Sync model catalog from artifact
-                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                should_sync = (
-                    args.resync or
-                    args.reconfigure_inference_server or
-                    args.pull_branch or
-                    model_support_changed or
-                    not os.path.exists(models_json_path) or
-                    _catalog_missing_generated_specs(models_json_path)
-                )
-                if should_sync:
-                    with step("Syncing model catalog", spinner=True):
-                        _sync_model_catalog()
-                elif show_detail():
-                    console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
+                # Rebuilt every run; unchanged content isn't rewritten.
+                with step("Syncing model catalog", spinner=True):
+                    synced = _sync_model_catalog()
+                if not synced and not catalog_matches_artifact():
+                    startup_log.step("fastapi_server", "FAIL", "model catalog sync failed")
+                    console.print(
+                        "[error]⛔ Cannot start TT Studio: the model catalog couldn't be synced with the "
+                        "installed TT Inference Server. Re-run with -v for details.[/error]"
+                    )
+                    startup_log.summary(exit_code=1)
+                    startup_log.close()
+                    sys.exit(1)
 
                 # Community-model path. Non-fatal by design: without it the backend
                 # simply doesn't offer community models, and inference-server
@@ -1235,8 +1237,6 @@ def _run(args):
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
-            if args.resync:
-                original_cmd += " --resync"
 
         console.print(notice_panel(
             "[bold]🛑 Setup interrupted (Ctrl+C)[/bold]",

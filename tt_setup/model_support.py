@@ -97,12 +97,12 @@ def describe_community_source():
     )
 
 
-def _refresh(name, url, cache, is_valid, label, kept, timeout):
-    """Download ``url`` into ``cache``. Returns True when the cached copy changed."""
+def _fetch(name, url, cache, is_valid, label, kept, timeout):
+    """The bytes at ``url``, or None when it is unset, unreachable or invalid."""
     LIST_SOURCE[cache] = "cached" if _load(cache, is_valid) else "bundled"
     if not url:
         console.print(f"[warning]⚠️  {name} is unset; keeping the existing {kept}[/warning]")
-        return False
+        return None
     try:
         body = _read(url, timeout)
         doc = json.loads(body)
@@ -114,11 +114,15 @@ def _refresh(name, url, cache, is_valid, label, kept, timeout):
             console.print(
                 f"[warning]⚠️  Couldn't fetch the {label} from {url} ({e}); keeping the existing {kept}[/warning]"
             )
-        return False
+        return None
     if not is_valid(doc):
         console.print(f"[warning]⚠️  {url} is not a valid {label}; ignoring it[/warning]")
-        return False
+        return None
+    return body
 
+
+def _save(cache, body):
+    """Cache fetched bytes. Returns True when the cached copy changed."""
     LIST_SOURCE[cache] = "live"
     try:
         with open(cache, "rb") as f:
@@ -143,20 +147,30 @@ def _load(cache, is_valid):
     return doc if is_valid(doc) else None
 
 
-def refresh_model_support(timeout=10):
-    """Download the spec into the cache. Returns True when the cached copy changed."""
-    return _refresh(
+def fetch_model_support(timeout=10):
+    """The upstream spec's bytes, or None when it is unset, unreachable or invalid.
+
+    Nothing is cached here: save_model_support() does that once the matching
+    inference server artifact is installed.
+    """
+    return _fetch(
         "TT_MODEL_SUPPORT_URL", model_support_url(), MODEL_SUPPORT_CACHE,
         _is_valid, "model support spec", "model catalog", timeout,
     )
 
 
+def save_model_support(body):
+    """Cache a fetched spec. Returns True when the cached copy changed."""
+    return _save(MODEL_SUPPORT_CACHE, body)
+
+
 def refresh_community_catalog(timeout=10):
     """Download tt-cli's verified community bundle list into the cache."""
-    return _refresh(
+    body = _fetch(
         "TT_COMMUNITY_CATALOG_URL", community_catalog_url(), COMMUNITY_CATALOG_CACHE,
         _is_valid_community_catalog, "community catalog", "community model list", timeout,
     )
+    return bool(body) and _save(COMMUNITY_CATALOG_CACHE, body)
 
 
 def enrich_community_catalog(timeout=300):
@@ -198,12 +212,13 @@ def load_model_support():
     return _load(MODEL_SUPPORT_CACHE, _is_valid)
 
 
-def default_artifact_version():
-    """The tt-inference-server release tag the spec was validated against.
+def default_artifact_version(body=None):
+    """The tt-inference-server release tag a spec was validated against.
 
-    Falls back to the release the committed catalog was synced from, else None.
+    Uses `body` (a fetched spec), else the cached spec, else the release the
+    committed catalog was synced from; None when there is none.
     """
-    spec = load_model_support()
+    spec = json.loads(body) if body else load_model_support()
     release = spec["release_version"] if spec else None
     if not release:
         try:

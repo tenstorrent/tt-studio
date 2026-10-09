@@ -88,7 +88,6 @@ comma-separated list (e.g. `--device-id 0,1`).
 | Option | Description |
 | --- | --- |
 | `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
-| `--resync` | Force a resync of the model catalog (also runs automatically when the model support spec changes). |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
 | `--build-images` | Build the container images locally instead of pulling prebuilt ones from ghcr.io. By default `run.py` pulls the images CI published for the exact checkout (release tag, else `sha-<12>`) and falls back to a local build automatically when they aren't available (feature branch, local changes, offline, custom frontend config). |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
@@ -408,7 +407,7 @@ When you run `python run.py`, the script:
 | | VITE_ENABLE_RAG_ADMIN | Enable RAG admin interface | Yes |
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
 | **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
-| **Inference Artifact** | TT_MODEL_SUPPORT_URL | Model support spec (tt-cli `model_support.json`) the model catalog syncs from; its `release_version` is the default artifact, and a different artifact builds the catalog from the artifact and `model_overrides.toml` instead | Optional (defaults to tt-cli `main`) |
+| **Inference Artifact** | TT_MODEL_SUPPORT_URL | Model support spec (tt-cli `model_support.json`) the model catalog syncs from; its `release_version` is the default artifact, and a different artifact builds the catalog from the artifact and `model_overrides.toml` instead | Optional (defaults to the latest tt-cli release) |
 | **Community Models** | TT_COMMUNITY_CATALOG_URL | Verified community bundles (tt-cli `community_catalog.json`); the only community models listed | Optional (defaults to tt-cli `main`) |
 | | TT_INFERENCE_ARTIFACT_VERSION | Pin a tt-inference-server release instead of the spec's | Optional |
 | | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |

@@ -214,7 +214,7 @@ def _entry(
     uninstall: bool = typer.Option(False, "--uninstall", help="Full uninstall: run the --purge-all teardown and remove the `tt-studio` shell shortcut.", rich_help_panel="Reset (--purge-all)"),
     # ── Advanced (less-common setup/runtime knobs) ───────────────────────────
     reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options.", rich_help_panel="Advanced"),
-    resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog.", rich_help_panel="Advanced"),
+    resync: bool = typer.Option(False, "--resync", hidden=True, help="No-op: the model catalog syncs on every start."),
     pull_branch: bool = typer.Option(False, "--pull-branch", help="Re-download the inference artifact from its branch.", rich_help_panel="Advanced"),
     build_images: bool = typer.Option(False, "--build-images", help="Build container images locally instead of pulling prebuilt ones from ghcr.io.", rich_help_panel="Advanced"),
     skip_fastapi: bool = typer.Option(False, "--skip-fastapi", help="Skip TT Inference Server FastAPI setup.", rich_help_panel="Advanced"),
