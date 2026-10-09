@@ -78,11 +78,18 @@ export interface RouteConfig {
   title?: string;
 }
 
+// keep these paths as constants so if they get changed, they update in the sidebar automatically
+export const HOMEPAGE_PATH = "/";
+export const DEPLOYMENTS_PATH = "/models-deployed";
+export const DEPLOYMENT_HISTORY_PATH = "/deployment-history";
+export const KNOWLEDGE_BASE_PATH = "/rag-management";
+export const SETTINGS_PATH = "/settings";
+
 // Function to generate routes based on environment variables
 export const getRoutes = (): RouteConfig[] => {
   return [
     {
-      path: "/",
+      path: HOMEPAGE_PATH,
       element: isDeployedEnabled ? <DeployedHomePage /> : <HomePage />,
       condition: true,
     },
@@ -92,7 +99,7 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/models-deployed",
+      path: DEPLOYMENTS_PATH,
       element: <ModelsDeployed />,
       condition: true,
     },
@@ -102,7 +109,7 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/rag-management",
+      path: KNOWLEDGE_BASE_PATH,
       element: <RagManagement />,
       condition: true,
     },
@@ -152,7 +159,7 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/deployment-history",
+      path: DEPLOYMENT_HISTORY_PATH,
       element: <DeploymentHistoryPage />,
       condition: true,
     },
@@ -210,7 +217,7 @@ export const getRoutes = (): RouteConfig[] => {
       hideSidebar: true,
     },
     {
-      path: "/settings",
+      path: SETTINGS_PATH,
       element: <SettingsPage />,
       condition: true,
       title: "Settings",

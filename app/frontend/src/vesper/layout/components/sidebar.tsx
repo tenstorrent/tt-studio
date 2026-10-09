@@ -15,6 +15,13 @@ import {
 import { IconButton } from "@tenstorrent/vesper/icon-button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
+import {
+  DEPLOYMENT_HISTORY_PATH,
+  DEPLOYMENTS_PATH,
+  HOMEPAGE_PATH,
+  KNOWLEDGE_BASE_PATH,
+  SETTINGS_PATH,
+} from "@/src/routes/route-config";
 
 type SidebarItemConfig = {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
@@ -23,14 +30,14 @@ type SidebarItemConfig = {
 };
 
 const SIDEBAR_ITEMS: SidebarItemConfig[] = [
-  { icon: QuietBox, href: "/", label: "Hardware" },
-  { icon: AIData, href: "/models-deployed", label: "Deployments" },
+  { icon: QuietBox, href: HOMEPAGE_PATH, label: "Hardware" },
+  { icon: AIData, href: DEPLOYMENTS_PATH, label: "Deployments" },
   {
     icon: ClockCounterClockwise,
     href: "/deployment-history",
-    label: "Deployment History",
+    label: DEPLOYMENT_HISTORY_PATH,
   },
-  { icon: Document, href: "/rag-management", label: "Knowledge Base" },
+  { icon: Document, href: KNOWLEDGE_BASE_PATH, label: "Knowledge Base" },
 ];
 
 export function Sidebar() {
@@ -65,7 +72,7 @@ export function Sidebar() {
         />
         <div className="px-vesper-4 pt-vesper-3 flex-1 flex flex-col justify-end">
           <SidebarItem
-            href="/settings"
+            href={SETTINGS_PATH}
             icon={Gear}
             label="Settings"
             collapsed={collapsed}
