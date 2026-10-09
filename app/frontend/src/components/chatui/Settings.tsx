@@ -419,8 +419,7 @@ export default function Settings({
             {showThinkingToggle && (
               <ToggleSetting
                 label="Thinking"
-                description="Let the model reason step by step before it answers"
-                tooltip="Turn off for faster, more direct replies. Applies to new messages."
+                description="Let the model reason step by step before it answers. Turn off for faster, more direct replies."
                 icon={<Brain className="h-4 w-4" />}
                 checked={settings.thinking ?? true}
                 onChange={(checked) => onSettingsChange("thinking", checked)}
