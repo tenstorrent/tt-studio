@@ -185,7 +185,7 @@ export function BugReport() {
                 size="sm"
                 onClick={() => saveBlob(logs, diagnosticsRef)}
               >
-                Download .zip
+                Download .ZIP
               </Button>
             </div>
             <div className="bg-vesper-tint-neutral-100 border border-vesper-border-tertiary p-vesper-4 flex flex-col gap-vesper-6 rounded-vesper-3">
