@@ -1803,13 +1803,14 @@ def serialize_canonical_entry_for_http(entry):
     return out
 
 
-def update_deploy_cache():
+def update_deploy_cache(canonical=None):
     """Materialize get_canonical_deployments() into the LocMemCache.
 
     Only running, fully-enriched "managed" deployments (those with a resolved model_impl and an internal_url) are written. 
     This preserves the existing semantics callers of get_deploy_cache() rely on: every cached entry has a Python-object model_impl they can read attributes off.
     """
-    canonical = get_canonical_deployments()
+    if canonical is None:
+        canonical = get_canonical_deployments()
     cache = caches[backend_config.django_deploy_cache_name]
 
     cached_container_ids = set()

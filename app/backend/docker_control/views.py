@@ -809,7 +809,7 @@ class DeployView(APIView):
                     # like FLUX with no single-chip spec) takes over the entire board —
                     # reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
-                        0, 4, impl.model_name
+                        0, allocator.total_slots, impl.model_name
                     )
                     if not full_board_validation["valid"]:
                         return Response(

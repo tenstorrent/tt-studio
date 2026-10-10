@@ -247,6 +247,10 @@ class ChipSlotAllocator:
         with self._lock:
             if chips_required is None:
                 chips_required = self._get_chips_required(model_name)
+                # The catalog's 4 means "whole board" (infer_chips_required only
+                # returns 1 or 4); an explicit count is a real mesh size.
+                if chips_required >= 4:
+                    chips_required = self.total_slots
 
             # Advanced mode: manual override
             if manual_override is not None:
@@ -256,10 +260,8 @@ class ChipSlotAllocator:
                 logger.info(f"Manual allocation: device_id={manual_override} for {model_name}")
                 return manual_override
 
-            # Auto-allocation. 4 is the catalog's long-standing "whole board" value
-            # (infer_chips_required only ever returns 1 or 4), so it keeps claiming
-            # every slot; a count in between is a real mesh size from a manifest.
-            if chips_required >= 4 or chips_required >= self.total_slots:
+            # Auto-allocation
+            if chips_required >= self.total_slots:
                 device_id = self._allocate_multi_chip(model_name)
             elif chips_required > 1:
                 device_id = self._allocate_chip_group(model_name, chips_required)
@@ -271,7 +273,7 @@ class ChipSlotAllocator:
 
     def slot_group(self, device_id: int, chips_required: int) -> List[int]:
         """Every slot a deployment of ``chips_required`` chips based at ``device_id`` holds."""
-        if chips_required >= 4 or chips_required >= self.total_slots:
+        if chips_required >= self.total_slots:
             return list(range(self.total_slots))
         return list(range(device_id, min(device_id + chips_required, self.total_slots)))
 
@@ -369,7 +371,7 @@ class ChipSlotAllocator:
                 })
 
             raise MultiChipConflictError(
-                f"{model_name} requires all 4 chip slots. "
+                f"{model_name} requires all {self.total_slots} chip slots. "
                 f"Currently occupied: {len(occupied_slots)} slot(s). "
                 f"Stop all running models first.",
                 conflicts=conflicts
@@ -398,12 +400,12 @@ class ChipSlotAllocator:
 
         occupied_slots = self._get_occupied_slots()
 
-        if chips_required >= 4 or chips_required >= self.total_slots:
+        if chips_required >= self.total_slots:
             # Multi-chip: ensure all slots are free
             if occupied_slots:
                 return {
                     "valid": False,
-                    "message": f"{model_name} requires all 4 chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                    "message": f"{model_name} requires all {self.total_slots} chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
                 }
         elif chips_required > 1:
             # A real mesh size from a manifest: the pinned slot is the base of a group

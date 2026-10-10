@@ -54,12 +54,18 @@ class ChipGroupAllocationTests(unittest.TestCase):
         self.assertEqual(allocator.slot_group(2, 2), [2, 3])
         self.assertEqual(allocator.slot_group(1, 1), [1])
 
-    def test_four_chips_still_means_the_whole_board(self):
-        # The catalog's long-standing sentinel: 4 claims every slot, even on a board
-        # with more than four, rather than becoming an aligned group of four.
+    def test_catalog_four_chips_still_means_the_whole_board(self):
+        # The catalog's sentinel: 4 claims every slot, even on a board with more.
         allocator = self._make(total_slots=8)
-        self.assertEqual(allocator.allocate_chip_slot("catalog", chips_required=4), 0)
-        self.assertEqual(allocator.slot_group(0, 4), list(range(8)))
+        with patch.object(ChipSlotAllocator, "_get_chips_required", return_value=4), \
+             patch.object(ChipSlotAllocator, "_allocate_multi_chip", return_value=0) as whole:
+            self.assertEqual(allocator.allocate_chip_slot("catalog"), 0)
+        whole.assert_called_once()
+
+    def test_an_explicit_four_chip_mesh_leaves_the_rest_of_a_larger_board_free(self):
+        allocator = self._make(total_slots=8, occupied=[0])
+        self.assertEqual(allocator.allocate_chip_slot("bundle", chips_required=4), 4)
+        self.assertEqual(allocator.slot_group(4, 4), [4, 5, 6, 7])
 
     def test_a_manual_pin_must_be_aligned(self):
         allocator = self._make()

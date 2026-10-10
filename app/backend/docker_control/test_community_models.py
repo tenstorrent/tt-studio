@@ -545,6 +545,23 @@ class VerifiedCatalogTests(unittest.TestCase):
         )
         resolve.assert_called_once()
 
+    def test_the_confirmation_reaches_inference_api(self):
+        # inference-api enforces the catalog too, so the opt-in must travel with the run.
+        from docker_control import tt_model_client
+        from docker_control.launchers import model_manager
+        from docker_control.launchers.base import StartRequest
+
+        impl = build_community_model_impl(BUNDLE, None)
+        with patch.object(tt_model_client.requests, "post") as post, \
+             patch("shared_config.user_config.get_hf_token", return_value=None):
+            post.return_value.status_code = 200
+            post.return_value.json.return_value = {"job_id": "j1"}
+            model_manager.TTModelManagerLauncher().start(StartRequest(
+                model_impl=impl, device="", device_ids=[0], service_port=7000,
+                options={"allow_unverified": True},
+            ))
+        self.assertIs(post.call_args.kwargs["json"]["allow_unverified"], True)
+
     def test_an_unknown_profile_is_refused(self):
         response, _ = self._deploy(community_model_id(BUNDLE["repo_id"], "no-such-profile"))
         self.assertEqual(response.status_code, 400)

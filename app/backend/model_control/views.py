@@ -575,7 +575,7 @@ class DeployedModelsView(APIView):
         canonical = get_canonical_deployments()
         context_windows = {
             con_id: cached.get("max_model_len")
-            for con_id, cached in get_deploy_cache().items()
+            for con_id, cached in get_deploy_cache(canonical).items()
         }
         deployed_data = {}
         for con_id, entry in canonical.items():

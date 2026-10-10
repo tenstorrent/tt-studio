@@ -40,6 +40,7 @@ class TTModelManagerLauncher:
             profile=impl.profile,
             service_port=request.service_port,
             device_ids=request.device_ids,
+            allow_unverified=bool((request.options or {}).get("allow_unverified")),
         )
         return StartResult(
             status=result.status,

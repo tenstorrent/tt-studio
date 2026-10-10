@@ -220,7 +220,12 @@ _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
 
-def get_deploy_cache():
+def get_deploy_cache(canonical=None):
+    """Running deployments keyed by container id.
+
+    Pass ``canonical`` when the caller already holds get_canonical_deployments()
+    so the cache is refreshed from it instead of querying Docker again.
+    """
     # the cache is initialized when by docker_control is imported
     def get_all_records():
         # need to strip out the key version tag
@@ -231,8 +236,8 @@ def get_deploy_cache():
 
     global _last_deploy_cache_update
     now = time.monotonic()
-    if now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
-        update_deploy_cache()
+    if canonical is not None or now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
+        update_deploy_cache(canonical)
         _last_deploy_cache_update = now
     data = get_all_records()
 

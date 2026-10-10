@@ -51,7 +51,8 @@ def deploy_community_model(request) -> Response:
     model_id = request.data.get("model_id")
     repo_id, profile = parse_community_model_id(model_id)
     # The UI lists only verified bundles; the CLI asks before sending allow_unverified.
-    if not is_verified_bundle(repo_id) and request.data.get("allow_unverified") is not True:
+    allow_unverified = request.data.get("allow_unverified") is True
+    if not allow_unverified and not is_verified_bundle(repo_id):
         return Response(
             {
                 "status": "error",
@@ -143,6 +144,7 @@ def deploy_community_model(request) -> Response:
             device=impl.arch or "",
             device_ids=device_ids,
             service_port=service_port,
+            options={"allow_unverified": allow_unverified},
         )
     )
     if not result.ok:

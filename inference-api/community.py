@@ -48,6 +48,15 @@ def _catalog_path() -> str:
     return str(_CATALOG_LOCAL if _CATALOG_LOCAL.exists() else _CATALOG_BUNDLED)
 
 
+def is_verified_bundle(repo_id: str) -> bool:
+    """Whether ``repo_id`` is in the verified community catalog."""
+    try:
+        rows = json.loads(Path(_catalog_path()).read_text()).get("bundles") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    return any(row.get("repo") == repo_id for row in rows)
+
+
 # A catalog/inspect call is one bounded query. A serve has no timeout here:
 # a first-time bundle install downloads an image and weights.
 _QUERY_TIMEOUT_SECONDS = 90
@@ -83,6 +92,8 @@ class CommunityRunRequest(BaseModel):
     device_ids: Optional[List[int]] = None
     hf_token: Optional[str] = None
     wait_ready: bool = False
+    # A bundle outside the verified catalog runs only when the caller opts in.
+    allow_unverified: bool = False
 
 
 class CommunityStopRequest(BaseModel):
@@ -203,7 +214,9 @@ def cancel_serve(job_id: str) -> bool:
         if serve is None:
             return False
         serve["cancelled"] = True
-    process = serve["process"]
+        process = serve["process"]
+    if process is None:
+        return True  # the runner never starts once the job is flagged
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
@@ -240,8 +253,10 @@ def create_community_router(
 
     def _set_progress(job_id: str, **fields: Any) -> None:
         with progress_lock:
-            if job_id in progress_store:
-                progress_store[job_id].update({**fields, "last_updated": time.time()})
+            record = progress_store.get(job_id)
+            # Lines still draining from a killed runner must not overwrite a cancel.
+            if record is not None and record.get("status") != "cancelled":
+                record.update({**fields, "last_updated": time.time()})
 
     def _clear_transfer(job_id: str) -> None:
         with progress_lock:
@@ -302,7 +317,17 @@ def create_community_router(
                 status_code=503,
                 detail="tt-model-manager is not installed; community models are unavailable",
             )
+        if not request.allow_unverified and not is_verified_bundle(request.repo_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"{request.repo_id} is not in the verified community catalog",
+            )
         job_id = str(uuid.uuid4())[:8]
+        # Registered before the job id is returned, so an immediate cancel finds it.
+        with _serves_lock:
+            _serves[job_id] = {
+                "process": None, "request": request, "started": False, "cancelled": False,
+            }
         with progress_lock:
             progress_store[job_id] = {
                 "status": "starting",
@@ -350,22 +375,23 @@ def create_community_router(
         result: Optional[Dict[str, Any]] = None
         error: Optional[Dict[str, Any]] = None
         log_path = _open_deploy_log(job_id, request)
+        process = None
         try:
-            process = subprocess.Popen(
-                [python, RUNNER, *args],
-                stdout=subprocess.PIPE,
-                # tt-model-manager's console output; a file, since an undrained pipe
-                # would block the runner once full.
-                stderr=log_files.get(job_id) or subprocess.DEVNULL,
-                text=True,
-                env=_runner_env(request.hf_token),
-                start_new_session=True,  # so a cancel can signal its children too
-            )
+            # Started under the lock so a cancel either sees the process or stops it starting.
             with _serves_lock:
-                _serves[job_id] = {
-                    "process": process, "request": request, "started": False, "cancelled": False,
-                }
-            for line in process.stdout:
+                serve = _serves[job_id]
+                if not serve["cancelled"]:
+                    process = serve["process"] = subprocess.Popen(
+                        [python, RUNNER, *args],
+                        stdout=subprocess.PIPE,
+                        # tt-model-manager's console output; a file, since an undrained
+                        # pipe would block the runner once full.
+                        stderr=log_files.get(job_id) or subprocess.DEVNULL,
+                        text=True,
+                        env=_runner_env(request.hf_token),
+                        start_new_session=True,  # so a cancel can signal its children too
+                    )
+            for line in process.stdout if process is not None else ():
                 event = _parse_event(line)
                 if event is None:
                     continue
@@ -407,8 +433,7 @@ def create_community_router(
                     result = event
                 elif kind == "error":
                     error = event
-            process.wait()
-            if process.returncode != 0 and error is None:
+            if process is not None and process.wait() != 0 and error is None:
                 tail = _tail(log_path, _ERROR_TAIL_LINES) if log_path else ""
                 error = {
                     "message": tail.splitlines()[-1] if tail else

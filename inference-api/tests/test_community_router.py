@@ -16,9 +16,23 @@ import time
 from collections import deque
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import community  # noqa: E402
+
+_is_verified_bundle = community.is_verified_bundle
+
+
+@pytest.fixture(autouse=True)
+def _every_stub_bundle_is_verified(monkeypatch):
+    monkeypatch.setattr(community, "is_verified_bundle", lambda repo_id: True)
+
+
+def _run_route(router):
+    return next(r for r in router.routes if r.path == "/community/run")
 
 
 class TestLastJsonLine:
@@ -230,6 +244,78 @@ time.sleep(60)
 
     def test_unknown_job_is_not_a_community_serve(self):
         assert community.cancel_serve("nope") is False
+
+    def test_a_cancel_before_the_runner_starts_keeps_it_from_starting(self, tmp_path, monkeypatch):
+        runner = tmp_path / "stub_runner.py"
+        runner.write_text(TestDriveServe.ARGV_STUB)
+        monkeypatch.setattr(community, "RUNNER", str(runner))
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+        # Hold the worker thread so the cancel lands between the response and the runner.
+        held = []
+        monkeypatch.setattr(
+            community.threading, "Thread", lambda **kw: held.append(kw) or _NoStart()
+        )
+        progress_store: dict = {}
+        router = community.create_community_router(
+            progress_store=progress_store, log_store={},
+            progress_lock=threading.Lock(), max_log_messages=50,
+        )
+        job_id = asyncio.run(_run_route(router).endpoint(
+            community.CommunityRunRequest(repo_id="ns/name")
+        ))["job_id"]
+
+        assert community.cancel_serve(job_id) is True
+        held[0]["target"](*held[0]["args"])
+        assert not (tmp_path / "stub_runner.py.argv.json").exists()
+        assert job_id not in community._serves
+        assert progress_store[job_id]["status"] == "starting"
+
+
+class _NoStart:
+    def start(self):
+        pass
+
+
+class TestVerifiedCatalog:
+    """inference-api runs the container, so it refuses unverified bundles itself."""
+
+    def _catalog(self, tmp_path, monkeypatch, repos):
+        path = tmp_path / "catalog.json"
+        path.write_text(json.dumps({"bundles": [{"repo": r, "manifest": {}} for r in repos]}))
+        monkeypatch.setattr(community, "_CATALOG_LOCAL", path)
+        monkeypatch.setattr(community, "is_verified_bundle", _is_verified_bundle)
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+
+    def test_reads_the_catalog_rows_repo_field(self, tmp_path, monkeypatch):
+        self._catalog(tmp_path, monkeypatch, ["ns/listed"])
+        assert community.is_verified_bundle("ns/listed") is True
+        assert community.is_verified_bundle("ns/other") is False
+
+    def test_run_refuses_an_unverified_bundle(self, tmp_path, monkeypatch):
+        self._catalog(tmp_path, monkeypatch, ["ns/listed"])
+        router = community.create_community_router(
+            progress_store={}, log_store={}, progress_lock=threading.Lock(),
+            max_log_messages=10,
+        )
+        with pytest.raises(HTTPException) as refused:
+            asyncio.run(_run_route(router).endpoint(
+                community.CommunityRunRequest(repo_id="ns/other")
+            ))
+        assert refused.value.status_code == 403
+        assert not community._serves
+
+    def test_run_accepts_an_unverified_bundle_on_opt_in(self, tmp_path, monkeypatch):
+        self._catalog(tmp_path, monkeypatch, [])
+        monkeypatch.setattr(community.threading, "Thread", lambda **kw: _NoStart())
+        router = community.create_community_router(
+            progress_store={}, log_store={}, progress_lock=threading.Lock(),
+            max_log_messages=10,
+        )
+        response = asyncio.run(_run_route(router).endpoint(
+            community.CommunityRunRequest(repo_id="ns/other", allow_unverified=True)
+        ))
+        community._serves.pop(response["job_id"])
+        assert response["status"] == "success"
 
 
 class TestDownloadProgress:

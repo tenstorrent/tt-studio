@@ -102,6 +102,7 @@ def start_community_deployment(
     profile: Optional[str] = None,
     service_port: Optional[int] = None,
     device_ids: Optional[List[int]] = None,
+    allow_unverified: bool = False,
     timeout_seconds: int = 30,
 ) -> CommunityRunResult:
     """Start a deployment via inference-api ``/community/run``.
@@ -116,6 +117,8 @@ def start_community_deployment(
         payload["service_port"] = service_port
     if device_ids:
         payload["device_ids"] = list(device_ids)
+    if allow_unverified:
+        payload["allow_unverified"] = True
 
     # inference-api runs on the host and cannot read the persistent volume the backend
     # writes user_config.env into, so the token travels in the request as it does for
