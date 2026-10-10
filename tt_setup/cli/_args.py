@@ -13,6 +13,7 @@ from tt_setup import install_mode
 from tt_setup.console import console, ensure_region_reset, set_no_clear, set_verbose
 from tt_setup.constants import *
 from tt_setup.constants import _PURGE_MODEL_PICKER, _RC_BUMP_PICKER
+from tt_setup.cli._deploy import is_hub_repo_id
 from tt_setup.cli._run import _run
 
 
@@ -143,6 +144,8 @@ def _validate_model_name(model):
     after the ~2-min stack-up. Silently skips when the catalog isn't fetched yet
     (first run) — resolve_model_id does the authoritative check post-startup.
     """
+    if is_hub_repo_id(model):
+        return  # a community bundle; the backend checks it against the community catalog
     names = _catalog_model_names()
     if not names:
         return  # catalog not synced yet — let the live check handle it

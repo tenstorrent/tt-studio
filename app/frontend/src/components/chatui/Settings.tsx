@@ -13,6 +13,7 @@ import {
   BarChart2,
   MessageSquare,
   Hash,
+  Brain,
 } from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
@@ -29,12 +30,15 @@ interface SettingsProps {
     seed: number;
     toggleableInlineStats: boolean;
     systemPrompt: string;
+    thinking?: boolean;
   };
   onSettingsChange: (key: string, value: number | boolean | string) => void;
   defaultSystemPrompt: string;
   maxTokensSliderMax?: number;
   /** Hide the system prompt editor (e.g. template/completion mode ignores it). */
   hideSystemPrompt?: boolean;
+  /** Show the thinking on/off switch (only for models that support it). */
+  showThinkingToggle?: boolean;
 }
 
 // Parameter validation ranges
@@ -207,6 +211,7 @@ export default function Settings({
   defaultSystemPrompt,
   maxTokensSliderMax,
   hideSystemPrompt,
+  showThinkingToggle,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
@@ -410,6 +415,16 @@ export default function Settings({
               step={PARAM_RANGES.seed.step}
               description="Set to 0 for random. Same seed produces reproducible outputs."
             />
+
+            {showThinkingToggle && (
+              <ToggleSetting
+                label="Thinking"
+                description="Let the model reason step by step before it answers. Turn off for faster, more direct replies."
+                icon={<Brain className="h-4 w-4" />}
+                checked={settings.thinking ?? true}
+                onChange={(checked) => onSettingsChange("thinking", checked)}
+              />
+            )}
 
             <ToggleSetting
               label="Inline Stats"

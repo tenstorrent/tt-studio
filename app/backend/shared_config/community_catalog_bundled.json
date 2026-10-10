@@ -1,0 +1,2266 @@
+{
+ "schema_version": 1,
+ "bundles": [
+  {
+   "repo": "anirud/devstral-small-2-24b-instruct-2512",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "mistralai/Devstral-Small-2-24B-Instruct-2512",
+    "default_profile": "p150x4",
+    "profiles": [
+     {
+      "name": "p300",
+      "description": "Two dies, one p300 card.",
+      "hardware": "p300",
+      "mesh_device": "P300",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 32768,
+      "max_num_seqs": 4,
+      "tool_parser": "mistral",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p150x4",
+      "description": "Four dies as a line. The default.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 8,
+      "tool_parser": "mistral",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300x2",
+      "description": "The same four dies, labelled as two p300 cards (a QB2).",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 32,
+      "tool_parser": "mistral",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "changh95/Alpamayo2-Super-p300x2",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "nvidia/Alpamayo2-Super",
+    "default_profile": "single-chip",
+    "profiles": [
+     {
+      "name": "single-chip",
+      "description": "One Blackhole chip; chain-of-causation + trajectory in 3.5-5 s per request, trajectory-only in 2.9 s (request field \"reasoning\").",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/depth-anything-3-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "depth-estimation",
+    "weights_repo": "depth-anything/DA3Metric-Large",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/gaze-lle-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "keypoint-detection",
+    "weights_repo": "changh95/gaze-lle-weights",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/GR00T-N1.5-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "nvidia/GR00T-N1.5-3B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/GR00T-N1.6-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "nvidia/GR00T-N1.6-3B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/GR00T-N1.7-3B-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "nvidia/GR00T-N1.7-3B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/hamer-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "keypoint-detection",
+    "weights_repo": "changh95/hamer-weights",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/locate-anything-3b-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "object-detection",
+    "weights_repo": "nvidia/LocateAnything-3B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/mast3r-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "image-to-3d",
+    "weights_repo": "naver/DUSt3R_ViTLarge_BaseDecoder_512_dpt",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/moge-2-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "depth-estimation",
+    "weights_repo": "Ruicheng/moge-2-vitl-normal",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/qwen-image-2.1-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "text-to-image",
+    "weights_repo": "Qwen/Qwen-Image-2.1",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-dflash2-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-27B",
+    "default_profile": "batch8-dflash2",
+    "profiles": [
+     {
+      "name": "single-user-dflash2",
+      "description": "One request at a time with lossless DFlash2 speculative decoding (block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "batch8-dflash2",
+      "description": "Up to 8 concurrent requests with lossless DFlash2 speculative decoding in two verify buckets \u2014 K=7 drafts per step (4x8) while up to 4 requests are live, K=3 (8x4) at 5-8 \u2014 switched at runtime with no recapture (batched ragged block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 8,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-p150x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-27B",
+    "default_profile": "tp2",
+    "profiles": [
+     {
+      "name": "tp2",
+      "description": "Plain TP=2 decode over both chips, up to 32 concurrent users, full sampling support, 64K context.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p1d1",
+      "description": "Prefill on chip 0, decode on chip 1 (TP=1 each), KV handed over the ethernet fabric; up to 8 concurrent decodes, 64K context.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 8,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "tp2-dflash2",
+      "description": "TP=2 with lossless DFlash2 speculative decoding (single 4x8 bucket, composite GDN verify), 1-4 concurrent users, greedy output, 64K context.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 4,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150x2",
+    "chips_required": 2
+   }
+  },
+  {
+   "repo": "changh95/qwen3.8-27b-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-27B",
+    "default_profile": "plain",
+    "profiles": [
+     {
+      "name": "plain",
+      "description": "Plain batched decode, up to 32 concurrent users, full sampling support (formerly `batch32`).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "single-user-dflash2",
+      "description": "One request at a time with lossless DFlash2 speculative decoding (block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "batch8-dflash2",
+      "description": "Up to 8 concurrent requests with lossless DFlash2 speculative decoding in two verify buckets \u2014 K=7 drafts per step (4x8) while up to 4 requests are live, K=3 (8x4) at 5-8 \u2014 switched at runtime with no recapture (batched ragged block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 8,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "changh95/rf-detr-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "object-detection",
+    "weights_repo": "Roboflow/rf-detr-base",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/RLDX-1-PT-IMG-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "RLWRLD/RLDX-1-PT-IMG",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/RLDX-1-PT-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "RLWRLD/RLDX-1-PT",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/sam3-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "image-segmentation",
+    "weights_repo": "facebook/sam3",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/superpoint-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "keypoint-detection",
+    "weights_repo": "magic-leap-community/superpoint",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/vggt-1b-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "image-to-3d",
+    "weights_repo": "facebook/VGGT-1B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "changh95/xvla-base-p150",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "robotics",
+    "weights_repo": "lerobot/xvla-base",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 20000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "jashansinghTT/kimi-linear-48b-a3b-instruct-blackhole",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+    "default_profile": "p300x2",
+    "profiles": [
+     {
+      "name": "p300x2",
+      "description": "Two p300 boards / QuietBox 2, 4 chips (TP4 over KDA/MLA heads and expert intermediates); 32 users. [validated context 131072, precision bfp8_kvbfp8]",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": "kimi_k2",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300",
+      "description": "One p300 board (2 chips, TP2). Declared for physical P300 hosts; NOT bootable on a QuietBox 2 (a bare 1x2 mesh cannot initialise fabric there); accuracy validated as a 1x2 submesh only. [NOT validated context 65536, precision bfp8_kvbfp8]",
+      "hardware": "p300",
+      "mesh_device": "P300",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 16,
+      "tool_parser": "kimi_k2",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "jashansinghTT/minimax-music3-blackhole",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "text-to-audio",
+    "weights_repo": "MiniMaxAI/MiniMax-Music3",
+    "default_profile": "p150",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "One Blackhole chip (P150; on a P300 / QuietBox 2 the first chip). The whole model on 32 GB.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "jashansinghTT/olmo-3.1-32b-instruct-blackhole",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "allenai/Olmo-3.1-32B-Instruct",
+    "default_profile": "p150",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "Single Blackhole chip (TP1), bfp4 MLP; 16k context. Widest compatibility. [validated context 16384, precision performance]",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 16384,
+      "max_num_seqs": 32,
+      "tool_parser": "olmo3_tt",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300",
+      "description": "One p300 board, both chips (TP2); 64k context. Needs a P300 host (2 chips); on a QuietBox-2 use p300x2. [validated context 65536, precision accuracy]",
+      "hardware": "p300",
+      "mesh_device": "P300",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 32,
+      "tool_parser": "olmo3_tt",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300x2",
+      "description": "Two p300 boards / QuietBox 2, 4 chips (TP4); 64k context, 32 users. [validated context 65536, precision accuracy]",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 32,
+      "tool_parser": "olmo3_tt",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "jashansinghTT/s2-pro-blackhole",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300",
+    "p300x2",
+    "p300x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "text-to-speech",
+    "weights_repo": "fishaudio/s2-pro",
+    "default_profile": "p150",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "Single Blackhole chip (TP1). Widest compatibility.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300",
+      "description": "One p300 board, both chips (TP2).",
+      "hardware": "p300",
+      "mesh_device": "P300",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "p300x2",
+      "description": "Two p300 boards / QuietBox 2, 4 chips (TP4). Validated on the author's box.",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "mando2222/laguna-s-2.1-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "poolside/Laguna-S-2.1",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 8192,
+      "max_num_seqs": 1,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "mando2222/llama-3.2-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "unsloth/Llama-3.2-3B-Instruct",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 4096,
+      "max_num_seqs": 32,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "mando2222/qwen3-32b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3-32B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 32768,
+      "max_num_seqs": 32,
+      "tool_parser": "hermes",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "mando2222/qwen3.8-27b-dflash2-p300x2-q4kv",
+   "kind": null,
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": "2026-09-17",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-27B",
+    "default_profile": "batch8-dflash2",
+    "profiles": [
+     {
+      "name": "single-user-dflash2",
+      "description": "One request at a time with lossless DFlash2 speculative decoding (block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "batch8-dflash2",
+      "description": "Up to 8 concurrent requests with lossless DFlash2 speculative decoding in two verify buckets \u2014 K=7 drafts per step (4x8) while up to 4 requests are live, K=3 (8x4) at 5-8 \u2014 switched at runtime with no recapture (batched ragged block-output serving).",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 8,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "single-user-vision",
+      "description": "One image request at a time with the Qwen3.5 vision tower and plain decode; DFlash speculation is disabled.",
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "mando2222/vibethinker-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "WeiboAI/VibeThinker-3B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "ndaly/Mistral-Small-4-119B-2603-tt-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "mistralai/Mistral-Small-4-119B-2603",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 1048576,
+      "max_num_seqs": 32,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "ndaly/Nemotron-3.5-Lightning-30B-A3B-NVFP4-tt-p300x2-vllm026",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": null,
+      "max_model_len": 1048576,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "nemotron_v3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "raahemnabeel/ornith-1.5-35b-a3b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "ornith-ai/Ornith-1.5-35B-A3B",
+    "default_profile": "p150",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p300x2",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "raahemnabeel/qwen3-5-122b-a10b-blackholex4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": "2026-10-01",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.5-122B-A10B",
+    "default_profile": "p300x2",
+    "profiles": [
+     {
+      "name": "p300x2",
+      "description": "Interactive default on two p300 boards (4 dies): 32 sequences, 262144 context, text + images, MTP speculative decoding at one user (about 50 tok/s), thinking on. First token 0.32 s at 1 user, 6.3 s for a 32-request burst.\n",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p300x2-burst",
+      "description": "Many short prompts arriving together (chat front-ends, batch jobs): batched short-prompt prefill ON - first token for a 32-request burst 3.8 s instead of 6.3 s (8 users 1.27 s instead of 1.83 s), decode unchanged. Trade-off: a request's first token depends slightly on what arrived with it (seeded reproducibility and greedy consistency across batch compositions are not guaranteed; 12 / 73 conformance tests fail in that mode).\n",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p300x2-longctx",
+      "description": "Long prompts mixed with short ones: chunked prefill ON (2048-token scheduler chunks, prefill steps shared between prompts so a short prompt no longer waits for a 100K one to finish) with MTP off (the plugin cannot chunk a multi-token-per-step model). Single-user decode about 30 tok/s instead of 50; running users still pause during prefill steps (the plugin never mixes prefill and decode in one step).\n",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p300x2-text",
+      "description": "Text only, largest KV pool: the vision tower is not loaded (28472 KV blocks of 64 tokens instead of 22725, i.e. 1.8 M pooled tokens for the 32 slots) and image requests are rejected at the front end. Otherwise the default.\n",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4",
+      "description": "Four p150 boards, the interactive default (thinking on, MTP at one user, text + images).",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4-burst",
+      "description": "Four p150 boards, batched short-prompt prefill ON (many short prompts arriving together); see p300x2-burst.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4-longctx",
+      "description": "Four p150 boards, chunked prefill ON with MTP off (long prompts mixed with short ones); see p300x2-longctx.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4-text",
+      "description": "Four p150 boards, text only with the largest KV pool (no vision tower); see p300x2-text.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "raahemnabeel/qwen3-coder-30b-a3b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "default_profile": "p300x2",
+    "profiles": [
+     {
+      "name": "p300x2",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 256000,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p150x4",
+      "description": null,
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 256000,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "sjettTT/qwen3.8-flash-next_p150x4",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4",
+    "p300x2"
+   ],
+   "validation": "separate",
+   "validated_on": null,
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "image-text-to-text",
+    "weights_repo": "Qwen/Qwen3.8-Flash-Next",
+    "default_profile": "c32k",
+    "profiles": [
+     {
+      "name": "c32k",
+      "description": "One interactive user, 32k context (32704 tokens), MTP drafting (--mtp 4) for greedy and sampled requests, 2048-row prefill slabs ahead of 128-row chunks (--prefill-slab 2048), the fused GDN verify-rows program, the MoE rows on two rings and the rsqrt-last gated-residual front by default; image_url parts (data URLs) served by the resident vision tower, a follow-up turn on an image prefills only the new turn. The configuration the numbers were measured at.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "c64k",
+      "description": "One interactive user, 64k context (65472 tokens). About 10 GB more component cache on first use.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "c128k",
+      "description": "One interactive user, 128k context (131008 tokens).",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "c32k-lanes4",
+      "description": "Opt-in: up to four greedy requests decode at once through the MTP lane chain (--lanes 4 --mtp 4; four more wait in the queue), 32k context, 128-row chunked prefill (no slab), the same fused set as c32k; image_url parts (data URLs) served as on the single stream since 2026-09-29 (the tower runs inside the lane admission; a lane's image stream is the single stream's byte for byte). Greedy only (a sampling field gets HTTP 400). Per request slower than c32k, in aggregate faster; an admission runs in segments with the decoding lanes' passes between them (--lanes-stall-budget 0.5 s default).",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "c32k-quietbox",
+      "description": "32k context on a TT-QuietBox (4x p150 in an ethernet ring), the server's tt-quietbox profile (its 1x4 line descriptor, 4 ethernet channels per link). NOT for a TT-QuietBox 2 (2x p300c): use c32k-quietbox2.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     },
+     {
+      "name": "c32k-quietbox2",
+      "description": "32k context on a TT-QuietBox 2 (2x p300c = 4 Blackhole dies in one ethernet ring), the server's tt-quietbox-2 profile (its 1x4 line descriptor, 2 channels per link). Since 2026-09-29 the decode linears read each DRAM bank with two cores on its differently harvested dies too (the first die's placement shared by every die; READY carries dram_workers_per_bank and dram_workers_placement), the 4x p150 line's rows.",
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "stisiTT/flux2-dev-qb2",
+   "kind": "container",
+   "engine": "tt-dit-server",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "tt-dit-server",
+    "supported": true,
+    "task": "image-to-image",
+    "weights_repo": "black-forest-labs/FLUX.2-dev",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "QB2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": null,
+      "max_num_seqs": null,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "stisiTT/gemma-4-12b-it-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "google/gemma-4-12B-it",
+    "default_profile": "p150-eval",
+    "profiles": [
+     {
+      "name": "p150-eval",
+      "description": "Validated accuracy recipe: 64k context, single user, thinking on, async off, bounded sliding + 4k chunked prefill. 71.7% GPQA Diamond (99/198).\n",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 65536,
+      "max_num_seqs": 1,
+      "tool_parser": "gemma4",
+      "reasoning_parser": "gemma4"
+     },
+     {
+      "name": "p150-smoke",
+      "description": "Short-context (4k) single-user smoke / determinism check. Not accuracy validated -- for fast bring-up only.\n",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 4096,
+      "max_num_seqs": 1,
+      "tool_parser": "gemma4",
+      "reasoning_parser": "gemma4"
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "stisiTT/llama-3.2-3b-blackhole-v51",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "unsloth/Llama-3.2-3B-Instruct",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 4096,
+      "max_num_seqs": 32,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "stisiTT/smollm2-135m-instruct-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 8192,
+      "max_num_seqs": 32,
+      "tool_parser": null,
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150",
+    "chips_required": 1
+   }
+  },
+  {
+   "repo": "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null,
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "google/gemma-4-26B-A4B-it",
+    "default_profile": "p150x2",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "Single P150; 131,072-token context. The KV pool is sized from the DRAM left after the weights load (1,509 blocks; one 131k request or about 16 concurrent 1k-context sequences), with an admission reserve so residents are not preempted.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": "gemma4",
+      "reasoning_parser": "gemma4"
+     },
+     {
+      "name": "p150x2",
+      "description": "Two chips, (1, 2) mesh, FABRIC_2D; 262,144-token context. Validated on a TT-QuietBox 2 (2x P300C, 4 chips), where the launch opens a 2x2 parent mesh and serves on the (1, 2) submesh at offset (0, 0).",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "gemma4",
+      "reasoning_parser": "gemma4"
+     },
+     {
+      "name": "p150x4",
+      "description": "Four P150 boards, (1, 4) mesh, FABRIC_1D_RING; 262,144-token context.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "gemma4",
+      "reasoning_parser": "gemma4"
+     }
+    ],
+    "hardware": "p150x2",
+    "chips_required": 2
+   }
+  },
+  {
+   "repo": "tt-hous/gpt-oss-120b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null,
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "openai/gpt-oss-120b",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": "Interactive and agentic traffic: chat, multi-turn, agents, RAG, mixed prompt lengths. Long prompts are prefilled in 8,192-token steps with 8 decode steps for the running users between the steps of one prompt, so every user keeps receiving tokens; prefix caching on.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": "openai",
+      "reasoning_parser": null
+     },
+     {
+      "name": "throughput",
+      "description": "Bulk work where only the time to finish a batch counts (evals at 32 concurrent requests, offline summarization or classification, batch document processing): prefill-first scheduling in 32,768-token steps, no decode steps between the steps of one prompt; prefix caching on. Lower time to finish a burst of long prompts, no streaming during another user's long prefill.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": "openai",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/gpt-oss-20b-p150",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "openai/gpt-oss-20b",
+    "default_profile": "p150x2",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "One P150 chip with full 131072-token context support.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 1,
+      "tool_parser": "openai",
+      "reasoning_parser": null
+     },
+     {
+      "name": "p150x2",
+      "description": "Two P150 chips on one P300C board using tensor parallelism.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 1,
+      "tool_parser": "openai",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x2",
+    "chips_required": 2
+   }
+  },
+  {
+   "repo": "tt-hous/laguna-xs-2.1",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "poolside/Laguna-XS-2.1",
+    "default_profile": "p150x2",
+    "profiles": [
+     {
+      "name": "p150x2",
+      "description": "Two P150 ASICs, with ring/two-link fabric and canonical prefix caching.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 1,
+      "tool_parser": "poolside_v1",
+      "reasoning_parser": "poolside_v1"
+     },
+     {
+      "name": "p150x4",
+      "description": "Four-P150 regression profile with prefix caching explicitly disabled.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 8,
+      "tool_parser": "poolside_v1",
+      "reasoning_parser": "poolside_v1"
+     }
+    ],
+    "hardware": "p150x2",
+    "chips_required": 2
+   }
+  },
+  {
+   "repo": "tt-hous/muse-glimmer-30b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "meta-models/Muse-Glimmer-30B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p300x2",
+      "mesh_device": "P300x2",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "tool_parser": "muse_glimmer",
+      "reasoning_parser": "muse_glimmer"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/ornith-1.0-35b-p150",
+   "kind": "container",
+   "engine": "vllm-fork",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-fork",
+    "supported": true,
+    "task": null,
+    "weights_repo": "ornith-ai/Ornith-1.0-35B",
+    "default_profile": "p150x4",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "One interactive user on one P150 board.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 7890,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x2",
+      "description": "One interactive user on both P150-class ASICs of one P300C board using tensor and expert parallelism.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 7890,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4",
+      "description": "One interactive user on all four P150-class ASICs across two P300C boards using tensor and expert parallelism.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 7890,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/ornith-1.5-9b",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150",
+    "p150x2",
+    "p150x4"
+   ],
+   "validation": "separate",
+   "validated_on": null,
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "ornith-ai/Ornith-1.5-9B",
+    "default_profile": "p150x4",
+    "profiles": [
+     {
+      "name": "p150",
+      "description": "One Blackhole ASIC. Full 262144-token context; lowest hardware bar.",
+      "hardware": "p150",
+      "mesh_device": "P150",
+      "chips_required": 1,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x2",
+      "description": "Two Blackhole ASICs (one p300c board). Full 262144-token context.",
+      "hardware": "p150x2",
+      "mesh_device": "P150x2",
+      "chips_required": 2,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     },
+     {
+      "name": "p150x4",
+      "description": "Four Blackhole ASICs (two p300c boards). The measured configuration.",
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 32,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/qwen3.6-27b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.6-27B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131584,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": null
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/qwen3.8-27b-p150x4",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p150x4"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-27B",
+    "default_profile": "default",
+    "profiles": [
+     {
+      "name": "default",
+      "description": null,
+      "hardware": "p150x4",
+      "mesh_device": "P150x4",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 131584,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p150x4",
+    "chips_required": 4
+   }
+  },
+  {
+   "repo": "tt-hous/qwen3.8-flash-next-p300x2",
+   "kind": "container",
+   "engine": "vllm-plugin",
+   "arch": "blackhole",
+   "hardware": [
+    "p300x2"
+   ],
+   "validation": "sweep",
+   "validated_on": "2026-09-25",
+   "manifest": {
+    "arch": "blackhole",
+    "kind": "vllm-plugin",
+    "supported": true,
+    "task": null,
+    "weights_repo": "Qwen/Qwen3.8-Flash-Next",
+    "default_profile": "long-context",
+    "profiles": [
+     {
+      "name": "long-context",
+      "description": "Full 262,144-token capacity, physical batch one.",
+      "hardware": "p300x2",
+      "mesh_device": "(4, 1)",
+      "chips_required": 4,
+      "port": 8000,
+      "max_model_len": 262144,
+      "max_num_seqs": 1,
+      "tool_parser": "qwen3_xml",
+      "reasoning_parser": "qwen3"
+     }
+    ],
+    "hardware": "p300x2",
+    "chips_required": 4
+   }
+  }
+ ]
+}

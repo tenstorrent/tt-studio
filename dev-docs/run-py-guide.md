@@ -408,6 +408,7 @@ When you run `python run.py`, the script:
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
 | **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
 | **Inference Artifact** | TT_MODEL_SUPPORT_URL | Model support spec (tt-cli `model_support.json`) the model catalog syncs from; its `release_version` is the default artifact, and a different artifact builds the catalog from the artifact and `model_overrides.toml` instead | Optional (defaults to the latest tt-cli release) |
+| **Community Models** | TT_COMMUNITY_CATALOG_URL | Verified community bundles (tt-cli `community_catalog.json`); the only community models listed | Optional (defaults to the latest tt-cli release) |
 | | TT_INFERENCE_ARTIFACT_VERSION | Pin a tt-inference-server release instead of the spec's | Optional |
 | | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |
 | | TT_QB2_LAUNCH_BRANCH | Artifact branch for the QB2 launch (branch selection only) | Optional |

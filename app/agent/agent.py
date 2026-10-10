@@ -4,7 +4,7 @@
 
 try:
     # Try relative imports first (when used as a package)
-    from .custom_llm import CustomLLM
+    from .custom_llm import REQUEST_CHAT_TEMPLATE_KWARGS, CustomLLM
     from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
@@ -12,7 +12,7 @@ try:
     from .config import AgentConfig
 except ImportError:
     # Fall back to absolute imports (when run directly)
-    from custom_llm import CustomLLM
+    from custom_llm import REQUEST_CHAT_TEMPLATE_KWARGS, CustomLLM
     from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
@@ -161,6 +161,15 @@ else:
 class RequestPayload(BaseModel):
     message: str
     thread_id: str
+    # Forwarded to the LLM for this request only, e.g. {"enable_thinking": False}.
+    chat_template_kwargs: Optional[Dict[str, Any]] = None
+
+
+async def _with_chat_template_kwargs(stream, chat_template_kwargs):
+    """Iterate ``stream`` with this request's chat_template_kwargs visible to the LLM."""
+    REQUEST_CHAT_TEMPLATE_KWARGS.set(chat_template_kwargs)
+    async for chunk in stream:
+        yield chunk
 
 # Global variables for LLM management
 discovery_service = LLMDiscoveryService()
@@ -615,7 +624,11 @@ async def handle_requests(payload: RequestPayload):
     config = {"configurable": {"thread_id": payload.thread_id}}
     try:
         # use await to prevent handle_requests from blocking, allow other tasks to execute
-        return StreamingResponse(poll_requests(agent_executer, config, tools, memory, payload.message), media_type="text/plain")
+        stream = poll_requests(agent_executer, config, tools, memory, payload.message)
+        return StreamingResponse(
+            _with_chat_template_kwargs(stream, payload.chat_template_kwargs),
+            media_type="text/plain",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -17,6 +17,10 @@ serving stacks below it were designed independently:
   image, so this stack is job-based by design and exposes diffusion-native knobs
   (steps, guidance scale, seed, height, width) that the OpenAI image contract
   has no place for.
+* ``predict`` — ``POST /predict``, synchronous, base64 PNG under ``image``. Served
+  by tt-dit apps outside ``models.tt_dit.server`` (e.g. Qwen-Image-2.1). The route
+  is too generic to identify an image model by itself, so it is only matched for a
+  deployment already known to be one.
 
 A dialect is data, not control flow: adding a fourth serving stack should mean
 adding a row here, not another branch in the inference view. Keeping the job
@@ -25,7 +29,7 @@ error handling the existing ones already have.
 """
 
 from dataclasses import dataclass, field
-from typing import Mapping, Optional
+from typing import Callable, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 # Optional generation parameters we forward when the caller supplies them, keyed
@@ -64,6 +68,8 @@ class ImageDialect:
     # hands us raw base64 with no content type of its own).
     default_content_type: str = "image/png"
     default_filename: str = "image.png"
+    # Whether serving submit_route alone marks a container as an image generator.
+    identifying: bool = True
 
 
 OPENAI = ImageDialect(
@@ -99,9 +105,18 @@ TT_DIT = ImageDialect(
     extra_params=_DIT_PARAMS,
 )
 
+PREDICT = ImageDialect(
+    name="predict",
+    submit_route="/predict",
+    mode="sync",
+    identifying=False,
+)
+
 # Longest submit_route first so "/v1/images/generations" is tested before any
 # shorter route that could also appear as a suffix.
-DIALECTS = tuple(sorted((OPENAI, MEDIA, TT_DIT), key=lambda d: -len(d.submit_route)))
+DIALECTS = tuple(
+    sorted((OPENAI, MEDIA, TT_DIT, PREDICT), key=lambda d: -len(d.submit_route))
+)
 
 # Routes we can recognise in a container's OpenAPI document, most specific first.
 _ROUTE_TO_DIALECT = {d.submit_route: d for d in DIALECTS}
@@ -119,31 +134,51 @@ def split_route(internal_url: str) -> tuple[str, str]:
     return root, path
 
 
-def resolve_dialect(internal_url: str) -> ImageDialect:
-    """Pick the dialect for a deployment's stored internal_url.
+def submit_url(internal_url: str, dialect: ImageDialect) -> str:
+    """Where to submit: the registered url when it ends in the dialect's route, else
+    the dialect's route on the same server (a deployment that registered none)."""
+    root, path = split_route(internal_url)
+    return (
+        internal_url
+        if path.endswith(dialect.submit_route)
+        else root + dialect.submit_route
+    )
 
-    Matches on the route the deployment was registered with. Falls back to MEDIA,
-    which is what this code path did unconditionally before other stacks existed —
-    an unrecognised route is more likely an older media server than a new contract
-    we would only guess at.
+
+def resolve_dialect(
+    internal_url: str, served_paths: Optional[Callable[[], Mapping]] = None
+) -> ImageDialect:
+    """Pick the dialect for an image deployment's stored internal_url.
+
+    Matches on the route the deployment was registered with. When that names no
+    known contract, ``served_paths`` (if given) is asked for the container's OpenAPI
+    paths: a community tt-dit bundle registers no route, since each app picks its
+    own. Falls back to MEDIA, which is what this code path did unconditionally
+    before other stacks existed — an unrecognised route is more likely an older
+    media server than a new contract we would only guess at.
     """
     _, path = split_route(internal_url)
     for route, dialect in _ROUTE_TO_DIALECT.items():
         if path.endswith(route):
             return dialect
+    if served_paths is not None:
+        dialect = dialect_from_openapi(served_paths(), image_model=True)
+        if dialect is not None:
+            return dialect
     return MEDIA
 
 
-def dialect_from_openapi(paths) -> Optional[ImageDialect]:
+def dialect_from_openapi(paths, image_model: bool = False) -> Optional[ImageDialect]:
     """Identify the dialect a live container serves from its OpenAPI paths.
 
     ``paths`` is the ``paths`` object of an OpenAPI document (any mapping of route
     -> operations). Returns None when the container serves no image route we know,
     which is a positive signal in its own right: there is no point registering it
-    as an image model TT Studio can drive.
+    as an image model TT Studio can drive. Generic routes (see ``identifying``)
+    count only when the caller already knows it has an ``image_model``.
     """
     served = set(paths or ())
     for route, dialect in _ROUTE_TO_DIALECT.items():
-        if route in served:
+        if route in served and (dialect.identifying or image_model):
             return dialect
     return None

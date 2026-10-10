@@ -60,10 +60,14 @@ from tt_setup.inference_server import (
     catalog_matches_artifact,
     setup_artifact_with_fallback,
 )
+from tt_setup.model_manager import setup_tt_model_manager
 from tt_setup.model_support import (
     default_artifact_version,
+    describe_community_source,
     describe_list_source,
+    enrich_community_catalog,
     fetch_model_support,
+    refresh_community_catalog,
     save_model_support,
 )
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
@@ -349,6 +353,8 @@ def _run(args):
   {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
                                       (branch selection only — hardware is
                                       governed by IS_QB2, not this)
+  {C_YELLOW}TT_COMMUNITY_CATALOG_URL{C_RESET}            Verified community bundles (tt-cli
+                                      community_catalog.json); URL or local path
 
 {C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
 {'=' * 80}
@@ -973,6 +979,16 @@ def _run(args):
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
+
+                # Community-model path. Non-fatal by design: without it the backend
+                # simply doesn't offer community models, and inference-server
+                # deploys are unaffected.
+                with step("tt-model-manager artifact", spinner=True):
+                    setup_tt_model_manager()
+                refresh_community_catalog()
+                enrich_community_catalog()
+                if show_detail():
+                    console.print(f"[muted]{describe_community_source()}[/muted]")
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:

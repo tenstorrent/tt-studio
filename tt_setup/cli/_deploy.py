@@ -13,11 +13,12 @@ ci/deploy_healthcheck.py via the `dh` module handle so the CLI and CI exercise
 the same request path.
 """
 
+import re
 import sys
 import time
 
 from rich.progress import BarColumn, Progress, TextColumn
-from tt_setup.console import console, is_verbose, notice_panel, ready_panel
+from tt_setup.console import confirm, console, is_verbose, notice_panel, ready_panel
 from tt_setup.console._theme import _real_console
 from tt_setup.constants import LAUNCH_CMD
 
@@ -152,6 +153,27 @@ def curl_example(url, model_type, hf_model_id=None):
     )
 
 
+# A Hugging Face repo id (owner/name): deployed as a tt-model-manager community bundle.
+HUB_REPO_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*")
+COMMUNITY_MODEL_ID_PREFIX = "id_community-"
+
+
+def is_hub_repo_id(name):
+    return bool(HUB_REPO_ID.fullmatch(name or ""))
+
+
+def confirm_unverified(model_name):
+    """Ask before deploying a community bundle the verified catalog does not list."""
+    console.print(notice_panel("Unverified community model", [
+        f"{model_name} is not in tt-cli's verified community catalog, so it has not",
+        "been validated to deploy or serve on Tenstorrent hardware.",
+    ], border_style="warning"))
+    if not sys.stdin.isatty():
+        console.print("[error]⛔ Not deploying: confirm it from an interactive terminal.[/error]")
+        return False
+    return confirm(f"Deploy {model_name} anyway?", default=False)
+
+
 # ── backend interaction ───────────────────────────────────────────────────────
 
 def resolve_model_with_retry(dh, client, model_name, deadline_s=60, sleep=time.sleep):
@@ -280,7 +302,9 @@ def find_deployed_entry(client, model_id, timeout=120, interval=3, sleep=time.sl
         if st == 200 and isinstance(data, dict):
             for deploy_id, entry in data.items():
                 impl = entry.get("model_impl") or {}
-                if impl.get("model_id") == model_id:
+                found = impl.get("model_id") or ""
+                # A community id gains its resolved profile ("@<profile>") on deploy.
+                if found == model_id or found.startswith(f"{model_id}@"):
                     return deploy_id, entry
         sleep(interval)
     return None, None
@@ -319,6 +343,8 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
     fe_host, fe_port = frontend
 
     model_id, err = resolve_model_with_retry(dh, client, model_name)
+    if model_id is None and is_hub_repo_id(model_name):
+        model_id = COMMUNITY_MODEL_ID_PREFIX + model_name
     if model_id is None:
         console.print(notice_panel("Deploy failed", [str(err)], border_style="error"))
         return False
@@ -336,6 +362,11 @@ def run_headless_deploy(dh, args, backend_url="http://localhost:8000", frontend=
 
     try:
         st, data = client.post("deploy", body, timeout=120)
+        if isinstance(data, dict) and data.get("error_type") == "unverified_community_model":
+            if not confirm_unverified(model_name):
+                return False
+            body["allow_unverified"] = True
+            st, data = client.post("deploy", body, timeout=120)
         if st not in (200, 201) or data.get("status") != "success":
             msg = data.get("message") if isinstance(data, dict) else None
             lines = [msg or f"deploy failed (HTTP {st}): {data}"]

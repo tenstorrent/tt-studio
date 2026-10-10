@@ -5,8 +5,9 @@
 // backend chip allocator so the UI can show a model's availability and valid
 // configurations before deploy instead of failing on the request.
 //
-// To support a new model or change which device configurations a model allows,
-// edit getModelPlacement() below — nothing else in the frontend needs to change.
+// A model that declares serve profiles is placed by them. To support a new model
+// without profiles, or change which device configurations one allows, edit
+// getModelPlacement() below — nothing else in the frontend needs to change.
 
 import {
   isBgeM3Model,
@@ -48,7 +49,8 @@ function isMultiChipBlackholeBoard(boardType?: string): boolean {
   return !!boardType && MULTI_CHIP_BLACKHOLE_BOARDS.has(boardType.toUpperCase());
 }
 
-// Models declare 1 (single device) or >1 (full board: slots 0..3).
+// True when a model needs more than one chip. Whether that means a card group or the
+// whole board is getModelPlacement's call.
 export function isMultiChipModel(chipsRequired?: number): boolean {
   return (chipsRequired ?? 1) > 1;
 }
@@ -57,6 +59,21 @@ export function isMultiChipModel(chipsRequired?: number): boolean {
 export function fullBoardSlots(totalSlots: number): number[] {
   const count = Math.min(4, Math.max(totalSlots, 1));
   return Array.from({ length: count }, (_, i) => i);
+}
+
+// Slot groups a mesh of `chipsRequired` chips may occupy, aligned to a multiple of
+// its own size because the chips of one card are adjacent: a 2-chip mesh on a P300x2
+// belongs on a single card ([0,1] or [2,3]) and must not straddle two ([1,2]).
+// Mirrors ChipSlotAllocator._allocate_chip_group — keep the two in sync.
+export function alignedChipGroups(
+  chipsRequired: number,
+  totalSlots: number
+): number[][] {
+  const groups: number[][] = [];
+  for (let base = 0; base + chipsRequired <= totalSlots; base += chipsRequired) {
+    groups.push(Array.from({ length: chipsRequired }, (_, i) => base + i));
+  }
+  return groups;
 }
 
 // Whether a model can deploy right now given current slot occupancy.
@@ -117,7 +134,151 @@ export interface ModelPlacement {
   autoFullBoard?: boolean;
 }
 
-// SINGLE SOURCE OF TRUTH for per-model device configurations.
+// Placement implied by a mesh size alone: one chip, one card group, or the board.
+// 4 remains the catalog's "whole board" value (see infer_chips_required), so a group
+// is only ever produced for a mesh genuinely smaller than the board.
+function meshPlacement(chipsRequired: number, totalSlots: number): ModelPlacement {
+  if (chipsRequired <= 1) {
+    return { allowsSingle: true, allowsFullBoard: false, cardGroups: [] };
+  }
+  if (chipsRequired >= 4 || chipsRequired >= totalSlots) {
+    return { allowsSingle: false, allowsFullBoard: true, cardGroups: [] };
+  }
+  return {
+    allowsSingle: false,
+    allowsFullBoard: false,
+    cardGroups: alignedChipGroups(chipsRequired, totalSlots),
+  };
+}
+
+// One serve profile (a mesh the model runs on), as the model list describes it.
+export interface ServeProfile {
+  name: string;
+  id: string; // model_id that deploys this profile
+  chips_required: number;
+  is_compatible: boolean | null;
+}
+
+// What placement reads off a model-list row, whichever backend serves it.
+export interface PlacementModel {
+  name: string;
+  chips_required?: number;
+  model_type?: string;
+  // A model that declares serve profiles is placed by them; one that declares none
+  // follows getModelPlacement's per-model rules.
+  profiles?: ServeProfile[];
+  profile?: string; // the profile deployed by default
+}
+
+function hasProfiles(model: PlacementModel): model is PlacementModel & { profiles: ServeProfile[] } {
+  return (model.profiles?.length ?? 0) > 0;
+}
+
+// Devices a profile spans in the UI's terms, where 4 means the whole board.
+function profileDevices(profile: ServeProfile, totalSlots: number): number {
+  return Math.min(profile.chips_required, fullBoardSlots(totalSlots).length);
+}
+
+function runnableProfiles(profiles: ServeProfile[], totalSlots: number): ServeProfile[] {
+  return profiles.filter(
+    (p) => p.is_compatible !== false && p.chips_required <= totalSlots
+  );
+}
+
+// Distinct device counts the runnable profiles offer, `preferred`'s first, then largest.
+function profileTiers(
+  profiles: ServeProfile[],
+  totalSlots: number,
+  preferred?: string
+): number[] {
+  const runnable = runnableProfiles(profiles, totalSlots);
+  const first = runnable.find((p) => p.name === preferred);
+  const sizes = runnable
+    .map((p) => profileDevices(p, totalSlots))
+    .sort((a, b) => b - a);
+  if (first) sizes.unshift(profileDevices(first, totalSlots));
+  return Array.from(new Set(sizes));
+}
+
+// Placement from serve profiles: one tier per mesh among the profiles that fit this
+// board, falling back to `chipsRequired` when none do. The profiles are
+// authoritative, so getModelPlacement's name-matched rules never apply — a Hub id
+// like "ns/llama-3.1-8b-..." readily matches those names.
+function profilePlacement(
+  profiles: ServeProfile[],
+  chipsRequired: number,
+  totalSlots: number
+): ModelPlacement {
+  const sizes = profileTiers(profiles, totalSlots);
+  if (sizes.length === 0) return meshPlacement(chipsRequired, totalSlots);
+  const board = fullBoardSlots(totalSlots).length;
+  const allowsSingle = sizes.includes(1);
+  const group = sizes.filter((n) => n > 1 && n < board).pop();
+  const groups = group ? alignedChipGroups(group, totalSlots) : [];
+  return {
+    allowsSingle,
+    allowsFullBoard: board > 1 && sizes.includes(board),
+    // Alongside a single device a card group is a middle tier; without one it is
+    // the smallest unit the model runs on.
+    cardGroups: allowsSingle ? [] : groups,
+    pairGroups: allowsSingle && groups.length > 0 ? groups : undefined,
+  };
+}
+
+// The device configurations a model supports on this board.
+export function placementFor(
+  model: PlacementModel,
+  boardType: string | undefined,
+  totalSlots: number
+): ModelPlacement {
+  const chips = model.chips_required ?? 1;
+  return hasProfiles(model)
+    ? profilePlacement(model.profiles, chips, totalSlots)
+    : getModelPlacement(model.name, chips, boardType, model.model_type);
+}
+
+// Devices an automatic deploy of a model uses given current occupancy, or null when
+// nothing fits. A profiled model takes its default profile's mesh when that fits
+// now, else the largest that does (the backend's _preferred_community_profile rule).
+export function autoPlacementFor(
+  model: PlacementModel,
+  placement: ModelPlacement,
+  slots: DeviceSlotLike[],
+  totalSlots: number
+): { deviceIds: number[]; fullBoard: boolean } | null {
+  const chips = model.chips_required ?? 1;
+  if (!hasProfiles(model)) return autoPlacement(placement, chips, slots, totalSlots);
+  const sizes = profileTiers(model.profiles, totalSlots, model.profile);
+  for (const n of sizes.length > 0 ? sizes : [chips]) {
+    const place = autoPlacement(meshPlacement(n, totalSlots), n, slots, totalSlots);
+    if (place) return place;
+  }
+  return null;
+}
+
+// Fewest devices a model can deploy on.
+export function minDevicesFor(model: PlacementModel, totalSlots: number): number {
+  const chips = model.chips_required ?? 1;
+  const sizes = hasProfiles(model) ? profileTiers(model.profiles, totalSlots) : [];
+  return sizes.length > 0 ? Math.min(...sizes) : chips;
+}
+
+// The profile serving a deploy on `deviceCount` devices: the model's default when its
+// mesh matches, else the first such profile in manifest order. Mirrors the backend's
+// profile_for_chips. undefined for a model without profiles.
+export function profileForDevices(
+  model: PlacementModel,
+  deviceCount: number,
+  totalSlots: number
+): ServeProfile | undefined {
+  const matches = runnableProfiles(model.profiles ?? [], totalSlots).filter(
+    (p) => profileDevices(p, totalSlots) === deviceCount
+  );
+  return matches.find((p) => p.name === model.profile) ?? matches[0];
+}
+
+// SINGLE SOURCE OF TRUTH for per-model device configurations of models that declare
+// no serve profiles (callers go through placementFor).
 // Add a branch here to support a new flexible/custom model.
 export function getModelPlacement(
   modelName: string,
