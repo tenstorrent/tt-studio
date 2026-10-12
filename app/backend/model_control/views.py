@@ -480,7 +480,7 @@ def _refine_download_progress(phase_dict: dict, dl: dict) -> None:
 def _get_startup_phase(deploy_id: str) -> dict | None:
     """Tail the container's recent logs and run the phase classifier.
 
-    Picks the LLM or MEDIA phase template based on the deploy's model_type.
+    Picks the LLM, MEDIA or TRAINING phase template based on the deploy's model_type.
     When the classifier reports `downloading_weights`, also reads byte counts
     from the container via the docker-control-service dir-size endpoint and
     merges byte / speed / ETA fields into the response so the Preparing banner
