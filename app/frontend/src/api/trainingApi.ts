@@ -256,9 +256,16 @@ export function formatTrainingTimestamp(
 
 // The dataset is stored inside the job's `request_parameters.dataset_loader`,
 // not as a top-level field, so read it from there with a sensible fallback.
+// Custom jobs only carry the loader name "Custom"; their staged
+// `train_dataset_path` keeps the uploaded file name, so show that instead.
 export function getJobDataset(job: TrainingJob): string {
   if (job.dataset) return job.dataset;
-  const loader = job.request_parameters?.dataset_loader;
+  const params = job.request_parameters;
+  const trainPath = params?.train_dataset_path;
+  if (typeof trainPath === "string" && trainPath) {
+    return trainPath.split("/").pop() || trainPath;
+  }
+  const loader = params?.dataset_loader;
   return typeof loader === "string" && loader ? loader : "-";
 }
 
