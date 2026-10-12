@@ -11,6 +11,7 @@ from tt_setup.console import ask, confirm, console
 from tt_setup.env_config import get_env_var, write_env_var
 from tt_setup.inference_server._git import check_branch_exists, check_release_exists
 from tt_setup.inference_server._privileges import remove_artifact_with_sudo
+from tt_setup.model_support import default_artifact_version
 
 
 def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force_reconfigure=False, reconfigure_inference=False):
@@ -26,10 +27,8 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
 
-    # In quick setup with no reconfigure request: silently default to 'latest' if not already set
+    # Quick setup leaves an unset source unset, so startup follows the model support spec.
     if quick_setup and not (force_reconfigure or reconfigure_inference):
-        if not (current_version or current_branch):
-            write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "latest", quote_value=False)
         return
 
     # If configuration exists and user didn't request reconfiguration, use it silently
@@ -52,19 +51,26 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
             return
 
     # Ask user for artifact source type
+    spec_version = default_artifact_version()
+    spec_label = f" ({spec_version})" if spec_version else ""
     console.print("\n[info]Choose TT Inference Server artifact source:[/info]")
-    console.print("  1. Release version (stable, recommended for production)")
-    console.print("  2. Branch (latest development code, may have new features)")
-    choice = ask("Enter choice", choices=["1", "2"], default="1")
+    console.print(f"  1. Model support spec release{spec_label} (recommended, tracks TT_MODEL_SUPPORT_URL)")
+    console.print("  2. Pinned release version")
+    console.print("  3. Branch (latest development code, may have new features)")
+    choice = ask("Enter choice", choices=["1", "2", "3"], default="1")
 
     if choice == "1":
+        for var in ("TT_INFERENCE_ARTIFACT_VERSION", "TT_INFERENCE_ARTIFACT_BRANCH"):
+            write_env_var(var, "", quote_value=False)
+        console.print("[success]✅ Following the model support spec's inference server release[/success]")
+    elif choice == "2":
         # Release version
         if current_branch:
             # Clear branch if switching to release
             write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", "", quote_value=False)
 
-        # Always prompt for version when user chooses option 1
-        default_version = "latest"
+        # Always prompt for version when user chooses option 2
+        default_version = spec_version or "latest"
         if current_version and current_version != "latest":
             default_version = current_version
 
@@ -120,7 +126,7 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
             # Clear version if switching to branch
             write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "", quote_value=False)
 
-        # Always prompt for branch when user chooses option 2
+        # Always prompt for branch when user chooses option 3
         default_branch = "main"
         if current_branch:
             default_branch = current_branch

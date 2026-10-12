@@ -42,15 +42,15 @@ def suggest_docker_fixes(error_context):
 
     if "permission" in ctx or "denied" in ctx:
         console.print("[muted]  • Add user to docker group: sudo usermod -aG docker $USER[/muted]")
-        console.print("[muted]  • Or run: python run.py --fix-docker[/muted]")
+        console.print(f"[muted]  • Or run: {LAUNCH_CMD} --fix-docker[/muted]")
 
     if "port" in ctx or "address already in use" in ctx:
         console.print("[muted]  • Check port usage: lsof -i :8000[/muted]")
-        console.print("[muted]  • Free ports: python run.py --stop[/muted]")
+        console.print(f"[muted]  • Free ports: {LAUNCH_CMD} --stop[/muted]")
 
     # Always show these
     console.print("[muted]  • Check Docker is running: docker info[/muted]")
-    console.print("[muted]  • Clean up and retry: python run.py --stop && python run.py[/muted]")
+    console.print(f"[muted]  • Clean up and retry: {LAUNCH_CMD} --stop && {LAUNCH_CMD}[/muted]")
 
 
 def suggest_pip_fixes():
@@ -201,7 +201,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'warning',
             'cause': 'Exited cleanly',
             'detail': f"{container_name} stopped on its own without an error (exit 0), so the stack is incomplete.",
-            'action': f"Run: docker logs {container_name} --tail 50\n  Then: python run.py --stop && python run.py",
+            'action': f"Run: docker logs {container_name} --tail 50\n  Then: {LAUNCH_CMD} --stop && {LAUNCH_CMD}",
         }
     if exit_code == 137:
         return {
@@ -222,7 +222,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'warning',
             'cause': 'Terminated (SIGTERM)',
             'detail': f"{container_name} received SIGTERM (exit 143). Usually from a prior docker stop or cleanup.",
-            'action': "Re-run: python run.py",
+            'action': f"Re-run: {LAUNCH_CMD}",
         }
 
     # Log pattern classification
@@ -235,7 +235,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Port conflict{port_hint}',
             'detail': f"{container_name} could not bind to a port already in use.",
-            'action': f"Run: lsof -i{port_hint or ''}\n  Or: python run.py --stop && python run.py",
+            'action': f"Run: lsof -i{port_hint or ''}\n  Or: {LAUNCH_CMD} --stop && {LAUNCH_CMD}",
         }
 
     if "modulenotfounderror" in log_lower or "importerror" in log_lower:
@@ -245,7 +245,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Missing Python module{module_hint}',
             'detail': f"{container_name} failed to import a required module. Docker image may be stale.",
-            'action': "Rebuild: python run.py --stop && python run.py",
+            'action': f"Rebuild: {LAUNCH_CMD} --stop && {LAUNCH_CMD}",
         }
 
     if "keyerror" in log_lower:
@@ -255,7 +255,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': f'Configuration key missing{key_hint}',
             'detail': f"{container_name} encountered a missing env var or config key.",
-            'action': "Check .env for missing variables. Run: python run.py --reconfigure",
+            'action': f"Check .env for missing variables. Run: {LAUNCH_CMD} --reconfigure",
         }
 
     if "permission denied" in log_lower or "permissionerror" in log_lower:
@@ -263,7 +263,7 @@ def diagnose_container_failure(container_name, exit_code, logs):
             'severity': 'critical',
             'cause': 'Permission denied',
             'detail': f"{container_name} was denied file/socket access. Common: persistent volume owned by root.",
-            'action': "Fix ownership: sudo chown -R $USER:$USER tt_studio_persistent_volume\n  Or: python run.py --purge-all && python run.py",
+            'action': f"Fix ownership: sudo chown -R $USER:$USER tt_studio_persistent_volume\n  Or: {LAUNCH_CMD} --purge-all && {LAUNCH_CMD}",
         }
 
     if "no space left on device" in log_lower:

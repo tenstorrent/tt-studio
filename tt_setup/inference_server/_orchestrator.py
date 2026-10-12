@@ -65,8 +65,11 @@ def _report_extract_failure(exc, artifact_file):
         traceback.print_exc()
 
 
-def setup_tt_inference_server(pull_branch=False):
-    """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
+def setup_tt_inference_server(pull_branch=False, default_version=None):
+    """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch.
+
+    `default_version` is used when .env pins neither a version nor a branch.
+    """
     # Artifact setup — quiet unless downloading or encountering issues
 
     def suggest_semver(version):
@@ -94,7 +97,10 @@ def setup_tt_inference_server(pull_branch=False):
             artifact_branch = None
             console.print(f"[success]✅ Using version '{artifact_version}' — commented out TT_INFERENCE_ARTIFACT_BRANCH in .env[/success]")
     elif not artifact_branch and not artifact_version:
-        artifact_version = "latest"
+        artifact_version = default_version or "latest"
+        if default_version:
+            # Process env only (not .env), so compose and the inference API report it.
+            os.environ["TT_INFERENCE_ARTIFACT_VERSION"] = default_version
 
     # Create artifacts directory early so we can check for local tarballs
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
@@ -389,7 +395,7 @@ def setup_tt_inference_server(pull_branch=False):
                         console.print(f"[error]⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).[/error]")
                         console.print("[muted]   The branch name you configured does not exist.[/muted]")
                     console.print(f"[muted]   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}[/muted]")
-                    console.print("[muted]   Run: python run.py --reconfigure-inference-server[/muted]")
+                    console.print(f"[muted]   Run: {LAUNCH_CMD} --reconfigure-inference-server[/muted]")
                     console.print("[muted]   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches[/muted]")
                 else:
                     console.print(f"[error]⛔ Failed to download from GitHub: {e}[/error]")
@@ -633,7 +639,7 @@ def setup_tt_inference_server(pull_branch=False):
                         suggested = suggest_semver(artifact_version)
                         if suggested:
                             console.print(f"[muted]   Did you mean: {suggested} (semantic versioning uses vMAJOR.MINOR.PATCH)[/muted]")
-                        console.print("[muted]   Run: python run.py --reconfigure-inference-server[/muted]")
+                        console.print(f"[muted]   Run: {LAUNCH_CMD} --reconfigure-inference-server[/muted]")
                         console.print("[muted]   Valid releases: https://github.com/tenstorrent/tt-inference-server/releases[/muted]")
                     else:
                         console.print(f"[error]⛔ Failed to download from GitHub release: {e}[/error]")

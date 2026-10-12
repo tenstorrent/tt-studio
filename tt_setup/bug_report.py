@@ -31,7 +31,7 @@ import zipfile
 from datetime import datetime
 from uuid import uuid4
 
-from tt_setup import support_email
+from tt_setup import install_mode, support_email
 from tt_setup.console import console, notice_panel
 from tt_setup.constants import (
     DOCKER_CONTROL_LOG_FILE,
@@ -70,13 +70,16 @@ def _git(git_args):
 def _system_info(exc, args):
     """Environment snapshot for triage. Never includes .env contents — only its
     presence — so secrets don't leak into a shared bundle."""
-    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    # A pip install's root isn't a checkout; don't let git find an enclosing repo.
+    pip_install = install_mode.is_pip_install()
     info = {
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
         "os": platform.platform(),
         "python_version": sys.version.split()[0],
-        "git_branch": branch,
-        "git_commit": _git(["rev-parse", "--short", "HEAD"]),
+        "install_mode": "pip" if pip_install else "checkout",
+        "tt_studio_version": install_mode.studio_version(),
+        "git_branch": "" if pip_install else _git(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "git_commit": "" if pip_install else _git(["rev-parse", "--short", "HEAD"]),
         "tt_hardware_present": os.path.exists("/dev/tenstorrent"),
         "env_file_present": os.path.exists(ENV_FILE_PATH),
         "argv": sys.argv,
@@ -177,6 +180,25 @@ def write_eml(zip_path, ref, subject, body):
     return eml_path
 
 
+def eml_send_verb():
+    """What to do with the opened .eml. Apple Mail shows an .eml from disk as
+    a received message — it ignores X-Unsent and never offers Send — so on
+    macOS the user forwards it to support instead."""
+    if sys.platform == "darwin":
+        return f"hit Forward and send it to {support_email.SUPPORT_EMAIL}"
+    return "hit Send"
+
+
+def eml_send_step():
+    """Panel step for sending the opened .eml (see eml_send_verb)."""
+    if sys.platform == "darwin":
+        return (
+            f"Apple Mail shows it as a received message: hit Forward and send it to "
+            f"{support_email.SUPPORT_EMAIL} — the logs stay attached"
+        )
+    return "Send — replies stream back to your inbox"
+
+
 def open_in_mail_client(path):
     """Open the .eml at `path` with the desktop's default app (the mail
     client). False when there is no desktop to open it on (headless or SSH
@@ -243,7 +265,7 @@ def report_bug(exc=None, args=None, open_browser=True):
     if eml_path:
         rows += [
             "[muted]1. Open the .eml above in your mail client — the bundle is attached[/muted]",
-            "[muted]2. Send — replies stream back to your inbox[/muted]",
+            f"[muted]2. {eml_send_step()}[/muted]",
         ]
     else:
         rows += [
@@ -259,8 +281,9 @@ def report_bug(exc=None, args=None, open_browser=True):
         # is never opened on this path.
         if not (open_browser and open_in_mail_client(eml_path)):
             console.print(
-                "[muted]No mail client opened — open the .eml above in yours and hit Send "
-                "(on a headless server, copy it to your own machine first).[/muted]"
+                "[muted]No mail client opened — open the .eml above in yours and "
+                f"{eml_send_verb()} (on a headless server, copy it to your own machine first)."
+                "[/muted]"
             )
         return
 

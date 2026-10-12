@@ -123,6 +123,7 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "ENABLE_OLLAMA_API": "false",
             # Don't persist config to volume in case the upstream changes.
             "ENABLE_PERSISTENT_CONFIG": "false",
+            "WEBUI_AUTH": "False",
         },
         gateway_env={
             "OPENAI_API_BASE_URL": "{base_url}",
@@ -167,10 +168,6 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,
         health_path="/health",
-        first_run_note=(
-            "Open WebUI asks you to create an account on first visit — it is stored "
-            "locally in the app's volume, not sent anywhere."
-        ),
     ),
     MarketplaceApp(
         id="anythingllm",

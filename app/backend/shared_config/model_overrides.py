@@ -20,6 +20,7 @@ dicts directly) need no changes beyond where the data now comes from:
     TRACE_REGION_OVERRIDES      {(model_name, device): trace_region_size}
     CHIP_TIER_MODELS            {model_name: base_device}
     CHIP_TIERS                  {model_name: {device: device_ids}}
+    PARSER_OVERRIDES            {model_name: {"tool_call_parser"|"reasoning_parser": value}}
 """
 
 from __future__ import annotations
@@ -135,6 +136,25 @@ def _parse_chip_tier(
     return base_devices, tiers
 
 
+PARSER_FIELDS = ("tool_call_parser", "reasoning_parser")
+
+
+def _parse_parser_override(entries: list[dict], where: str) -> dict[str, dict[str, str]]:
+    overrides: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        _require(entry, ("model", "details"), where)
+        if entry["model"] in overrides:
+            raise OverridesError(f"{where}: duplicate parser_override for {entry['model']}.")
+        parsers = {f: entry[f] for f in PARSER_FIELDS if entry.get(f)}
+        if not parsers:
+            raise OverridesError(
+                f"{where}: parser_override for {entry['model']} sets nothing; "
+                f"give it one of {', '.join(PARSER_FIELDS)}."
+            )
+        overrides[entry["model"]] = parsers
+    return overrides
+
+
 def known_devices_hint(device: str, known: list[str]) -> str:
     """A " Did you mean 'X'?" hint for an unavailable/serve_override device typo, or ""."""
     near = get_close_matches(device, known, n=1)
@@ -171,6 +191,9 @@ class ModelOverrides:
         self.chip_tier_models, self.chip_tiers = _parse_chip_tier(
             doc.get("chip_tier") or [], where
         )
+        self.parser_overrides = _parse_parser_override(
+            doc.get("parser_override") or [], where
+        )
 
 
 def _load() -> ModelOverrides:
@@ -191,3 +214,4 @@ MEDIA_IMAGE_OVERRIDES: dict[tuple[str, str], str] = _overrides.media_image_overr
 TRACE_REGION_OVERRIDES: dict[tuple[str, str], int] = _overrides.trace_region_overrides
 CHIP_TIER_MODELS: dict[str, str] = _overrides.chip_tier_models
 CHIP_TIERS: dict[str, dict[str, str]] = _overrides.chip_tiers
+PARSER_OVERRIDES: dict[str, dict[str, str]] = _overrides.parser_overrides
