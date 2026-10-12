@@ -4,6 +4,12 @@
 
 # Development mode overrides
 services:
+  tt_studio_docker_control:
+    volumes:
+      - ../docker-control-service:/app
+      - ${TT_STUDIO_ROOT}/logs:/logs
+    command: ["python", "entrypoint.py", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+
   tt_studio_backend:
     container_name: tt_studio_backend_api_dev
     volumes:
@@ -15,7 +21,7 @@ services:
       sh -c "python manage.py migrate --noinput && uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --reload --timeout-keep-alive 1200"
     environment:
       - DEBUG=True
-    # Allow container to access host services (docker-control-service)
+    # Allow container to access the host inference API.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
