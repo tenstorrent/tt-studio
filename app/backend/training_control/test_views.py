@@ -39,7 +39,15 @@ def _load_views(monkeypatch):
     )
 
     django_views = ModuleType("django.views")
-    django_views.View = type("View", (), {})
+    django_views.View = type(
+        "View",
+        (),
+        {
+            "dispatch": lambda self, request, *args, **kwargs: getattr(
+                self, request.method.lower()
+            )(request, *args, **kwargs)
+        },
+    )
     monkeypatch.setitem(sys.modules, "django.views", django_views)
 
     django_views_csrf = ModuleType("django.views.decorators.csrf")
@@ -391,3 +399,34 @@ class TestTrainingJobDelete:
         resp = views.TrainingJobDetailView().delete(request, "t1")
         assert resp.status_code == 409
         assert "llama-ft" in resp.data["error"]
+
+    def test_quotes_job_id_into_a_single_path_segment(self, monkeypatch, serving_setup):
+        views = serving_setup
+        monkeypatch.setattr(
+            views, "_find_training_container", lambda _id: ({"internal_url": "c:7000"}, None)
+        )
+        urls = []
+        monkeypatch.setattr(
+            views.requests,
+            "delete",
+            lambda url, **_k: urls.append(url) or _FakeHttpResponse(204),
+        )
+        request = SimpleNamespace(GET={})
+        views.TrainingJobDetailView().delete(request, "abc?force=1")
+        views.TrainingJobDetailView().delete(request, "a/b")
+        assert urls == ["http://c:7000/v1/jobs/abc%3Fforce%3D1", "http://c:7000/v1/jobs/a%2Fb"]
+
+    @pytest.mark.parametrize("job_id", [".", ".."])
+    def test_rejects_dot_segment_job_ids(self, monkeypatch, views_module, job_id):
+        views = views_module
+        monkeypatch.setattr(views.requests, "delete", lambda *_a, **_k: pytest.fail("deleted"))
+        request = SimpleNamespace(method="DELETE", GET={})
+        resp = views.TrainingJobDetailView().dispatch(request, job_id=job_id)
+        assert resp.status_code == 400
+
+    def test_rejects_dot_segment_ckpt_id(self, monkeypatch, views_module):
+        views = views_module
+        monkeypatch.setattr(views.requests, "post", lambda *_a, **_k: pytest.fail("merged"))
+        request = SimpleNamespace(method="POST", GET={}, body=b"")
+        resp = views.TrainingCheckpointMergeView().dispatch(request, job_id="t1", ckpt_id="..")
+        assert resp.status_code == 400
