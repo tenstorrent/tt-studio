@@ -86,16 +86,24 @@ def unavailable_mark(repo_id: str, profile: Optional[str] = None) -> Optional[Ma
 # A profile's `hardware` label is tt-model-manager's device target. Mapping it onto
 # DeviceConfigurations lets a community model flow through the same board-compatibility
 # check as a catalog model instead of needing a parallel one.
-_HARDWARE_TO_DEVICE = {
-    "p100": DeviceConfigurations.P100,
-    "p150": DeviceConfigurations.P150,
-    "p150x4": DeviceConfigurations.P150X4,
-    "p150x8": DeviceConfigurations.P150X8,
-    "p300": DeviceConfigurations.P300,
-    "p300x2": DeviceConfigurations.P300x2,
-    "n150": DeviceConfigurations.N150,
-    "n300": DeviceConfigurations.N300,
-    "t3k": DeviceConfigurations.T3K,
+_HARDWARE_TO_DEVICES = {
+    "p100": (DeviceConfigurations.P100,),
+    "p150": (DeviceConfigurations.P150,),
+    # A two-chip Blackhole mesh, which tt-model-manager scopes to the chips it is given:
+    # one P300 card's pair, or two cards of a P150 board. Verified serving on one card
+    # of a P300x2 (raahemnabeel/ornith-1.5-35b-a3b).
+    "p150x2": (
+        DeviceConfigurations.P300,
+        DeviceConfigurations.P150X4,
+        DeviceConfigurations.P150X8,
+    ),
+    "p150x4": (DeviceConfigurations.P150X4,),
+    "p150x8": (DeviceConfigurations.P150X8,),
+    "p300": (DeviceConfigurations.P300,),
+    "p300x2": (DeviceConfigurations.P300x2,),
+    "n150": (DeviceConfigurations.N150,),
+    "n300": (DeviceConfigurations.N300,),
+    "t3k": (DeviceConfigurations.T3K,),
 }
 
 
@@ -162,8 +170,7 @@ def devices_for_hardware(hardware: Optional[str]) -> FrozenSet[DeviceConfigurati
     An unknown label yields an empty set, which reads as "compatibility unknown"
     rather than "incompatible" — a new device target should not silently hide a model.
     """
-    device = _HARDWARE_TO_DEVICE.get((hardware or "").lower())
-    return frozenset({device}) if device else frozenset()
+    return frozenset(_HARDWARE_TO_DEVICES.get((hardware or "").lower(), ()))
 
 
 def profile_for_chips(

@@ -128,3 +128,14 @@ details = "SAM-family weights are tagged this way. No page for segmentation."
 # profile = "p150"            # optional
 # reason = "known_broken"
 # details = "What breaks, where it was verified, and when to drop this entry."
+
+[[unavailable]]
+repo = "tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4"
+profile = "p150x2"
+reason = "known_broken"
+details = """
+Declares two chips but opens a 2x2 parent mesh (additional_config.tt.parent_mesh_shape), \
+so scoped to the two chips it reserves it dies with "Requested mesh shape MeshShape([2, 2]) \
+requires 4 devices, but only 2 devices are available" (P300x2, #1391). Its p150 and p150x4 \
+profiles run. Drop once the bundle's p150x2 profile opens only its own two chips.\
+"""

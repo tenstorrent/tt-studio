@@ -73,7 +73,18 @@ class CommunityFitTests(TestCase):
     def test_an_unrecognised_hardware_label_is_undecided(self):
         # Undecided, not incompatible: a label this build cannot map must not hide a
         # bundle that may well run.
-        self.assertIsNone(self._fit("p150x2", 2))
+        self.assertIsNone(self._fit("p250x2", 2))
+
+    def test_a_two_chip_mesh_fits_any_blackhole_board_with_two_chips(self):
+        # tt-model-manager scopes it to the chips it is given: one P300 card's pair, or
+        # two cards of a P150 board.
+        self.assertIs(self._fit("p150x2", 2), True)
+        self.assertIs(self._fit("p150x2", 2, board="P300", slots=2), True)
+        self.assertIs(self._fit("p150x2", 2, board="P150X4"), True)
+        self.assertIs(self._fit("p150x2", 2, board="P150X8", slots=8), True)
+
+    def test_a_two_chip_mesh_does_not_fit_a_single_chip_board(self):
+        self.assertIs(self._fit("p150x2", 2, board="P150", slots=1), False)
 
 
 class PreferredProfileTests(TestCase):
@@ -101,8 +112,8 @@ class PreferredProfileTests(TestCase):
         self.assertEqual(self._pick(profiles, "p150x8"), "p300")
 
     def test_an_undecided_profile_counts_as_runnable(self):
-        profiles = [_profile("p150x8", "p150x8", 8), _profile("p150x2", "p150x2", 2)]
-        self.assertEqual(self._pick(profiles, "p150x8"), "p150x2")
+        profiles = [_profile("p150x8", "p150x8", 8), _profile("p250x2", "p250x2", 2)]
+        self.assertEqual(self._pick(profiles, "p150x8"), "p250x2")
 
     def test_nothing_fitting_falls_back_to_the_default(self):
         # None leaves the caller on the default, so the row still reports a mesh and
