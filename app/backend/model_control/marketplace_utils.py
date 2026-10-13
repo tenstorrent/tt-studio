@@ -25,6 +25,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -632,23 +633,16 @@ PROBE_TIMEOUT_S = 60
 
 def _open_webui_env(app: MarketplaceApp, client) -> Dict[str, str]:
     """Turn auth back on when the volume's accounts would block the auto sign-in."""
-    probe = f"{app.container_name}_probe"
-
-    def run_probe():
-        client.run_container(
-            image=app.image,
-            name=probe,
-            command="python3 -c \"import os; exec(os.environ['PROBE'])\"",
-            environment={"PROBE": _OPEN_WEBUI_USERS_SCRIPT},
-            volumes=dict(app.volumes),
-        )
-
-    try:
-        run_probe()
-    except requests.exceptions.HTTPError:
-        # Most likely a probe left behind by an interrupted launch holds the name.
-        remove_container_if_present(client, probe)
-        run_probe()
+    # A name of its own per check, so overlapping launches never touch each
+    # other's probe; only this probe is ever removed below.
+    probe = f"{app.container_name}_probe_{uuid.uuid4().hex[:8]}"
+    client.run_container(
+        image=app.image,
+        name=probe,
+        command="python3 -c \"import os; exec(os.environ['PROBE'])\"",
+        environment={"PROBE": _OPEN_WEBUI_USERS_SCRIPT},
+        volumes=dict(app.volumes),
+    )
     try:
         deadline = time.monotonic() + PROBE_TIMEOUT_S
         while _container_state(client, probe) not in ("exited", "dead"):

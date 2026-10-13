@@ -9,7 +9,6 @@ and the running card must tell the user why.
 
 import os
 import pytest
-import requests
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "api.settings")
@@ -27,7 +26,7 @@ from shared_config.marketplace_config import get_app
 
 
 OPEN_WEBUI = get_app("open-webui")
-PROBE = f"{OPEN_WEBUI.container_name}_probe"
+PROBE_PREFIX = f"{OPEN_WEBUI.container_name}_probe_"
 
 
 def _client(probe_output):
@@ -52,20 +51,24 @@ class TestOpenWebUIPreLaunchEnv:
     def test_accounts_without_the_auto_admin_turn_sign_in_on(self):
         assert _pre_launch_env(OPEN_WEBUI, _client("users=2 admin=0")) == {"WEBUI_AUTH": "True"}
 
-    def test_probe_runs_against_the_app_volume_and_is_removed(self):
+    def test_probe_runs_against_the_app_volume_and_removes_only_itself(self):
         client = _client("users=0 admin=0")
         _pre_launch_env(OPEN_WEBUI, client)
         run = client.run_container.call_args.kwargs
-        assert run["name"] == PROBE
+        assert run["name"].startswith(PROBE_PREFIX)
         assert run["image"] == OPEN_WEBUI.image
         assert run["volumes"] == dict(OPEN_WEBUI.volumes)
-        assert client.remove_container.call_args.args[0] == PROBE
+        removed = [c.args[0] for c in client.remove_container.call_args_list]
+        assert removed == [run["name"]]
 
-    def test_leftover_probe_is_removed_and_the_check_retried(self):
-        client = _client("users=2 admin=0")
-        client.run_container.side_effect = [requests.exceptions.HTTPError("name in use"), None]
-        assert _pre_launch_env(OPEN_WEBUI, client) == {"WEBUI_AUTH": "True"}
-        assert client.run_container.call_count == 2
+    def test_overlapping_launches_use_separate_probes(self):
+        first, second = _client("users=0 admin=0"), _client("users=0 admin=0")
+        _pre_launch_env(OPEN_WEBUI, first)
+        _pre_launch_env(OPEN_WEBUI, second)
+        assert (
+            first.run_container.call_args.kwargs["name"]
+            != second.run_container.call_args.kwargs["name"]
+        )
 
     def test_unreadable_probe_output_falls_back_to_defaults(self):
         assert _pre_launch_env(OPEN_WEBUI, _client("Traceback ... no such table")) == {}
