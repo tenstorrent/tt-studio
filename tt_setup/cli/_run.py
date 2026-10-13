@@ -983,8 +983,9 @@ def _run(args):
                 # Community-model path. Non-fatal by design: without it the backend
                 # simply doesn't offer community models, and inference-server
                 # deploys are unaffected.
-                with step("tt-model-manager artifact", spinner=True):
-                    setup_tt_model_manager()
+                with step("tt-model-manager artifact", spinner=True) as handle:
+                    if not setup_tt_model_manager():
+                        handle.fail()
                 refresh_community_catalog()
                 enrich_community_catalog()
                 if show_detail():

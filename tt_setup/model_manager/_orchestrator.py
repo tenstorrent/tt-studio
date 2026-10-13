@@ -79,28 +79,30 @@ def _create_venv(venv_dir):
     return bool(result and result.returncode == 0)
 
 
-def _install_package(venv_dir, python, ref):
-    """Install the pinned tt-model-manager into the venv."""
+def _install_package(python, ref):
+    """Install the pinned tt-model-manager into the venv.
+
+    Only runs executables known to exist (uv found on PATH, or the venv's own
+    interpreter): run_command exits the launcher on a missing binary, and a
+    uv-created venv has no pip of its own.
+    """
     spec = f"tt-model @ git+{MODEL_MANAGER_REPO_URL}@{ref}"
     if shutil.which("uv"):
-        result = run_command(
-            ["uv", "pip", "install", "--python", python, spec], capture_output=True
-        )
-        if result and result.returncode == 0:
-            return True, ""
-    pip = os.path.join(venv_dir, "Scripts" if os.name == "nt" else "bin", "pip")
-    result = run_command([pip, "install", spec], capture_output=True)
+        command = ["uv", "pip", "install", "--python", python, spec]
+    else:
+        command = [python, "-m", "pip", "install", spec]
+    result = run_command(command, capture_output=True)
     if result and result.returncode == 0:
         return True, ""
     stderr = (getattr(result, "stderr", "") or "").strip()
-    return False, stderr.splitlines()[-1] if stderr else "pip install failed"
+    return False, stderr.splitlines()[-1].strip() if stderr else "install failed"
 
 
 def _install(venv_dir, python, ref):
     """Create the venv and install ``ref`` into it. Returns an error message, or None."""
     if not _create_venv(venv_dir):
         return "could not create the venv"
-    ok, detail = _install_package(venv_dir, python, ref)
+    ok, detail = _install_package(python, ref)
     return None if ok else detail
 
 
