@@ -8,9 +8,13 @@ import { fetchHealthyModelsByType } from "../../api/modelsDeployedApis";
 import { Card } from "../ui/card";
 import ShowcaseGallery from "./ShowcaseGallery";
 import StableDiffusionChat from "./StableDiffusionChat";
+import { imageChatStore, useImageChatState } from "./imageChatStore";
+
+const setShowChat = (showChat: boolean) =>
+  imageChatStore.update(() => ({ showChat }));
 
 const ImageGenParentComponent: React.FC = () => {
-  const [showChat, setShowChat] = useState(false);
+  const { showChat } = useImageChatState();
   const [initialPrompt, setInitialPrompt] = useState<string>("");
 
   // model handling state
