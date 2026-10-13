@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import { fetchHealthyModelsByType } from "../../api/modelsDeployedApis";
 import { Card } from "../ui/card";
 import ShowcaseGallery from "./ShowcaseGallery";
 import StableDiffusionChat from "./StableDiffusionChat";
@@ -18,17 +19,27 @@ const ImageGenParentComponent: React.FC = () => {
   const [modelName, setModelName] = useState<string | null>(null);
 
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
+    if (location.state?.containerID) {
       setModelID(location.state.containerID);
       setModelName(location.state.modelName);
+      return;
     }
-  }, [location.state, modelID, modelName]);
+    // Deployed mode routes to the cloud endpoint and needs no local model.
+    if (import.meta.env.VITE_ENABLE_DEPLOYED === "true") return;
+    // Opened directly (typed URL, bookmark) rather than from the navbar or
+    // Models Deployed: there is no navigation state, so use the first healthy
+    // image model instead of posting an empty deploy_id.
+    fetchHealthyModelsByType("image_generation").then((models) => {
+      if (models.length > 0) {
+        setModelID(models[0].id);
+        setModelName(models[0].modelName);
+      } else {
+        customToast.error(
+          "No image generation model is ready yet. Deploy one or wait for it to finish warming up."
+        );
+      }
+    });
+  }, [location.state]);
 
   const handleImageClick = (prompt: string) => {
     setInitialPrompt(prompt);
