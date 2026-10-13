@@ -19,9 +19,19 @@ from tt_setup.inference_server._privileges import (
 )
 
 
-def _is_empty_tree(path):
-    """True when *path* is a directory tree with no files in it at all."""
-    return os.path.isdir(path) and not any(files for _root, _dirs, files in os.walk(path))
+def _is_mount_stub(path):
+    """True when *path* holds only the empty workflow_logs/ bind-mount source.
+
+    The launcher pre-creates workflow_logs/ (and its run_logs/) before the first
+    download. Any other shape, including a partial extraction that left only
+    directories behind, is a real incomplete artifact and must be reported.
+    """
+    try:
+        if os.listdir(path) != ["workflow_logs"]:
+            return False
+    except OSError:
+        return False
+    return not any(files for _root, _dirs, files in os.walk(path))
 
 
 def _is_valid_targz(path):
@@ -118,7 +128,7 @@ def setup_tt_inference_server(pull_branch=False, default_version=None):
     # Before the first download the directory holds only the empty workflow_logs/
     # bind-mount source the launcher pre-creates. That is "not installed yet",
     # not a broken download, so clear it without a warning.
-    if os.path.exists(INFERENCE_ARTIFACT_DIR) and _is_empty_tree(INFERENCE_ARTIFACT_DIR):
+    if os.path.exists(INFERENCE_ARTIFACT_DIR) and _is_mount_stub(INFERENCE_ARTIFACT_DIR):
         shutil.rmtree(INFERENCE_ARTIFACT_DIR, ignore_errors=True)
 
     # Check if artifact already exists and is fully downloaded

@@ -482,7 +482,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
         def record_apps(*a, **kwargs):
             order.append("apps")
-            return 1
+            return 1, []
 
         def record_run_docker(cmd, **kwargs):
             if "down" in cmd:
@@ -532,15 +532,26 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
         def fake_run(cmd, **kwargs):
             calls.append(cmd)
-            out = "abc123\ndef456\n" if cmd[:3] == ["docker", "ps", "-aq"] else ""
+            out = "abc123\ndef456\n" if cmd[:3] == ["docker", "ps", "-aq"] else "abc123\ndef456\n"
             return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
         with patch.object(_cl_rops.subprocess, "run", side_effect=fake_run):
-            removed = _cl_rops._remove_marketplace_app_containers(has_docker_access=True)
+            removed, left = _cl_rops._remove_marketplace_app_containers(has_docker_access=True)
 
-        self.assertEqual(removed, 2)
+        self.assertEqual((removed, left), (2, []))
         self.assertEqual(calls[0], ["docker", "ps", "-aq", "--filter", "name=^tt_studio_app_"])
         self.assertEqual(calls[1], ["docker", "rm", "-f", "abc123", "def456"])
+
+    def test_marketplace_app_removal_reports_containers_docker_kept(self):
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["docker", "ps", "-aq"]:
+                return SimpleNamespace(returncode=0, stdout="abc123\ndef456\n", stderr="")
+            return SimpleNamespace(returncode=1, stdout="abc123\n", stderr="Error: cannot remove def456")
+
+        with patch.object(_cl_rops.subprocess, "run", side_effect=fake_run):
+            removed, left = _cl_rops._remove_marketplace_app_containers(has_docker_access=True)
+
+        self.assertEqual((removed, left), (1, ["def456"]))
 
     def test_host_service_cleanup_steps_never_hide_sudo_prompts(self):
         """Host cleanup may discover sudo is needed after the preflight probe.

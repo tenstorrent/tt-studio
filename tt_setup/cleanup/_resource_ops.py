@@ -390,7 +390,8 @@ def _remove_marketplace_app_containers(has_docker_access):
     docker-control-service, so `compose down` never sees them, and they cannot
     reach a model once the backend and LiteLLM gateway are down. Removing them
     matches the app's own Stop button: the next launch starts a fresh container
-    on the same named volume. Returns count removed.
+    on the same named volume. Returns (removed, left): the count docker reports
+    as removed, and the ids it could not remove.
     """
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
@@ -400,14 +401,16 @@ def _remove_marketplace_app_containers(has_docker_access):
         )
         ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         if not ids:
-            return 0
-        subprocess.run(
+            return 0, []
+        result = subprocess.run(
             sudo_prefix + ["docker", "rm", "-f", *ids],
-            capture_output=True, check=False,
+            capture_output=True, text=True, check=False,
         )
-        return len(ids)
+        # docker echoes each container it removed; anything else is still there.
+        removed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+        return len(removed), [i for i in ids if i not in removed]
     except Exception:
-        return 0
+        return 0, []
 
 
 def _remove_tt_studio_network_containers(has_docker_access):

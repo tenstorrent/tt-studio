@@ -103,17 +103,23 @@ if __name__ == "__main__":
 
 class TestArtifactMountStub(unittest.TestCase):
     """Before the first download the artifact dir holds only the empty
-    workflow_logs/ bind-mount source; that must not read as a broken download."""
+    workflow_logs/ bind-mount source; that must not read as a broken download,
+    but anything else must."""
 
-    def test_empty_mount_stub_is_an_empty_tree(self):
+    def test_empty_workflow_logs_stub_is_recognised(self):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, "workflow_logs", "run_logs"))
-            self.assertTrue(_orch._is_empty_tree(root))
+            self.assertTrue(_orch._is_mount_stub(root))
 
-    def test_partial_download_is_not_an_empty_tree(self):
+    def test_partial_download_is_not_a_stub(self):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, "workflow_logs"))
             with open(os.path.join(root, "VERSION"), "w") as f:
                 f.write("0.22.0")
-            self.assertFalse(_orch._is_empty_tree(root))
+            self.assertFalse(_orch._is_mount_stub(root))
 
+    def test_extraction_that_left_only_directories_is_not_a_stub(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "workflow_logs"))
+            os.makedirs(os.path.join(root, "workflows", "utils"))
+            self.assertFalse(_orch._is_mount_stub(root))

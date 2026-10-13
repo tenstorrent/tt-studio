@@ -40,8 +40,14 @@ def _cleanup_runtime(args, has_docker_access):
         # Apps need the backend and gateway that are about to go down, so they
         # stop too (their data volumes stay); models are what --stop preserves.
         with step("Stopping apps", spinner=False) as s:
-            removed = _remove_marketplace_app_containers(has_docker_access)
-            s.detail(f"{removed} stopped") if removed else s.skip("none running")
+            removed, left = _remove_marketplace_app_containers(has_docker_access)
+            if left:
+                s.fail()
+                s.detail(f"{len(left)} could not be removed: docker rm -f {' '.join(left)}")
+            elif removed:
+                s.detail(f"{removed} stopped")
+            else:
+                s.skip("none running")
         # Plain --stop preserves deployments (summarised in the Preserved panel
         # afterwards); --purge-all removes them first so the later network removal
         # / weight deletion isn't blocked by running processes.
