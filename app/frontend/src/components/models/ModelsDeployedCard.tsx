@@ -52,7 +52,7 @@ import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 import type { ChipStatus } from "../../types/chipStatus";
-import { deviceIdsForRow } from "../../utils/deviceIds";
+import { deviceIdsForRow, resetDeviceIdsForStop } from "../../utils/deviceIds";
 
 export default function ModelsDeployedCard(): ReactElement {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight, controlPlaneDegraded } = useModels();
@@ -763,7 +763,9 @@ export default function ModelsDeployedCard(): ReactElement {
                   }}
                   onDelete={(id: string) => {
                     setDeleteTargetId(id);
-                    setDeleteDeviceIds(deviceIdsForRow(rows.find((r) => r.id === id)));
+                    setDeleteDeviceIds(
+                      resetDeviceIdsForStop(deviceIdsForRow(rows.find((r) => r.id === id)), chipStatus),
+                    );
                     setShowDeleteModal(true);
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
