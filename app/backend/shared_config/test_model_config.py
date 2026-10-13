@@ -20,10 +20,13 @@ from pathlib import Path
 from django.test import SimpleTestCase
 
 from shared_config.model_config import (
+    TRAINER_MODEL_RUNNER_PREFIX,
     _impl_selector,
     load_model_implementations_from_json,
+    model_implmentations,
     register_model_implementations,
 )
+from shared_config.model_type_config import ModelTypes
 
 
 class ImplSelectorTests(SimpleTestCase):
@@ -134,3 +137,22 @@ class TrainingModelIdTests(SimpleTestCase):
 
         with self.assertRaisesRegex(ValueError, "Duplicate model_id"):
             register_model_implementations(impls)
+
+
+class TrainerRunnerPrefixCatalogTests(SimpleTestCase):
+    """Pins the runner prefix pick_impl_for_container relies on, so a catalog sync
+    that renames it fails here instead of trainers silently resolving as chat."""
+
+    def test_every_training_model_uses_a_trainer_runner(self):
+        training = [
+            impl for impl in model_implmentations.values()
+            if impl.model_type == ModelTypes.TRAINING
+        ]
+        self.assertTrue(training, "catalog has no TRAINING models to check")
+        for impl in training:
+            runner = impl.docker_config["environment"].get("MODEL_RUNNER", "")
+            self.assertTrue(
+                runner.startswith(TRAINER_MODEL_RUNNER_PREFIX),
+                f"{impl.model_id}: MODEL_RUNNER={runner!r} does not start with "
+                f"{TRAINER_MODEL_RUNNER_PREFIX!r}",
+            )

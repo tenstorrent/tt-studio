@@ -477,6 +477,24 @@ def validate_model_implemenation_config(impl):
 # Build final model_implmentations dict
 # ---------------------------------------------------------------------------
 
+# tt-inference-server names trainer runners `trainer-<variant>`; without a deployment
+# record, that's the only way to tell a trainer from a same-named chat model.
+TRAINER_MODEL_RUNNER_PREFIX = "trainer-"
+
+
+def pick_impl_for_container(candidates, env_vars):
+    """Pick TRAINING for a trainer runner, a non-training impl otherwise; fall back
+    to the first candidate when none has the wanted type."""
+    if not candidates:
+        return None
+    runner = str((env_vars or {}).get("MODEL_RUNNER") or "")
+    wants_training = runner.startswith(TRAINER_MODEL_RUNNER_PREFIX)
+    for impl in candidates:
+        if (impl.model_type == ModelTypes.TRAINING) == wants_training:
+            return impl
+    return candidates[0]
+
+
 def register_model_implementations(impls) -> dict:
     registry = {}
     for impl in impls:
