@@ -309,6 +309,44 @@ def ensure_docker_group_membership():
         return False
 
 
+def grant_container_read(paths):
+    """Make *paths* readable by everyone, recursing into directories.
+
+    LiteLLM and the agent run as a fixed non-root uid (1000), so they read their
+    bind-mounted files as "other". A clone made under umask 0007 leaves tracked
+    files at 0660, which those containers cannot open: LiteLLM crash-loops on its
+    config. Only read (and directory/executable search) bits are added, never
+    removed, and git tracks only the exec bit, so the checkout stays clean.
+    Returns the paths that could not be changed (e.g. owned by another user).
+    """
+    failed = []
+
+    def _grant(path, is_dir):
+        try:
+            mode = os.stat(path).st_mode
+            wanted = mode | 0o444
+            if is_dir or mode & 0o111:
+                wanted |= 0o111
+            if wanted != mode:
+                os.chmod(path, wanted & 0o7777)
+        except OSError:
+            failed.append(path)
+
+    for root in paths:
+        if not os.path.exists(root) or os.path.islink(root):
+            continue
+        if not os.path.isdir(root):
+            _grant(root, False)
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            _grant(dirpath, True)
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                if not os.path.islink(path):
+                    _grant(path, False)
+    return failed
+
+
 def detect_tt_hardware():
     """Detect if Tenstorrent hardware is available."""
     return os.path.exists("/dev/tenstorrent") or os.path.isdir("/dev/tenstorrent")
