@@ -17,6 +17,7 @@ tt_kernel: it lives behind an incompatible pydantic pin.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -60,6 +61,10 @@ def is_verified_bundle(repo_id: str) -> bool:
 # A catalog/inspect call is one bounded query. A serve has no timeout here:
 # a first-time bundle install downloads an image and weights.
 _QUERY_TIMEOUT_SECONDS = 90
+# A stop outlasts tt-model-manager's own: `docker stop --timeout 120`, then up to 180 s
+# of mesh reset when docker had to SIGKILL. Cut short, the container is never removed
+# and its chips are never reset.
+_STOP_TIMEOUT_SECONDS = 120 + 180 + 60
 
 # Byte counters a `download` event sets, in the shape inference-api's own deploys
 # report so the deploy UI renders both the same way.
@@ -146,8 +151,13 @@ def _runner_env(hf_token: Optional[str] = None) -> Dict[str, str]:
     return env
 
 
-def _run_query(args: List[str], *, hf_token: Optional[str] = None) -> Dict[str, Any]:
-    """Run a single-document runner command and return its one JSON object."""
+def _run_query(args: List[str], *, hf_token: Optional[str] = None,
+               timeout: int = _QUERY_TIMEOUT_SECONDS) -> Dict[str, Any]:
+    """Run a single-document runner command and return its one JSON object.
+
+    Blocks for as long as the runner does, so an async endpoint calls it off the event
+    loop: in the loop it stalls every other request, health checks included.
+    """
     python = runner_python()
     if not python:
         raise HTTPException(
@@ -158,7 +168,7 @@ def _run_query(args: List[str], *, hf_token: Optional[str] = None) -> Dict[str, 
         completed = subprocess.run(
             [python, RUNNER, *args],
             capture_output=True, text=True,
-            timeout=_QUERY_TIMEOUT_SECONDS,
+            timeout=timeout,
             env=_runner_env(hf_token),
         )
     except subprocess.TimeoutExpired:
@@ -203,6 +213,12 @@ def _error_detail(event: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def stop_bundle(repo_id: str, profile: Optional[str] = None) -> Dict[str, Any]:
+    """Stop a bundle through tt-model-manager so the mesh is closed (and reset) properly."""
+    args = ["stop", repo_id, *(["--profile", profile] if profile else [])]
+    return _run_query(args, timeout=_STOP_TIMEOUT_SECONDS)
+
+
 def cancel_serve(job_id: str) -> bool:
     """End a community serve still in flight, and its container if it got one.
 
@@ -228,7 +244,7 @@ def cancel_serve(job_id: str) -> bool:
             continue
     request = serve["request"]
     try:
-        _run_query(["stop", request.repo_id, *(["--profile", request.profile] if request.profile else [])])
+        stop_bundle(request.repo_id, request.profile)
     except HTTPException:
         # Killed before `docker run`, the bundle may not even be installed yet.
         if serve["started"]:
@@ -302,12 +318,12 @@ def create_community_router(
             args += ["--arch", arch]
         if query:
             args += ["--query", query]
-        return _run_query(args)
+        return await asyncio.to_thread(_run_query, args)
 
     @router.get("/models/{repo_id:path}")
     async def community_model(repo_id: str):
         """Deployable metadata for one bundle: profiles, mesh, chips, weights, engine."""
-        return _run_query(["inspect", repo_id])
+        return await asyncio.to_thread(_run_query, ["inspect", repo_id])
 
     @router.post("/run")
     async def community_run(request: CommunityRunRequest):
@@ -354,10 +370,7 @@ def create_community_router(
     @router.post("/stop")
     async def community_stop(request: CommunityStopRequest):
         """Stop through tt-model-manager so the mesh is closed (and reset) properly."""
-        args = ["stop", request.repo_id]
-        if request.profile:
-            args += ["--profile", request.profile]
-        return _run_query(args)
+        return await asyncio.to_thread(stop_bundle, request.repo_id, request.profile)
 
     def _drive_serve(job_id: str, request: CommunityRunRequest) -> None:
         """Stream the runner's NDJSON into the shared job stores."""

@@ -10,6 +10,7 @@ an error event whose message has to reach the user intact.
 
 import asyncio
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -316,6 +317,64 @@ class TestVerifiedCatalog:
         ))
         community._serves.pop(response["job_id"])
         assert response["status"] == "success"
+
+
+class TestStop:
+    """A stop can take minutes, and must neither stall the server nor be cut short."""
+
+    SLOW_STOP = """
+import json, sys, time
+time.sleep(1)
+print(json.dumps({"event": "result", "status": "success", "argv": sys.argv[1:]}), flush=True)
+"""
+
+    def _stop_route(self, tmp_path, monkeypatch):
+        runner = tmp_path / "stub_runner.py"
+        runner.write_text(self.SLOW_STOP)
+        monkeypatch.setattr(community, "RUNNER", str(runner))
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+        router = community.create_community_router(
+            progress_store={}, log_store={}, progress_lock=threading.Lock(),
+            max_log_messages=10,
+        )
+        return next(r for r in router.routes if r.path == "/community/stop")
+
+    def test_the_event_loop_keeps_serving_while_a_stop_runs(self, tmp_path, monkeypatch):
+        route = self._stop_route(tmp_path, monkeypatch)
+
+        async def scenario():
+            ticks = 0
+
+            async def health_checks():
+                nonlocal ticks
+                while True:
+                    await asyncio.sleep(0.05)
+                    ticks += 1
+
+            ticker = asyncio.create_task(health_checks())
+            result = await route.endpoint(
+                community.CommunityStopRequest(repo_id="ns/name", profile="p150")
+            )
+            ticker.cancel()
+            return result, ticks
+
+        result, ticks = asyncio.run(scenario())
+        assert result["argv"] == ["stop", "ns/name", "--profile", "p150"]
+        # Blocked, the ticker would not run once during the runner's one-second stop.
+        assert ticks >= 5
+
+    def test_stop_outlasts_tt_model_managers_own_stop_and_reset(self, monkeypatch):
+        seen = {}
+
+        def fake_run(argv, **kwargs):
+            seen["timeout"] = kwargs["timeout"]
+            return subprocess.CompletedProcess(argv, 0, stdout='{"event": "result"}\n', stderr="")
+
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+        monkeypatch.setattr(community.subprocess, "run", fake_run)
+        community.stop_bundle("ns/name")
+        # docker stop --timeout 120, then up to 180 s of mesh reset.
+        assert seen["timeout"] > 120 + 180
 
 
 class TestDownloadProgress:

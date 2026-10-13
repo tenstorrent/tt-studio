@@ -30,6 +30,11 @@ from shared_config.community_model_config import (
 
 logger = logging.getLogger(__name__)
 
+# Longer than inference-api's own stop timeout (tt-model-manager's 120 s docker stop plus
+# its 180 s mesh reset, with margin), so the backend never gives up on a stop still running.
+_STOP_TIMEOUT_SECONDS = 420
+# A cancel first waits up to a minute for the serve to die, then stops the bundle.
+_CANCEL_TIMEOUT_SECONDS = _STOP_TIMEOUT_SECONDS + 60
 
 
 @dataclass(frozen=True)
@@ -165,7 +170,7 @@ def start_community_deployment(
 
 
 def stop_community_deployment(
-    repo_id: str, profile: Optional[str] = None, timeout_seconds: int = 180
+    repo_id: str, profile: Optional[str] = None, timeout_seconds: int = _STOP_TIMEOUT_SECONDS
 ) -> Dict[str, Any]:
     """Stop a bundle through tt-model-manager.
 
@@ -188,7 +193,9 @@ def stop_community_deployment(
         return {"status": "error", "message": f"Bad response stopping {repo_id}"}
 
 
-def cancel_community_deployment(job_id: str, timeout_seconds: int = 180) -> Dict[str, Any]:
+def cancel_community_deployment(
+    job_id: str, timeout_seconds: int = _CANCEL_TIMEOUT_SECONDS
+) -> Dict[str, Any]:
     """Cancel an in-flight deploy job through the inference-server path's cancel.
 
     ``community`` in the reply says whether a community serve was still running.
