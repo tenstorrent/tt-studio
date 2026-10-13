@@ -2,7 +2,9 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 from unittest.mock import patch
 
@@ -14,7 +16,9 @@ from docker_control.chip_allocator import (
     ChipSlotAllocator,
     MultiChipConflictError,
 )
+from docker_control import deployment_store
 from docker_control.deployment_sync import _classify_failure
+from docker_control.models import ModelDeployment
 from docker_control.artifact_resolution import _LLAMA_V014_IMAGE, training_image_override
 from docker_control.docker_utils import (
     claims_whole_board,
@@ -26,6 +30,7 @@ from docker_control.docker_utils import (
     vllm_mesh_fallback_fits,
 )
 from docker_control.views import (
+    _card_reset_device_ids,
     _resolve_artifact_ref,
     _resolve_override_docker_image,
 )
@@ -245,6 +250,70 @@ class ChipAllocatorExternalContainerTests(TestCase):
         allocator = self._make_allocator()
         self._enter(self._with_docker(allocator, [_container("chromadb", ["/dev/fuse"]), _container("plain", [])]))
         self.assertEqual(allocator._get_occupied_slots(), set())
+
+
+# tt-smi -s on a QuietBox 2: two P300 cards, two chips each.
+_QB2_TT_SMI = {
+    "device_info": [
+        {"board_info": {"board_type": "p300c", "board_id": "card-a"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-a"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-b"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-b"}},
+    ]
+}
+
+
+class CardResetDeviceIdsTests(SimpleTestCase):
+    """Stopping a model resets its whole P300 card when the card is otherwise idle."""
+
+    def setUp(self):
+        # ModelDeployment is a JSON-file store, not the ORM; keep it in a scratch file.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store_patch = patch.object(deployment_store, "_STORE_PATH", Path(tmp.name) / "deployments.json")
+        store_patch.start()
+        self.addCleanup(store_patch.stop)
+        self.stopped_id = ModelDeployment.objects.create(
+            container_id="container-abc", model_name="speecht5_tts", device_id=3, status="stopped",
+        ).id
+
+    def _reset_ids(self, device_ids, occupied, tt_smi=_QB2_TT_SMI):
+        """occupied: {slot_id: deployment_id or None (a foreign container)}."""
+        slots = [
+            {"slot_id": i, "status": "occupied", "deployment_id": occupied[i]}
+            if i in occupied
+            else {"slot_id": i, "status": "available"}
+            for i in range(4)
+        ]
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=tt_smi), \
+             patch("docker_control.chip_allocator.ChipSlotAllocator") as allocator_cls:
+            allocator_cls.return_value.get_chip_status.return_value = {"slots": slots}
+            return _card_reset_device_ids(device_ids, "container-abc")
+
+    def test_sibling_still_running_a_model_is_left_alone(self):
+        self.assertEqual(self._reset_ids([3], occupied={2: 11}), [3])
+
+    def test_idle_sibling_is_reset_with_the_stopped_chip(self):
+        self.assertEqual(self._reset_ids([2], occupied={}), [2, 3])
+
+    def test_other_card_is_never_touched(self):
+        self.assertEqual(self._reset_ids([2], occupied={0: 11, 1: 12}), [2, 3])
+
+    def test_two_chip_model_resets_its_own_card(self):
+        self.assertEqual(self._reset_ids([2, 3], occupied={0: 11}), [2, 3])
+
+    def test_stopped_model_still_listed_on_its_chip_does_not_block_the_card(self):
+        self.assertEqual(self._reset_ids([3], occupied={3: self.stopped_id}), [2, 3])
+
+    def test_sibling_held_by_a_foreign_container_is_left_alone(self):
+        self.assertEqual(self._reset_ids([2], occupied={3: None}), [2])
+
+    def test_unknown_topology_resets_only_the_stopped_chips(self):
+        self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=None), [2])
+
+    def test_single_chip_cards_have_no_siblings(self):
+        tt_smi = {"device_info": [{"board_info": {"board_id": f"card-{i}"}} for i in range(4)]}
+        self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=tt_smi), [2])
 
 
 class ClassifyFailureTests(SimpleTestCase):

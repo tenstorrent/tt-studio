@@ -214,6 +214,49 @@ def _lookup_deployment_device_ids(container_id):
         logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
         return []
 
+
+def _card_reset_device_ids(device_ids, container_id):
+    """Widen a post-stop reset to whole cards whose other chips are free.
+
+    A P300 card carries two chips. Resetting them one at a time (chip 3 when its
+    model stops, chip 2 later) leaves the card unable to open a 2-chip mesh
+    ("Requested mesh shape [1, 2] requires 2 devices") until both are reset in a
+    single tt-smi call. So when no other model holds a chip on the same card,
+    reset the whole card; otherwise reset only the stopped model's chips.
+    Chips are grouped into cards by tt-smi's board_id.
+    """
+    ids = sorted(set(device_ids))
+    try:
+        tt_smi = SystemResourceService.get_tt_smi_data() or {}
+        board_of = {
+            index: (dev.get("board_info") or {}).get("board_id")
+            for index, dev in enumerate(tt_smi.get("device_info") or [])
+        }
+        cards = {board_of.get(d) for d in ids} - {None, ""}
+        if not any(b in cards for i, b in board_of.items() if i not in ids):
+            return ids
+
+        from docker_control.chip_allocator import ChipSlotAllocator
+        from docker_control.models import ModelDeployment
+
+        stopped = ModelDeployment.objects.filter(container_id=container_id).first()
+        stopped_id = getattr(stopped, "id", None)
+        busy = {
+            slot["slot_id"]
+            for slot in ChipSlotAllocator().get_chip_status()["slots"]
+            if slot["status"] == "occupied"
+            and (stopped_id is None or slot.get("deployment_id") != stopped_id)
+        }
+        widened = set(ids)
+        for card in cards:
+            card_chips = {i for i, b in board_of.items() if b == card}
+            if not (card_chips - set(ids)) & busy:
+                widened |= card_chips
+        return sorted(widened)
+    except Exception as e:
+        logger.warning(f"Could not check card siblings for chips {ids}: {e}")
+        return ids
+
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
         # Detect current board type using tt-smi command
@@ -3428,6 +3471,18 @@ class StopStreamView(View):
                     yield _sse_event({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
                     yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
                     return
+
+                card_ids = await asyncio.to_thread(_card_reset_device_ids, device_ids, container_id)
+                if card_ids != sorted(device_ids):
+                    yield _sse_event({
+                        "type": "log",
+                        "step": "resetting",
+                        "message": (
+                            f"Also resetting idle chip(s) {', '.join(str(d) for d in card_ids if d not in device_ids)} "
+                            "on the same card, so the card is reset as a whole"
+                        ),
+                    })
+                device_ids = card_ids
 
                 label = ", ".join(str(d) for d in device_ids)
                 yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
