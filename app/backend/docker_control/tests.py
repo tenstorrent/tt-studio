@@ -30,6 +30,7 @@ from docker_control.docker_utils import (
     vllm_mesh_fallback_fits,
 )
 from docker_control.views import (
+    _card_groups,
     _card_reset_device_ids,
     _resolve_artifact_ref,
     _resolve_override_docker_image,
@@ -277,16 +278,19 @@ class CardResetDeviceIdsTests(SimpleTestCase):
             container_id="container-abc", model_name="speecht5_tts", device_id=3, status="stopped",
         ).id
 
-    def _reset_ids(self, device_ids, occupied, tt_smi=_QB2_TT_SMI):
-        """occupied: {slot_id: deployment_id or None (a foreign container)}."""
+    def _reset_ids(self, device_ids, occupied, tt_smi=_QB2_TT_SMI, containers=(), listing_error=None):
+        """occupied: {slot_id: deployment_id or None (a foreign container)}.
+        containers: running containers as docker-control lists them."""
         slots = [
             {"slot_id": i, "status": "occupied", "deployment_id": occupied[i]}
             if i in occupied
             else {"slot_id": i, "status": "available"}
             for i in range(4)
         ]
+        client = _FakeDockerClient(list(containers), error=listing_error)
         with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=tt_smi), \
-             patch("docker_control.chip_allocator.ChipSlotAllocator") as allocator_cls:
+             patch("docker_control.chip_allocator.ChipSlotAllocator") as allocator_cls, \
+             patch("docker_control.docker_control_client.get_docker_client", return_value=client):
             allocator_cls.return_value.get_chip_status.return_value = {"slots": slots}
             return _card_reset_device_ids(device_ids, "container-abc")
 
@@ -311,9 +315,64 @@ class CardResetDeviceIdsTests(SimpleTestCase):
     def test_unknown_topology_resets_only_the_stopped_chips(self):
         self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=None), [2])
 
+    def test_sibling_bound_by_a_container_the_records_miss_is_left_alone(self):
+        holder = _container("tt-model-s2-pro", ["/dev/tenstorrent/3"], "f00d" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[holder]), [2])
+
+    def test_container_bound_to_the_whole_device_dir_blocks_widening(self):
+        holder = _container("manual-run", ["/dev/tenstorrent"], "beef" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[holder]), [2])
+
+    def test_tt_studio_infrastructure_containers_do_not_block_widening(self):
+        backend = _container("tt_studio_backend_api_dev", ["/dev/tenstorrent"], "cafe" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[backend]), [2, 3])
+
+    def test_unreadable_container_listing_resets_only_the_stopped_chips(self):
+        self.assertEqual(
+            self._reset_ids([2], occupied={}, listing_error=ConnectionError("docker-control down")), [2]
+        )
+
+    def test_card_groups_follow_board_id(self):
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=_QB2_TT_SMI):
+            self.assertEqual(_card_groups(), [[0, 1], [2, 3]])
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=None):
+            self.assertEqual(_card_groups(), [])
+
     def test_single_chip_cards_have_no_siblings(self):
         tt_smi = {"device_info": [{"board_info": {"board_id": f"card-{i}"}} for i in range(4)]}
         self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=tt_smi), [2])
+
+
+class ChipResetLockTests(SimpleTestCase):
+    """Two resets of the same card must never run tt-smi at the same time."""
+
+    def test_concurrent_reset_streams_run_one_after_another(self):
+        import asyncio
+
+        from django.test import RequestFactory
+
+        from docker_control.views import ResetStreamView
+
+        events = []
+
+        async def fake_reset(device_ids, *, force_refresh):
+            events.append("start")
+            await asyncio.sleep(0.05)
+            events.append("end")
+            yield ("ok", True)
+
+        async def drain(device_id):
+            response = await ResetStreamView().get(RequestFactory().get("/"), device_id=device_id)
+            async for _ in response.streaming_content:
+                pass
+
+        async def main():
+            await asyncio.gather(drain(2), drain(3))
+
+        with patch("docker_control.views._astream_tt_smi_reset", fake_reset):
+            asyncio.run(main())
+
+        self.assertEqual(events, ["start", "end", "start", "end"])
 
 
 class ClassifyFailureTests(SimpleTestCase):

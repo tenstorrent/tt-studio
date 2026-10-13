@@ -215,6 +215,51 @@ def _lookup_deployment_device_ids(container_id):
         return []
 
 
+def _card_groups():
+    """Chips grouped by the card they sit on, from tt-smi's board_id.
+
+    A P300 card carries two chips, so on a P300x2 this is [[0, 1], [2, 3]].
+    Single-chip cards come back as one-element groups; [] when tt-smi is
+    unavailable.
+    """
+    tt_smi = SystemResourceService.get_tt_smi_data() or {}
+    cards = {}
+    for index, dev in enumerate(tt_smi.get("device_info") or []):
+        board_id = (dev.get("board_info") or {}).get("board_id")
+        if board_id:
+            cards.setdefault(board_id, []).append(index)
+    return sorted(cards.values())
+
+
+def _chips_bound_by_containers():
+    """Chips bound by any running container other than TT-Studio's own.
+
+    Raises when Docker cannot be listed: callers must treat that as "unknown",
+    never as "free", before resetting anything.
+    """
+    from docker_control.docker_control_client import get_docker_client
+
+    response = get_docker_client().list_containers(all=False)
+    if isinstance(response, dict):
+        if response.get("status") == "error":
+            raise RuntimeError(response.get("message", "container listing failed"))
+        containers = response.get("containers", []) or []
+    else:
+        containers = response or []
+    bound = set()
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        name = (container.get("name") or "").lstrip("/").lower()
+        if any(name.startswith(prefix) for prefix in INFRA_CONTAINER_PREFIXES):
+            continue
+        chips = _detect_device_ids_from_mounts(container)
+        if chips == "whole":
+            return None  # holds every chip
+        bound.update(chips or [])
+    return bound
+
+
 def _card_reset_device_ids(device_ids, container_id):
     """Widen a post-stop reset to whole cards whose other chips are free.
 
@@ -223,17 +268,14 @@ def _card_reset_device_ids(device_ids, container_id):
     ("Requested mesh shape [1, 2] requires 2 devices") until both are reset in a
     single tt-smi call. So when no other model holds a chip on the same card,
     reset the whole card; otherwise reset only the stopped model's chips.
-    Chips are grouped into cards by tt-smi's board_id.
+
+    A sibling only counts as free when both the deployment records and a fresh
+    container listing say so; if either cannot be read, nothing is widened.
     """
     ids = sorted(set(device_ids))
     try:
-        tt_smi = SystemResourceService.get_tt_smi_data() or {}
-        board_of = {
-            index: (dev.get("board_info") or {}).get("board_id")
-            for index, dev in enumerate(tt_smi.get("device_info") or [])
-        }
-        cards = {board_of.get(d) for d in ids} - {None, ""}
-        if not any(b in cards for i, b in board_of.items() if i not in ids):
+        cards = [card for card in _card_groups() if set(card) & set(ids)]
+        if not any(set(card) - set(ids) for card in cards):
             return ids
 
         from docker_control.chip_allocator import ChipSlotAllocator
@@ -247,11 +289,15 @@ def _card_reset_device_ids(device_ids, container_id):
             if slot["status"] == "occupied"
             and (stopped_id is None or slot.get("deployment_id") != stopped_id)
         }
+        bound = _chips_bound_by_containers()
+        if bound is None:
+            return ids
+        busy |= bound
+
         widened = set(ids)
         for card in cards:
-            card_chips = {i for i, b in board_of.items() if b == card}
-            if not (card_chips - set(ids)) & busy:
-                widened |= card_chips
+            if not (set(card) - set(ids)) & busy:
+                widened |= set(card)
         return sorted(widened)
     except Exception as e:
         logger.warning(f"Could not check card siblings for chips {ids}: {e}")
@@ -433,6 +479,8 @@ class ChipStatusView(APIView):
 
             allocator = ChipSlotAllocator()
             status_info = allocator.get_chip_status()
+            # Which chips share a card, so the UI can preview a card-wide reset.
+            status_info["cards"] = _card_groups()
 
             return Response(status_info, status=status.HTTP_200_OK)
 
@@ -3353,6 +3401,12 @@ async def _astream_stop_remove_container(container_id, truncated):
     yield f"Container {truncated} stopped and removed successfully"
 
 
+# Held around every tt-smi reset, and around a stop's choice of chips to reset,
+# so two stops on one card or a stop and a board reset never overlap. All reset
+# paths run on uvicorn's single event loop.
+_CHIP_RESET_LOCK = asyncio.Lock()
+
+
 async def _astream_tt_smi_reset(device_ids, *, force_refresh):
     """Run `tt-smi -r [ids]` (whole board when empty), streaming its output.
 
@@ -3472,30 +3526,41 @@ class StopStreamView(View):
                     yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
                     return
 
-                card_ids = await asyncio.to_thread(_card_reset_device_ids, device_ids, container_id)
-                if card_ids != sorted(device_ids):
-                    yield _sse_event({
-                        "type": "log",
-                        "step": "resetting",
-                        "message": (
-                            f"Also resetting idle chip(s) {', '.join(str(d) for d in card_ids if d not in device_ids)} "
-                            "on the same card, so the card is reset as a whole"
-                        ),
-                    })
-                device_ids = card_ids
+                if _CHIP_RESET_LOCK.locked():
+                    yield _sse_event({"type": "log", "step": "resetting", "message": "Waiting for another reset to finish…"})
+                async with _CHIP_RESET_LOCK:
+                    # Mark the board as resetting before choosing chips, so no new
+                    # deploy can claim a sibling between the check and the reset.
+                    await asyncio.to_thread(SystemResourceService.set_resetting_state)
+                    card_ids = await asyncio.to_thread(_card_reset_device_ids, device_ids, container_id)
+                    if card_ids != sorted(device_ids):
+                        yield _sse_event({
+                            "type": "log",
+                            "step": "resetting",
+                            "message": (
+                                f"Also resetting idle chip(s) {', '.join(str(d) for d in card_ids if d not in device_ids)} "
+                                "on the same card, so the card is reset as a whole"
+                            ),
+                        })
+                    device_ids = card_ids
 
-                label = ", ".join(str(d) for d in device_ids)
-                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-                async for event in _astream_reset_phase(
-                    device_ids,
-                    force_refresh=True,
-                    success_msg=f"Model deleted and device(s) {label} reset successfully",
-                    partial_msg=(
-                        f"Model deleted, but reset of device(s) {label} did not complete "
-                        "successfully. Manual intervention may be required."
-                    ),
-                ):
-                    yield event
+                    label = ", ".join(str(d) for d in device_ids)
+                    yield _sse_event({
+                        "type": "step",
+                        "step": "resetting",
+                        "message": f"Resetting device(s) {label}…",
+                        "device_ids": device_ids,
+                    })
+                    async for event in _astream_reset_phase(
+                        device_ids,
+                        force_refresh=True,
+                        success_msg=f"Model deleted and device(s) {label} reset successfully",
+                        partial_msg=(
+                            f"Model deleted, but reset of device(s) {label} did not complete "
+                            "successfully. Manual intervention may be required."
+                        ),
+                    ):
+                        yield event
             except Exception as e:
                 # Never let the stream die without a terminal event; the client
                 # treats an abrupt close as "Connection to stream lost".
@@ -3519,13 +3584,16 @@ class ResetStreamView(View):
             yield "retry: 1000\n\n"
             try:
                 yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-                async for event in _astream_reset_phase(
-                    device_ids,
-                    force_refresh=False,
-                    success_msg=f"Reset of {label} completed successfully",
-                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-                ):
-                    yield event
+                if _CHIP_RESET_LOCK.locked():
+                    yield _sse_event({"type": "log", "step": "resetting", "message": "Waiting for another reset to finish…"})
+                async with _CHIP_RESET_LOCK:
+                    async for event in _astream_reset_phase(
+                        device_ids,
+                        force_refresh=False,
+                        success_msg=f"Reset of {label} completed successfully",
+                        partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                    ):
+                        yield event
             except Exception as e:
                 # Always emit a terminal event so the client never sees an abrupt
                 # close ("Connection to stream lost") on an unexpected failure.
@@ -3633,11 +3701,12 @@ async def _run_reset_all_job():
         state["step"] = "resetting"
         _log("All models stopped — resetting board…")
         reset_ok = False
-        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
-            if kind == "log":
-                _log(payload)
-            else:
-                reset_ok = bool(payload)
+        async with _CHIP_RESET_LOCK:
+            async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+                if kind == "log":
+                    _log(payload)
+                else:
+                    reset_ok = bool(payload)
 
         state["step"] = "done"
         state["done"] = True

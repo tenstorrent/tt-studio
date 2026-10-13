@@ -556,7 +556,7 @@ export default function ModelsDeployedCard(): ReactElement {
     <DeleteModelDialog
       open={showDeleteModal}
       modelId={deleteTargetId || ""}
-      deviceIds={deleteDeviceIds}
+      deviceIds={deleteStream.resetDeviceIds ?? deleteDeviceIds}
       totalDevices={chipStatus?.total_slots}
       boardType={chipStatus?.board_type}
       isLoading={deleteStream.status === "running"}
@@ -762,11 +762,18 @@ export default function ModelsDeployedCard(): ReactElement {
                     }
                   }}
                   onDelete={(id: string) => {
+                    const ids = deviceIdsForRow(rows.find((r) => r.id === id));
                     setDeleteTargetId(id);
-                    setDeleteDeviceIds(
-                      resetDeviceIdsForStop(deviceIdsForRow(rows.find((r) => r.id === id)), chipStatus),
-                    );
+                    setDeleteDeviceIds(resetDeviceIdsForStop(ids, chipStatus));
                     setShowDeleteModal(true);
+                    // chipStatus can be minutes old; preview against current occupancy.
+                    axios
+                      .get<ChipStatus>("/docker-api/chip-status/")
+                      .then((res) => {
+                        setChipStatus(res.data);
+                        setDeleteDeviceIds(resetDeviceIdsForStop(ids, res.data));
+                      })
+                      .catch(() => {});
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
                   onNavigateToModel={(id: string, name: string) => {
