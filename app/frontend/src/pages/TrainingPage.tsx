@@ -75,7 +75,8 @@ const STATUS_STYLES: Record<
   },
 };
 
-const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+// A cancelling job can be deleted too: the container force-stops its worker first.
+const DELETABLE_STATUSES = ["completed", "failed", "cancelled", "cancelling"];
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_STYLES[status] ?? STATUS_STYLES.queued;
@@ -143,6 +144,9 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: "cancelling" } : j)),
+      );
       customToast.success(
         "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
       );
@@ -314,7 +318,7 @@ export default function TrainingPage() {
                               Cancel
                             </Button>
                           )}
-                          {TERMINAL_STATUSES.includes(job.status) && (
+                          {DELETABLE_STATUSES.includes(job.status) && (
                             <ConfirmDialog
                               dialogTitle="Delete fine-tuning job?"
                               dialogDescription="This permanently deletes the job, its checkpoints, and any models promoted from it."
