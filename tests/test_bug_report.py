@@ -133,6 +133,29 @@ class TestReportBug(unittest.TestCase):
         self.open_mailto.assert_not_called()
         self.assertIn("open the .eml above", self._printed())
 
+    def _panel_rows(self):
+        return "\n".join(str(r) for r in self.panel.call_args.args[1])
+
+    def test_mac_is_told_to_forward_not_send(self):
+        # Apple Mail opens an .eml as a received message with no Send button.
+        self.panel = self._patch("notice_panel", return_value="panel")
+        self.open_eml.return_value = False
+        with mock.patch.object(bug_report.sys, "platform", "darwin"):
+            bug_report.report_bug()
+        rows, printed = self._panel_rows(), self._printed()
+        self.assertIn("Forward", rows)
+        self.assertNotIn("2. Send", rows)
+        self.assertIn("hit Forward", printed)
+        self.assertNotIn("hit Send", printed)
+
+    def test_other_platforms_are_told_to_send(self):
+        self.panel = self._patch("notice_panel", return_value="panel")
+        self.open_eml.return_value = False
+        with mock.patch.object(bug_report.sys, "platform", "linux"):
+            bug_report.report_bug()
+        self.assertIn("2. Send", self._panel_rows())
+        self.assertIn("hit Send", self._printed())
+
     def test_falls_back_to_mailto_without_an_eml(self):
         self._patch("write_eml", side_effect=OSError("disk full"))
         bug_report.report_bug()

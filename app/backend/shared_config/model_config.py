@@ -113,6 +113,9 @@ class ModelImpl:
     # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
     # files and populate this, and docker_utils.run_container, which consumes it.
     runtime_model_spec_overrides: Optional[Dict[str, str]] = None
+    # vLLM --tool-call-parser / --reasoning-parser, from the model support spec.
+    tool_call_parser: Optional[str] = None
+    reasoning_parser: Optional[str] = None
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -170,16 +173,6 @@ class ModelImpl:
         env_dict = load_dotenv_dict(_env_file)
         # env file overrides any existing docker environment variables
         self.docker_config["environment"].update(env_dict)
-
-    @property
-    def tool_call_parser(self) -> str:
-        """Infer the vLLM --tool-call-parser value from model name / HF ID."""
-        name = (self.model_name or self.hf_model_id or "").lower()
-        if "qwen" in name or "qwq" in name:
-            return "hermes"
-        if "mistral" in name:
-            return "mistral"
-        return "llama3_json"
 
     @property
     def image_version(self) -> str:
@@ -399,6 +392,8 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
             runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
+            tool_call_parser=entry.get("tool_call_parser"),
+            reasoning_parser=entry.get("reasoning_parser"),
         )
         impls.append(impl)
     return impls

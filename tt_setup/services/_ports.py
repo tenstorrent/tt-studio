@@ -183,7 +183,7 @@ def check_and_free_ports(ports, no_sudo=False):
         names = ", ".join(f"{port} ({name})" for port, name in docker_ports)
         console.print(f"[muted]↻ {len(docker_ports)} port(s) held by running TT Studio "
                       f"containers — left for compose to recreate ([/muted]"
-                      f"[muted]python run.py --stop[/muted][muted] to free them): {names}[/muted]")
+                      f"[muted]{LAUNCH_CMD} --stop[/muted][muted] to free them): {names}[/muted]")
 
     if freed_ports:
         # The transient "🔓 Freeing…" line already showed the work; keep the
@@ -323,9 +323,12 @@ def _pid_is_zombie(pid):
     except FileNotFoundError:
         if os.path.isdir("/proc"):
             return False  # no such process
-        result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
-                                capture_output=True, text=True, check=False)
-        state = result.stdout.strip()
+        try:
+            result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                                    capture_output=True, text=True, check=False)
+            state = result.stdout.strip()
+        except (OSError, Exception):
+            return False
     except (OSError, IndexError, ValueError):
         return False
     return state[:1] == "Z"
