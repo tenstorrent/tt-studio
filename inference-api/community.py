@@ -139,6 +139,31 @@ def _tail(path: Path, lines: int) -> str:
         return ""
 
 
+def follow_container_log(container_name: str, log_path: Path) -> None:
+    """Stream a started container's output into its deploy log, for the container's life.
+
+    The community counterpart of the docker log file tt-inference-server writes for its
+    containers: the follower outlives this job and inference-api itself, and ends when
+    the container is removed, so a model that dies after the deploy completed still
+    leaves its reason where the logs page, the health monitor and bug reports read it.
+    """
+    try:
+        handle = open(log_path, "a", buffering=1)
+    except OSError as e:
+        logger.warning("Could not open %s for %s's output: %s", log_path, container_name, e)
+        return
+    try:
+        subprocess.Popen(
+            ["docker", "logs", "--follow", container_name],
+            stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except OSError as e:
+        logger.warning("Could not follow %s's output: %s", container_name, e)
+    finally:
+        handle.close()  # the follower holds its own descriptor
+
+
 def _runner_env(hf_token: Optional[str] = None) -> Dict[str, str]:
     """Environment for the runner: the host user's, plus the UI-managed HF token.
 
@@ -431,16 +456,23 @@ def create_community_router(
                 elif kind == "started":
                     with _serves_lock:
                         _serves[job_id]["started"] = True
-                    # The container exists; warmup is now tracked from its own logs by
-                    # the backend's health monitor, exactly as for an inference-server
-                    # deploy that returns before the model is loaded.
+                    # The container exists; warmup is now tracked by the backend's
+                    # health monitor, exactly as for an inference-server deploy that
+                    # returns before the model is loaded. Its output goes to the deploy
+                    # log, reported under the same key inference-server deploys use.
+                    container_name = event.get("container_name")
+                    fields = {}
+                    if log_path and container_name:
+                        follow_container_log(container_name, log_path)
+                        fields["docker_log_file_path"] = str(log_path)
                     _set_progress(
                         job_id,
                         stage="container_setup",
                         progress=90,
-                        message=f"{event.get('container_name')} started",
-                        container_name=event.get("container_name"),
+                        message=f"{container_name} started",
+                        container_name=container_name,
                         container_id=event.get("container_id"),
+                        **fields,
                     )
                 elif kind == "result":
                     result = event

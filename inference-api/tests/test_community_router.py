@@ -32,6 +32,16 @@ def _every_stub_bundle_is_verified(monkeypatch):
     monkeypatch.setattr(community, "is_verified_bundle", lambda repo_id: True)
 
 
+@pytest.fixture(autouse=True)
+def followed(monkeypatch):
+    """Record container-log follows instead of running `docker logs`."""
+    calls = []
+    monkeypatch.setattr(
+        community, "follow_container_log", lambda name, path: calls.append((name, path))
+    )
+    return calls
+
+
 def _run_route(router):
     return next(r for r in router.routes if r.path == "/community/run")
 
@@ -448,6 +458,15 @@ sys.exit(1)
         assert log.name.endswith(".log")
         assert progress["log_file"] == str(log)
 
+    def test_the_containers_output_follows_into_the_log(self, tmp_path, monkeypatch, followed):
+        # The counterpart of tt-inference-server's docker log file: the backend records
+        # it as the deployment's workflow log, which outlives the container.
+        log_dir = tmp_path / "model_run_logs"
+        progress, _ = self._drive(tmp_path, monkeypatch, TestDriveServe.STUB, log_dir)
+        log = self._only_log(log_dir)
+        assert followed == [("tt-model-x-default", log)]
+        assert progress["docker_log_file_path"] == str(log)
+
     def test_the_log_holds_the_events_and_the_runners_own_output(self, tmp_path, monkeypatch):
         log_dir = tmp_path / "model_run_logs"
         self._drive(tmp_path, monkeypatch, self.STUB, log_dir)
@@ -488,3 +507,24 @@ class TestDeploymentLogPath:
         target = tmp_path / "nested" / "model_run_logs"
         community.deployment_log_path(target, "ns/model", "p150")
         assert target.is_dir()
+
+
+class TestFollowContainerLog:
+    def test_appends_the_containers_output_and_outlives_the_caller(self, tmp_path, monkeypatch):
+        log = tmp_path / "deploy.log"
+        log.write_text("deploy event\n")
+        launched = {}
+
+        def popen(argv, **kwargs):
+            launched.update(argv=argv, **kwargs)
+            kwargs["stdout"].write("container line\n")
+
+        monkeypatch.setattr(community.subprocess, "Popen", popen)
+        # The real function, not the autouse stub.
+        follow = TestFollowContainerLog.__dict__["_real"]
+        follow("tt-model-x", log)
+        assert launched["argv"] == ["docker", "logs", "--follow", "tt-model-x"]
+        assert launched["start_new_session"] is True
+        assert log.read_text() == "deploy event\ncontainer line\n"
+
+    _real = staticmethod(community.follow_container_log)
