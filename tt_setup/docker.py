@@ -3,6 +3,7 @@
 
 """Docker installation, access, command execution, and compose-command building."""
 
+import fnmatch
 import os
 import sys
 import subprocess
@@ -309,6 +310,13 @@ def ensure_docker_group_membership():
         return False
 
 
+# Never made world-readable: secrets a developer may keep next to the code (the
+# agent's .dockerignore keeps the same .env files out of its image), and trees
+# no container reads.
+_KEEP_PRIVATE_FILES = (".env*", "*.pem", "*.key")
+_SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__"}
+
+
 def grant_container_read(paths):
     """Make *paths* readable by everyone, recursing into directories.
 
@@ -340,9 +348,11 @@ def grant_container_read(paths):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             _grant(dirpath, True)
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             for name in filenames:
                 path = os.path.join(dirpath, name)
-                if not os.path.islink(path):
+                private = any(fnmatch.fnmatch(name, p) for p in _KEEP_PRIVATE_FILES)
+                if not private and not os.path.islink(path):
                     _grant(path, False)
     return failed
 

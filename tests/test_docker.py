@@ -183,8 +183,6 @@ class TestDockerSocketPath(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestGrantContainerRead(unittest.TestCase):
@@ -219,6 +217,28 @@ class TestGrantContainerRead(unittest.TestCase):
             self.assertEqual(mode(script), 0o775)
             self.assertEqual(mode(pkg), 0o775)
 
+    def test_secrets_and_ignored_trees_stay_private(self):
+        import stat
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pkg:
+            venv = os.path.join(pkg, ".venv")
+            os.mkdir(venv)
+            private = [os.path.join(pkg, n) for n in (".env", ".env.local", "client.key", "cert.pem")]
+            private.append(os.path.join(venv, "secret.py"))
+            for path in private:
+                with open(path, "w") as f:
+                    f.write("x")
+                os.chmod(path, 0o600)
+            os.chmod(venv, 0o700)
+
+            M.grant_container_read([pkg])
+
+            mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+            for path in private:
+                self.assertEqual(mode(path), 0o600, path)
+            self.assertEqual(mode(venv), 0o700)
+
     def test_already_readable_files_are_left_alone(self):
         import tempfile
 
@@ -228,3 +248,6 @@ class TestGrantContainerRead(unittest.TestCase):
                 M.grant_container_read([f.name])
             chmod.assert_not_called()
 
+
+if __name__ == "__main__":
+    unittest.main()
