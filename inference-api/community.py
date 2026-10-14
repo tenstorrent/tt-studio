@@ -89,8 +89,8 @@ class CommunityRunRequest(BaseModel):
 
     repo_id: str
     profile: Optional[str] = None
-    # TT Studio's own convention: 7000 + device_id. Moves both docker's published
-    # mapping and the engine's --port, keeping community and catalog models aligned.
+    # The host port TT Studio allocated (first free from 20000, as for catalog models).
+    # Moves both docker's published mapping and the engine's --port.
     service_port: Optional[int] = None
     # Chips to scope the container to, matching the profile's own chip count. Omitted
     # lets tt-model-manager pick the lowest free chips itself.

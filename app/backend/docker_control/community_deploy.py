@@ -28,6 +28,7 @@ from docker_control.chip_allocator import (
     MultiChipConflictError,
 )
 from docker_control.deploy_guards import (
+    claim_service_port,
     deploy_in_flight_refusal,
     hugging_face_access_refusal,
 )
@@ -42,8 +43,6 @@ from shared_config.community_model_config import (
 )
 
 logger = logging.getLogger(__name__)
-
-BASE_SERVICE_PORT = 7000
 
 
 def deploy_community_model(request) -> Response:
@@ -133,7 +132,9 @@ def deploy_community_model(request) -> Response:
             {"status": "error", "error_type": "allocation_failed", "message": str(e)},
             status=status.HTTP_409_CONFLICT,
         )
-    service_port = BASE_SERVICE_PORT + device_id
+    service_port, refusal = claim_service_port(impl.model_name)
+    if refusal:
+        return Response(refusal[0], status=refusal[1])
     # The port has to be on the impl too: it is what the deploy cache turns into the
     # model's internal URL once the container is up.
     impl = dataclasses.replace(impl, service_port=service_port)
@@ -206,8 +207,7 @@ def _allocate_slots(impl, manual_device_id: Optional[int]):
     reserve a bundle's real mesh size instead of the whole board — which means a
     1-chip bundle leaves the rest of a P300x2 free for other models.
 
-    Returns ``(base_slot, every_slot_held)``. The base slot also sets the published
-    port (7000 + base), keeping community and catalog models on one convention.
+    Returns ``(base_slot, every_slot_held)``.
     """
     allocator = ChipSlotAllocator()
     chips = max(1, impl.chips_required)

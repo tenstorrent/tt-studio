@@ -1375,7 +1375,7 @@ def _enrich_container_with_model_impl(con, con_id):
 
     if backend_config.docker_bridge_network_name in con["networks"].keys():
         hostname = con["networks"][backend_config.docker_bridge_network_name]["DNSNames"][0]
-        # Resolve the real bound port (slot-based 7000+device_id) instead of
+        # Resolve the real bound port (allocated from 20000+) instead of
         # the static catalog service_port.
         actual_port = model_impl.service_port
         port_bindings = con.get("port_bindings", {})

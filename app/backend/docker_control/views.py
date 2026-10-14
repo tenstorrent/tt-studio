@@ -28,7 +28,6 @@ import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
-    get_next_service_port,
     get_container_status,
     get_canonical_deployments,
     serialize_canonical_entry_for_http,
@@ -75,7 +74,11 @@ from shared_config.community_model_config import (
 )
 from docker_control import launchers
 from docker_control.community_deploy import deploy_community_model
-from docker_control.deploy_guards import deploy_in_flight_refusal, hugging_face_access_refusal
+from docker_control.deploy_guards import (
+    claim_service_port,
+    deploy_in_flight_refusal,
+    hugging_face_access_refusal,
+)
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -897,21 +900,9 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            # First free port from 20000, independent of chip slot -- a model
-            # still needs only one port whether it's whole-board or single-chip,
-            # and this reuses a port freed by a stopped deployment before it
-            # ever grows past the lowest few ports in the block.
-            service_port = get_next_service_port()
-            if service_port is None:
-                logger.error(f"No free service port available for {impl.model_name}")
-                return Response(
-                    {
-                        "status": "error",
-                        "error_type": "allocation_failed",
-                        "message": "No free host port available for the model server. Stop an unused deployment and try again.",
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
+            service_port, refusal = claim_service_port(impl.model_name)
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,

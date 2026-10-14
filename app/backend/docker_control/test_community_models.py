@@ -113,9 +113,9 @@ class BuildImplTests(unittest.TestCase):
         self.assertEqual(impl.device_configurations, frozenset({DeviceConfigurations.P300x2}))
 
     def test_service_port_is_carried_through(self):
-        # TT Studio's 7000 + device_id convention has to reach the launcher, since it
-        # moves both the published mapping and the engine's own port.
-        self.assertEqual(build_community_model_impl(BUNDLE, service_port=7002).service_port, 7002)
+        # TT Studio's allocated host port has to reach the launcher, since it moves
+        # both the published mapping and the engine's own port.
+        self.assertEqual(build_community_model_impl(BUNDLE, service_port=20001).service_port, 20001)
 
     def test_unknown_profile_falls_back_rather_than_raising(self):
         impl = build_community_model_impl(BUNDLE, "no-such-profile")
@@ -621,3 +621,57 @@ class StopInFlightTests(unittest.TestCase):
         result, cancel, stop = self._stop("a" * 64, {})
         cancel.assert_not_called()
         stop.assert_called_once()
+
+
+class ServicePortTests(unittest.TestCase):
+    """A community deploy publishes on the same 20000+ block as a catalog deploy,
+    not on a port derived from its chip slot."""
+
+    class _Launcher:
+        def __init__(self):
+            self.request = None
+
+        def available(self):
+            return True
+
+        def start(self, request):
+            from types import SimpleNamespace
+
+            self.request = request
+            return SimpleNamespace(ok=True, job_id="j1", message="", api_response={})
+
+    def _deploy(self, port):
+        from types import SimpleNamespace
+
+        from docker_control import community_deploy
+
+        launcher = self._Launcher()
+        impl = build_community_model_impl(BUNDLE)
+        with patch.object(community_deploy, "is_verified_bundle", return_value=True), \
+             patch.object(community_deploy, "get_community_impl", return_value=impl), \
+             patch.object(community_deploy.launchers, "get", return_value=launcher), \
+             patch.object(community_deploy, "hugging_face_access_refusal", return_value=None), \
+             patch.object(community_deploy, "deploy_in_flight_refusal", return_value=None), \
+             patch.object(community_deploy, "_allocate_slots", return_value=(2, [2])), \
+             patch("docker_control.docker_utils.get_next_service_port", return_value=port), \
+             patch.object(community_deploy, "_create_placeholder") as placeholder, \
+             patch("docker_control.deployment_sync.start_deployment_sync"):
+            response = community_deploy.deploy_community_model(
+                SimpleNamespace(data={"model_id": community_model_id(BUNDLE["repo_id"])})
+            )
+        return response, launcher, placeholder
+
+    def test_the_port_comes_from_the_shared_20000_block(self):
+        response, launcher, placeholder = self._deploy(20003)
+        self.assertEqual(response.status_code, 201)
+        # Slot 2 must not leak into the port (the old 7000 + device_id scheme).
+        self.assertEqual(launcher.request.service_port, 20003)
+        self.assertEqual(launcher.request.model_impl.service_port, 20003)
+        self.assertEqual(placeholder.call_args.args[4], 20003)
+
+    def test_an_exhausted_port_block_refuses_before_starting(self):
+        response, launcher, placeholder = self._deploy(None)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["error_type"], "allocation_failed")
+        self.assertIsNone(launcher.request)
+        placeholder.assert_not_called()

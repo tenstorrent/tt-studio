@@ -417,7 +417,7 @@ def _resolve_profile(manifest, name: Optional[str], port: Optional[int]):
 
     The port has to be overridden before composition because it moves two things at
     once — docker's ``--publish`` mapping and the engine's own ``--port`` — which is
-    what lets a community container keep TT Studio's ``7000 + device_id`` convention.
+    what lets a community container use the same 20000+ port block as catalog models.
     """
     profile = manifest.container.resolve_profile(name)
     return profile.model_copy(update={"port": port}) if port is not None else profile
