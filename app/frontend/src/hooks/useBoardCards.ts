@@ -3,6 +3,10 @@
 
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  fetchDeployments,
+  type CanonicalDeployment,
+} from "../api/modelsDeployedApis";
 import { useDeviceState } from "./useDeviceState";
 import { useRefresh } from "./useRefresh";
 import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
@@ -41,6 +45,8 @@ export interface BoardDeployment {
   /** Stable key: `dep-<deploymentId>`, `name-<modelName>`, or `job-<jobId>`. */
   key: string;
   source: BoardDeploymentSource;
+  /** Docker container id for a TT-Studio-managed deployment, else null. */
+  containerId: string | null;
   modelName: string;
   deploymentId: number | null;
   jobId: string | null;
@@ -121,10 +127,12 @@ export interface UseBoardCardsResult {
   data: BoardCardsSnapshot | null;
   /** True until the first chip-status and device-state responses arrive. */
   loading: boolean;
+  /** True while a user-initiated re-scan is in flight. */
+  refreshing: boolean;
   /** Last fetch error. `data` keeps the last good snapshot when a poll fails. */
   error: string | null;
-  /** Re-fetch chip-status and device-state now. */
-  refresh: () => void;
+  /** Re-fetch chip-status and device-state now as a user-initiated action. */
+  refresh: () => Promise<void>;
 }
 
 // ── Pure derivation ─────────────────────────────────────────────────────────────
@@ -152,7 +160,8 @@ function resolveDeviceStatus(
 export function buildBoardCards(
   chipStatus: ChipStatus,
   deviceState: DeviceStateData | null,
-  activeDeployments: readonly ActiveDeployment[] = []
+  activeDeployments: readonly ActiveDeployment[] = [],
+  canonicalDeployments: readonly CanonicalDeployment[] = []
 ): BoardCardsSnapshot {
   const totalDevices = Math.max(0, chipStatus.total_slots ?? 0);
   const boardType =
@@ -163,6 +172,24 @@ export function buildBoardCards(
   const cardOf = (deviceId: number) => Math.floor(deviceId / slotsPerCard);
   const inRange = (id: number) =>
     Number.isInteger(id) && id >= 0 && id < totalDevices;
+
+  const managedCanonical = canonicalDeployments.filter(
+    (d) => d.source === "managed" && !d.is_pending
+  );
+  const canonicalByDeploymentId = new Map<number, CanonicalDeployment>();
+  const canonicalByModelName = new Map<string, CanonicalDeployment>();
+  for (const deployment of managedCanonical) {
+    if (deployment.deployment_id != null) {
+      canonicalByDeploymentId.set(deployment.deployment_id, deployment);
+    }
+    const modelName =
+      deployment.deployment_model_name ??
+      deployment.model_impl?.model_name ??
+      deployment.name;
+    if (modelName && !canonicalByModelName.has(modelName)) {
+      canonicalByModelName.set(modelName, deployment);
+    }
+  }
 
   // 1. Deployments the backend reports. Group slots by deployment instead of
   //    trusting is_multi_chip, which is false for deployments pinned to several
@@ -176,11 +203,18 @@ export function buildBoardCards(
       slot.deployment_id != null
         ? `dep-${slot.deployment_id}`
         : `name-${modelName}`;
+    const canonical =
+      slot.source === "external"
+        ? null
+        : slot.deployment_id != null
+          ? (canonicalByDeploymentId.get(slot.deployment_id) ?? null)
+          : (canonicalByModelName.get(modelName) ?? null);
     let dep = byKey.get(key);
     if (!dep) {
       dep = {
         key,
         source: slot.source === "external" ? "external" : "managed",
+        containerId: canonical?.id ?? null,
         modelName,
         deploymentId: slot.deployment_id ?? null,
         jobId: null,
@@ -205,6 +239,7 @@ export function buildBoardCards(
     const dep: BoardDeployment = {
       key: `job-${d.jobId}`,
       source: "pending",
+      containerId: null,
       modelName: d.modelName,
       deploymentId: null,
       jobId: d.jobId,
@@ -329,9 +364,15 @@ export function useBoardCards(
   const { deployments: activeDeployments } = useActiveDeploymentsContext();
 
   const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
+  const [canonicalDeployments, setCanonicalDeployments] = useState<
+    readonly CanonicalDeployment[]
+  >([]);
   const [chipStatusLoading, setChipStatusLoading] = useState(true);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [chipStatusError, setChipStatusError] = useState<string | null>(null);
+  const [deploymentsError, setDeploymentsError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const hasFetchedOnceRef = useRef(false);
 
   // Start a new fetch and cancel any older one still in flight, so a slow
   // response can't overwrite newer data.
@@ -340,21 +381,41 @@ export function useBoardCards(
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const res = await axios.get<ChipStatus>(CHIP_STATUS_URL, {
-        signal: controller.signal,
-      });
-      setChipStatus(res.data);
-      setChipStatusError(null);
-    } catch (err) {
-      if (axios.isCancel(err)) return;
-      // Keep the last good snapshot; just surface the error.
-      setChipStatusError(
-        err instanceof Error ? err.message : "Failed to load chip status"
-      );
+      const [chipResult, deploymentsResult] = await Promise.allSettled([
+        axios.get<ChipStatus>(CHIP_STATUS_URL, {
+          signal: controller.signal,
+        }),
+        fetchDeployments(),
+      ]);
+
+      if (abortRef.current !== controller) return;
+
+      if (chipResult.status === "fulfilled") {
+        setChipStatus(chipResult.value.data);
+        setChipStatusError(null);
+      } else if (!axios.isCancel(chipResult.reason)) {
+        setChipStatusError(
+          chipResult.reason instanceof Error
+            ? chipResult.reason.message
+            : "Failed to load chip status"
+        );
+      }
+
+      if (deploymentsResult.status === "fulfilled") {
+        setCanonicalDeployments(deploymentsResult.value);
+        setDeploymentsError(null);
+      } else {
+        setDeploymentsError(
+          deploymentsResult.reason instanceof Error
+            ? deploymentsResult.reason.message
+            : "Failed to load deployments"
+        );
+      }
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         setChipStatusLoading(false);
+        hasFetchedOnceRef.current = true;
       }
     }
   }, []);
@@ -398,19 +459,27 @@ export function useBoardCards(
     : NO_DEPLOYMENTS;
   const data = useMemo(
     () =>
-      chipStatus ? buildBoardCards(chipStatus, deviceState, pending) : null,
-    [chipStatus, deviceState, pending]
+      chipStatus
+        ? buildBoardCards(chipStatus, deviceState, pending, canonicalDeployments)
+        : null,
+    [chipStatus, deviceState, pending, canonicalDeployments]
   );
 
-  const refresh = useCallback(() => {
-    refreshDeviceState();
-    void fetchChipStatus();
+  const refresh = useCallback(async () => {
+    setManualRefreshing(true);
+    try {
+      refreshDeviceState();
+      await fetchChipStatus();
+    } finally {
+      setManualRefreshing(false);
+    }
   }, [refreshDeviceState, fetchChipStatus]);
 
   return {
     data,
     loading: chipStatusLoading || deviceStateLoading,
-    error: chipStatusError ?? deviceStateError ?? null,
+    refreshing: manualRefreshing,
+    error: chipStatusError ?? deploymentsError ?? deviceStateError ?? null,
     refresh,
   };
 }
