@@ -241,11 +241,15 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
   const needsPairPicker = selectedMode === "pair" && chipStatus !== null;
 
+  // Devices one card holds for this model, used in the copy below.
+  const groupSize = cardGroups[0]?.length ?? 2;
   const singleDisabled = !pickEnabled;
   const pairDisabled = !hasPairTier || !pairGroups.some(groupIsAvailable);
   const multiDisabled = !allowsFullBoard || !multiBoardFree;
   const multiReason = !allowsFullBoard
-    ? "This model uses a single device"
+    ? allowsSingle
+      ? "This model uses a single device"
+      : `This model uses one card (${groupSize} devices)`
     : !multiBoardFree
       ? `Needs all ${chipStatus ? fullBoardSlots(chipStatus.total_slots).length : 4} devices free`
       : null;
@@ -254,7 +258,9 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     ? "This model requires all devices."
     : allowsSingle
       ? "Deploy on a single device. Best for 8B–13B parameter models."
-      : "Deploy on one card (2 devices). Pick the card below.";
+      : allowsFullBoard
+        ? `Deploy on one card (${groupSize} devices), or pick both for the full board.`
+        : `Deploy on one card (${groupSize} devices).`;
 
   return (
     <div className="w-full px-8 py-6 space-y-8">

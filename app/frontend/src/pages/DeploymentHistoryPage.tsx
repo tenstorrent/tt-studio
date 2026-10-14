@@ -136,6 +136,11 @@ const getStatusBadge = (deployment: Deployment) => {
             <p className="text-sm">
               The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Check workflow logs for details.
             </p>
+            {failure_message && (
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs">
+                {failure_message}
+              </pre>
+            )}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
