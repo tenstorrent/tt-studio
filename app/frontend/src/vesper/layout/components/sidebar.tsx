@@ -34,8 +34,8 @@ const SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { icon: AIData, href: DEPLOYMENTS_PATH, label: "Deployments" },
   {
     icon: ClockCounterClockwise,
-    href: "/deployment-history",
-    label: DEPLOYMENT_HISTORY_PATH,
+    href: DEPLOYMENT_HISTORY_PATH,
+    label: "Deployment History",
   },
   { icon: Document, href: KNOWLEDGE_BASE_PATH, label: "Knowledge Base" },
 ];
