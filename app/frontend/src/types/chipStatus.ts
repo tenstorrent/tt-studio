@@ -15,6 +15,8 @@ export interface ChipStatusSlot {
   port?: number;
   deployment_id?: number;
   is_multi_chip?: boolean;
+  /** Set when the chip is held by a container TT-Studio didn't deploy. */
+  source?: "external";
 }
 
 /** Response shape returned by /docker-api/chip-status/. */
