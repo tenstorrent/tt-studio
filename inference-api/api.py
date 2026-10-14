@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
+import asyncio
 import sys
 import os
 import inspect
@@ -25,6 +26,7 @@ import math
 import shlex
 import urllib.request
 import urllib.error
+from community import cancel_serve, create_community_router
 
 # Force a sane umask so files run.py writes for read-only container bind mounts
 # (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
@@ -2131,6 +2133,26 @@ app = FastAPI(
     version="1.3.0"
 )
 
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
+    tt_studio_root = Path(__file__).parent.parent.resolve()
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
+
+
+# Community-model path (tt-model-manager). Mounted here so community deploys share
+# this module's job stores and are served by the same /run/progress|logs|stream APIs.
+app.include_router(
+    create_community_router(
+        progress_store=progress_store,
+        log_store=log_store,
+        progress_lock=progress_lock,
+        max_log_messages=MAX_LOG_MESSAGES,
+        deployment_log_dir=get_model_run_logs_dir(),
+    )
+)
+
 # Test logging on startup
 logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
@@ -2216,13 +2238,6 @@ def normalize_device_alias(device: str) -> str:
         "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
-
-def get_model_run_logs_dir():
-    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
-    tt_studio_root = Path(__file__).parent.parent.resolve()
-    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
-    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
-    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
@@ -2362,8 +2377,10 @@ async def cancel_run(job_id: str):
     # from _cancelled_jobs — don't record them. The pull is cancelled backend-side.
     if job_id.startswith("imgpull_"):
         return {"job_id": job_id, "status": "cancelled", "killed_processes": 0}
+    community = await asyncio.to_thread(cancel_serve, job_id)
     with _cancel_lock:
-        _cancelled_jobs.add(job_id)
+        if not community:  # only run_main() clears this, and it never sees a community job
+            _cancelled_jobs.add(job_id)
         is_active = _active_run_job_id == job_id
     killed = _kill_hf_download_children() if is_active else 0
     with progress_lock:
@@ -2378,7 +2395,7 @@ async def cancel_run(job_id: str):
                 }
             )
     logger.info("Job %s: cancel requested (active=%s, killed=%d)", job_id, is_active, killed)
-    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed}
+    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed, "community": community}
 
 
 @app.get("/run/stream/{job_id}")
