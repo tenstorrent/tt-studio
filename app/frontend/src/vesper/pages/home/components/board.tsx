@@ -4,20 +4,20 @@
 import { Tag } from "@tenstorrent/vesper/tag";
 import { Chip } from "@tenstorrent/vesper/icons";
 import { cn } from "@/src/lib/utils";
-import { BoardData } from "../types";
-import { Device } from "./device";
 import { Typography } from "@tenstorrent/vesper/typography";
+import { BoardCard } from "@/src/hooks/useBoardCards";
+import { Device } from "./device";
 
 export interface BoardProps {
-  board: BoardData;
+  card: BoardCard;
   label?: string;
 }
 
-export function Board({ board, label }: BoardProps) {
+export function Board({ card, label }: BoardProps) {
   return (
     <div className="flex flex-col gap-vesper-2 w-full max-w-125 mx-auto">
       <div className="flex items-center gap-vesper-4">
-        <Tag icon={<Chip />}>{board.name}</Tag>
+        <Tag icon={<Chip />}>{card.cardModel}</Tag>
         {!!label && (
           <Typography
             variant="label-sm-mono"
@@ -27,8 +27,15 @@ export function Board({ board, label }: BoardProps) {
           </Typography>
         )}
       </div>
-      <div className="p-vesper-4 grid sm:grid-cols-2 grid-cols-1 gap-vesper-6 rounded-vesper-4 bg-vesper-tint-neutral-100 border border-vesper-border-secondary relative">
-        {board.devices.map((device, index) => (
+      <div
+        className={cn(
+          "p-vesper-4 rounded-vesper-4 bg-vesper-tint-neutral-100 border border-vesper-border-secondary relative",
+          "grid gap-vesper-6 grid-cols-1",
+          card.devices.length > 1 && "sm:grid-cols-2"
+        )}
+      >
+        {card.devices.length > 1 && <Connector />}
+        {card.devices.map((device, index) => (
           <Device key={index} device={device} index={index} />
         ))}
       </div>
