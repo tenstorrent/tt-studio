@@ -3452,12 +3452,25 @@ class _StopFailed(Exception):
     """Raised when a container cannot be stopped; the stream aborts with an error."""
 
 
-def _community_stop_for_container(container_id):
-    """Stop a community deployment via its launcher, or None if this isn't one.
+def _container_liveness(container_id, truncated):
+    """True if the container is running, False if confirmed gone, None if unobservable.
 
-    Returns ``{"lines", "error"}`` so the caller can stream the progress it produced
-    before failing, rather than losing it to an exception.
+    Only a confirmed death may be recorded as one: None means docker-control-service
+    could not be reached, not that the container is gone.
     """
+    try:
+        info = get_docker_client().get_container(container_id)
+        return (info or {}).get("status") in ("running", "restarting")
+    except ContainerNotFound:
+        return False
+    except Exception as e:
+        if not is_service_unreachable(e):
+            logger.warning(f"Could not determine liveness of {truncated}: {e}")
+        return None
+
+
+def _community_deployment_for(container_id):
+    """The community deployment record for this container, or None."""
     from docker_control.models import ModelDeployment
 
     try:
@@ -3467,12 +3480,50 @@ def _community_stop_for_container(container_id):
         return None
     if deployment is None or not getattr(deployment, "community_model_id", None):
         return None
+    return deployment
 
-    lines = [f"Stopping {deployment.model_name} via tt-model-manager…"]
-    result = launchers.get(launchers.COMMUNITY).stop(deployment)
+
+def _stop_community_deployment(deployment, truncated):
+    """Stop a community deployment via its launcher and record the outcome.
+
+    The record stays running until tt-model-manager confirms the stop, which can take
+    minutes, so a slow or failed stop never hides a live container or frees its chips.
+    Runs as one blocking call so the outcome is recorded even if the client disconnects.
+    Returns ``{"lines", "error"}``.
+    """
+    from django.utils import timezone
+    from docker_control.models import ModelDeployment
+
+    alive = _container_liveness(deployment.container_id, truncated)
+    was_stopped_by_user = deployment.stopped_by_user
+    # Set before stopping so the death mid-stop is not reported as unexpected.
+    deployment.stopped_by_user = True
+    deployment.save()
+
+    try:
+        result = launchers.get(launchers.COMMUNITY).stop(deployment)
+    except Exception as e:
+        logger.error(f"Community stop of {truncated} raised: {e}")
+        result = launchers.StopResult(status="error", message=str(e))
+
+    current = ModelDeployment.objects.filter(id=deployment.id).first()
     if result.status != "success":
+        if current:
+            current.stopped_by_user = was_stopped_by_user
+            current.save()
         message = result.message or f"Failed to stop {deployment.model_name}"
-        return {"lines": lines + [f"Error: {message}"], "error": message}
+        return {"lines": [f"Error: {message}"], "error": message}
+
+    if current:
+        if alive is not False:
+            current.status = "stopped"
+        elif current.status not in ("exited", "dead", "failed"):
+            current.status = "dead"
+        if not current.stopped_at:
+            current.stopped_at = timezone.now()
+        current.save()
+
+    lines = []
     if result.mesh_reset:
         lines.append("The server did not shut down cleanly, so the mesh was reset.")
     lines.append(f"{deployment.model_name} stopped and removed successfully")
@@ -3486,28 +3537,37 @@ async def _astream_stop_remove_container(container_id, truncated):
     """
     from docker_control.models import ModelDeployment
 
-    previous = {}
+    # A community bundle must be stopped through its launcher: tt-model-manager
+    # SIGTERMs the server so it closes the mesh, and resets the mesh itself if docker
+    # had to SIGKILL. A plain docker stop skips both and leaves the chips unusable
+    # until the next board reset.
+    community = await asyncio.to_thread(_community_deployment_for, container_id)
+    if community is not None:
+        yield f"Stopping {community.model_name} via tt-model-manager (this can take a few minutes)…"
+        try:
+            outcome = await asyncio.to_thread(_stop_community_deployment, community, truncated)
+        except Exception as e:
+            raise _StopFailed(f"Failed to stop {community.model_name}: {e}")
+        for line in outcome["lines"]:
+            yield line
+        if outcome["error"]:
+            raise _StopFailed(
+                f"{outcome['error']}. The model is still running; try stopping it again."
+            )
+        try:
+            await asyncio.to_thread(update_deploy_cache)
+        except Exception:
+            pass
+        return
 
     def _mark_stopped():
         from django.utils import timezone
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
-        previous.update(status=deployment.status, stopped_at=deployment.stopped_at)
         # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
         # The only reliable signal is whether the container is actually alive right now.
-        # Tri-state: True = still running, False = confirmed gone, None = we
-        # could not find out (docker-control-service unreachable). Only a
-        # confirmed death may be recorded as one.
-        alive = None
-        try:
-            info = get_docker_client().get_container(container_id)
-            alive = (info or {}).get("status") in ("running", "restarting")
-        except ContainerNotFound:
-            alive = False  # the service answered 404 → it died unexpectedly
-        except Exception as e:
-            if not is_service_unreachable(e):
-                logger.warning(f"Could not determine liveness of {truncated}: {e}")
+        alive = _container_liveness(container_id, truncated)
 
         # The user pressed stop — that much is a fact regardless of what we can
         # observe, and it keeps a later death from being reported as unexpected.
@@ -3543,27 +3603,6 @@ async def _astream_stop_remove_container(container_id, truncated):
         yield await asyncio.to_thread(_mark_stopped)
     except Exception as e:
         yield f"Warning: failed to update deployment record: {e}"
-
-    # A community bundle must be stopped through its launcher: tt-model-manager
-    # SIGTERMs the server so it closes the mesh, and resets the mesh itself if docker
-    # had to SIGKILL. A plain docker stop skips both and leaves the chips unusable
-    # until the next board reset.
-    community_stop = await asyncio.to_thread(_community_stop_for_container, container_id)
-    if community_stop is not None:
-        for line in community_stop["lines"]:
-            yield line
-        if community_stop["error"]:
-            # Still running and holding its chips, so it must keep its slots.
-            if previous:
-                await asyncio.to_thread(
-                    ModelDeployment.objects.filter(container_id=container_id).update, **previous
-                )
-            raise _StopFailed(community_stop["error"])
-        try:
-            await asyncio.to_thread(update_deploy_cache)
-        except Exception:
-            pass
-        return
 
     yield f"Sending stop signal to container {truncated}…"
     docker_client = get_docker_client()
