@@ -16,6 +16,8 @@ export function useDeleteStream() {
   const [step, setStep] = useState<DeleteStep>(null);
   const [status, setStatus] = useState<DeleteStreamStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // The chips the backend actually resets, once it says so.
+  const [resetDeviceIds, setResetDeviceIds] = useState<number[] | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -48,6 +50,7 @@ export function useDeleteStream() {
     setStep(null);
     updateStatus("idle");
     setErrorMessage(null);
+    setResetDeviceIds(null);
   }, [cleanup]);
 
   const start = useCallback(
@@ -57,6 +60,7 @@ export function useDeleteStream() {
       setStep("deleting");
       updateStatus("running");
       setErrorMessage(null);
+      setResetDeviceIds(null);
 
       const endpoint = `/docker-api/stop/stream/${containerId}/`;
 
@@ -78,6 +82,7 @@ export function useDeleteStream() {
             switch (data.type) {
               case "step":
                 setStep(data.step as DeleteStep);
+                if (Array.isArray(data.device_ids)) setResetDeviceIds(data.device_ids);
                 break;
               case "log":
                 appendLog(data.step ?? "deleting", data.message);
@@ -125,5 +130,5 @@ export function useDeleteStream() {
     return cleanup;
   }, [cleanup]);
 
-  return { stepLogs, step, status, errorMessage, start, reset } as const;
+  return { stepLogs, step, status, errorMessage, resetDeviceIds, start, reset } as const;
 }

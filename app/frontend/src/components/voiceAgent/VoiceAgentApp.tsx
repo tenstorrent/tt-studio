@@ -55,6 +55,8 @@ import type {
   ConversationMessage,
   PipelineStage,
   DeployedModelState,
+  DeployedModelOptions,
+  ModelSlot,
   PipelineMetrics,
 } from "./types";
 import { VoiceAgentSettings } from "./VoiceAgentSettings";
@@ -109,6 +111,18 @@ export default function VoiceAgentApp() {
     llm: null,
     tts: null,
   });
+  const [modelOptions, setModelOptions] = useState<DeployedModelOptions>({
+    whisper: [],
+    llm: [],
+    tts: [],
+  });
+  const selectModel = useCallback(
+    (slot: ModelSlot, id: string) => {
+      const model = modelOptions[slot].find((m) => m.id === id);
+      if (model) setModels((prev) => ({ ...prev, [slot]: model }));
+    },
+    [modelOptions]
+  );
 
   // Knowledge (RAG) and Web search (Search Agent) reuse the chat plumbing; the
   // voice UI only has to pick a datasource and flip the agent flag.
@@ -265,13 +279,20 @@ export default function VoiceAgentApp() {
     const discoverModels = async () => {
       try {
         const deployed = await fetchDeployedModelsInfo();
-        const whisper = deployed.find((m) => m.model_type === "speech_recognition");
-        const llm = deployed.find((m) => m.model_type === "chat");
-        const tts = deployed.find((m) => m.model_type === "tts");
+        const ofType = (type: string) =>
+          deployed
+            .filter((m) => m.model_type === type)
+            .map((m) => ({ id: m.id, modelName: m.modelName, model_type: m.model_type }));
+        const options = {
+          whisper: ofType("speech_recognition"),
+          llm: ofType("chat"),
+          tts: ofType("tts"),
+        };
+        setModelOptions(options);
         setModels({
-          whisper: whisper ? { id: whisper.id, modelName: whisper.modelName, model_type: whisper.model_type } : null,
-          llm: llm ? { id: llm.id, modelName: llm.modelName, model_type: llm.model_type } : null,
-          tts: tts ? { id: tts.id, modelName: tts.modelName, model_type: tts.model_type } : null,
+          whisper: options.whisper[0] ?? null,
+          llm: options.llm[0] ?? null,
+          tts: options.tts[0] ?? null,
         });
       } catch (err) {
         console.error("Failed to discover deployed models:", err);
@@ -846,6 +867,8 @@ export default function VoiceAgentApp() {
               <StatusPanel
                 stage={stage}
                 models={models}
+                modelOptions={modelOptions}
+                onSelectModel={selectModel}
                 conversationId={selectedConversation}
                 messageCount={selectedConversationData?.messages.length ?? 0}
               />
