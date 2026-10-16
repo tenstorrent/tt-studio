@@ -6,6 +6,7 @@ teardown and (for --purge-all) wipe persistent state."""
 
 import os
 from rich.table import Table
+from tt_setup import install_mode
 from tt_setup.constants import *
 from tt_setup.constants import (
     _CLEANUP_APP_VOLUME_PREFIX,
@@ -162,7 +163,10 @@ def cleanup_resources(args):
         "[bold]Everything below is permanently deleted — this cannot be undone.[/bold]",
     ]
     if getattr(args, "uninstall", False):
-        danger_lines.append("Also removes the `tt-studio` shell shortcut from your shell config.")
+        if install_mode.is_pip_install():
+            danger_lines.append(f"Also deletes the TT Studio install folder {TT_STUDIO_ROOT}.")
+        else:
+            danger_lines.append("Also removes the `tt-studio` shell shortcut from your shell config.")
     console.print()
     console.print(notice_panel(
         "[bold]⚠  --purge-all · full reset[/bold]",

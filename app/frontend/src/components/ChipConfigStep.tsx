@@ -123,7 +123,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     run: tourRun,
     activeTourId,
     stepIndex: tourStepIndex,
-    setStepIndex,
     steps,
   } = useTour();
   const isDeployTour = tourRun && activeTourId === "deploy-model";
@@ -235,16 +234,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     }
   }, [isDeployTour, steps, tourStepIndex, selectedMode]);
 
-  const handleContinue = () => {
-    if (isDeployTour) {
-      setStepIndex(tourStepIndex + 1);
-    }
-    const deployEl =
-      document.querySelector('[data-tour="deploy-summary-info"]') ||
-      document.querySelector('[data-tour="deploy-button"]');
-    deployEl?.scrollIntoView({ behavior: "smooth" });
-  };
-
   const needsSlotPicker =
     selectedMode === "single" &&
     chipStatus !== null &&
@@ -252,11 +241,15 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
 
   const needsPairPicker = selectedMode === "pair" && chipStatus !== null;
 
+  // Devices one card holds for this model, used in the copy below.
+  const groupSize = cardGroups[0]?.length ?? 2;
   const singleDisabled = !pickEnabled;
   const pairDisabled = !hasPairTier || !pairGroups.some(groupIsAvailable);
   const multiDisabled = !allowsFullBoard || !multiBoardFree;
   const multiReason = !allowsFullBoard
-    ? "This model uses a single device"
+    ? allowsSingle
+      ? "This model uses a single device"
+      : `This model uses one card (${groupSize} devices)`
     : !multiBoardFree
       ? `Needs all ${chipStatus ? fullBoardSlots(chipStatus.total_slots).length : 4} devices free`
       : null;
@@ -265,7 +258,9 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
     ? "This model requires all devices."
     : allowsSingle
       ? "Deploy on a single device. Best for 8B–13B parameter models."
-      : "Deploy on one card (2 devices). Pick the card below.";
+      : allowsFullBoard
+        ? `Deploy on one card (${groupSize} devices), or pick both for the full board.`
+        : `Deploy on one card (${groupSize} devices).`;
 
   return (
     <div className="w-full px-8 py-6 space-y-8">
@@ -447,18 +442,6 @@ export function ChipConfigStep({ onConfirm, placement, chipStatus }: ChipConfigS
             Fetching hardware status...
           </div>
         )}
-      </div>
-
-      {/* Confirm / Continue button */}
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          data-tour="hardware-config-continue"
-          onClick={handleContinue}
-          className="px-6 py-2 rounded-lg font-mono font-semibold text-sm transition-all duration-200 bg-TT-purple-accent hover:bg-TT-purple text-white shadow-[0_0_12px_rgba(124,104,250,0.3)] cursor-pointer"
-        >
-          Continue →
-        </button>
       </div>
     </div>
   );

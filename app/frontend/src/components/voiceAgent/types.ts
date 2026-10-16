@@ -23,6 +23,10 @@ export interface DeployedModelState {
   tts: DeployedModel | null;
 }
 
+export type ModelSlot = keyof DeployedModelState;
+
+export type DeployedModelOptions = Record<ModelSlot, DeployedModel[]>;
+
 export interface PipelineMetrics {
   stt_latency_ms?: number;
   llm_ttfb_ms?: number;

@@ -141,7 +141,9 @@ export default function ChatComponent() {
     toggleableInlineStats: true,
     systemPrompt: "",
     seed: 0,
+    thinking: true,
   });
+  const [supportsThinking, setSupportsThinking] = useState(false);
   const [maxTokensSliderMax, setMaxTokensSliderMax] = useState<number>(4096);
 
   // Add the missing state variables
@@ -297,6 +299,7 @@ export default function ChatComponent() {
       const match = deployedModels.find((m) => m.id === modelID);
       const finetuned = !!match?.host_weights_dir;
       setIsFineTuned(finetuned);
+      setSupportsThinking(!!match?.thinking_toggle);
       // Default to template mode whenever a fine-tuned model becomes active.
       if (finetuned) setTemplateModeOn(true);
       const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
@@ -737,6 +740,9 @@ export default function ChatComponent() {
         top_p: modelSettings.topP,
         top_k: modelSettings.topK,
         ...(modelSettings.seed > 0 && { seed: modelSettings.seed }),
+        ...(supportsThinking && !completion && {
+          chat_template_kwargs: { enable_thinking: modelSettings.thinking },
+        }),
         ...(completion
           ? { prompt: completion.prompt, ...(completion.stop ? { stop: completion.stop } : {}) }
           : {}),
@@ -844,6 +850,7 @@ export default function ChatComponent() {
       defaultThread,
       setCurrentThreadIndex,
       modelSettings,
+      supportsThinking,
     ]
   );
 
@@ -1540,6 +1547,7 @@ export default function ChatComponent() {
         defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
         maxTokensSliderMax={maxTokensSliderMax}
         hideSystemPrompt={isFineTuned && templateModeOn}
+        showThinkingToggle={supportsThinking}
       />
     </div>
   );
