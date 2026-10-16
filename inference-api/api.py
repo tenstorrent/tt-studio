@@ -147,6 +147,62 @@ def _resolve_secret_env_vars(
     return resolved
 
 
+def _ensure_artifact_git_marker(root: Path) -> None:
+    """Make sure the artifact at `root` finds a git repo at its own root.
+
+    The artifact's workflows/utils.py walks up from itself for a ".git" when it is
+    imported, and its run.py runs `git rev-parse HEAD` early in main(). A source
+    checkout points `root/.git` at TT-Studio's own repo (see
+    _execute_dev_mode_subprocess). A pip install (~/.tt-studio) isn't a git checkout,
+    so there is nothing to point at: give the artifact a repo of its own instead.
+    A ".git" directory is already a real repo (that one, or a local clone) and is
+    left alone.
+    """
+    import subprocess
+
+    marker = root / ".git"
+    if marker.is_dir():
+        return
+    try:
+        tt_studio_git_dir = subprocess.check_output(
+            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (subprocess.CalledProcessError, OSError):
+        tt_studio_git_dir = None
+    if tt_studio_git_dir:
+        marker.write_text(f"gitdir: {tt_studio_git_dir}\n")
+        return
+
+    if marker.exists() or marker.is_symlink():
+        marker.unlink()  # a gitfile pointer at a repo that isn't there
+    git = [
+        "git", "-C", str(root),
+        "-c", "user.name=TT-Studio", "-c", "user.email=tt-studio@localhost",
+        "-c", "commit.gpgsign=false",
+    ]
+    try:
+        subprocess.run([*git, "init", "-q"], check=True, capture_output=True, text=True)
+        subprocess.run(
+            [*git, "commit", "-q", "--allow-empty", "--no-verify", "-m", "tt-inference-server artifact"],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        logging.warning(
+            "Could not create a git repo in %s, deploys will fail: %s",
+            root, getattr(e, "stderr", None) or e,
+        )
+        # Still enough for workflows.utils to import, so the server comes up.
+        marker.mkdir(exist_ok=True)
+
+
+# workflows.utils looks for a ".git" above itself at import time and raises if it
+# finds none, which is the case for a pip install.
+_artifact_root = artifact_path.resolve()
+if not any((p / ".git").exists() for p in (_artifact_root, *_artifact_root.parents)):
+    _ensure_artifact_git_marker(_artifact_root)
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -1195,8 +1251,8 @@ def _execute_dev_mode_subprocess(
     # a ".git" marker (default) to find its own root. The fetched artifact is a
     # plain tarball extraction with no .git of its own, so an unpatched run --
     # exactly what a subprocess is -- walks past the artifact root and incorrectly
-    # resolves to TT-Studio's OWN repo root a few directories up (it always has
-    # one, since .artifacts/ lives inside it), breaking any path this function
+    # resolves to TT-Studio's OWN repo root a few directories up (a source checkout
+    # has one, since .artifacts/ lives inside it), breaking any path this function
     # builds relative to the repo root (e.g. reference_config/... lookups at
     # import time). api.py's in-process path never hits this because it patches
     # get_repo_root_path in memory; a subprocess can't inherit that patch, so
@@ -1219,17 +1275,9 @@ def _execute_dev_mode_subprocess(
     # ".git" file on disk, and an exists-only guard would leave that stale,
     # invalid marker in place forever instead of repairing it.
     #
-    # Point at TT-Studio's resolved *git directory*.
-    git_marker = script_dir / ".git"
-    try:
-        _tt_studio_git_dir = _subprocess.check_output(
-            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
-            stderr=_subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (_subprocess.CalledProcessError, OSError):
-        _tt_studio_git_dir = str(_tt_studio_root / ".git")
-    git_marker.write_text(f"gitdir: {_tt_studio_git_dir}\n")
+    # Point at TT-Studio's resolved *git directory*. A pip install has none, so
+    # the artifact gets a repo of its own there instead.
+    _ensure_artifact_git_marker(script_dir)
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
