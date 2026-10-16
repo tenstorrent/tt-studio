@@ -200,8 +200,7 @@ def _ensure_artifact_git_marker(root: Path) -> None:
 # workflows.utils looks for a ".git" above itself at import time and raises if it
 # finds none, which is the case for a pip install.
 _artifact_root = artifact_path.resolve()
-if not any((p / ".git").exists() for p in (_artifact_root, *_artifact_root.parents)):
-    _ensure_artifact_git_marker(_artifact_root)
+_ensure_artifact_git_marker(_artifact_root)
 
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
