@@ -20,6 +20,7 @@ from unittest import mock
 import pytest
 
 INFERENCE_API_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(INFERENCE_API_DIR))
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 
