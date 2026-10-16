@@ -140,16 +140,6 @@ export function FirstStepForm({
     refreshModels();
   }, [refreshModels]);
 
-  // Show immediate toast notification if models are deployed
-  useEffect(() => {
-    if (hasDeployedModels && deployedModels.length > 0) {
-      customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider stopping existing models before deploying new ones.`,
-        "deployed-models-warning"
-      );
-    }
-  }, [hasDeployedModels, deployedModels]);
-
   // Fetch models with compatibility information
   useEffect(() => {
     const fetchModels = async () => {
@@ -195,13 +185,6 @@ export function FirstStepForm({
         if (selectedModel.is_compatible === null) {
           customToast.warning(
             `Board detection failed - this model's compatibility is unknown. It may not work properly.`
-          );
-        }
-
-        // Extra warning if models are deployed
-        if (hasDeployedModels && deployedModels.length > 0) {
-          customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to stop ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 

@@ -19,6 +19,21 @@ from tt_setup.inference_server._privileges import (
 )
 
 
+def _is_mount_stub(path):
+    """True when *path* holds only the empty workflow_logs/ bind-mount source.
+
+    The launcher pre-creates workflow_logs/ (and its run_logs/) before the first
+    download. Any other shape, including a partial extraction that left only
+    directories behind, is a real incomplete artifact and must be reported.
+    """
+    try:
+        if os.listdir(path) != ["workflow_logs"]:
+            return False
+    except OSError:
+        return False
+    return not any(files for _root, _dirs, files in os.walk(path))
+
+
 def _is_valid_targz(path):
     """Return True if `path` is a readable, non-empty gzip tarball.
 
@@ -110,6 +125,12 @@ def setup_tt_inference_server(pull_branch=False, default_version=None):
     # Track whether the cleanup container was needed (for artifact info file)
     container_cleanup_used = False
 
+    # Before the first download the directory holds only the empty workflow_logs/
+    # bind-mount source the launcher pre-creates. That is "not installed yet",
+    # not a broken download, so clear it without a warning.
+    if os.path.exists(INFERENCE_ARTIFACT_DIR) and _is_mount_stub(INFERENCE_ARTIFACT_DIR):
+        shutil.rmtree(INFERENCE_ARTIFACT_DIR, ignore_errors=True)
+
     # Check if artifact already exists and is fully downloaded
     # A complete download has: artifact-info.txt (written last on success), workflows/utils.py, and VERSION
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -120,10 +141,6 @@ def setup_tt_inference_server(pull_branch=False, default_version=None):
         missing = [p for p in [info_file_check, workflows_utils, version_file] if not os.path.exists(p)]
         if missing:
             console.print(f"[warning]⚠️  Incomplete artifact detected (missing: {', '.join(os.path.basename(p) for p in missing)}) — re-downloading...[/warning]")
-            try:
-                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-            except Exception:
-                pass
 
         if not missing:
             version = get_inference_server_version()
@@ -337,8 +354,7 @@ def setup_tt_inference_server(pull_branch=False, default_version=None):
                 return True
             # If version mismatch, fall through to download the correct version below
         else:
-            # Directory exists but is invalid (missing workflows), remove it and re-download
-            console.print("[warning]⚠️  Artifact directory exists but is invalid (missing workflows/). Removing and re-downloading...[/warning]")
+            # Incomplete (warned above): remove it and re-download.
             try:
                 shutil.rmtree(INFERENCE_ARTIFACT_DIR)
                 console.print("[muted]✅ Removed invalid artifact directory[/muted]")
