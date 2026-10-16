@@ -58,6 +58,7 @@ const DEFAULT_VALUES = {
   topK: 20,
   seed: 0,
   toggleableInlineStats: true,
+  thinking: false,
 };
 
 // System prompt presets
@@ -421,7 +422,7 @@ export default function Settings({
                 label="Thinking"
                 description="Let the model reason step by step before it answers. Turn off for faster, more direct replies."
                 icon={<Brain className="h-4 w-4" />}
-                checked={settings.thinking ?? true}
+                checked={settings.thinking ?? DEFAULT_VALUES.thinking}
                 onChange={(checked) => onSettingsChange("thinking", checked)}
               />
             )}
