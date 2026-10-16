@@ -15,6 +15,7 @@ import {
   Info,
   RefreshCw,
   Rocket,
+  Trash2,
 } from "lucide-react";
 import {
   LineChart,
@@ -42,10 +43,13 @@ import {
   fetchTrainingJobCheckpoints,
   fetchMergedCheckpoints,
   cancelTrainingJob,
+  deleteTrainingJob,
+  deleteMergedModel,
   promoteCheckpoint,
   normalizeMergedCheckpoint,
   getCheckpointDownloadUrl,
   formatTrainingTimestamp,
+  getApiErrorMessage,
   getJobDataset,
   getJobErrorMessage,
   type TrainingJob,
@@ -54,6 +58,7 @@ import {
   type TrainingCheckpoint,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // Status Badge (shared with TrainingPage)
@@ -173,16 +178,19 @@ export default function TrainingJobDetailPage() {
   const [cancelRequested, setCancelRequested] = useState(false);
   // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
   const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+  // Checkpoint whose promoted (merged) models are being deleted.
+  const [deletingCkptId, setDeletingCkptId] = useState<string | null>(null);
   // Per-checkpoint merge outcome, surfaced inline next to the Promote button.
   const [mergeStatus, setMergeStatus] = useState<
     Record<string, { status: string; message?: string }>
   >({});
-  // Checkpoint ids already promoted (merged) to inference, discovered from the
-  // on-disk merge_info.json sidecars. Persists across refreshes, unlike the
-  // ephemeral `mergeStatus` above.
-  const [promotedCkptIds, setPromotedCkptIds] = useState<Set<string>>(
-    new Set(),
-  );
+  // Merge job ids per promoted checkpoint (several after a re-promote), read from
+  // the on-disk merge_info.json sidecars so they persist across refreshes.
+  const [mergeIdsByCkpt, setMergeIdsByCkpt] = useState<
+    Record<string, string[]>
+  >({});
+  const promotedCount = Object.values(mergeIdsByCkpt).flat().length;
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -214,13 +222,12 @@ export default function TrainingJobDetailPage() {
       // here (e.g. inference server unreachable) must not break the page.
       try {
         const merged = await fetchMergedCheckpoints();
-        setPromotedCkptIds(
-          new Set(
-            merged
-              .filter((mc) => mc.source_job_id === jobId && mc.checkpoint_id)
-              .map((mc) => mc.checkpoint_id as string),
-          ),
-        );
+        const byCkpt: Record<string, string[]> = {};
+        for (const mc of merged) {
+          if (mc.source_job_id !== jobId || !mc.checkpoint_id) continue;
+          (byCkpt[mc.checkpoint_id] ??= []).push(mc.merge_id);
+        }
+        setMergeIdsByCkpt(byCkpt);
       } catch {
         // Leave the previously known promotion state untouched on failure.
       }
@@ -340,7 +347,10 @@ export default function TrainingJobDetailPage() {
           console.error("Failed to normalize merged checkpoint perms:", err);
         }
         setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
-        setPromotedCkptIds((prev) => new Set(prev).add(ckptId));
+        setMergeIdsByCkpt((prev) => ({
+          ...prev,
+          [ckptId]: [...(prev[ckptId] ?? []), mergeJobId],
+        }));
         customToast.success(
           "Checkpoint promoted — it will appear in the deploy step for this model.",
         );
@@ -368,6 +378,43 @@ export default function TrainingJobDetailPage() {
       customToast.error("Failed to start checkpoint promotion");
     } finally {
       setPromotingCkptId(null);
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!jobId) return;
+    setDeletingJob(true);
+    try {
+      await deleteTrainingJob(jobId);
+      customToast.success("Fine-tuning job deleted");
+      navigate("/training");
+    } catch (err) {
+      setDeletingJob(false);
+      customToast.error(getApiErrorMessage(err, "Failed to delete job"));
+    }
+  };
+
+  // Removes every merge of the checkpoint, so it can be promoted again from scratch.
+  const handleDeleteMerged = async (ckptId: string) => {
+    setDeletingCkptId(ckptId);
+    try {
+      for (const mergeId of mergeIdsByCkpt[ckptId] ?? []) {
+        await deleteMergedModel(mergeId);
+      }
+      setMergeStatus((prev) => {
+        const next = { ...prev };
+        delete next[ckptId];
+        return next;
+      });
+      customToast.success("Promoted model deleted");
+    } catch (err) {
+      customToast.error(
+        getApiErrorMessage(err, "Failed to delete promoted model"),
+      );
+    } finally {
+      // Keep the spinner until the refresh drops the deleted model's button.
+      await loadAll();
+      setDeletingCkptId(null);
     }
   };
 
@@ -419,6 +466,28 @@ export default function TrainingJobDetailPage() {
                 )}
                 {cancelRequested ? "Cancelling..." : "Cancel Job"}
               </Button>
+            )}
+            {isTerminal && (
+              <ConfirmDialog
+                dialogTitle="Delete fine-tuning job?"
+                dialogDescription={`This permanently deletes the job and its checkpoints${
+                  promotedCount > 0
+                    ? `, plus ${promotedCount} promoted model${promotedCount > 1 ? "s" : ""} made from it`
+                    : ""
+                }.`}
+                confirmText="Delete"
+                onConfirm={handleDeleteJob}
+                alertTrigger={
+                  <Button variant="destructive" size="sm" disabled={deletingJob}>
+                    {deletingJob ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {deletingJob ? "Deleting..." : "Delete Job"}
+                  </Button>
+                }
+              />
             )}
           </div>
         </div>
@@ -793,9 +862,7 @@ export default function TrainingJobDetailPage() {
                               <div className="flex items-center justify-end gap-2">
                                 {(() => {
                                   const ms = mergeStatus[ckpt.id];
-                                  const isPromoted = promotedCkptIds.has(
-                                    ckpt.id,
-                                  );
+                                  const isPromoted = ckpt.id in mergeIdsByCkpt;
                                   // No live merge activity this session: fall back
                                   // to the persistent on-disk promotion state.
                                   if (!ms) {
@@ -844,11 +911,40 @@ export default function TrainingJobDetailPage() {
                                   }
                                   return null;
                                 })()}
+                                {ckpt.id in mergeIdsByCkpt && (
+                                  <ConfirmDialog
+                                    dialogTitle="Delete promoted model?"
+                                    dialogDescription="This permanently deletes the merged model made from this checkpoint. The checkpoint itself is kept and can be promoted again."
+                                    confirmText="Delete"
+                                    onConfirm={() => handleDeleteMerged(ckpt.id)}
+                                    alertTrigger={
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={
+                                          promotingCkptId !== null ||
+                                          deletingCkptId !== null
+                                        }
+                                        title="Delete promoted model"
+                                      >
+                                        {deletingCkptId === ckpt.id ? (
+                                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3 w-3" />
+                                        )}
+                                        {deletingCkptId === ckpt.id && "Deleting…"}
+                                      </Button>
+                                    }
+                                  />
+                                )}
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handlePromote(ckpt.id)}
-                                  disabled={promotingCkptId !== null}
+                                  disabled={
+                                    promotingCkptId !== null ||
+                                    deletingCkptId === ckpt.id
+                                  }
                                   title="Merge this adapter into its base model so it can be deployed for inference"
                                 >
                                   {promotingCkptId === ckpt.id ? (
@@ -856,7 +952,7 @@ export default function TrainingJobDetailPage() {
                                   ) : (
                                     <Rocket className="mr-1 h-3 w-3" />
                                   )}
-                                  {promotedCkptIds.has(ckpt.id)
+                                  {ckpt.id in mergeIdsByCkpt
                                     ? "Re-promote"
                                     : "Promote for inference"}
                                 </Button>

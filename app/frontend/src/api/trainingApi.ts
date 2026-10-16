@@ -360,6 +360,22 @@ export async function cancelTrainingJob(
   return data;
 }
 
+// Permanently delete a finished job and its results. Deleting a training job
+// also deletes every adapter merge (promoted model) made from it.
+export async function deleteTrainingJob(jobId: string): Promise<void> {
+  await axios.delete(`${TRAINING_API}/jobs/${jobId}/`);
+}
+
+// A merged model is the result of an adapter merge job, deleted like any job.
+export const deleteMergedModel = (mergeId: string) => deleteTrainingJob(mergeId);
+
+// The server's reason for a failed request (e.g. job still running or deployed).
+export function getApiErrorMessage(err: unknown, fallback: string): string {
+  const message = (err as { response?: { data?: { error?: unknown } } })
+    ?.response?.data?.error;
+  return typeof message === "string" && message ? message : fallback;
+}
+
 export function getCheckpointDownloadUrl(
   jobId: string,
   ckptId: string,
