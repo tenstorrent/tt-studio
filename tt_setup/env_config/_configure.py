@@ -463,6 +463,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # Auto-migrate legacy default from older releases to stock, preventing false image drift
     if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
         write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+        os.environ["VITE_APP_TITLE"] = STOCK_APP_TITLE
         current_title = STOCK_APP_TITLE
 
     if quick_setup:
