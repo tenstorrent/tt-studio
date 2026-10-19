@@ -7,7 +7,7 @@ import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
 import { useBoardCards } from "@/src/hooks/useBoardCards";
 import { useResetBoard } from "@/src/hooks/useResetBoard";
-import { Board } from "./components/board";
+import { Card } from "./components/card";
 
 export default function HomePage() {
   const resetBoard = useResetBoard();
@@ -38,7 +38,7 @@ export default function HomePage() {
               )}
             >
               {cards.map((card, index) => (
-                <Board
+                <Card
                   key={card.index}
                   card={card}
                   label={hasMultipleCards ? `Card ${index}` : undefined}

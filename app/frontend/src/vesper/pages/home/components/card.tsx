@@ -8,12 +8,12 @@ import { Typography } from "@tenstorrent/vesper/typography";
 import { BoardCard } from "@/src/hooks/useBoardCards";
 import { Device } from "./device";
 
-export interface BoardProps {
+export interface CardProps {
   card: BoardCard;
   label?: string;
 }
 
-export function Board({ card, label }: BoardProps) {
+export function Card({ card, label }: CardProps) {
   return (
     <div className="flex flex-col gap-vesper-2 w-full max-w-125 mx-auto">
       <div className="flex items-center gap-vesper-4">
