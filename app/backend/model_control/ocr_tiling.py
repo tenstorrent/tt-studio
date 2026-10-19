@@ -57,6 +57,11 @@ EDGE_INSET = 0.04
 CONTENT_ROW_DENSITY = 0.008
 CONTENT_GAP_ROWS = 60
 
+# A block apart from the main one is kept only if it could be a line of text:
+# tall enough for a glyph and wide enough to be more than a page number.
+MIN_BAND_ROWS = 12
+MIN_BAND_WIDTH = 0.15
+
 # Breathing room around the detected content, so ascenders and descenders that
 # fall just outside the measured box are not clipped.
 CONTENT_PAD = 30
@@ -123,9 +128,11 @@ def find_content_box(img: Image.Image) -> tuple[int, int, int, int] | None:
     page = gray[py0:py1, px0:px1]
     ink = page < DARK_THRESHOLD
 
-    # 3. The largest block of inked rows is the writing. Taking min and max of
+    # 3. Every block of inked rows that looks like text is the writing, so a
+    #    title set well apart from the body is kept. Taking min and max of
     #    every inked row instead would span the whole page, because a page
-    #    number or a speck of shadow anywhere defeats it.
+    #    number or a speck of shadow anywhere defeats it: those are dropped
+    #    as too short or too narrow to be a line of text.
     row_mask = ink.mean(axis=1) > CONTENT_ROW_DENSITY
     runs = _contiguous_runs(row_mask)
     if not runs:
@@ -136,13 +143,29 @@ def find_content_box(img: Image.Image) -> tuple[int, int, int, int] | None:
             merged[-1][1] = end
         else:
             merged.append([start, end])
-    ty0, ty1 = max(merged, key=lambda r: r[1] - r[0])
 
-    col_mask = ink[ty0:ty1].mean(axis=0) > CONTENT_ROW_DENSITY
-    col_runs = np.where(col_mask)[0]
-    if col_runs.size == 0:
+    def _band_cols(band: list[int]) -> np.ndarray:
+        return np.where(ink[band[0] : band[1]].mean(axis=0) > CONTENT_ROW_DENSITY)[0]
+
+    largest = max(merged, key=lambda r: r[1] - r[0])
+    bands = []
+    for band in merged:
+        cols = _band_cols(band)
+        if cols.size == 0:
+            continue
+        is_text = (
+            band[1] - band[0] >= MIN_BAND_ROWS
+            and cols.max() - cols.min() + 1 >= MIN_BAND_WIDTH * page.shape[1]
+        )
+        if band is largest or is_text:
+            bands.append((band, cols))
+    if not bands:
         return None
-    tx0, tx1 = int(col_runs.min()), int(col_runs.max()) + 1
+
+    ty0 = min(band[0] for band, _ in bands)
+    ty1 = max(band[1] for band, _ in bands)
+    tx0 = int(min(cols.min() for _, cols in bands))
+    tx1 = int(max(cols.max() for _, cols in bands)) + 1
 
     left = px0 + max(0, tx0 - CONTENT_PAD)
     top = py0 + max(0, ty0 - CONTENT_PAD)

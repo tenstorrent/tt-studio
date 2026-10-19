@@ -96,6 +96,16 @@ class TestFindContentBox:
             _, top, _, bottom = box
             assert (bottom - top) < 0.5 * blank.size[1]
 
+    def test_a_title_set_well_apart_from_the_body_is_kept(self):
+        """A heading more than CONTENT_GAP_ROWS above the body is still writing."""
+        img = _photo_of_a_page(text_top=400, text_bottom=800, ruled=False)
+        d = ImageDraw.Draw(img)
+        d.line([(200, 200), (700, 200)], fill=(30, 30, 40), width=20)
+        box = find_content_box(img)
+        assert box is not None
+        assert box[1] < 200, f"the title was cropped off: {box}"
+        assert box[3] > 790
+
     def test_declines_on_an_image_with_no_margin_to_remove(self):
         """A screenshot or a tight scan should be left alone, not guessed at."""
         dense = Image.new("RGB", (800, 600), "white")
