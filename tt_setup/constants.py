@@ -58,6 +58,15 @@ LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
+MODEL_MANAGER_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-model-manager")
+MODEL_MANAGER_REPO_URL = "https://github.com/tenstorrent/tt-model-manager"
+# Pin used when TT_MODEL_MANAGER_REF is unset. Kept in sync with .env.default.
+# An immutable SHA on purpose: the install stamp records the ref verbatim, so a
+# floating ref like "main" is only ever fetched once and then never refreshed.
+# Must be at or after PR #50 (mounts /weight-cache; bundles pointing a weight cache
+# there fail to boot without it) and PR #102, which scopes a serve to the chips its
+# profile needs — community device selection depends on it.
+MODEL_MANAGER_DEFAULT_REF = "f14f5a87b690e3adadfb15633a84978014133c58"
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 # All host-side runtime logs and PID files live under a single logs/ directory so
