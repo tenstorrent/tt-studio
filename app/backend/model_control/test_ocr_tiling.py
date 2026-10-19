@@ -142,6 +142,14 @@ class TestPlanTiles:
         for left, _, right, _ in plan_tiles(2000, 3000, 1_204_224):
             assert (left, right) == (0, 2000)
 
+    def test_each_strip_fits_the_budget_with_its_overlap(self):
+        """Strips over budget get downscaled, which is what tiling exists to avoid."""
+        budget = 1_204_224
+        # Pages that fit within MAX_TILES strips; past that, over budget is expected.
+        for width, height in [(1500, 2000), (3000, 1200), (1200, 2600)]:
+            for left, top, right, bottom in plan_tiles(width, height, budget):
+                assert (right - left) * (bottom - top) <= budget, (width, height)
+
     def test_tile_count_is_bounded(self):
         # A 100 MP input must not become 80 model requests.
         assert len(plan_tiles(10_000, 10_000, 1_204_224)) <= MAX_TILES

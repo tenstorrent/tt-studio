@@ -315,6 +315,25 @@ def test_a_page_too_large_for_one_pass_is_read_in_strips(client, deployed, monke
     assert all(img.size[0] > img.size[1] for img in sent)
 
 
+def test_strips_of_a_moderately_large_page_are_sent_at_native_resolution(
+    client, deployed, monkeypatch
+):
+    """Within MAX_TILES, every strip fits the cap as cut, so none is downscaled."""
+    captured = []
+    monkeypatch.setattr(
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.append(json), _Resp())[1],
+    )
+    client.post(
+        OCR_URL, {"deploy_id": deployed, "images": _png(1500, 2000)}, format="multipart"
+    )
+
+    sent = _sent_images(captured)
+    assert len(sent) > 1
+    assert all(img.size[0] == 1500 for img in sent), [img.size for img in sent]
+
+
 def test_an_image_that_fits_is_sent_whole_and_unstretched(
     client, deployed, monkeypatch
 ):

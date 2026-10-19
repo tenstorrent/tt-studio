@@ -205,14 +205,20 @@ def plan_tiles(
     One box back means no tiling is needed. Strips run full width and are cut
     horizontally because text lines do: a vertical cut would split words, while
     a horizontal one with overlap leaves every line whole in some strip.
+
+    The count is sized for the strip *with* its overlap, so each one fits the
+    budget at native resolution. Only a page needing more than ``max_tiles``
+    strips gets strips over budget, which the caller then downscales.
     """
     if width <= 0 or height <= 0 or max_pixels <= 0:
         return [(0, 0, width, height)]
-
-    needed = -(-(width * height) // max_pixels)  # ceil
-    count = max(1, min(int(needed), max_tiles))
-    if count == 1:
+    if width * height <= max_pixels:
         return [(0, 0, width, height)]
+
+    # An interior strip spans step * (1 + 2 * overlap) rows.
+    max_step = max_pixels / (width * (1 + 2 * overlap))
+    needed = math.ceil(height / max_step) if max_step > 0 else max_tiles
+    count = max(2, min(needed, max_tiles))
 
     step = height / count
     boxes: list[tuple[int, int, int, int]] = []
