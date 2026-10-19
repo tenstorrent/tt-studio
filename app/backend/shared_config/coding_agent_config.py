@@ -93,6 +93,11 @@ def get_gateway_model_names(model_impl) -> list[str]:
 def resolve_thinking_variant(requested_model, find_deploy):
     """Map a requested gateway model name to (deploy, enable_thinking).
 
+    Thinking mode is opt-in across TT-Studio surfaces (Chat UI and Gateway):
+    - Requesting the plain model name defaults to thinking off (enable_thinking=False),
+      delivering faster responses and conserving tokens.
+    - Requesting the "-thinking" suffix explicitly turns thinking on (enable_thinking=True).
+
     `find_deploy` looks up a running deployment by model name. enable_thinking is
     None when the model has no thinking toggle, and deploy is None when nothing runs.
     """
