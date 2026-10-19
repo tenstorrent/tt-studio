@@ -1395,7 +1395,12 @@ class OcrInferenceView(APIView):
                 )
             internal_url = "http://" + deploy["internal_url"]
             headers = auth_headers(deploy)
-            model_name = deploy.get("cached_model_name") or get_model_name_from_container(deploy_id) or ""
+            model_impl = deploy.get("model_impl")
+            model_name = deploy.get("cached_model_name") or get_model_name_from_container(
+                deploy["internal_url"],
+                fallback=getattr(model_impl, "hf_model_id", "") or "",
+                auth_token=token_for(deploy.get("jwt_secret")),
+            )
             # Keep the request inside what the server will accept.
             max_model_len = deploy.get("max_model_len")
             if max_model_len:
@@ -1482,9 +1487,19 @@ class OcrInferenceView(APIView):
                         status=status.HTTP_502_BAD_GATEWAY,
                     )
 
-                payload = upstream.json()
-                choice = (payload.get("choices") or [{}])[0]
-                tile_texts.append((choice.get("message") or {}).get("content", "") or "")
+                try:
+                    payload = upstream.json()
+                    choice = (payload.get("choices") or [{}])[0]
+                    text = (choice.get("message") or {}).get("content", "") or ""
+                    if not isinstance(text, str):
+                        raise TypeError(f"content is {type(text).__name__}")
+                except (ValueError, AttributeError, IndexError, TypeError) as exc:
+                    logger.warning(f"{self.__class__.__name__}: unreadable model response: {exc}")
+                    return Response(
+                        {"error": f"OCR model returned an unreadable response: {exc}", "pages": pages},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
+                tile_texts.append(text)
                 if choice.get("finish_reason"):
                     finish_reasons.append(choice["finish_reason"])
                 for key, value in (payload.get("usage") or {}).items():

@@ -203,6 +203,46 @@ def test_request_shape_is_a_vision_chat_completion(client, deployed, monkeypatch
     assert captured["headers"]["Authorization"] == "Bearer test"
 
 
+def test_model_name_is_looked_up_when_the_deploy_has_none_cached(client, monkeypatch):
+    """A fresh deploy has no cached_model_name yet; asking the container must not crash."""
+    impl = type("Impl", (), {"hf_model_id": "PaddlePaddle/PaddleOCR-VL-1.6"})()
+    monkeypatch.setattr(
+        views,
+        "get_deploy_cache",
+        lambda: {
+            DEPLOY_ID: {
+                "internal_url": "ocr-container:7000/v1/chat/completions",
+                "model_impl": impl,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        views, "auth_headers", lambda deploy: {"Authorization": "Bearer test"}
+    )
+    lookup = {}
+
+    def fake_lookup(internal_url, fallback, auth_token=None):
+        lookup.update(internal_url=internal_url, fallback=fallback)
+        return "served-name"
+
+    monkeypatch.setattr(views, "get_model_name_from_container", fake_lookup)
+    captured = {}
+    monkeypatch.setattr(
+        views.requests,
+        "post",
+        lambda url, json=None, **kw: (captured.update(body=json), _Resp())[1],
+    )
+    resp = client.post(
+        OCR_URL, {"deploy_id": DEPLOY_ID, "images": _png(56, 56)}, format="multipart"
+    )
+    assert resp.status_code == 200
+    assert lookup == {
+        "internal_url": "ocr-container:7000/v1/chat/completions",
+        "fallback": "PaddlePaddle/PaddleOCR-VL-1.6",
+    }
+    assert captured["body"]["model"] == "served-name"
+
+
 def test_prompt_and_max_tokens_are_overridable(client, deployed, monkeypatch):
     captured = {}
     monkeypatch.setattr(
@@ -361,6 +401,31 @@ def test_upstream_error_body_is_surfaced(client, deployed, monkeypatch):
     assert resp.status_code == 400
     # The upstream message is what tells a caller which limit they hit.
     assert "limit-mm-per-prompt" in resp.json()["error"]
+
+
+def test_an_unreadable_model_response_is_502_and_keeps_earlier_pages(
+    client, deployed, monkeypatch
+):
+    class NotJson(_Resp):
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    calls = []
+
+    def fake_post(*a, **kw):
+        calls.append(1)
+        return _Resp(text="first page") if len(calls) == 1 else NotJson()
+
+    monkeypatch.setattr(views.requests, "post", fake_post)
+    resp = client.post(
+        OCR_URL,
+        {"deploy_id": deployed, "images": [_png(56, 56), _png(56, 56)]},
+        format="multipart",
+    )
+    assert resp.status_code == 502
+    body = resp.json()
+    assert "unreadable response" in body["error"]
+    assert [p["text"] for p in body["pages"]] == ["first page"]
 
 
 def test_no_deploy_id_without_cloud_url_is_503(client, monkeypatch):
