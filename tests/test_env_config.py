@@ -81,11 +81,22 @@ class TestEnvFileRoundTrip(unittest.TestCase):
         M.write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
         self.assertEqual(M.get_env_var("VITE_APP_TITLE"), "Tenstorrent | TT Studio")
 
-        current_title = M.get_env_var("VITE_APP_TITLE")
-        if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
-            M.write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
-
+        # Exercise the real production migration helper
+        migrated = _ecfg_configure.migrate_legacy_app_title()
+        self.assertEqual(migrated, STOCK_APP_TITLE)
         self.assertEqual(M.get_env_var("VITE_APP_TITLE"), STOCK_APP_TITLE)
+        self.assertEqual(os.environ.get("VITE_APP_TITLE"), STOCK_APP_TITLE)
+
+    def test_legacy_app_title_migration_overwrites_os_environ(self):
+        """Migration must update os.environ so get_env_var does not see the old value."""
+        from tt_setup.constants import STOCK_APP_TITLE
+
+        with patch.dict(os.environ, {"VITE_APP_TITLE": "Tenstorrent | TT Studio"}):
+            M.write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            migrated = _ecfg_configure.migrate_legacy_app_title()
+            self.assertEqual(migrated, STOCK_APP_TITLE)
+            self.assertEqual(os.environ.get("VITE_APP_TITLE"), STOCK_APP_TITLE)
+            self.assertEqual(M.get_env_var("VITE_APP_TITLE"), STOCK_APP_TITLE)
 
 
 class TestOsEnvironPrecedence(unittest.TestCase):
