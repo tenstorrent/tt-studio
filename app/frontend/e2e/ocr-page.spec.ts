@@ -168,6 +168,29 @@ test.describe("ocr page", () => {
     await expect(page.getByText("1 page read")).toBeVisible();
   });
 
+  test("a retry that hits a dead endpoint says so instead of finishing quietly", async ({
+    page,
+  }) => {
+    await suppressOnboardingTour(page);
+    await mockBackend(page);
+    await mockOcr(page, () => ({
+      status: 502,
+      body: { error: "cannot reach OCR model: refused", pages: [] },
+    }));
+    await page.goto("/ocr");
+
+    await addImages(page, ["a.png"]);
+    await page.getByRole("button", { name: /Read text/ }).click();
+    await expect(page.getByText(/Stopped after image 1 of 1/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(
+      page.getByText(/Retry failed: cannot reach OCR model: refused/),
+    ).toBeVisible();
+    // Still failed and still retryable: the run did not report itself done.
+    await expect(page.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
   test("reports a page the server could not decode without failing the run", async ({
     page,
   }) => {

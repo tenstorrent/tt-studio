@@ -407,10 +407,20 @@ export function useOcrRun() {
       abortRef.current = new AbortController();
       setRunBanner(null);
       setRunStatus("running");
-      await runOne(id, deployId, runId);
+      const result = await runOne(id, deployId, runId);
       if (runId !== runIdRef.current) return;
-      setRunStatus("done");
       abortRef.current = null;
+
+      if (result?.aborted) {
+        setRunStatus("cancelled");
+        return;
+      }
+      if (result && isEndpointFailure(result)) {
+        setRunBanner(`Retry failed: ${result.error}.`);
+        setRunStatus("cancelled");
+        return;
+      }
+      setRunStatus("done");
     },
     [runOne, runStatus],
   );
