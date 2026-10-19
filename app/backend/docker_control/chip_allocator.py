@@ -221,13 +221,21 @@ class ChipSlotAllocator:
             "slots": slots_info
         }
 
-    def allocate_chip_slot(self, model_name: str, manual_override: Optional[int] = None) -> int:
+    def allocate_chip_slot(
+        self,
+        model_name: str,
+        manual_override: Optional[int] = None,
+        chips_required: Optional[int] = None,
+    ) -> int:
         """
         Auto-allocate chip slot or use manual override.
 
         Args:
             model_name: Name of the model being deployed
             manual_override: Optional manual device_id for advanced mode
+            chips_required: Chip count to allocate for, when the caller already knows
+                it. Community bundles carry their own count in the manifest and are
+                absent from model_implmentations, so the name lookup cannot find them.
 
         Returns:
             Allocated device_id (0-based slot number)
@@ -237,7 +245,12 @@ class ChipSlotAllocator:
             MultiChipConflictError: If multi-chip model conflicts with existing deployments
         """
         with self._lock:
-            chips_required = self._get_chips_required(model_name)
+            if chips_required is None:
+                chips_required = self._get_chips_required(model_name)
+                # The catalog's 4 means "whole board" (infer_chips_required only
+                # returns 1 or 4); an explicit count is a real mesh size.
+                if chips_required >= 4:
+                    chips_required = self.total_slots
 
             # Advanced mode: manual override
             if manual_override is not None:
@@ -248,13 +261,48 @@ class ChipSlotAllocator:
                 return manual_override
 
             # Auto-allocation
-            if chips_required == 4:
+            if chips_required >= self.total_slots:
                 device_id = self._allocate_multi_chip(model_name)
+            elif chips_required > 1:
+                device_id = self._allocate_chip_group(model_name, chips_required)
             else:
                 device_id = self._allocate_single_chip(model_name)
 
             logger.info(f"Auto-allocated: device_id={device_id} for {model_name} ({chips_required} chips)")
             return device_id
+
+    def slot_group(self, device_id: int, chips_required: int) -> List[int]:
+        """Every slot a deployment of ``chips_required`` chips based at ``device_id`` holds."""
+        if chips_required >= self.total_slots:
+            return list(range(self.total_slots))
+        return list(range(device_id, min(device_id + chips_required, self.total_slots)))
+
+    def _allocate_chip_group(self, model_name: str, chips_required: int) -> int:
+        """
+        Find the lowest free group of `chips_required` contiguous slots.
+
+        Groups are aligned to a multiple of `chips_required` because the slots of a
+        multi-chip card are adjacent: a 2-chip mesh on a P300x2 must land on one card
+        ([0,1] or [2,3]), never straddle two ([1,2]).
+
+        Returns:
+            Base device ID of the free group
+
+        Raises:
+            AllocationError: If no aligned group is fully free
+        """
+        occupied_slots = self._get_occupied_slots()
+
+        for base in range(0, self.total_slots, chips_required):
+            group = list(range(base, base + chips_required))
+            if group[-1] < self.total_slots and not any(s in occupied_slots for s in group):
+                return base
+
+        raise AllocationError(
+            f"{model_name} needs {chips_required} adjacent chip slots on one card, "
+            f"and no such group is free ({len(occupied_slots)} of {self.total_slots} "
+            f"slot(s) in use). Stop a running model to free a card."
+        )
 
     def _allocate_single_chip(self, model_name: str) -> int:
         """
@@ -323,7 +371,7 @@ class ChipSlotAllocator:
                 })
 
             raise MultiChipConflictError(
-                f"{model_name} requires all 4 chip slots. "
+                f"{model_name} requires all {self.total_slots} chip slots. "
                 f"Currently occupied: {len(occupied_slots)} slot(s). "
                 f"Stop all running models first.",
                 conflicts=conflicts
@@ -352,12 +400,41 @@ class ChipSlotAllocator:
 
         occupied_slots = self._get_occupied_slots()
 
-        if chips_required == 4:
+        if chips_required >= self.total_slots:
             # Multi-chip: ensure all slots are free
             if occupied_slots:
                 return {
                     "valid": False,
-                    "message": f"{model_name} requires all 4 chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                    "message": f"{model_name} requires all {self.total_slots} chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                }
+        elif chips_required > 1:
+            # A real mesh size from a manifest: the pinned slot is the base of a group
+            # that must sit on one card, so validate the whole group, not just the base.
+            if device_id % chips_required != 0:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"{model_name} needs {chips_required} chips on one card, so "
+                        f"device_id must be a multiple of {chips_required}, not {device_id}."
+                    )
+                }
+            group = list(range(device_id, device_id + chips_required))
+            if group[-1] >= self.total_slots:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"{model_name} needs {chips_required} chips starting at slot "
+                        f"{device_id}, which runs past this board's {self.total_slots} slots."
+                    )
+                }
+            busy = [s for s in group if s in occupied_slots]
+            if busy:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"Chip slot(s) {', '.join(map(str, busy))} are occupied, so "
+                        f"{model_name} cannot take slots {group[0]}-{group[-1]}."
+                    )
                 }
         else:
             # Single-chip: ensure selected slot is free

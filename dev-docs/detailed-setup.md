@@ -135,6 +135,7 @@ See [app/agent/README.md](../app/agent/README.md) for endpoints, env vars, and L
 | `DOCKER_CONTROL_JWT_SECRET` | JWT secret the backend uses to talk to docker-control-service |
 | `TT_INFERENCE_ARTIFACT_BRANCH` *or* `TT_INFERENCE_ARTIFACT_VERSION` | Override the tt-inference-server artifact (default: the model support spec's release) |
 | `TT_MODEL_SUPPORT_URL` | Model support spec the model catalog syncs from when its release matches the inference-server artifact (default: the latest tt-cli release) |
+| `TT_COMMUNITY_CATALOG_URL` | Verified community bundles (tt-cli `community_catalog.json`), the only community models listed (default: the latest tt-cli release) |
 
 ### Service URLs
 
