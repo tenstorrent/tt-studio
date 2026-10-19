@@ -210,6 +210,31 @@ class TestMergeTileTexts:
             "first line\nshared one two three four\nnext line\nlast line"
         )
 
+    def test_a_word_misread_inside_the_overlap_does_not_break_the_seam(self):
+        """Measured on hardware: one read of the overlap misreads a word partway,
+        which splits the duplicate into two runs and defeated an exact match."""
+        shared = "one two three four five six seven eight nine ten eleven twelve"
+        a = f"start of page {shared} thirteen fourteen fifteen"
+        b = f"{shared} thirteen fourteen fifteeen sixteen seventeen"
+        merged = merge_tile_texts([a, b])
+        assert merged.startswith("start of page one two")
+        assert merged.count("eleven twelve") == 1
+        assert merged.endswith("sixteen seventeen")
+
+    def test_extra_words_before_the_shared_run_in_the_next_strip_are_dropped(self):
+        """The next strip reads part of a line the earlier one has in full."""
+        shared = "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        a = f"intro words here {shared}"
+        b = f"pha bet gam dlta eps zta {shared} lambda mu"
+        assert merge_tile_texts([a, b]) == f"intro words here {shared} lambda mu"
+
+    def test_a_short_run_away_from_the_edges_is_not_a_seam(self):
+        """Inset runs need SEAM_MIN_INSET_WORDS; a 5-word coincidence is kept."""
+        a = "the red fox ran far then something else happened here at last"
+        b = "unrelated opening the red fox ran far and a new ending"
+        merged = merge_tile_texts([a, b])
+        assert merged == f"{a}\n{b}"
+
     def test_a_dash_read_in_only_one_strip_does_not_break_the_seam(self):
         a = "one two three four"
         b = "one two - three four five"

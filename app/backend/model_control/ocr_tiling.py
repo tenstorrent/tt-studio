@@ -29,6 +29,7 @@ functions here derive the count from the pixel budget rather than exposing it.
 
 from __future__ import annotations
 
+import difflib
 import math
 import re
 import unicodedata
@@ -78,7 +79,13 @@ MAX_TILES = 6
 # tail of one strip is compared against the head of the next, so deliberate
 # repetition inside a strip can never be collapsed by this.
 SEAM_MIN_WORDS = 4
-SEAM_WINDOW_WORDS = 80
+SEAM_WINDOW_WORDS = 160
+
+# How far from the edges a shared run may sit and still mark the seam, and how
+# long it must be when it does not touch them. Measured on dense print, the two
+# reads of an overlap disagreed for up to 22 words before or after the run.
+SEAM_SLACK_WORDS = 40
+SEAM_MIN_INSET_WORDS = 8
 
 
 def _contiguous_runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -245,11 +252,12 @@ def merge_tile_texts(
 
     Overlapping strips mean the lines around each cut are transcribed twice. The
     merge compares the *end* of one strip against the *beginning* of the next and
-    removes the longest run of words they share, so repetition that a writer put
-    there on purpose survives: it sits inside a strip, never across a seam. The
-    earlier strip's layout of the shared run is kept, taking whichever reading
-    of each word is longer (one read often drops a trailing comma), and the rest
-    of the next strip is appended as written, line breaks included.
+    cuts at the longest run of words they share (see _find_seam for how much
+    disagreement around it is tolerated), so repetition that a writer put there
+    on purpose survives: it sits inside a strip, never across a seam. The
+    earlier strip is kept up to the end of that run, taking whichever reading of
+    each shared word is longer (one read often drops a trailing comma), and the
+    next strip carries on from there as written, line breaks included.
     """
     kept = [t.strip() for t in texts if t and t.strip()]
     if not kept:
@@ -261,24 +269,59 @@ def merge_tile_texts(
         next_tokens = _seam_tokens(nxt)
         prev_words = [t[0] for t in prev_tokens]
         next_words = [t[0] for t in next_tokens]
-        limit = min(window, len(prev_words), len(next_words))
+        tail = prev_words[-window:]
+        head = next_words[:window]
+        base = len(prev_words) - len(tail)
 
-        overlap_len = 0
-        for size in range(limit, min_words - 1, -1):
-            if prev_words[-size:] == next_words[:size]:
-                overlap_len = size
-                break
-
-        if overlap_len:
-            pairs = zip(prev_tokens[-overlap_len:], next_tokens[:overlap_len])
-            # Right to left, so earlier offsets stay valid as words are swapped.
-            for (_, ps, pe), (_, ns, ne) in reversed(list(pairs)):
-                if ne - ns > pe - ps:
-                    merged = merged[:ps] + nxt[ns:ne] + merged[pe:]
-            remainder = nxt[next_tokens[overlap_len - 1][2] :]
-            if remainder.strip():
-                sep = "" if remainder[0].isspace() else " "
-                merged = f"{merged}{sep}{remainder}"
-        else:
+        seam = _find_seam(tail, head, min_words)
+        if seam is None:
             merged = f"{merged}\n{nxt}"
+            continue
+
+        i, j, n = seam
+        shared = prev_tokens[base + i : base + i + n]
+        # Words the earlier strip read past the shared run are in the next
+        # strip too, which carries on from the same point.
+        merged = merged[: shared[-1][2]]
+        # Right to left, so earlier offsets stay valid as words are swapped.
+        for (_, ps, pe), (_, ns, ne) in reversed(
+            list(zip(shared, next_tokens[j : j + n]))
+        ):
+            if ne - ns > pe - ps:
+                merged = merged[:ps] + nxt[ns:ne] + merged[pe:]
+        remainder = nxt[next_tokens[j + n - 1][2] :]
+        if remainder.strip():
+            sep = "" if remainder[0].isspace() else " "
+            merged = f"{merged}{sep}{remainder}"
     return merged
+
+
+def _find_seam(
+    tail: list[str], head: list[str], min_words: int
+) -> tuple[int, int, int] | None:
+    """The run of words a seam shares, as (index in tail, index in head, length).
+
+    The two reads of the overlap rarely agree word for word: one misreads a
+    word partway through, or reads a few words the other does not, which
+    splits the duplicated text into several runs. Any run that ends close to
+    the tail's end and starts close to the head's start marks the seam; the
+    longest is taken. A run flush with both edges needs only ``min_words``;
+    one set in from them needs SEAM_MIN_INSET_WORDS, so a chance coincidence
+    inside the overlap cannot trim real text.
+    """
+    matcher = difflib.SequenceMatcher(None, tail, head, autojunk=False)
+    best = None
+    for i, j, n in matcher.get_matching_blocks():
+        if n == 0:
+            continue
+        end_gap = len(tail) - (i + n)
+        if end_gap > SEAM_SLACK_WORDS or j > SEAM_SLACK_WORDS:
+            continue
+        needed = (
+            min_words
+            if end_gap == 0 and j == 0
+            else max(min_words, SEAM_MIN_INSET_WORDS)
+        )
+        if n >= needed and (best is None or n > best[2]):
+            best = (i, j, n)
+    return best
