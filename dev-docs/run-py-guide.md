@@ -225,7 +225,7 @@ The default setup uses the following values:
 | `JWT_SECRET` | `test-secret-456` | JWT authentication secret (not secure) |
 | `DJANGO_SECRET_KEY` | `django-insecure-default` | Django backend security key (not secure) |
 | `TAVILY_API_KEY` | `tavily-api-key-not-configured` | Search functionality (disabled) |
-| `VITE_APP_TITLE` | `Tenstorrent \| TT Studio` | Application title |
+| `VITE_APP_TITLE` | `TT Studio` | Application title |
 | `VITE_ENABLE_DEPLOYED` | `false` | AI Playground mode (disabled - uses TT Studio mode) |
 | `VITE_ENABLE_RAG_ADMIN` | `false` | RAG admin interface (disabled) |
 | `RAG_ADMIN_PASSWORD` | `tt-studio-rag-admin-password` | Default admin password |

@@ -74,6 +74,19 @@ class TestEnvFileRoundTrip(unittest.TestCase):
         self.assertEqual(existing.get("A"), "1")
         self.assertEqual(existing.get("B"), "2")
 
+    def test_legacy_app_title_migration(self):
+        """Legacy default 'Tenstorrent | TT Studio' in .env must migrate to STOCK_APP_TITLE."""
+        from tt_setup.constants import STOCK_APP_TITLE
+
+        M.write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+        self.assertEqual(M.get_env_var("VITE_APP_TITLE"), "Tenstorrent | TT Studio")
+
+        current_title = M.get_env_var("VITE_APP_TITLE")
+        if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
+            M.write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+
+        self.assertEqual(M.get_env_var("VITE_APP_TITLE"), STOCK_APP_TITLE)
+
 
 class TestOsEnvironPrecedence(unittest.TestCase):
     """os.environ must take precedence over .env file values (issue #804)."""

@@ -460,11 +460,16 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
+    # Auto-migrate legacy default from older releases to stock, preventing false image drift
+    if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
+        write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+        current_title = STOCK_APP_TITLE
+
     if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
-            write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
     elif should_configure_var("VITE_APP_TITLE", current_title):
-        dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
+        dev_default = "TT Studio (Dev)" if dev_mode else STOCK_APP_TITLE
         val = ask("📝 Enter application title", default=dev_default)
         write_env_var("VITE_APP_TITLE", val)
         console.print("[success]✅ VITE_APP_TITLE saved.[/success]")
