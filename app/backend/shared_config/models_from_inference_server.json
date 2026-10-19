@@ -2001,7 +2001,10 @@
       "requires_dev_catalog": true,
       "inference_artifact_ref": {
         "P150": "stisi/add-paddleocr-vl-p150-dev-spec"
-      }
+      },
+      "excluded_boards": [
+        "P300x2"
+      ]
     }
   ]
 }

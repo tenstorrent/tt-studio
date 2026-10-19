@@ -48,7 +48,12 @@ _CANDIDATE_SOURCES = [
 # rebuilds the catalog from scratch and silently drops them -- someone fixes a
 # deploy by editing the catalog, then loses the fix on the next --resync with no
 # error. Adding a future hand-owned field means adding it here. See issue #977.
-HAND_OWNED_KEYS = ("requires_dev_catalog", "inference_artifact_ref", "hand_owned")
+HAND_OWNED_KEYS = (
+    "requires_dev_catalog",
+    "inference_artifact_ref",
+    "hand_owned",
+    "excluded_boards",
+)
 
 # Marker for a hand-added entry (e.g. the forge TRAINING rows, absent from prod
 # snapshots). It outranks a synced entry of the same identity -- (model_name,
