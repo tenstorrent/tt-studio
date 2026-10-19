@@ -220,6 +220,20 @@ def stage_bundle(root, bundle_dir=None, version=None):
     return previous, True
 
 
+# tt-inference-server's workflows.utils.get_repo_root_path() walks up from the
+# extracted artifact looking for a `.git` entry and raises FileNotFoundError when
+# none exists, which kills the inference API on import. In a source checkout the
+# clone's own .git answers and the artifact treats the checkout as its root (its
+# .env, .workflow_venvs, …). The runtime root stands in for the clone here, so it
+# needs the same marker. An empty directory is enough: nothing runs git in it.
+REPO_ROOT_MARKER = ".git"
+
+
+def ensure_repo_root_marker(root):
+    """Give `root` the `.git` marker the inference-server artifact looks for."""
+    os.makedirs(os.path.join(root, REPO_ROOT_MARKER), exist_ok=True)
+
+
 def _tilde(path):
     home = os.path.expanduser("~")
     return (
@@ -238,6 +252,7 @@ def main():
         except (InstallError, OSError) as e:
             sys.stderr.write(f"tt-studio: {e}\n")
             sys.exit(1)
+        ensure_repo_root_marker(root)
         if changed:
             version = package_version()
             if previous:

@@ -257,6 +257,13 @@ class TestMain(_TempCase):
         code, out, _, _ = self._main()
         self.assertEqual((code, out), (0, ""))
 
+    def test_root_gets_the_git_marker_the_inference_artifact_needs(self):
+        # tt-inference-server's get_repo_root_path() walks up looking for .git.
+        self._main()
+        self.assertTrue(os.path.isdir(os.path.join(self.root, ".git")))
+        code, out, _, _ = self._main()
+        self.assertEqual((code, out), (0, ""))
+
     def test_refused_root_exits_with_the_reason(self):
         _write(os.path.join(self.root, "notes.txt"), "mine")
         code, _, err, cli_main = self._main()
