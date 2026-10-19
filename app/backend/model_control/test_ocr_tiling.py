@@ -182,6 +182,29 @@ class TestMergeTileTexts:
             == "alpha beta gamma delta epsilon zeta"
         )
 
+    def test_matching_ignores_punctuation_the_two_reads_disagree_on(self):
+        """The reviewer's 3-strip photo: one strip read ``was``, the next ``was,``.
+
+        An exact match missed that seam and repeated the whole line.
+        """
+        a = "Dear Sam,\nthe weather that week was"
+        b = "the weather that week was, frankly, awful\nand it rained"
+        assert merge_tile_texts([a, b]) == (
+            "Dear Sam,\nthe weather that week was, frankly, awful\nand it rained"
+        )
+
+    def test_the_next_strip_keeps_its_line_breaks(self):
+        a = "first line\nshared one two three"
+        b = "shared one two three four\nnext line\nlast line"
+        assert merge_tile_texts([a, b]) == (
+            "first line\nshared one two three four\nnext line\nlast line"
+        )
+
+    def test_a_dash_read_in_only_one_strip_does_not_break_the_seam(self):
+        a = "one two three four"
+        b = "one two - three four five"
+        assert merge_tile_texts([a, b]) == "one two three four five"
+
     def test_empty_and_blank_strips_are_skipped(self):
         assert merge_tile_texts([]) == ""
         assert merge_tile_texts(["", "   "]) == ""

@@ -29,6 +29,10 @@ functions here derive the count from the pixel budget rather than exposing it.
 
 from __future__ import annotations
 
+import math
+import re
+import unicodedata
+
 import numpy as np
 from PIL import Image
 
@@ -189,6 +193,25 @@ def plan_tiles(
     return boxes
 
 
+def _seam_tokens(text: str) -> list[tuple[str, int, int]]:
+    """Words of ``text`` in comparable form, each with its (start, end) offsets.
+
+    The two reads of a seam line routinely disagree on punctuation and case
+    (``was`` in one strip, ``was,`` in the next), so words are compared with
+    both stripped. Tokens that are nothing but punctuation are skipped entirely,
+    since one strip may read a dash or bullet the other does not.
+    """
+    tokens: list[tuple[str, int, int]] = []
+    for match in re.finditer(r"\S+", text):
+        word = unicodedata.normalize("NFKC", match.group()).casefold()
+        word = "".join(
+            ch for ch in word if not unicodedata.category(ch).startswith(("P", "S"))
+        )
+        if word:
+            tokens.append((word, match.start(), match.end()))
+    return tokens
+
+
 def merge_tile_texts(
     texts: list[str],
     *,
@@ -200,30 +223,39 @@ def merge_tile_texts(
     Overlapping strips mean the lines around each cut are transcribed twice. The
     merge compares the *end* of one strip against the *beginning* of the next and
     removes the longest run of words they share, so repetition that a writer put
-    there on purpose survives: it sits inside a strip, never across a seam.
+    there on purpose survives: it sits inside a strip, never across a seam. The
+    earlier strip's layout of the shared run is kept, taking whichever reading
+    of each word is longer (one read often drops a trailing comma), and the rest
+    of the next strip is appended as written, line breaks included.
     """
-    kept = [t for t in texts if t and t.strip()]
+    kept = [t.strip() for t in texts if t and t.strip()]
     if not kept:
         return ""
 
-    merged = kept[0].strip()
+    merged = kept[0]
     for nxt in kept[1:]:
-        nxt = nxt.strip()
-        prev_words = merged.split()
-        next_words = nxt.split()
+        prev_tokens = _seam_tokens(merged)
+        next_tokens = _seam_tokens(nxt)
+        prev_words = [t[0] for t in prev_tokens]
+        next_words = [t[0] for t in next_tokens]
         limit = min(window, len(prev_words), len(next_words))
 
         overlap_len = 0
         for size in range(limit, min_words - 1, -1):
-            tail = [w.lower() for w in prev_words[-size:]]
-            head = [w.lower() for w in next_words[:size]]
-            if tail == head:
+            if prev_words[-size:] == next_words[:size]:
                 overlap_len = size
                 break
 
         if overlap_len:
-            remainder = " ".join(next_words[overlap_len:])
-            merged = f"{merged} {remainder}".strip() if remainder else merged
+            pairs = zip(prev_tokens[-overlap_len:], next_tokens[:overlap_len])
+            # Right to left, so earlier offsets stay valid as words are swapped.
+            for (_, ps, pe), (_, ns, ne) in reversed(list(pairs)):
+                if ne - ns > pe - ps:
+                    merged = merged[:ps] + nxt[ns:ne] + merged[pe:]
+            remainder = nxt[next_tokens[overlap_len - 1][2] :]
+            if remainder.strip():
+                sep = "" if remainder[0].isspace() else " "
+                merged = f"{merged}{sep}{remainder}"
         else:
             merged = f"{merged}\n{nxt}"
     return merged
