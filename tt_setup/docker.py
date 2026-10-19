@@ -3,6 +3,7 @@
 
 """Docker installation, access, command execution, and compose-command building."""
 
+import fnmatch
 import os
 import sys
 import subprocess
@@ -307,6 +308,53 @@ def ensure_docker_group_membership():
     except Exception as e:
         console.print(f"[warning]⚠️  Could not check Docker socket permissions: {e}[/warning]")
         return False
+
+
+# Never made world-readable: secrets a developer may keep next to the code (the
+# agent's .dockerignore keeps the same .env files out of its image), and trees
+# no container reads.
+_KEEP_PRIVATE_FILES = (".env*", "*.pem", "*.key")
+_SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__"}
+
+
+def grant_container_read(paths):
+    """Make *paths* readable by everyone, recursing into directories.
+
+    LiteLLM and the agent run as a fixed non-root uid (1000), so they read their
+    bind-mounted files as "other". A clone made under umask 0007 leaves tracked
+    files at 0660, which those containers cannot open: LiteLLM crash-loops on its
+    config. Only read (and directory/executable search) bits are added, never
+    removed, and git tracks only the exec bit, so the checkout stays clean.
+    Returns the paths that could not be changed (e.g. owned by another user).
+    """
+    failed = []
+
+    def _grant(path, is_dir):
+        try:
+            mode = os.stat(path).st_mode
+            wanted = mode | 0o444
+            if is_dir or mode & 0o111:
+                wanted |= 0o111
+            if wanted != mode:
+                os.chmod(path, wanted & 0o7777)
+        except OSError:
+            failed.append(path)
+
+    for root in paths:
+        if not os.path.exists(root) or os.path.islink(root):
+            continue
+        if not os.path.isdir(root):
+            _grant(root, False)
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            _grant(dirpath, True)
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                private = any(fnmatch.fnmatch(name, p) for p in _KEEP_PRIVATE_FILES)
+                if not private and not os.path.islink(path):
+                    _grant(path, False)
+    return failed
 
 
 def detect_tt_hardware():

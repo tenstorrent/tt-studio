@@ -183,5 +183,71 @@ class TestDockerSocketPath(unittest.TestCase):
         )
 
 
+
+
+class TestGrantContainerRead(unittest.TestCase):
+    """A umask-0007 clone leaves tracked files at 0660; containers running as
+    uid 1000 must still be able to read their bind-mounted files."""
+
+    def test_adds_read_and_search_bits_without_removing_any(self):
+        import stat
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            config = os.path.join(root, "config.yaml")
+            pkg = os.path.join(root, "agent")
+            module = os.path.join(pkg, "agent.py")
+            script = os.path.join(pkg, "run.sh")
+            os.mkdir(pkg)
+            for path in (config, module, script):
+                with open(path, "w") as f:
+                    f.write("x")
+            os.chmod(config, 0o660)
+            os.chmod(module, 0o660)
+            os.chmod(script, 0o770)
+            os.chmod(pkg, 0o770)
+            os.symlink("/etc/hostname", os.path.join(pkg, "link"))
+
+            failed = M.grant_container_read([config, pkg, os.path.join(root, "missing")])
+
+            mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+            self.assertEqual(failed, [])
+            self.assertEqual(mode(config), 0o664)
+            self.assertEqual(mode(module), 0o664)
+            self.assertEqual(mode(script), 0o775)
+            self.assertEqual(mode(pkg), 0o775)
+
+    def test_secrets_and_ignored_trees_stay_private(self):
+        import stat
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pkg:
+            venv = os.path.join(pkg, ".venv")
+            os.mkdir(venv)
+            private = [os.path.join(pkg, n) for n in (".env", ".env.local", "client.key", "cert.pem")]
+            private.append(os.path.join(venv, "secret.py"))
+            for path in private:
+                with open(path, "w") as f:
+                    f.write("x")
+                os.chmod(path, 0o600)
+            os.chmod(venv, 0o700)
+
+            M.grant_container_read([pkg])
+
+            mode = lambda p: stat.S_IMODE(os.stat(p).st_mode)
+            for path in private:
+                self.assertEqual(mode(path), 0o600, path)
+            self.assertEqual(mode(venv), 0o700)
+
+    def test_already_readable_files_are_left_alone(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile() as f:
+            os.chmod(f.name, 0o644)
+            with patch("os.chmod") as chmod:
+                M.grant_container_read([f.name])
+            chmod.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

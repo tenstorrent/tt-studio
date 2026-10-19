@@ -23,6 +23,7 @@ from tt_setup.docker import (
     detect_foreign_tt_studio_stacks,
     detect_tt_hardware,
     fix_docker_issues,
+    grant_container_read,
     prepare_docker_socket_path,
     remove_docker_control_container,
     stop_tt_studio_stack,
@@ -1025,6 +1026,19 @@ def _run(args):
                     ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", _mount_dir],
                     check=False,
                 )
+
+        # Files mounted into containers that run as a fixed non-root uid must be
+        # world-readable, which a clone made under umask 0007 (files at 0660) is not.
+        unreadable = grant_container_read([
+            os.path.join(TT_STUDIO_ROOT, "app", "litellm", "config.yaml"),
+            os.path.join(TT_STUDIO_ROOT, "app", "agent"),
+        ])
+        if unreadable:
+            console.print(
+                f"[warning]⚠️  Couldn't make {len(unreadable)} file(s) readable for the "
+                f"LiteLLM/agent containers (first: {unreadable[0]}). If those containers "
+                "keep restarting, run: chmod -R a+rX app/litellm app/agent[/warning]"
+            )
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.
