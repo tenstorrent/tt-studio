@@ -13,6 +13,7 @@ import {
   Clock,
   Ban,
   ServerOff,
+  Trash2,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -20,12 +21,15 @@ import { Button } from "../components/ui/button";
 import {
   fetchTrainingJobs,
   cancelTrainingJob,
+  deleteTrainingJob,
   formatTrainingTimestamp,
   trainingTimestampToMs,
+  getApiErrorMessage,
   getJobDataset,
   type TrainingJob,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
 import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
 
@@ -71,6 +75,9 @@ const STATUS_STYLES: Record<
   },
 };
 
+// A cancelling job can be deleted too: the container force-stops its worker first.
+const DELETABLE_STATUSES = ["completed", "failed", "cancelled", "cancelling"];
+
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_STYLES[status] ?? STATUS_STYLES.queued;
   const Icon = cfg.icon;
@@ -93,6 +100,7 @@ export default function TrainingPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [noContainer, setNoContainer] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -136,12 +144,28 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: "cancelling" } : j)),
+      );
       customToast.success(
         "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
       );
       loadJobs();
     } catch {
       customToast.error("Failed to cancel job");
+    }
+  };
+
+  const handleDelete = async (jobId: string) => {
+    setDeletingJobId(jobId);
+    try {
+      await deleteTrainingJob(jobId);
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      customToast.success("Fine-tuning job deleted");
+    } catch (err) {
+      customToast.error(getApiErrorMessage(err, "Failed to delete job"));
+    } finally {
+      setDeletingJobId(null);
     }
   };
 
@@ -257,7 +281,7 @@ export default function TrainingPage() {
                     {jobs.map((job) => (
                       <tr
                         key={job.id}
-                        className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        className={`cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 ${deletingJobId === job.id ? "opacity-50" : ""}`}
                         onClick={() => navigate(`/training/${job.id}`)}
                       >
                         <td className="px-2 py-3 font-mono text-xs">
@@ -278,20 +302,43 @@ export default function TrainingPage() {
                             ? `${job.progress.current_step} / ${job.progress.total_steps}`
                             : "-"}
                         </td>
-                        <td className="px-2 py-3">
+                        {/* Clicks here (including inside the portaled dialog) must not open the job. */}
+                        <td
+                          className="px-2 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {(job.status === "queued" ||
                             job.status === "in_progress") && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCancel(job.id);
-                              }}
+                              onClick={() => handleCancel(job.id)}
                             >
                               <XCircle className="mr-1 h-4 w-4" />
                               Cancel
                             </Button>
+                          )}
+                          {DELETABLE_STATUSES.includes(job.status) && (
+                            <ConfirmDialog
+                              dialogTitle="Delete fine-tuning job?"
+                              dialogDescription="This permanently deletes the job, its checkpoints, and any models promoted from it."
+                              confirmText="Delete"
+                              onConfirm={() => handleDelete(job.id)}
+                              alertTrigger={
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={deletingJobId !== null}
+                                >
+                                  {deletingJobId === job.id ? (
+                                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="mr-1 h-4 w-4" />
+                                  )}
+                                  {deletingJobId === job.id ? "Deleting…" : "Delete"}
+                                </Button>
+                              }
+                            />
                           )}
                         </td>
                       </tr>
