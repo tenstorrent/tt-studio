@@ -514,10 +514,24 @@ export default function TrainingJobDetailPage() {
             {(() => {
               const config = job.config ?? job.request_parameters;
               if (!config || Object.keys(config).length === 0) return null;
-              const HIDDEN_CONFIG_KEYS = ["lora_task_type", "ignored_index"];
-              const visibleEntries = Object.entries(config).filter(
-                ([k]) => !HIDDEN_CONFIG_KEYS.includes(k),
-              );
+              const HIDDEN_CONFIG_KEYS = [
+                "lora_task_type",
+                "ignored_index",
+                "column_mapping",
+              ];
+              // Staged paths are container-internal; only the file name means
+              // anything to the user.
+              const DATASET_PATH_LABELS: Record<string, string> = {
+                train_dataset_path: "train dataset",
+                val_dataset_path: "eval dataset",
+              };
+              const visibleEntries = Object.entries(config)
+                .filter(([k]) => !HIDDEN_CONFIG_KEYS.includes(k))
+                .flatMap(([k, v]): [string, unknown][] => {
+                  if (!(k in DATASET_PATH_LABELS)) return [[k, v]];
+                  if (typeof v !== "string" || !v) return [];
+                  return [[DATASET_PATH_LABELS[k], v.split("/").pop() || v]];
+                });
               if (visibleEntries.length === 0) return null;
               return (
                 <div className="mt-4 border-t pt-4 dark:border-gray-700">
