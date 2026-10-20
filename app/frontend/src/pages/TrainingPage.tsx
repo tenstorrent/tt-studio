@@ -23,6 +23,7 @@ import {
   cancelTrainingJob,
   deleteTrainingJob,
   formatTrainingTimestamp,
+  trainingTimestampToMs,
   getApiErrorMessage,
   getJobDataset,
   type TrainingJob,
@@ -104,7 +105,9 @@ export default function TrainingPage() {
   const loadJobs = useCallback(async () => {
     try {
       const data = await fetchTrainingJobs();
-      setJobs(data);
+      const createdMs = (job: TrainingJob) =>
+        trainingTimestampToMs(job.created_at) ?? 0;
+      setJobs([...data].sort((a, b) => createdMs(b) - createdMs(a)));
       setNoContainer(false);
       setApiError(null);
     } catch (err: any) {
@@ -264,44 +267,44 @@ export default function TrainingPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                      <th className="py-3 pr-4">Job ID</th>
-                      <th className="py-3 pr-4">Model</th>
-                      <th className="py-3 pr-4">Dataset</th>
-                      <th className="py-3 pr-4">Status</th>
-                      <th className="py-3 pr-4">Created</th>
-                      <th className="py-3 pr-4">Progress</th>
-                      <th className="py-3 text-right">Actions</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 text-center text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      <th className="px-2 py-3">Job ID</th>
+                      <th className="px-2 py-3">Model</th>
+                      <th className="px-2 py-3">Dataset</th>
+                      <th className="px-2 py-3">Status</th>
+                      <th className="px-2 py-3">Created</th>
+                      <th className="px-2 py-3">Progress</th>
+                      <th className="px-2 py-3">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-center">
                     {jobs.map((job) => (
                       <tr
                         key={job.id}
                         className={`cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 ${deletingJobId === job.id ? "opacity-50" : ""}`}
                         onClick={() => navigate(`/training/${job.id}`)}
                       >
-                        <td className="py-3 pr-4 font-mono text-xs">
+                        <td className="px-2 py-3 font-mono text-xs">
                           {job.id.slice(0, 8)}
                         </td>
-                        <td className="py-3 pr-4 font-medium">
+                        <td className="px-2 py-3 font-medium">
                           {job.model}
                         </td>
-                        <td className="py-3 pr-4">{getJobDataset(job)}</td>
-                        <td className="py-3 pr-4">
+                        <td className="px-2 py-3">{getJobDataset(job)}</td>
+                        <td className="px-2 py-3">
                           <StatusBadge status={job.status} />
                         </td>
-                        <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
+                        <td className="px-2 py-3 text-gray-500 dark:text-gray-400">
                           {formatTrainingTimestamp(job.created_at)}
                         </td>
-                        <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
+                        <td className="px-2 py-3 text-gray-500 dark:text-gray-400">
                           {job.progress
                             ? `${job.progress.current_step} / ${job.progress.total_steps}`
                             : "-"}
                         </td>
                         {/* Clicks here (including inside the portaled dialog) must not open the job. */}
                         <td
-                          className="py-3 text-right"
+                          className="px-2 py-3"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {(job.status === "queued" ||
