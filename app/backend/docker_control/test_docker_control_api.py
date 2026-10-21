@@ -18,7 +18,7 @@ from .test_docker_utils import (
     valid_vllm_api_call,
 )
 
-from django.test import APITestCase
+from rest_framework.test import APITestCase
 from django.urls import reverse
 from rest_framework import status
 
