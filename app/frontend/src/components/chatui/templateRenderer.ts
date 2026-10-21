@@ -134,26 +134,23 @@ Answer: To deploy the application, you'll need to set up the required environmen
 
   const responseFormat = getResponseFormat(processedQuery.intent);
 
-  // Add system message first
+  // Add system message first — keep default aligned with what Model Parameters displays
   const identityLine = [
     modelName ? `You are ${modelName}.` : "You are a helpful AI assistant.",
     hardwareContext ? `This instance is running on ${hardwareContext}.` : "",
   ].filter(Boolean).join(" ");
-  systemPrompt = systemPrompt || `${identityLine}
+  const hasRagDocuments = Boolean(ragContext && ragContext.documents.length > 0);
+  systemPrompt =
+    systemPrompt ||
+    (hasRagDocuments
+      ? `${identityLine}
 
 SAFETY GUIDELINES:
 • Only answer if you are confident and the information is in your training or the provided context
 • Do NOT guess or make up answers
 • If unsure, reply with: "I'm not sure — please upload a document or ask a human reviewer"
-• Format replies with markdown, bullet points, and code blocks where applicable
-
-${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
-
-${processedQuery.intent.type === "greeting"
-      ? "Keep responses brief and friendly for greetings."
-      : `RESPONSE FORMAT:
-${responseFormat}`
-    }`
+• Format replies with markdown, bullet points, and code blocks where applicable`
+      : identityLine);
   messages.push({
     role: "system",
     content: systemPrompt,
