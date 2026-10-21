@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
 import type React from "react";
 import type {
   InferenceRequest,
@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
+import { isRunawayThinking } from "./tokenLimits";
 import { v4 as uuidv4 } from "uuid";
 import { processUploadedFiles } from "./processUploadedFiles";
 import { InferenceMetricsTracker } from "./metricsTracker";
@@ -35,7 +36,7 @@ export const runInference = async (
   modelName: string | null = null,
   // Reports the retrieval step's outcome as soon as it finishes, so callers can
   // show retrieval progress and timing without issuing a second Chroma query.
-  onRagContext?: (info: { documents: string[]; latencyMs: number }) => void,
+  onRagContext?: (info: { documents: string[]; latencyMs: number }) => void
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -104,7 +105,7 @@ export const runInference = async (
           ragContext,
           systemPrompt,
           hardwareContext,
-          modelName,
+          modelName
         );
       } else if (file.image_url?.url || file) {
         console.log(
@@ -167,7 +168,7 @@ export const runInference = async (
         ragContext,
         systemPrompt,
         hardwareContext,
-        modelName,
+        modelName
       );
     }
 
@@ -308,15 +309,25 @@ export const runInference = async (
 
     if (!response.ok) {
       const body = await response.text();
-      if (response.status === 422 && body.includes('"content"') && body.includes("string")) {
-        throw new Error("This model does not support image inputs. Try a vision-capable model, or send text only.");
+      if (
+        response.status === 422 &&
+        body.includes('"content"') &&
+        body.includes("string")
+      ) {
+        throw new Error(
+          "This model does not support image inputs. Try a vision-capable model, or send text only."
+        );
       }
       if (isAgentSelected) {
         if (response.status === 503 || response.status === 502) {
-          throw new Error("The Search Agent service is currently unavailable. Please try again in a moment or disable the Search Agent.");
+          throw new Error(
+            "The Search Agent service is currently unavailable. Please try again in a moment or disable the Search Agent."
+          );
         }
         if (response.status === 500) {
-          throw new Error("The Search Agent encountered an internal error. Please try again.");
+          throw new Error(
+            "The Search Agent encountered an internal error. Please try again."
+          );
         }
       }
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -412,7 +423,8 @@ export const runInference = async (
 
           // Handle agent service "waiting" status (LLM not yet ready)
           if (isAgentSelected && jsonData.status === "waiting") {
-            contentText = jsonData.message || "Search Agent is initializing, please wait…";
+            contentText =
+              jsonData.message || "Search Agent is initializing, please wait…";
             accumulatedText = contentText;
             scheduleUiUpdate();
             continue;
@@ -434,12 +446,17 @@ export const runInference = async (
             const backendStats: InferenceStats = {
               user_ttft_s: jsonData.ttft,
               user_tpot: jsonData.tpot,
-              itl: Array.isArray(jsonData.itl) ? jsonData.itl.map((s: number) => s * 1000) : undefined,
+              itl: Array.isArray(jsonData.itl)
+                ? jsonData.itl.map((s: number) => s * 1000)
+                : undefined,
               tokens_decoded: jsonData.tokens_decoded,
               tokens_prefilled: jsonData.tokens_prefilled,
               context_length: jsonData.context_length,
               reasoning_tokens: jsonData.reasoning_tokens ?? undefined,
-              thinking_duration_ms: jsonData.thinking_duration != null ? jsonData.thinking_duration * 1000 : undefined,
+              thinking_duration_ms:
+                jsonData.thinking_duration != null
+                  ? jsonData.thinking_duration * 1000
+                  : undefined,
             };
             inferenceStats = metricsTracker.finalizeStats(backendStats);
             continue;
@@ -457,7 +474,8 @@ export const runInference = async (
           const delta = jsonData.choices?.[0]?.delta;
 
           // Thinking/reasoning tokens (multi-vendor field names)
-          const rawReasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
+          const rawReasoning =
+            delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
           const reasoning =
             typeof rawReasoning === "string"
               ? rawReasoning.replace(/<\/?(think|thought|reasoning)>/gi, "")
@@ -467,16 +485,27 @@ export const runInference = async (
             if (!t.firstToken) t.firstToken = performance.now();
             metricsTracker.recordThinkingToken();
             thinkingText += reasoning;
+            if (isRunawayThinking(thinkingText)) {
+              thinkingDone = true;
+              accumulatedText = `<think>${thinkingText}</think>${contentText}`;
+              scheduleUiUpdate();
+              abortController?.abort();
+              break;
+            }
             // Incomplete thinking block — no closing tag yet so StreamingMessage shows "Thinking..."
             accumulatedText = `<think>${thinkingText}${contentText}`;
             scheduleUiUpdate();
           }
 
           // Regular content tokens
-          const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
+          const rawContent =
+            delta?.content ?? jsonData.choices?.[0]?.text ?? "";
           const content = rawContent
             .replace(/[[<|]*python_tag[\]>|]*/gi, "")
-            .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
+            .replace(
+              /\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi,
+              ""
+            );
           if (content) {
             if (thinkingText && !thinkingDone) {
               thinkingDone = true;
@@ -560,17 +589,21 @@ export const runInference = async (
     }
 
     t.end = performance.now();
-    const ms = (key: string) => (t[key] != null ? `${Math.round(t[key] - t.start)}ms` : "—");
-    const serverTtftMs = inferenceStats?.user_ttft_s != null
-      ? Math.round(inferenceStats.user_ttft_s * 1000)
-      : null;
-    const clientTtftMs = t.firstToken != null ? Math.round(t.firstToken - t.start) : null;
-    const overhead = clientTtftMs != null && serverTtftMs != null
-      ? clientTtftMs - serverTtftMs
-      : null;
+    const ms = (key: string) =>
+      t[key] != null ? `${Math.round(t[key] - t.start)}ms` : "—";
+    const serverTtftMs =
+      inferenceStats?.user_ttft_s != null
+        ? Math.round(inferenceStats.user_ttft_s * 1000)
+        : null;
+    const clientTtftMs =
+      t.firstToken != null ? Math.round(t.firstToken - t.start) : null;
+    const overhead =
+      clientTtftMs != null && serverTtftMs != null
+        ? clientTtftMs - serverTtftMs
+        : null;
     console.log(
       `[Stream timing] clientTTFT=${ms("firstToken")} serverTTFT=${serverTtftMs != null ? serverTtftMs + "ms" : "—"} overhead=${overhead != null ? overhead + "ms" : "—"}\n` +
-      `  HTTP: ${ms("httpResponse")} | FirstRead: ${ms("firstRead")} | FirstSSE: ${ms("firstSSE")} | FirstToken: ${ms("firstToken")} | Total: ${ms("end")} | SSE events: ${sseEventCount} | finish_reason: ${finishReason ?? "—"}`
+        `  HTTP: ${ms("httpResponse")} | FirstRead: ${ms("firstRead")} | FirstSSE: ${ms("firstSSE")} | FirstToken: ${ms("firstToken")} | Total: ${ms("end")} | SSE events: ${sseEventCount} | finish_reason: ${finishReason ?? "—"}`
     );
     if (finishReason === "length") {
       console.warn("⚠️ Response truncated: hit max_tokens limit");
@@ -613,8 +646,14 @@ export const runInference = async (
       if (t.firstToken != null && inferenceStats.client_ttft_ms == null) {
         inferenceStats.client_ttft_ms = Math.round(t.firstToken - t.start);
       }
-      if (agentThinkingStarted && agentThinkingEndTime && inferenceStats.thinking_duration_ms == null) {
-        inferenceStats.thinking_duration_ms = Math.round(agentThinkingEndTime - t.start);
+      if (
+        agentThinkingStarted &&
+        agentThinkingEndTime &&
+        inferenceStats.thinking_duration_ms == null
+      ) {
+        inferenceStats.thinking_duration_ms = Math.round(
+          agentThinkingEndTime - t.start
+        );
       }
       if (inferenceStats.timing == null) {
         inferenceStats.timing = timing;
@@ -641,7 +680,8 @@ export const runInference = async (
           if (devices.length > 0) {
             const totalPower = devices.reduce((s, d) => s + (d.power ?? 0), 0);
             const avgTemp =
-              devices.reduce((s, d) => s + (d.temperature ?? 0), 0) / devices.length;
+              devices.reduce((s, d) => s + (d.temperature ?? 0), 0) /
+              devices.length;
             const avgClock =
               devices.reduce((s, d) => s + (d.aiclk ?? 0), 0) / devices.length;
 
@@ -657,7 +697,8 @@ export const runInference = async (
             // Compute efficiency (tok/s per watt)
             const tps =
               inferenceStats.tps ??
-              (typeof inferenceStats.user_tpot === "number" && inferenceStats.user_tpot > 0
+              (typeof inferenceStats.user_tpot === "number" &&
+              inferenceStats.user_tpot > 0
                 ? 1 / inferenceStats.user_tpot
                 : undefined);
             if (tps && hw.power_watts && hw.power_watts > 0) {
