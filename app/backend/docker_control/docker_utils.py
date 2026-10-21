@@ -24,7 +24,11 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.community_model_config import community_impl_from_deployment
 from shared_config.external_model_config import build_external_model_impl
 from shared_config.logger_config import get_logger
-from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_config import (
+    _impl_selector,
+    model_implmentations,
+    pick_impl_for_container,
+)
 from shared_config.model_overrides import (
     MEDIA_IMAGE_OVERRIDES as _MEDIA_IMAGE_OVERRIDES,
     TRACE_REGION_OVERRIDES as _TRACE_REGION_OVERRIDES,
@@ -553,6 +557,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "workflow": "server",  # Default workflow for container runs
             "device": device,  # Use mapped device name
             "docker_server": True,
+            "container_name": impl.deployment_container_name,
         }
 
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
@@ -725,7 +730,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
                         container_id=job_id,
-                        container_name=impl.model_name,
+                        container_name=impl.deployment_container_name,
                         model_name=impl.model_name,
                         model_id=impl.model_id,
                         device=device,
@@ -1291,14 +1296,20 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
                         deployment_found = True
                     if not model_impl:
-                        for _k, v in model_implmentations.items():
-                            if v.model_name == deployment.model_name:
-                                model_impl = v
-                                logger.info(
-                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                                )
-                                deployment_found = True
-                                break
+                        # Stored id missing or stale, e.g. a trainer deployed before
+                        # training ids got their -training- suffix.
+                        model_impl = pick_impl_for_container(
+                            [
+                                v for v in model_implmentations.values()
+                                if v.model_name == deployment.model_name
+                            ],
+                            con["env_vars"],
+                        )
+                        if model_impl:
+                            logger.info(
+                                f"Matched TT Inference Server container to model_impl: {model_impl.model_id}"
+                            )
+                            deployment_found = True
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -1320,25 +1331,36 @@ def _enrich_container_with_model_impl(con, con_id):
 
             if not deployment_found:
                 # Fallback: exact container-name match against catalog
-                for _k, v in model_implmentations.items():
-                    if v.model_name == con["name"]:
-                        model_impl = v
-                        logger.info(
-                            f"Matched container by exact name to model_impl: {model_impl.model_name}"
-                        )
-                        break
+                model_impl = pick_impl_for_container(
+                    [
+                        v for v in model_implmentations.values()
+                        if v.model_name == con["name"]
+                    ],
+                    con["env_vars"],
+                )
+                if model_impl:
+                    logger.info(
+                        f"Matched container by exact name to model_impl: {model_impl.model_id}"
+                    )
 
-                # Fallback: longest-substring match. Can't tell two same-named
-                # specs apart (CHAT vs TRAINING); model_id above is authoritative.
+                # Fallback: longest-substring match. A trainer is named
+                # "<model_name>-training", so this is where it lands without a record.
                 if not model_impl:
-                    best_match_len = 0
-                    for _k, v in model_implmentations.items():
-                        if v.model_name in con["name"] and len(v.model_name) > best_match_len:
-                            model_impl = v
-                            best_match_len = len(v.model_name)
-                    if model_impl:
+                    substring_matches = [
+                        v for v in model_implmentations.values()
+                        if v.model_name in con["name"]
+                    ]
+                    if substring_matches:
+                        best_match_len = max(len(v.model_name) for v in substring_matches)
+                        model_impl = pick_impl_for_container(
+                            [
+                                v for v in substring_matches
+                                if len(v.model_name) == best_match_len
+                            ],
+                            con["env_vars"],
+                        )
                         logger.info(
-                            f"Matched container by name substring to model_impl: {model_impl.model_name}"
+                            f"Matched container by name substring to model_impl: {model_impl.model_id}"
                         )
 
                 if not model_impl:
@@ -1367,7 +1389,7 @@ def _enrich_container_with_model_impl(con, con_id):
                     )
                     return False
             else:
-                model_impl = candidates[0]
+                model_impl = pick_impl_for_container(candidates, con["env_vars"])
 
     con["model_id"] = model_impl.model_id
     con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
