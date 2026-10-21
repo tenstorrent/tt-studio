@@ -131,6 +131,11 @@ export interface UseBoardCardsResult {
   refreshing: boolean;
   /** Last fetch error. `data` keeps the last good snapshot when a poll fails. */
   error: string | null;
+  /**
+   * Raw /docker-api/deployments/ rows fetched alongside chip-status, exposed so
+   * callers that need deployment status don't poll the same endpoint again.
+   */
+  canonicalDeployments: readonly CanonicalDeployment[];
   /** Re-fetch chip-status and device-state now as a user-initiated action. */
   refresh: () => Promise<void>;
 }
@@ -480,6 +485,7 @@ export function useBoardCards(
     loading: chipStatusLoading || deviceStateLoading,
     refreshing: manualRefreshing,
     error: chipStatusError ?? deploymentsError ?? deviceStateError ?? null,
+    canonicalDeployments,
     refresh,
   };
 }

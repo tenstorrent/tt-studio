@@ -42,7 +42,7 @@ import React from "react";
 import { Navigate } from "react-router-dom";
 import HomePage from "@/src/vesper/pages/home";
 import SettingsPage from "@/src/vesper/pages/settings";
-import ModelsDeployed from "../pages/ModelsDeployed";
+import ModelsDeployedPage from "@/src/vesper/pages/models-deployed";
 import RegisterModelPage from "../pages/RegisterModelPage";
 import ChatUI from "../pages/ChatUIPage";
 import RagManagement from "../components/rag/RagManagement";
@@ -101,8 +101,9 @@ export const getRoutes = (): RouteConfig[] => {
     },
     {
       path: DEPLOYMENTS_PATH,
-      element: <ModelsDeployed />,
+      element: <ModelsDeployedPage />,
       condition: true,
+      title: "Deployments"
     },
     {
       path: "/chat",
