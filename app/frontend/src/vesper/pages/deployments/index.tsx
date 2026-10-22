@@ -45,7 +45,7 @@ import { buildAutoDeployRequest } from "./utils";
 export default function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { items, dismiss } = useDeployments();
+  const { items, isLoading, dismiss } = useDeployments();
   const { groupedItems, addGroup, removeGroup } = useSolutionGroups(items);
   const { chipStatus } = useChipStatus();
   const catalog = useModelCatalog();
@@ -308,7 +308,7 @@ export default function DeploymentsPage() {
             onReset={() => setResetFor(selected)}
             onOpenLogs={() => openLogs(selected)}
           />
-        ) : (
+        ) : isLoading ? null : (
           <div className="flex flex-col items-center gap-vesper-4 py-vesper-16 text-center">
             <EmptyPill>This deployment is no longer running</EmptyPill>
             <Typography
@@ -358,6 +358,7 @@ export default function DeploymentsPage() {
     <div className="h-full flex text-left">
       <DeploymentsPanel
         items={groupedItems}
+        loading={isLoading}
         chipStatus={chipStatus}
         selectedKey={selected?.key ?? null}
         menuItemsFor={menuItemsFor}

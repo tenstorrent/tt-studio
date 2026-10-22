@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import type { MenuItemProps } from "@tenstorrent/vesper/menu";
+import { Skeleton } from "@tenstorrent/vesper/skeleton";
 import { Typography } from "@tenstorrent/vesper/typography";
 import type { ChipStatus } from "@/src/types/chipStatus";
 import type { DeploymentItem } from "@/src/vesper/types";
@@ -9,6 +10,7 @@ import { DeploymentCard } from "./deployment-card";
 
 export function DeploymentsPanel({
   items,
+  loading,
   chipStatus,
   selectedKey,
   menuItemsFor,
@@ -19,6 +21,8 @@ export function DeploymentsPanel({
   onRemoveAndRedeploy,
 }: {
   items: DeploymentItem[];
+  /** Whether the list has yet to cover every deployment */
+  loading: boolean;
   chipStatus: ChipStatus | null;
   selectedKey: string | null;
   menuItemsFor(item: DeploymentItem): MenuItemProps[];
@@ -56,7 +60,17 @@ export function DeploymentsPanel({
           </span>
         </Typography>
       </div>
-      {items.length === 0 ? (
+      {loading ? (
+        // placeholders the height of an active deployment's card; an empty
+        // panel would claim nothing is deployed before the list is in
+        <div
+          aria-busy="true"
+          className="flex-1 flex flex-col gap-vesper-6 p-vesper-6"
+        >
+          <Skeleton height={151} className="rounded-vesper-2" />
+          <Skeleton height={151} className="rounded-vesper-2" />
+        </div>
+      ) : items.length === 0 ? (
         <div className="flex-1 flex items-center justify-center p-vesper-6">
           <Typography
             variant="label-md-mono"
