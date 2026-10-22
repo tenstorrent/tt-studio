@@ -74,7 +74,13 @@ export function TourProvider({ children }: TourProviderProps) {
     if (!onboardingCompleted) {
       const timer = setTimeout(() => {
         const tour = getTourById("onboarding");
-        if (tour) {
+        // The tour points at elements of the app's navigation; when they aren't on
+        // the page (the vesper layout doesn't render them) joyride would only dim
+        // the screen with nothing highlighted, so don't start it.
+        const firstTarget = tour?.steps[0]?.target;
+        const targetPresent =
+          typeof firstTarget !== "string" || !!document.querySelector(firstTarget);
+        if (tour && targetPresent) {
           isFirstVisitAutoRunRef.current = true;
           // In first-visit auto-run, customize the last step button to point to the deploy tour
           const chainedSteps = tour.steps.map((step, idx) =>
