@@ -75,8 +75,12 @@ function cardBoardType(boardType: string) {
  */
 export function useHardware() {
   const { deviceState, loading, error, refresh } = useDeviceState();
-  const { chipStatus, refetch: refetchChipStatus } = useChipStatus();
-  const { items } = useDeployments();
+  const {
+    chipStatus,
+    isLoading: chipStatusLoading,
+    refetch: refetchChipStatus,
+  } = useChipStatus();
+  const { items, isLoading: deploymentsLoading } = useDeployments();
 
   const cards = useMemo<HardwareCard[]>(() => {
     const chips = deviceState?.devices ?? [];
@@ -149,13 +153,22 @@ export function useHardware() {
     });
   }, [deviceState, chipStatus, items]);
 
+  // Which chips share a card, and which deployment runs on each, come from
+  // chip status and the deployment list. Drawn before both are in, a card's
+  // devices show apart and idle, then deploying, before settling, so keep
+  // detecting until they are. With no chips there's nothing to wait for.
+  const hasChips = (deviceState?.devices ?? []).length > 0;
+  const isDetecting =
+    (loading && !deviceState) ||
+    (hasChips && (chipStatusLoading || deploymentsLoading));
+
   return {
     cards,
     boardName: deviceState?.board_name ?? null,
     boardState: deviceState?.state ?? null,
     resetSuggested: deviceState?.reset_suggested ?? false,
     chipStatus,
-    isDetecting: loading && !deviceState,
+    isDetecting,
     error,
     rescan: () => {
       refresh();
