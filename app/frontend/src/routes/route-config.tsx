@@ -53,7 +53,7 @@ import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
-import VoiceAgentPage from "../pages/VoiceAgentPage";
+import VoiceAgentPage from "@/src/vesper/pages/voice-agent";
 import SpeechToTextPage from "@/src/vesper/pages/speech-to-text";
 import ApiPage from "@/src/vesper/pages/api";
 import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
@@ -151,6 +151,7 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/voice-agent",
       element: <VoiceAgentPage />,
       condition: true,
+      title: "Voice Agent"
     },
     {
       path: "/speech-to-text",
