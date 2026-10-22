@@ -28,6 +28,7 @@ export type CatalogTab = "models" | "solutions";
 
 export function Catalog({
   tab,
+  loading,
   onTabChange,
   deployments,
   onSelectModel,
@@ -35,6 +36,12 @@ export function Catalog({
   onSelectSolution,
 }: {
   tab: CatalogTab;
+  /**
+   * Whether anything the cards depend on is still loading: the catalog, which
+   * devices are free, or the deployments. Cards drawn before then would change
+   * under the user, e.g. disable once device availability is in.
+   */
+  loading: boolean;
   onTabChange(tab: CatalogTab): void;
   deployments: DeploymentItem[];
   onSelectModel(model: CatalogModel): void;
@@ -78,6 +85,7 @@ export function Catalog({
     chipStatus.slots.every((slot) => slot.status === "occupied");
 
   const voiceAgent = getVoiceAgentAvailability(catalog.data ?? [], chipStatus);
+  const showModels = tab === "models" && !loading;
 
   return (
     <div className="relative min-h-full flex flex-col gap-vesper-10 p-vesper-10">
@@ -99,7 +107,7 @@ export function Catalog({
         )}
       </div>
 
-      {tab === "models" && catalog.isPending && (
+      {tab === "models" && loading && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-vesper-6">
           {Array.from({ length: 9 }).map((_, i) => (
             <Skeleton key={i} height={138} className="rounded-vesper-2" />
@@ -107,20 +115,20 @@ export function Catalog({
         </div>
       )}
 
-      {tab === "models" && catalog.isError && (
+      {showModels && catalog.isError && (
         <Admonition variant="danger">
           Couldn't load the model catalog. Check that the backend is running and
           try again.
         </Admonition>
       )}
 
-      {tab === "models" && catalog.isSuccess && filtered.length === 0 && (
+      {showModels && catalog.isSuccess && filtered.length === 0 && (
         <div className="flex-1 flex items-center justify-center py-vesper-16">
           <EmptyPill>No models match these filters</EmptyPill>
         </div>
       )}
 
-      {tab === "models" && filtered.length > 0 && (
+      {showModels && filtered.length > 0 && (
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-vesper-6">
           {filtered.map((model) => {
             const inFlight = inFlightByModel.get(model.id);
@@ -157,21 +165,25 @@ export function Catalog({
       {tab === "solutions" && (
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-vesper-6">
           <li>
-            <CatalogCard
-              devices={voiceAgent.devices}
-              icon={<AIAgent className="w-6 h-6 text-vesper-icon-primary" />}
-              name="Voice Agent"
-              description="Deploy the full Voice Agent pipeline in one go: an LLM, Whisper and SpeechT5, each assigned to their own device."
-              tags={["Text Generation", "Speech-to-Text", "Text-to-Speech"]}
-              disabled={!voiceAgent.available}
-              disabledReason={voiceAgent.reason}
-              onSelect={onSelectSolution}
-            />
+            {loading ? (
+              <Skeleton height={138} className="rounded-vesper-2" />
+            ) : (
+              <CatalogCard
+                devices={voiceAgent.devices}
+                icon={<AIAgent className="w-6 h-6 text-vesper-icon-primary" />}
+                name="Voice Agent"
+                description="Deploy the full Voice Agent pipeline in one go: an LLM, Whisper and SpeechT5, each assigned to their own device."
+                tags={["Text Generation", "Speech-to-Text", "Text-to-Speech"]}
+                disabled={!voiceAgent.available}
+                disabledReason={voiceAgent.reason}
+                onSelect={onSelectSolution}
+              />
+            )}
           </li>
         </ul>
       )}
 
-      {allDevicesInUse && (
+      {!loading && allDevicesInUse && (
         <div className="sticky bottom-vesper-6 mt-auto flex justify-center pointer-events-none">
           <Admonition
             variant="warning"
@@ -184,7 +196,7 @@ export function Catalog({
         </div>
       )}
 
-      {tab === "models" && catalog.isSuccess && compatible.length > 0 && (
+      {showModels && catalog.isSuccess && compatible.length > 0 && (
         <Typography variant="label-xs" className="text-vesper-text-tertiary">
           Showing {filtered.length} of {compatible.length} models compatible
           with {compatible[0]?.current_board ?? "this board"}.
