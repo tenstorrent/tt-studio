@@ -66,9 +66,10 @@ function memberItems(group: SolutionGroup, items: DeploymentItem[]) {
 
 /**
  * Solution groups, and the deployment list with each group's members folded
- * into one combined item.
+ * into one combined item. A group is forgotten once none of its deployments
+ * are left, which can't be told while the list is `loading`.
  */
-export function useSolutionGroups(items: DeploymentItem[]) {
+export function useSolutionGroups(items: DeploymentItem[], loading: boolean) {
   const all = useSyncExternalStore(subscribe, () => groups);
 
   const addGroup = useCallback((group: SolutionGroup) => {
@@ -124,12 +125,13 @@ export function useSolutionGroups(items: DeploymentItem[]) {
     };
   }, [all, items]);
 
-  // forget groups whose deployments are all gone
+  // forget groups whose deployments are all gone; while the list loads, its
+  // members may just not be in it yet (and a reload would forget every group)
   useEffect(() => {
-    if (staleGroupIds.length > 0) {
+    if (!loading && staleGroupIds.length > 0) {
       setGroups(groups.filter((g) => !staleGroupIds.includes(g.id)));
     }
-  }, [staleGroupIds]);
+  }, [staleGroupIds, loading]);
 
   return { groupedItems, addGroup, removeGroup };
 }
