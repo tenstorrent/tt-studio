@@ -45,18 +45,25 @@ import { buildAutoDeployRequest } from "./utils";
 export default function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { items, isLoading, dismiss } = useDeployments();
+  const { items, isLoading: deploymentsLoading, dismiss } = useDeployments();
   const { groupedItems, addGroup, removeGroup } = useSolutionGroups(
     items,
-    isLoading
+    deploymentsLoading
   );
-  const { chipStatus } = useChipStatus();
+  const { chipStatus, isLoading: chipStatusLoading } = useChipStatus();
   const catalog = useModelCatalog();
   const { removeDeployment } = useActiveDeploymentsContext();
   const { refreshModels } = useModels();
   const deploy = useDeployModel();
 
   useAutoDeploy();
+
+  // Every view here reads the deployments, which devices are free and the
+  // model catalog. Drawn as each arrives, the page settles in stages (catalog
+  // cards disable once device availability is in), so it shows its loading
+  // state until all three are.
+  const isLoading =
+    deploymentsLoading || chipStatusLoading || catalog.isPending;
 
   const [stopping, setStopping] = useState<{
     item: DeploymentItem;
@@ -293,7 +300,7 @@ export default function DeploymentsPage() {
   if (selectedKey) {
     view = (
       <DrillDown onBack={showCatalog}>
-        {selected?.members ? (
+        {isLoading ? null : selected?.members ? (
           <SolutionDetail
             item={selected}
             onCancel={() => cancel(selected)}
@@ -311,7 +318,7 @@ export default function DeploymentsPage() {
             onReset={() => setResetFor(selected)}
             onOpenLogs={() => openLogs(selected)}
           />
-        ) : isLoading ? null : (
+        ) : (
           <div className="flex flex-col items-center gap-vesper-4 py-vesper-16 text-center">
             <EmptyPill>This deployment is no longer running</EmptyPill>
             <Typography
@@ -327,15 +334,15 @@ export default function DeploymentsPage() {
   } else if (deploySolution) {
     view = (
       <DrillDown onBack={showCatalog}>
-        <DeploySolution onGroupCreated={addGroup} />
+        {isLoading ? null : <DeploySolution onGroupCreated={addGroup} />}
       </DrillDown>
     );
   } else if (deployModelId) {
     view = (
       <DrillDown onBack={showCatalog}>
-        {deployModel ? (
+        {isLoading ? null : deployModel ? (
           <DeployModel key={deployModel.id} model={deployModel} />
-        ) : catalog.isPending ? null : (
+        ) : (
           <div className="flex justify-center py-vesper-16">
             <EmptyPill>This model isn't in the catalog</EmptyPill>
           </div>
@@ -346,6 +353,7 @@ export default function DeploymentsPage() {
     view = (
       <Catalog
         tab={tab}
+        loading={isLoading}
         onTabChange={(next) =>
           setSearchParams(next === "solutions" ? { tab: next } : {})
         }

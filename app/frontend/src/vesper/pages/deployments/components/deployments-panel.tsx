@@ -21,7 +21,7 @@ export function DeploymentsPanel({
   onRemoveAndRedeploy,
 }: {
   items: DeploymentItem[];
-  /** Whether the list has yet to cover every deployment */
+  /** Show placeholders for the device counts and the list while loading */
   loading: boolean;
   chipStatus: ChipStatus | null;
   selectedKey: string | null;
@@ -50,15 +50,17 @@ export function DeploymentsPanel({
         >
           Devices
         </Typography>
-        <Typography
-          variant="label-xs-mono"
-          className="flex gap-vesper-8 text-vesper-text-tertiary"
-        >
-          <span>Used : {used ?? "-"}</span>
-          <span>
-            Available : {total !== null && used !== null ? total - used : "-"}
-          </span>
-        </Typography>
+        <Skeleton show={loading}>
+          <Typography
+            variant="label-xs-mono"
+            className="flex gap-vesper-8 text-vesper-text-tertiary"
+          >
+            <span>Used : {used ?? "-"}</span>
+            <span>
+              Available : {total !== null && used !== null ? total - used : "-"}
+            </span>
+          </Typography>
+        </Skeleton>
       </div>
       {loading ? (
         // placeholders the height of an active deployment's card; an empty
