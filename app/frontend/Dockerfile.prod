@@ -19,7 +19,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+# nginx serves as a non-root worker; files copied from a checkout made under a
+# restrictive umask (0660) would otherwise come back as 403.
+RUN npm run build && chmod -R a+rX dist
 
 # Stage 2: Production - serves the static files with Nginx
 FROM nginx:alpine AS production
