@@ -54,7 +54,7 @@ import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import VoiceAgentPage from "../pages/VoiceAgentPage";
-import SpeechToTextPage from "../pages/SpeechToTextPage";
+import SpeechToTextPage from "@/src/vesper/pages/speech-to-text";
 import ApiPage from "@/src/vesper/pages/api";
 import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
 import TextToSpeechPage from "@/src/vesper/pages/text-to-speech";
@@ -155,6 +155,7 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/speech-to-text",
       element: <SpeechToTextPage />,
       condition: true,
+      title: "Speech to Text"
     },
     {
       path: "/api-info/:modelId",
