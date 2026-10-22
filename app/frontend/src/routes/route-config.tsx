@@ -57,7 +57,7 @@ import VoiceAgentPage from "../pages/VoiceAgentPage";
 import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiPage from "@/src/vesper/pages/api";
 import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
-import TTSPage from "../pages/TTSPage";
+import TextToSpeechPage from "@/src/vesper/pages/text-to-speech";
 import EmbeddingPage from "../pages/EmbeddingPage";
 import WelcomePage from "@/src/vesper/pages/welcome";
 import WorkflowsPage from "../pages/WorkflowsPage";
@@ -170,8 +170,9 @@ export const getRoutes = (): RouteConfig[] => {
     },
     {
       path: "/tts",
-      element: <TTSPage />,
+      element: <TextToSpeechPage />,
       condition: true,
+      title: "Text to Speech",
     },
     {
       path: "/embedding",
