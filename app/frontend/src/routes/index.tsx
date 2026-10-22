@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -12,12 +12,9 @@ import { DeviceStateProvider } from "../providers/DeviceStateContext";
 import { BackendHealthProvider } from "../providers/BackendHealthProvider";
 import { getRoutes } from "./route-config";
 import { getSettings } from "../api/settingsApi";
-import { cancelDeployment } from "../api/modelsDeployedApis";
-import { DeploymentTray } from "../components/DeploymentTray";
-import { useActiveDeploymentsContext } from "../providers/ActiveDeploymentsContext";
 import { Layout } from "@/src/vesper/layout";
 
-function FirstRunGuard({ children }: { children: React.ReactNode }) {
+function FirstRunGuard({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -51,8 +48,6 @@ function FirstRunGuard({ children }: { children: React.ReactNode }) {
 
 const AppRouter = () => {
   const routes = getRoutes();
-  const { deployments, progressByJob, removeDeployment, trayHidden } =
-    useActiveDeploymentsContext();
 
   return (
     <BackendHealthProvider>
@@ -82,19 +77,8 @@ const AppRouter = () => {
                     ))}
                 </Routes>
               </FirstRunGuard>
-              {/* Rendered inside the Router (not the provider) so an item click can
-                  navigate. Hidden on pages that render their own per-model progress. */}
-              {!trayHidden && (
-                <DeploymentTray
-                  deployments={deployments}
-                  progressByJob={progressByJob}
-                  onDismiss={removeDeployment}
-                  onCancel={(jobId) => {
-                    void cancelDeployment(jobId);
-                    removeDeployment(jobId);
-                  }}
-                />
-              )}
+              {/* In-flight deploys are shown on the deployments page, and flagged
+                  on its sidebar item everywhere else. */}
             </Router>
           </ModelsProvider>
         </RefreshProvider>
