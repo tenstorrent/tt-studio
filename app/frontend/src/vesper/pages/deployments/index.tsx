@@ -46,7 +46,10 @@ export default function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { items, isLoading, dismiss } = useDeployments();
-  const { groupedItems, addGroup, removeGroup } = useSolutionGroups(items);
+  const { groupedItems, addGroup, removeGroup } = useSolutionGroups(
+    items,
+    isLoading
+  );
   const { chipStatus } = useChipStatus();
   const catalog = useModelCatalog();
   const { removeDeployment } = useActiveDeploymentsContext();
