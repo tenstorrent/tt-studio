@@ -56,7 +56,7 @@ import ImageGenPage from "../pages/ImageGenPage";
 import VoiceAgentPage from "../pages/VoiceAgentPage";
 import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
-import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
+import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
 import TTSPage from "../pages/TTSPage";
 import EmbeddingPage from "../pages/EmbeddingPage";
 import WelcomePage from "@/src/vesper/pages/welcome";
@@ -162,6 +162,7 @@ export const getRoutes = (): RouteConfig[] => {
       path: DEPLOYMENT_HISTORY_PATH,
       element: <DeploymentHistoryPage />,
       condition: true,
+      title: "Deployment History",
     },
     {
       path: "/tts",
