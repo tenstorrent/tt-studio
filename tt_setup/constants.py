@@ -6,6 +6,9 @@
 import os
 import platform
 
+# Underscored so `from tt_setup.constants import *` doesn't re-export it.
+from tt_setup import install_mode as _install_mode
+
 # --- Color definitions ---
 C_RESET = '\033[0m'
 C_RED = '\033[0;31m'
@@ -20,8 +23,12 @@ C_ORANGE = '\033[38;5;208m'
 C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Environment / platform ---
-TT_STUDIO_ROOT = os.getcwd()
+# The checkout's working directory, or ~/.tt-studio for a pip install
+# (tt_setup/install_mode.py).
+TT_STUDIO_ROOT = _install_mode.resolve_root()
 OS_NAME = platform.system()
+# How the user runs the launcher, for hints ("python run.py --stop" vs "tt-studio --stop").
+LAUNCH_CMD = _install_mode.launch_cmd()
 
 TENSTORRENT_ASCII_ART = r"""   __                  __                             __
   / /____  ____  _____/ /_____  _____________  ____  / /_
@@ -51,6 +58,15 @@ LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
+MODEL_MANAGER_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-model-manager")
+MODEL_MANAGER_REPO_URL = "https://github.com/tenstorrent/tt-model-manager"
+# Pin used when TT_MODEL_MANAGER_REF is unset. Kept in sync with .env.default.
+# An immutable SHA on purpose: the install stamp records the ref verbatim, so a
+# floating ref like "main" is only ever fetched once and then never refreshed.
+# Must be at or after PR #50 (mounts /weight-cache; bundles pointing a weight cache
+# there fail to boot without it) and PR #102, which scopes a serve to the chips its
+# profile needs — community device selection depends on it.
+MODEL_MANAGER_DEFAULT_REF = "f14f5a87b690e3adadfb15633a84978014133c58"
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 # All host-side runtime logs and PID files live under a single logs/ directory so

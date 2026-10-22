@@ -85,6 +85,9 @@ class MarketplaceApp:
     # one at launch time instead of the app's own native/cloud TTS. Same
     # template variables and BACKEND_OPENAI_URL rationale as embedding_gateway_env.
     tts_gateway_env: Dict[str, str] = field(default_factory=dict)
+    # Env vars wired to a deployed IMAGE_GENERATION model, only rendered when the
+    # user picks one at launch time.
+    image_gateway_env: Dict[str, str] = field(default_factory=dict)
     upstream: Upstream = Upstream.GATEWAY
     # True for apps that must be given one concrete model name up front rather than choosing from a list, so launching without a deployed model is refused.
     requires_model: bool = False
@@ -164,6 +167,15 @@ MARKETPLACE_APPS: Tuple[MarketplaceApp, ...] = (
             "AUDIO_TTS_OPENAI_API_BASE_URL": "{base_url}",
             "AUDIO_TTS_OPENAI_API_KEY": "{api_key}",
             "AUDIO_TTS_MODEL": "{model}",
+        },
+        # Turns on Open WebUI's image generation (off by default) against the
+        # picked model, through TT-Studio's /v1/images/generations.
+        image_gateway_env={
+            "ENABLE_IMAGE_GENERATION": "true",
+            "IMAGE_GENERATION_ENGINE": "openai",
+            "IMAGES_OPENAI_API_BASE_URL": "{base_url}",
+            "IMAGES_OPENAI_API_KEY": "{api_key}",
+            "IMAGE_GENERATION_MODEL": "{model}",
         },
         # Open WebUI's model picker is built from GET /v1/models.
         upstream=Upstream.BACKEND,

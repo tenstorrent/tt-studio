@@ -138,6 +138,11 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                     dep.container_name = real_container_name
                 dep.status = "running"
                 dep.stopped_at = None
+                # Where the container's output is kept, as _sync_chat_deployment_record
+                # records it: the logs page and the health monitor read it from here.
+                docker_log_path = progress_data.get("docker_log_file_path")
+                if docker_log_path:
+                    dep.workflow_log_path = docker_log_path
                 dep.save()
                 logger.info(
                     f"[deployment_sync] Updated ModelDeployment for {dep.model_name}: "

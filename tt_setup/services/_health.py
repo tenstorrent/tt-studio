@@ -116,14 +116,14 @@ def diagnose_service_log(log_text, port=None, log_file=None):
             "cause": f"port {port or '?'} is still taken",
             "detail": f"Another process was holding port {port or '?'} when the service tried to bind to it.",
             "evidence": evidence,
-            "actions": [f"lsof -i {port_ref}".strip(), "python run.py --stop, then re-run"],
+            "actions": [f"lsof -i {port_ref}".strip(), f"{LAUNCH_CMD} --stop, then re-run"],
         }
     if "modulenotfounderror" in low or "importerror" in low:
         return {
             "cause": "a Python dependency is missing",
             "detail": "The service's virtual environment is incomplete or out of date.",
             "evidence": evidence,
-            "actions": ["delete the service's .venv directory, then re-run python run.py"],
+            "actions": [f"delete the service's .venv directory, then re-run {LAUNCH_CMD}"],
         }
     if "permission denied" in low:
         return {
@@ -391,7 +391,7 @@ def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, 
     else:
         console.print(f"[warning]⚠️  Frontend not ready within {timeout} seconds[/warning]")
         console.print("[info]💡 To fix this, run:[/info]")
-        console.print("  [bold]python run.py --stop && python run.py[/bold]")
+        console.print(f"  [bold]{LAUNCH_CMD} --stop && {LAUNCH_CMD}[/bold]")
         console.print("[info]   Or check container logs: cd app && docker compose logs -f[/info]")
         return False
 

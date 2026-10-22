@@ -5,6 +5,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -34,11 +35,9 @@ export interface StartupPhase {
   total_bytes?: number | null;
   speed_bps?: number | null;
   eta_seconds?: number | null;
-  // Category-aware phase template. LLM and media-server models walk through
-  // different sequences (LLM has compile + KV alloc, media has worker pool +
-  // warmup), so the backend tells the frontend which phases to render in the
-  // PhaseTrack instead of the frontend hardcoding the LLM list.
-  category?: "llm" | "media";
+  // Phase template chosen by the backend per model category, so the
+  // PhaseTrack renders that category's phases instead of a hardcoded list.
+  category?: "llm" | "media" | "training";
   phases?: string[];
   phase_labels?: Record<string, string>;
   phase_base_pct?: Record<string, number>;
@@ -164,9 +163,19 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
       };
     }, [isMonitoring, fetchHealth, deployId]);
 
+    // Callers pass inline callbacks, so keep the latest one in a ref and only
+    // notify when health or phase actually change. Depending on the callback
+    // itself re-fired this effect on every parent render, and the parent's
+    // setState re-rendered it again: an endless loop that React 19 aborts with
+    // "Maximum update depth exceeded", blanking the Models Deployed page.
+    const onHealthChangeRef = useRef(onHealthChange);
     useEffect(() => {
-      onHealthChange?.(health, phase);
-    }, [health, phase, onHealthChange]);
+      onHealthChangeRef.current = onHealthChange;
+    });
+
+    useEffect(() => {
+      onHealthChangeRef.current?.(health, phase);
+    }, [health, phase]);
 
     const getStatusColor = () => {
       switch (health) {

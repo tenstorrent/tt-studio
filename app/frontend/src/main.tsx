@@ -5,6 +5,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { clearStore } from "./components/chatui/indexedDBManager";
+import { deploySessionStart } from "./lib/deploySession";
+
+// Start this tab's deploy session before any page can deploy (see deploySession).
+deploySessionStart();
 
 // Wipe browser-side state (IndexedDB chat history + localStorage) once when
 // `python run.py --cleanup-all` has armed the sentinel at /.cleanup-pending.

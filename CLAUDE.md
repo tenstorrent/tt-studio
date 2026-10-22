@@ -81,6 +81,10 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
   Use `python run.py --add-headers` or `npm run header:fix` to apply.
 - **Pre-commit**: ruff lint + format (config in `dev-tools/`). Frontend also
   enforces ESLint + header checks.
+- **pip package**: `pipx install tt-studio` ships the launcher plus the app tree
+  (`hatch_build.py`, `tt_setup/install_mode.py`, [guide](dev-docs/pip-package.md)).
+  If the launcher starts reading a new path under `TT_STUDIO_ROOT`, add it to
+  `BUNDLE_PATHS` in `hatch_build.py` or pip installs won't have it.
 - **Git workflow**: branch off `dev` as `<username>/<feature>`; PRs target `dev`
   (squash-merge); `main` is tagged production only. Follow the `feature-branch-pr`
   skill for the full flow.
@@ -89,7 +93,9 @@ Backend (in `app/backend/`): `./manage.py runserver 0.0.0.0:8000`, and tests via
 
 `.env` lives at the repo root, auto-created from `.env.default`. Key vars:
 `HF_TOKEN` (gated model downloads), `JWT_SECRET`, `DJANGO_SECRET_KEY`,
-`TAVILY_API_KEY` (agent search), `TT_INFERENCE_ARTIFACT_VERSION`, and the
+`TAVILY_API_KEY` (agent search), `TT_MODEL_SUPPORT_URL` (tt-cli model support
+spec the catalog syncs from; its release is the default inference-server
+build), `TT_INFERENCE_ARTIFACT_VERSION`/`_BRANCH` (override that build), and the
 `CLOUD_*` endpoint/token vars used for deployed/remote-endpoint mode
 (`VITE_ENABLE_DEPLOYED=true`).
 
