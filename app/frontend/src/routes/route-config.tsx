@@ -44,7 +44,7 @@ import HardwarePage from "@/src/vesper/pages/hardware";
 import SettingsPage from "@/src/vesper/pages/settings";
 import DeploymentsPage from "@/src/vesper/pages/deployments";
 import RegisterModelPage from "../pages/RegisterModelPage";
-import ChatUI from "../pages/ChatUIPage";
+import ChatPage from "@/src/vesper/pages/chat";
 import KnowledgeBasePage from "@/src/vesper/pages/knowledge-base";
 import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
@@ -107,8 +107,9 @@ export const getRoutes = (): RouteConfig[] => {
     },
     {
       path: "/chat",
-      element: <ChatUI />,
+      element: <ChatPage />,
       condition: true,
+      title: "Chat",
     },
     {
       path: KNOWLEDGE_BASE_PATH,
