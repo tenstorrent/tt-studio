@@ -45,7 +45,7 @@ import SettingsPage from "@/src/vesper/pages/settings";
 import DeploymentsPage from "@/src/vesper/pages/deployments";
 import RegisterModelPage from "../pages/RegisterModelPage";
 import ChatUI from "../pages/ChatUIPage";
-import RagManagement from "../components/rag/RagManagement";
+import KnowledgeBasePage from "@/src/vesper/pages/knowledge-base";
 import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 import FaceRecognitionPage from "../pages/FaceRecognitionPage";
@@ -112,8 +112,9 @@ export const getRoutes = (): RouteConfig[] => {
     },
     {
       path: KNOWLEDGE_BASE_PATH,
-      element: <RagManagement />,
+      element: <KnowledgeBasePage />,
       condition: true,
+      title: "Knowledge Base",
     },
     {
       path: "/logs",
