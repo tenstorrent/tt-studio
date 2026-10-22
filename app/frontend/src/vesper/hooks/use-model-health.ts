@@ -43,7 +43,8 @@ async function fetchModelHealth(deployId: string): Promise<ModelHealth> {
 /**
  * Readiness of each deployed container, polled quickly until a model reports
  * healthy and slowly afterwards. Results are shared through the query cache, so
- * every caller polling the same container shares one request.
+ * every caller polling the same container shares one request. A container's
+ * entry is undefined until its first check comes back.
  */
 export function useModelHealth(containerIds: string[]) {
   const results = useQueries({

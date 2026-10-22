@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useModels } from "@/src/hooks/useModels";
 import { useRefresh } from "@/src/hooks/useRefresh";
 import { useActiveDeploymentsContext } from "@/src/providers/ActiveDeploymentsContext";
@@ -181,7 +187,7 @@ function containerItem(
   failedRecord: DeploymentHistoryRecord | undefined,
   historyRecord: DeploymentHistoryRecord | undefined,
   catalogModel: CatalogModel | undefined
-): DeploymentItem {
+): DeploymentItem | null {
   const base: DeploymentItem = {
     key: model.id,
     state: "deploying",
@@ -224,6 +230,11 @@ function containerItem(
       stageLabel: merged.stageLabel,
     };
   }
+  // Until its first health check comes back, a container is as likely to have
+  // been serving for hours as to be warming up, so leave it out rather than
+  // guess "deploying". One whose deploy we tracked has only just started, so
+  // it's warming up either way.
+  if (!health && !job) return null;
   if (health?.status === "healthy") {
     return { ...base, state: "active" };
   }
@@ -256,10 +267,12 @@ function containerItem(
  * Every deployment TT-Studio knows about in this session, in one list: deploys
  * still downloading (no container yet), containers warming up, active models,
  * and deployments that failed or died. This is the single source of truth for
- * the deployments panel, the sidebar demo links, and the hardware page.
+ * the deployments panel, the sidebar demo links, and the hardware page. A
+ * container joins the list once its first health check is back, rather than
+ * being shown in a guessed state until then.
  */
 export function useDeployments() {
-  const { models, refreshModels } = useModels();
+  const { models, modelsLoaded, refreshModels } = useModels();
   const { resetAllNonce } = useRefresh();
   const {
     deployments: jobs,
@@ -287,7 +300,7 @@ export function useDeployments() {
   const containerIds = useMemo(() => models.map((m) => m.id), [models]);
   const healthById = useModelHealth(containerIds);
 
-  const items = useMemo(() => {
+  const { items, hasUncheckedContainers } = useMemo(() => {
     const liveIds = new Set(containerIds);
     liveIds.forEach((id) => seenLiveContainerIds.add(id));
 
@@ -320,6 +333,7 @@ export function useDeployments() {
 
     const result: DeploymentItem[] = [];
     const consumedJobs = new Set<string>();
+    let hasUnchecked = false;
 
     for (const model of models) {
       const job = jobs.find(
@@ -334,17 +348,17 @@ export function useDeployments() {
         model.name,
         model.model_type
       );
-      result.push(
-        containerItem(
-          model,
-          healthById[model.id],
-          job,
-          job ? progressByJob[job.jobId] : undefined,
-          failedById.get(model.id),
-          latestByContainer.get(model.id),
-          catalogModel
-        )
+      const item = containerItem(
+        model,
+        healthById[model.id],
+        job,
+        job ? progressByJob[job.jobId] : undefined,
+        failedById.get(model.id),
+        latestByContainer.get(model.id),
+        catalogModel
       );
+      if (item) result.push(item);
+      else hasUnchecked = true;
     }
 
     // containers that died after being seen alive and have since been removed
@@ -386,8 +400,11 @@ export function useDeployments() {
       result.push(jobItem(job, progressByJob[job.jobId], catalogModel));
     }
 
-    // newest first
-    return result.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    return {
+      // newest first
+      items: result.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0)),
+      hasUncheckedContainers: hasUnchecked,
+    };
   }, [
     containerIds,
     models,
@@ -408,9 +425,22 @@ export function useDeployments() {
     [removeDeployment]
   );
 
+  // The list is complete once the deployed models, each one's first health
+  // check and the deployment history (which marks containers that died) are
+  // in. Like a query's isPending, this only covers the first load: a container
+  // that turns up later joins the list once checked, without sending the whole
+  // list back to loading.
+  const isComplete =
+    modelsLoaded && !hasUncheckedContainers && !history.isPending;
+  const [wasComplete, setWasComplete] = useState(isComplete);
+  useEffect(() => {
+    if (isComplete) setWasComplete(true);
+  }, [isComplete]);
+
   return {
     items,
-    isLoading: catalog.isPending,
+    /** Whether the list has yet to cover every deployed container */
+    isLoading: !isComplete && !wasComplete,
     refresh: refreshModels,
     dismiss,
   };
