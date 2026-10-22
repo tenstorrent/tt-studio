@@ -55,7 +55,7 @@ import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import VoiceAgentPage from "../pages/VoiceAgentPage";
 import SpeechToTextPage from "../pages/SpeechToTextPage";
-import ApiInfoPage from "../pages/ApiInfoPage";
+import ApiPage from "@/src/vesper/pages/api";
 import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
 import TTSPage from "../pages/TTSPage";
 import EmbeddingPage from "../pages/EmbeddingPage";
@@ -157,8 +157,9 @@ export const getRoutes = (): RouteConfig[] => {
     },
     {
       path: "/api-info/:modelId",
-      element: <ApiInfoPage />,
+      element: <ApiPage />,
       condition: true,
+      title: 'API'
     },
     {
       path: DEPLOYMENT_HISTORY_PATH,
