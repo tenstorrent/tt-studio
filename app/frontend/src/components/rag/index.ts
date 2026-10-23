@@ -5,15 +5,6 @@ import { customToast } from "../CustomToaster";
 
 const collectionsAPIURL = "/collections-api";
 
-// Add browser ID to headers for all axios requests
-axios.interceptors.request.use((config) => {
-  const browserId = localStorage.getItem("tt_studio_browser_id");
-  if (browserId) {
-    config.headers["X-Browser-ID"] = browserId;
-  }
-  return config;
-});
-
 export const fetchCollections = async () => {
   try {
     const response = await axios.get(`${collectionsAPIURL}/`);
