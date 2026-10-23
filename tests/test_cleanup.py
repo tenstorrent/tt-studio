@@ -63,6 +63,28 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(_cl_rops, "BROWSER_CLEANUP_SENTINEL", str(sentinel)),
         )
 
+    def test_preserved_summary_uses_install_mode_cleanup_command(self):
+        for is_pip_install, expected_command in (
+            (True, "tt-studio --purge-all"),
+            (False, "python run.py --purge-all"),
+        ):
+            with self.subTest(is_pip_install=is_pip_install):
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(patch.object(
+                        _cl_orch.install_mode, "is_pip_install", return_value=is_pip_install,
+                    ))
+                    stack.enter_context(patch.object(
+                        _cl_orch, "LAUNCH_CMD", _cl_orch.install_mode.launch_cmd(),
+                    ))
+                    stack.enter_context(patch.object(_cl_orch, "_docker_daemon_status", return_value="down"))
+                    panel = stack.enter_context(patch.object(_cl_orch, "kept_panel", return_value="panel"))
+                    stack.enter_context(patch.object(_cl_orch.console, "print"))
+
+                    _cl_orch._print_preserved_summary(has_docker_access=False)
+
+                footer = panel.call_args.args[2]
+                self.assertIn(f"[accent]{expected_command}[/accent]", footer[0])
+
     def test_cleanup_helpers_handle_sizes_and_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             nested = Path(tmp) / "nested"
