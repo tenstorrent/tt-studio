@@ -193,8 +193,10 @@ export default function TrainingJobDetailPage() {
   const promotedCount = Object.values(mergeIdsByCkpt).flat().length;
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
+  const hasLoadedJobRef = useRef(false);
   const [autoScroll, setAutoScroll] = useState(true);
 
+  const hasJob = job !== null;
   const isActive = job?.status === "queued" || job?.status === "in_progress";
   const isTerminal = job ? TERMINAL_STATUSES.includes(job.status) : false;
   // Show "Cancelling" optimistically: the backend keeps reporting the previous
@@ -202,6 +204,10 @@ export default function TrainingJobDetailPage() {
   // we override the displayed status until it reaches a terminal state.
   const displayStatus =
     cancelRequested && !isTerminal ? "cancelling" : job?.status ?? "queued";
+
+  useEffect(() => {
+    hasLoadedJobRef.current = false;
+  }, [jobId]);
 
   const loadAll = useCallback(async () => {
     if (!jobId) return;
@@ -212,6 +218,7 @@ export default function TrainingJobDetailPage() {
         fetchTrainingJobLogs(jobId),
         fetchTrainingJobCheckpoints(jobId),
       ]);
+      hasLoadedJobRef.current = true;
       setJob(j);
       setMetrics(m);
       setLogs(l);
@@ -242,21 +249,21 @@ export default function TrainingJobDetailPage() {
         setConnectionError(
           "Fine-tuning container is no longer running. The job data is unavailable.",
         );
-      } else if (!job) {
+      } else if (!hasLoadedJobRef.current) {
         console.error("Failed to load job details:", err);
         customToast.error("Failed to load job details");
       }
     } finally {
       setLoading(false);
     }
-  }, [jobId, job]);
+  }, [jobId]);
 
   useEffect(() => {
     loadAll();
-    if (!isActive && job !== null) return;
+    if (!isActive && hasJob) return;
     const id = setInterval(loadAll, 5_000);
     return () => clearInterval(id);
-  }, [loadAll, isActive, job]);
+  }, [loadAll, isActive, hasJob]);
 
   // Keep the logs pinned to the bottom only while auto-scroll is enabled.
   // Scroll the container itself (not scrollIntoView) so the page doesn't jump.
