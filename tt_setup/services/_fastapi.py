@@ -9,11 +9,12 @@ import time
 import tempfile
 import signal
 from tt_setup.constants import *
+from tt_setup.model_manager import model_manager_python, model_manager_status
 from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
 from tt_setup.console import console, progress_status, show_detail
-from tt_setup.services._ports import check_port_available, kill_process_on_port
+from tt_setup.services._ports import check_port_available, kill_process_on_port, _pid_is_zombie
 
 
 def setup_fastapi_environment():
@@ -133,6 +134,16 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+
+    # Point inference-api at the tt-model-manager venv so the community-model path
+    # can run its bridge (tt_model_runner.py) under that interpreter. Absent means
+    # community models are simply not offered.
+    mm_python = model_manager_python()
+    if os.path.exists(mm_python):
+        env["TT_MODEL_MANAGER_PYTHON"] = mm_python
+        mm_ref = model_manager_status()["ref"]
+        if mm_ref:
+            env["TT_MODEL_MANAGER_REF"] = mm_ref
 
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
@@ -275,6 +286,8 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files (quiet — only warns on errors)."""
     # Helper function to check if process is still alive
     def is_process_alive(pid):
+        if _pid_is_zombie(pid):
+            return False
         try:
             os.kill(int(pid), 0)
             return True

@@ -646,7 +646,7 @@ export default function NavBar() {
       case ModelType.Embedding:
         return "Embeddings";
       case ModelType.Training:
-        return "Training (Beta)";
+        return "Fine-tuning (Beta)";
       default:
         return "Model";
     }

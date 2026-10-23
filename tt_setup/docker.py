@@ -3,6 +3,7 @@
 
 """Docker installation, access, command execution, and compose-command building."""
 
+import fnmatch
 import os
 import sys
 import subprocess
@@ -10,6 +11,7 @@ import shutil
 import getpass
 from tt_setup.constants import *
 from tt_setup.console import console, step, notice_panel
+from tt_setup.env_config import get_env_var
 
 
 # Official docs we point users to — we link rather than try to fix Docker for
@@ -18,6 +20,58 @@ DOCKER_INSTALL_URL = "https://docs.docker.com/get-docker/"
 DOCKER_COMPOSE_URL = "https://docs.docker.com/compose/install/"
 DOCKER_DESKTOP_URL = "https://docs.docker.com/desktop/"
 DOCKER_DAEMON_URL = "https://docs.docker.com/config/daemon/start/"
+
+
+def _socket_path_from_docker_host(docker_host):
+    """Return a filesystem socket path from a unix ``DOCKER_HOST`` URI."""
+    value = (docker_host or "").strip()
+    if not value.startswith("unix://"):
+        return ""
+    path = value[len("unix://"):]
+    return path if os.path.isabs(path) else ""
+
+
+def resolve_docker_socket_path():
+    """Find the host Docker socket used for the Docker Control bind mount.
+
+    Rootless Docker commonly exposes a per-user unix socket through
+    ``DOCKER_HOST`` or the active Docker context. Compose mounts that source at
+    its conventional in-container path, so Docker SDK clients need no special
+    configuration.
+    """
+    configured_path = get_env_var("DOCKER_SOCKET_PATH", "").strip()
+    if configured_path:
+        return configured_path
+
+    socket_path = _socket_path_from_docker_host(os.getenv("DOCKER_HOST"))
+    if socket_path:
+        return socket_path
+
+    try:
+        result = subprocess.run(
+            ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            socket_path = _socket_path_from_docker_host(result.stdout)
+            if socket_path:
+                return socket_path
+    except OSError:
+        pass
+
+    rootless_default = f"/run/user/{os.getuid()}/docker.sock"
+    if os.path.exists(rootless_default):
+        return rootless_default
+    return "/var/run/docker.sock"
+
+
+def prepare_docker_socket_path():
+    """Expose the resolved socket path to Compose interpolation for this run."""
+    socket_path = resolve_docker_socket_path()
+    os.environ["DOCKER_SOCKET_PATH"] = socket_path
+    return socket_path
 
 
 def _docker_compose_v2_available():
@@ -203,6 +257,23 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
         return _run_sudo(command)
 
 
+def remove_docker_control_container(dev_mode=False, use_sudo=False):
+    """Remove the Compose-managed Docker Control container, if it exists.
+
+    This is used by the explicit ``--skip-docker-control`` path so a container
+    left by a previous normal startup cannot keep providing Docker access.
+    """
+    command = build_docker_compose_command(
+        dev_mode=dev_mode,
+        show_hardware_info=False,
+        quiet=True,
+        include_docker_control=True,
+    )
+    command.extend(["rm", "--force", "--stop", DOCKER_CONTROL_CONTAINER_NAME])
+    result = run_docker_command(command, use_sudo=use_sudo, capture_output=True)
+    return result.returncode == 0
+
+
 def ensure_docker_group_membership():
     """
     Check if user is in Docker group and provide guidance if not.
@@ -237,6 +308,53 @@ def ensure_docker_group_membership():
     except Exception as e:
         console.print(f"[warning]⚠️  Could not check Docker socket permissions: {e}[/warning]")
         return False
+
+
+# Never made world-readable: secrets a developer may keep next to the code (the
+# agent's .dockerignore keeps the same .env files out of its image), and trees
+# no container reads.
+_KEEP_PRIVATE_FILES = (".env*", "*.pem", "*.key")
+_SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__"}
+
+
+def grant_container_read(paths):
+    """Make *paths* readable by everyone, recursing into directories.
+
+    LiteLLM and the agent run as a fixed non-root uid (1000), so they read their
+    bind-mounted files as "other". A clone made under umask 0007 leaves tracked
+    files at 0660, which those containers cannot open: LiteLLM crash-loops on its
+    config. Only read (and directory/executable search) bits are added, never
+    removed, and git tracks only the exec bit, so the checkout stays clean.
+    Returns the paths that could not be changed (e.g. owned by another user).
+    """
+    failed = []
+
+    def _grant(path, is_dir):
+        try:
+            mode = os.stat(path).st_mode
+            wanted = mode | 0o444
+            if is_dir or mode & 0o111:
+                wanted |= 0o111
+            if wanted != mode:
+                os.chmod(path, wanted & 0o7777)
+        except OSError:
+            failed.append(path)
+
+    for root in paths:
+        if not os.path.exists(root) or os.path.islink(root):
+            continue
+        if not os.path.isdir(root):
+            _grant(root, False)
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            _grant(dirpath, True)
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                private = any(fnmatch.fnmatch(name, p) for p in _KEEP_PRIVATE_FILES)
+                if not private and not os.path.islink(path):
+                    _grant(path, False)
+    return failed
 
 
 def detect_tt_hardware():
@@ -299,7 +417,12 @@ def stop_tt_studio_stack(app_working_dir):
         return False
 
 
-def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=False):
+def build_docker_compose_command(
+    dev_mode=False,
+    show_hardware_info=True,
+    quiet=False,
+    include_docker_control=True,
+):
     """
     Build the Docker Compose command with appropriate override files.
 
@@ -307,6 +430,8 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
         dev_mode (bool): Whether to enable development mode
         show_hardware_info (bool): Whether to show hardware detection messages
         quiet (bool): If True, suppress all output (for startup where output is transient)
+        include_docker_control (bool): Enable the internal Docker Control
+            Compose profile. Set False for ``--skip-docker-control``.
 
     Returns:
         list: Docker Compose command with appropriate files
@@ -342,6 +467,16 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     else:
         if show_hardware_info and not quiet:
             console.print("[warning]⚠️  No Tenstorrent hardware detected[/warning]")
+
+    # Docker Control is normally required. The explicit legacy opt-out adds a
+    # narrow override that makes this dependency optional; leaving out a profile
+    # in a third-party Compose command remains a fail-fast configuration error.
+    # Keep this global Compose option before the subcommand; callers append
+    # ``up``, ``down`` or ``logs`` afterwards.
+    if include_docker_control:
+        compose_files += ["--profile", "docker-control"]
+    else:
+        compose_files += ["-f", DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE]
 
     return compose_files
 
@@ -468,7 +603,7 @@ def fix_docker_issues():
         "[bold success]🎉 Docker fix completed successfully![/bold success]",
         [
             "[success]✅ Docker is working correctly![/success]",
-            "[info]You can now run: [bold]python run.py[/bold][/info]",
+            f"[info]You can now run: [bold]{LAUNCH_CMD}[/bold][/info]",
         ],
         border_style="success",
     ))

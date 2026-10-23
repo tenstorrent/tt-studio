@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React from "react";
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import {
   TableBody,
   TableCell,
@@ -45,8 +45,9 @@ function HealthStatusCell({
   unidentified,
 }: {
   health?: HealthStatus;
-  // Registered container whose model TT Studio could not identify: there is no
-  // known health route to probe, so explain the permanent "unknown" badge.
+  // A model no TT Studio page drives (an unidentified registered container, or a
+  // model deployed without a page): its health is not probed, so explain the
+  // permanent "unknown" badge.
   unidentified?: boolean;
 }) {
   const status = health ?? "unknown";
@@ -92,7 +93,7 @@ function HealthStatusCell({
     : isDisconnected
       ? "This model was disconnected from tt_studio_network and can't be reached. Open Register Model in the sidebar to reconnect it."
       : unidentified
-        ? "This container's model could not be identified, so TT Studio doesn't know how to probe its health. Open logs to see what it's doing."
+        ? "TT Studio has no interaction page for this model, so it doesn't probe its health. Open logs to see what it's doing."
         : `Model Health: ${status}`;
 
   return (
@@ -163,7 +164,7 @@ export default function ModelsTable({
   hideDeviceId = false,
   deleteInProgress = false,
   deletingTargetId = null,
-}: Props): JSX.Element {
+}: Props): ReactElement {
   const { containerId, image, ports } = visibleMap;
 
   // Listen to hover-tier events for per-row actions

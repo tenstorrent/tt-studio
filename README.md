@@ -27,7 +27,7 @@
 
 You'll need:
 
-- **Python 3.8+** and **Docker** installed
+- **Python 3.12+** and **Docker** installed
 - Your user in the `docker` group so you don't need `sudo` — `sudo usermod -aG docker $USER`, then log out and back in
 - A **Hugging Face token** for any gated models you want to run (Llama, etc.)
 - First time on Tenstorrent hardware? Do the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) first.
@@ -37,6 +37,21 @@ Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#
 ---
 
 ## Quickstart
+
+The easiest way is the pip package, which contains the whole application:
+
+```bash
+pipx install tt-studio   # or: pip install tt-studio
+tt-studio
+```
+
+`tt-studio` takes the same flags as `run.py` below (except the source-only
+ones: `--dev`, `--switch`, and the maintainer tools). Its files, `.env` and logs
+live in `~/.tt-studio` (set `TT_STUDIO_HOME` to move them). Upgrade with
+`pipx upgrade tt-studio`; startup tells you when a new release is out. See the
+[pip package guide](dev-docs/pip-package.md).
+
+Or run straight from a clone (what you want when developing TT-Studio itself):
 
 ```bash
 git clone https://github.com/tenstorrent/tt-studio.git
@@ -50,7 +65,7 @@ A few flags are worth knowing:
 
 - **`python3 run.py --dev`** — development mode: mounts your local source so the backend and frontend hot-reload as you edit.
 - **`python3 run.py --purge-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--stop` instead to stop the containers but keep your data.)
-- **`python3 run.py --report-bug`** — bundle your logs into a ZIP and open a pre-filled GitHub issue (also offered automatically if setup errors out).
+- **`python3 run.py --report-bug`** — bundle your logs into a ZIP and write a ready-to-send email to support@tenstorrent.com with the ZIP already attached (`logs/tt-studio-bug-report-ttbr-*.eml`) — open it in your mail client and send (also offered automatically if setup errors out).
 - **`python3 run.py --install-shortcut`** — add a `tt-studio` shell shortcut so you can launch from any directory without typing `python run.py`.
 
 Hardware is auto-detected. On a **QB2 (QuietBox)** you can set `IS_QB2=true` in `.env` to have startup verify the board via tt-smi; it's off by default so dev laptops and cloud runs aren't held to that check. See the [run.py guide](dev-docs/run-py-guide.md) for the full behavior. Run `python run.py --help` for all flags and `python run.py --help-env` for every environment variable.

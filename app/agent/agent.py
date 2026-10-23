@@ -4,19 +4,17 @@
 
 try:
     # Try relative imports first (when used as a package)
-    from .custom_llm import CustomLLM
+    from .custom_llm import REQUEST_CHAT_TEMPLATE_KWARGS, CustomLLM
     from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
-    from .document_search_tool import DocumentSearchTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
     from .config import AgentConfig
 except ImportError:
     # Fall back to absolute imports (when run directly)
-    from custom_llm import CustomLLM
+    from custom_llm import REQUEST_CHAT_TEMPLATE_KWARGS, CustomLLM
     from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
-    from document_search_tool import DocumentSearchTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
     from config import AgentConfig
@@ -163,6 +161,15 @@ else:
 class RequestPayload(BaseModel):
     message: str
     thread_id: str
+    # Forwarded to the LLM for this request only, e.g. {"enable_thinking": False}.
+    chat_template_kwargs: Optional[Dict[str, Any]] = None
+
+
+async def _with_chat_template_kwargs(stream, chat_template_kwargs):
+    """Iterate ``stream`` with this request's chat_template_kwargs visible to the LLM."""
+    REQUEST_CHAT_TEMPLATE_KWARGS.set(chat_template_kwargs)
+    async for chunk in stream:
+        yield chunk
 
 # Global variables for LLM management
 discovery_service = LLMDiscoveryService()
@@ -488,9 +495,6 @@ def build_tools(include_code_tool: bool = True) -> list:
     )
     tool_list = [DeduplicatedSearchTool(inner_tool=raw_search)]
 
-    # Documentation search over the backend's internal knowledge collection.
-    tool_list.append(DocumentSearchTool())
-
     if include_code_tool:
         # Code interpreter needs an E2B_API_KEY; skipped when unavailable.
         try:
@@ -620,7 +624,11 @@ async def handle_requests(payload: RequestPayload):
     config = {"configurable": {"thread_id": payload.thread_id}}
     try:
         # use await to prevent handle_requests from blocking, allow other tasks to execute
-        return StreamingResponse(poll_requests(agent_executer, config, tools, memory, payload.message), media_type="text/plain")
+        stream = poll_requests(agent_executer, config, tools, memory, payload.message)
+        return StreamingResponse(
+            _with_chat_template_kwargs(stream, payload.chat_template_kwargs),
+            media_type="text/plain",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -728,10 +736,7 @@ def get_status():
         discovery_status = discovery_service.get_llm_status_summary()
         
         configured_tools = [t.name for t in tools] if tools else []
-        # Match on "tavily" specifically — document_search also contains "search"
-        # and must not make web_search look configured.
         has_search = any("tavily" in t.lower() for t in configured_tools)
-        has_document_search = "document_search" in configured_tools
         _tavily_raw = os.getenv("TAVILY_API_KEY", "")
         tavily_key_set = bool(_tavily_raw) and _tavily_raw != "tavily-api-key-not-configured"
 
@@ -743,7 +748,6 @@ def get_status():
             "tools": configured_tools,
             "capabilities": {
                 "web_search": has_search and tavily_key_set and tool_calling_supported,
-                "document_search": has_document_search and tool_calling_supported,
                 "tool_calling": tool_calling_supported,
             },
             "configuration": {

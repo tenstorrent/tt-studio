@@ -209,6 +209,9 @@ class _Manager:
                 "model_type": kwargs.get("model_type", None),
                 "hf_model_id": kwargs.get("hf_model_id", None),
                 "service_route": kwargs.get("service_route", None),
+                "host_weights_dir": kwargs.get("host_weights_dir", None),
+                "community_model_id": kwargs.get("community_model_id", None),
+                "reasoning_parser": kwargs.get("reasoning_parser", None),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -265,6 +268,17 @@ class ModelDeployment:
         # The route the container was observed to serve, when it differs from the
         # per-type convention (e.g. a tt-dit image server serving /generate).
         self.service_route: Optional[str] = None
+        # Host directory of merged fine-tuned (LoRA) weights this model was
+        # deployed with. Set only for fine-tuned deployments; its presence is how
+        # the chat UI knows to offer completion/template testing mode.
+        self.host_weights_dir: Optional[str] = None
+        # Set for community deployments only: the tt-model-manager model_id
+        # (bundle + profile). It is what lets the community launcher stop the
+        # right bundle, and what marks the record's source as community.
+        self.community_model_id: Optional[str] = None
+        # Community deployments only: the manifest's reasoning parser, which decides
+        # whether the gateway offers a thinking toggle for the model.
+        self.reasoning_parser: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -294,6 +308,9 @@ class ModelDeployment:
         obj.jwt_secret = d.get("jwt_secret")
         obj.model_type = d.get("model_type")
         obj.hf_model_id = d.get("hf_model_id")
+        obj.host_weights_dir = d.get("host_weights_dir")
+        obj.community_model_id = d.get("community_model_id")
+        obj.reasoning_parser = d.get("reasoning_parser")
         return obj
 
     def _to_dict(self) -> dict:
@@ -319,6 +336,9 @@ class ModelDeployment:
             "model_type": self.model_type,
             "hf_model_id": self.hf_model_id,
             "service_route": self.service_route,
+            "host_weights_dir": self.host_weights_dir,
+            "community_model_id": self.community_model_id,
+            "reasoning_parser": self.reasoning_parser,
         }
 
     def save(self) -> None:

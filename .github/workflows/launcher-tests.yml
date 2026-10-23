@@ -16,6 +16,7 @@ on:
       - "tt_setup/**"
       - "tests/**"
       - "pyproject.toml"
+      - "hatch_build.py"
       - ".github/workflows/launcher-tests.yml"
 
 # Cancel superseded runs on the same ref so rapid pushes don't pile up.

@@ -12,9 +12,11 @@ contexts whenever a pull cannot succeed or would produce the wrong bits
 
 import subprocess
 
-from tt_setup.constants import TT_STUDIO_ROOT
+from tt_setup import install_mode
+from tt_setup.constants import STOCK_APP_TITLE, TT_STUDIO_ROOT
 
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/tenstorrent/tt-studio"
+CATALOG_PATH = "app/backend/shared_config/models_from_inference_server.json"
 
 
 def compute_image_tag(exact_tag, full_sha):
@@ -44,7 +46,7 @@ def frontend_config_drift(get_env):
     drift = []
     if str(get_env("VITE_ENABLE_DEPLOYED", "")).lower().strip() in truthy:
         drift.append("VITE_ENABLE_DEPLOYED")
-    if get_env("VITE_APP_TITLE", "") not in ("", "TT Studio", '"TT Studio"'):
+    if get_env("VITE_APP_TITLE", "") not in ("", STOCK_APP_TITLE, f'"{STOCK_APP_TITLE}"'):
         drift.append("VITE_APP_TITLE")
     if str(get_env("VITE_ENABLE_RAG_ADMIN", "")).lower().strip() in truthy:
         drift.append("VITE_ENABLE_RAG_ADMIN")
@@ -70,9 +72,11 @@ def decide_image_source(build_images, worktree_dirty, dev_mode, frontend_stock):
     return "pull", ""
 
 
-def required_image_refs(dev_mode, registry, tag):
+def required_image_refs(dev_mode, registry, tag, include_docker_control=True):
     """The TT-Studio images the selected compose overlay will run."""
     names = ["backend", "agent", "frontend-dev" if dev_mode else "frontend"]
+    if include_docker_control:
+        names.append("docker-control")
     return [f"{registry}/{name}:{tag}" for name in names]
 
 
@@ -99,7 +103,14 @@ def describe_pull_fallback(kind, tag, cached):
 
 def is_worktree_dirty():
     """True when app/ differs from HEAD (or git state can't be read — build is
-    the safe default: never run prebuilt bits over modified sources)."""
+    the safe default: never run prebuilt bits over modified sources). The model
+    catalog doesn't count: it is resynced from the model support spec, and the
+    backend reads it through the ./backend bind mount, not from the image.
+
+    A pip install has no git metadata: its app/ is the released package's own
+    copy (tt_setup/install_mode.py), so it is never dirty."""
+    if install_mode.is_pip_install():
+        return False
     try:
         result = subprocess.run(
             ["git", "-C", TT_STUDIO_ROOT, "status", "--porcelain", "--", "app/"],
@@ -109,7 +120,8 @@ def is_worktree_dirty():
         return True
     if result.returncode != 0:
         return True
-    return bool(result.stdout.strip())
+    changed = [line[3:] for line in result.stdout.splitlines() if line.strip()]
+    return any(path != CATALOG_PATH for path in changed)
 
 
 def images_present_locally(refs, use_sudo=False):

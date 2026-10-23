@@ -9,6 +9,7 @@ import signal
 import sys
 import subprocess
 import socket
+from tt_setup import install_mode
 from tt_setup.constants import *
 from tt_setup.console import console, no_clear, notice_panel, sticky_active, welcome_panel
 
@@ -312,7 +313,11 @@ def display_welcome_banner(dev_mode=False):
     if sys.stdout.isatty() and not sticky_active() and not no_clear():
         os.system('cls' if OS_NAME == 'Windows' else 'clear')
 
-    branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"])
+    # A pip install has no checkout: show its version where the branch would go.
+    if install_mode.is_pip_install():
+        branch = install_mode.release_tag(install_mode.package_version()) or install_mode.package_version()
+    else:
+        branch = _git_value(["rev-parse", "--abbrev-ref", "HEAD"])
     user_name = _git_value(["config", "user.name"])
     name = user_name.split()[0] if user_name else ""
     home = os.path.expanduser("~")
@@ -332,7 +337,7 @@ def display_welcome_banner(dev_mode=False):
     sections = [
         ("Getting started", [
             f"{'Open':<9}http://localhost:3000",
-            f"{'Stop':<9}python run.py --stop",
+            f"{'Stop':<9}{LAUNCH_CMD} --stop",
         ]),
     ]
     title = f"TT Studio · {branch}" if branch else "TT Studio"

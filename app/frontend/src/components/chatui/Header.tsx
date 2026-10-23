@@ -39,7 +39,6 @@ import {
   Database,
   Search,
   FolderOpen,
-  BookOpen,
   // Settings as SettingsIcon,
   Sliders,
 } from "lucide-react";
@@ -54,9 +53,6 @@ interface HeaderProps {
   setModelID: (id: string) => void;
   setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
-  // Seeded documentation collections, shown in their own group. Kept out of
-  // ragDataSources so "Your Collections" holds only what the user created.
-  systemCollections?: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
@@ -133,9 +129,8 @@ const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Select> & {
     ragDataSources?: any[];
-    systemCollections?: RagDataSource[];
   }
->(({ ragDataSources, systemCollections, value, onValueChange, ...selectProps }, ref) => (
+>(({ ragDataSources, value, onValueChange, ...selectProps }, ref) => (
   <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
@@ -176,46 +171,13 @@ const ForwardedSelect = React.forwardRef<
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-0.5 rounded-full text-xs shrink-0">
               <Database className="h-3.5 w-3.5" />
-              {/* Spans both groups below, so count both. */}
-              <span>
-                {(ragDataSources?.length || 0) +
-                  (systemCollections?.length || 0)}
-              </span>
+              <span>{ragDataSources?.length || 0}</span>
             </div>
           </div>
         </SelectItem>
       </div>
 
       <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
-
-      {Array.isArray(systemCollections) && systemCollections.length > 0 && (
-        <>
-          <div className="px-2 py-1">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
-              <BookOpen className="h-4 w-4" />
-              <span>Built-in Documentation</span>
-            </div>
-
-            {systemCollections.map((c) => (
-              <SelectItem
-                key={c.id}
-                value={c.name}
-                className={`rounded-lg my-1 ${value === c.name
-                    ? "bg-gray-100 dark:bg-[#2A2A2A]"
-                    : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
-                  }`}
-              >
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  <span className="text-gray-900 dark:text-white">{c.name}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </div>
-
-          <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
-        </>
-      )}
 
       <div className="px-2 py-1">
         <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
@@ -269,7 +231,6 @@ export default function Header({
   setModelID,
   setModelName,
   ragDataSources,
-  systemCollections,
   ragDatasource,
   setRagDatasource,
   isHistoryPanelOpen,
@@ -606,17 +567,15 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = [
-                      ...ragDataSources,
-                      ...(systemCollections ?? []),
-                    ].find((rds) => rds.name === v);
+                    const dataSource = ragDataSources.find(
+                      (rds) => rds.name === v
+                    );
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
                   }
                 }}
                 ragDataSources={ragDataSources}
-                systemCollections={systemCollections}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
@@ -720,17 +679,15 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = [
-                        ...ragDataSources,
-                        ...(systemCollections ?? []),
-                      ].find((rds) => rds.name === v);
+                      const dataSource = ragDataSources.find(
+                        (rds) => rds.name === v
+                      );
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
                     }
                   }}
                   ragDataSources={ragDataSources}
-                  systemCollections={systemCollections}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>

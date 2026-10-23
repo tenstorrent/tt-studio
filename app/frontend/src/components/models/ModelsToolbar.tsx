@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import SettingsMenu from "./SettingsMenu";
 import type { ColumnVisibilityMap } from "../../types/models";
 
@@ -43,7 +43,7 @@ export default function ModelsToolbar({
   visibleCount,
   totalCount,
   onRefreshHealthNow,
-}: Props): JSX.Element {
+}: Props): ReactElement {
   return (
     <div className="flex items-center gap-3">
       {/* This component now only renders the Settings dropdown, per redesign */}

@@ -28,7 +28,7 @@ import {
   runTTSInference,
 } from "@/src/api/modelsDeployedApis";
 import { runInference } from "@/src/components/chatui/runInference";
-import { fetchCollections, isSystemKnowledgeCollection } from "@/src/components/rag";
+import { fetchCollections } from "@/src/components/rag";
 import { usePersistentState } from "@/src/components/chatui/usePersistentState";
 import { useAgentAvailability } from "../../hooks/useAgentAvailability";
 import type { ChatMessage, RagDataSource } from "@/src/components/chatui/types";
@@ -55,6 +55,8 @@ import type {
   ConversationMessage,
   PipelineStage,
   DeployedModelState,
+  DeployedModelOptions,
+  ModelSlot,
   PipelineMetrics,
 } from "./types";
 import { VoiceAgentSettings } from "./VoiceAgentSettings";
@@ -109,6 +111,18 @@ export default function VoiceAgentApp() {
     llm: null,
     tts: null,
   });
+  const [modelOptions, setModelOptions] = useState<DeployedModelOptions>({
+    whisper: [],
+    llm: [],
+    tts: [],
+  });
+  const selectModel = useCallback(
+    (slot: ModelSlot, id: string) => {
+      const model = modelOptions[slot].find((m) => m.id === id);
+      if (model) setModels((prev) => ({ ...prev, [slot]: model }));
+    },
+    [modelOptions]
+  );
 
   // Knowledge (RAG) and Web search (Search Agent) reuse the chat plumbing; the
   // voice UI only has to pick a datasource and flip the agent flag.
@@ -134,17 +148,13 @@ export default function VoiceAgentApp() {
     models.llm?.id
   );
 
-  // "All collections" first, then the user's own. The backend's seeded docs
-  // collection isn't listed individually — "All collections" spans it, and it's
-  // merged into every single-collection query server-side regardless. It still
-  // counts toward whether there's anything to search at all.
+  // "All collections" first, then the user's own.
   const knowledgeOptions = useMemo<RagDataSource[]>(() => {
     const collections = Array.isArray(ragDataSources) ? ragDataSources : [];
-    const own = collections.filter((c) => !isSystemKnowledgeCollection(c));
     const all: RagDataSource[] = collections.length
       ? [{ id: ALL_COLLECTIONS_ID, name: "All collections" } as RagDataSource]
       : [];
-    return [...all, ...own];
+    return [...all, ...collections];
   }, [ragDataSources]);
 
   const ragDatasource = useMemo(
@@ -269,13 +279,20 @@ export default function VoiceAgentApp() {
     const discoverModels = async () => {
       try {
         const deployed = await fetchDeployedModelsInfo();
-        const whisper = deployed.find((m) => m.model_type === "speech_recognition");
-        const llm = deployed.find((m) => m.model_type === "chat");
-        const tts = deployed.find((m) => m.model_type === "tts");
+        const ofType = (type: string) =>
+          deployed
+            .filter((m) => m.model_type === type)
+            .map((m) => ({ id: m.id, modelName: m.modelName, model_type: m.model_type }));
+        const options = {
+          whisper: ofType("speech_recognition"),
+          llm: ofType("chat"),
+          tts: ofType("tts"),
+        };
+        setModelOptions(options);
         setModels({
-          whisper: whisper ? { id: whisper.id, modelName: whisper.modelName, model_type: whisper.model_type } : null,
-          llm: llm ? { id: llm.id, modelName: llm.modelName, model_type: llm.model_type } : null,
-          tts: tts ? { id: tts.id, modelName: tts.modelName, model_type: tts.model_type } : null,
+          whisper: options.whisper[0] ?? null,
+          llm: options.llm[0] ?? null,
+          tts: options.tts[0] ?? null,
         });
       } catch (err) {
         console.error("Failed to discover deployed models:", err);
@@ -850,6 +867,8 @@ export default function VoiceAgentApp() {
               <StatusPanel
                 stage={stage}
                 models={models}
+                modelOptions={modelOptions}
+                onSelectModel={selectModel}
                 conversationId={selectedConversation}
                 messageCount={selectedConversationData?.messages.length ?? 0}
               />

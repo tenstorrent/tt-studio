@@ -59,8 +59,8 @@ export function ModelCard({
   const [particles, setParticles] = useState<
     Array<{ x: number; y: number; opacity: number; speed: number }>
   >([]);
-  const animationFrameRef = useRef<number>();
-  const lastUpdateRef = useRef<number>();
+  const animationFrameRef = useRef<number | null>(null);
+  const lastUpdateRef = useRef<number | null>(null);
 
   console.log("ModelCard props:", { title, tpBadge });
 
@@ -91,7 +91,7 @@ export function ModelCard({
   // Update particle positions with requestAnimationFrame
   const updateParticles = useCallback(() => {
     const now = performance.now();
-    if (!lastUpdateRef.current) lastUpdateRef.current = now;
+    if (lastUpdateRef.current === null) lastUpdateRef.current = now;
     const deltaTime = (now - lastUpdateRef.current) / 16; // Normalize to ~60fps
 
     setParticles((prevParticles) =>
@@ -116,7 +116,7 @@ export function ModelCard({
       animationFrameRef.current = requestAnimationFrame(updateParticles);
     }
     return () => {
-      if (animationFrameRef.current) {
+      if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };

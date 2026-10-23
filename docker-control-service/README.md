@@ -1,228 +1,125 @@
 # Docker Control Service
 
-Secure Docker operations API for TT-Studio.
-
-## Overview
-
-The Docker Control Service is a FastAPI application that provides controlled access to Docker operations. It runs on the host (not containerized) and replaces the insecure pattern of mounting `/var/run/docker.sock` directly into the backend container.
+Secure FastAPI proxy for the Docker operations used by TT-Studio.
 
 ## Architecture
 
-- **Port**: 8002
-- **Authentication**: JWT tokens
-- **Location**: Runs on host system
-- **Purpose**: Secure Docker operations for TT-Studio backend
+Docker Control runs as the `tt_studio_docker_control` service in Compose. It is
+attached to `tt_studio_network`, listens on port `8002` inside that bridge, and
+has the only Docker socket mount (at `/var/run/docker.sock` inside the
+container). The backend reaches it at
+`http://docker-control:8002` using JWT authentication.
 
-## Security Features
+The service has no host `ports:` mapping. Nothing from this API should be
+available at `localhost:8002` or on the host LAN.
 
-1. **JWT Authentication**: All endpoints (except health check) require valid JWT tokens
-2. **Image Registry Whitelisting**: Only approved image registries are allowed
-3. **Network Restrictions**: Only specific networks can be used
-4. **Privileged Mode Blocked**: Privileged containers are never allowed
-5. **Resource Limits**: Maximum memory and CPU limits enforced
+## Security features
 
-## API Endpoints
+- JWT authentication is required for all endpoints except health.
+- Image registries and Docker networks are allow-listed.
+- Privileged containers are rejected.
+- Memory and CPU limits are enforced.
+- Docker operations are logged.
 
-### Health Check (No Auth Required)
-- `GET /api/v1/health` - Service health check
+## API endpoints
 
-### Container Management
-- `POST /api/v1/containers/run` - Run a new container
-- `POST /api/v1/containers/{id}/stop` - Stop a container
-- `POST /api/v1/containers/{id}/remove` - Remove a container
-- `GET /api/v1/containers` - List containers
-- `GET /api/v1/containers/{id}` - Get container details
+### Health
 
-### Image Management
-- `POST /api/v1/images/pull` - Pull an image
-- `DELETE /api/v1/images/{name}:{tag}` - Remove an image
-- `GET /api/v1/images` - List images
-- `GET /api/v1/images/{name}:{tag}/exists` - Check if image exists
+- `GET /api/v1/health` — unauthenticated Docker/ disk health check.
 
-### Network Management
-- `POST /api/v1/networks/create` - Create a network
-- `DELETE /api/v1/networks/{name}` - Remove a network
-- `GET /api/v1/networks` - List networks
-- `POST /api/v1/networks/{name}/connect` - Connect container to network
-- `POST /api/v1/networks/{name}/disconnect` - Disconnect container from network
+### Containers
+
+- `POST /api/v1/containers/run`
+- `POST /api/v1/containers/{id}/stop`
+- `POST /api/v1/containers/{id}/remove`
+- `GET /api/v1/containers`
+- `GET /api/v1/containers/{id}`
+- `GET /api/v1/containers/{id}/logs`
+
+### Images
+
+- `POST /api/v1/images/pull`
+- `GET /api/v1/images`
+- `DELETE /api/v1/images/{name}:{tag}`
+
+### Networks
+
+- `POST /api/v1/networks/create`
+- `DELETE /api/v1/networks/{name}`
+- `GET /api/v1/networks`
+- `POST /api/v1/networks/{name}/connect`
+- `POST /api/v1/networks/{name}/disconnect`
 
 ## Configuration
 
-### Environment Variables
+- `DOCKER_CONTROL_JWT_SECRET` — shared secret used by backend and service.
+- `DOCKER_CONTROL_HOST` — bind address; defaults to `127.0.0.1` for manual
+  host-mode runs and is set to `0.0.0.0` only inside the unexposed Compose
+  container.
+- `DOCKER_CONTROL_PORT` — API port, default `8002`.
+- `DOCKER_SOCKET_PATH` — optional host-side Docker socket source for Compose.
+  Set this for direct rootless/custom-socket installations, for example
+  `/run/user/1000/docker.sock`; it is still mounted at `/var/run/docker.sock`
+  inside Docker Control.
+- `DOCKER_CONTROL_LOG_FILE`, `STARTUP_LOG_FILE`, and `MODEL_RUN_LOG_FILE` —
+  mounted log paths used by the log endpoints.
 
-- `DOCKER_CONTROL_JWT_SECRET` - JWT secret for authentication (required)
-- `DEV_MODE` - Enable development mode with hot reload (optional)
+## Running TT-Studio
 
-### Security Policies (config.py)
+The launcher builds and starts this service automatically:
 
-```python
-ALLOWED_IMAGES = [
-    "ghcr.io/tenstorrent/",
-    "tenstorrent/",
-    "alpine:",
-    "ubuntu:",
-    "python:",
-]
-
-ALLOWED_NETWORKS = [
-    "tt_studio_network",
-    "bridge",
-    "host",
-]
-
-MAX_MEMORY = "16g"
-MAX_CPUS = 8
+```bash
+python3 run.py
+python3 run.py --dev
+python3 run.py --stop
+python3 run.py --skip-docker-control
 ```
 
-## Installation
+To inspect the service:
 
-The service is automatically managed by `run.py`. Manual setup:
+```bash
+docker compose \
+  --env-file .env \
+  -f app/docker-compose.yml \
+  -f app/docker-compose.prod.yml \
+  --profile docker-control ps tt_studio_docker_control
+
+docker compose \
+  --env-file .env \
+  -f app/docker-compose.yml \
+  -f app/docker-compose.prod.yml \
+  --profile docker-control logs -f tt_studio_docker_control
+```
+
+There is intentionally no `curl localhost:8002` check. Use the Compose health
+status or test from the backend network:
+
+```bash
+docker compose \
+  --env-file .env \
+  -f app/docker-compose.yml \
+  -f app/docker-compose.prod.yml \
+  --profile docker-control exec tt_studio_backend \
+  python -c "import urllib.request; print(urllib.request.urlopen('http://docker-control:8002/api/v1/health').read().decode())"
+```
+
+## Manual development outside Compose
+
+For a host-side manual run, install the requirements and leave the default
+bind address on loopback:
 
 ```bash
 cd docker-control-service
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements-api.txt
-
-# Set JWT secret
 export DOCKER_CONTROL_JWT_SECRET="your-secret-here"
-
-# Run the service
 python api.py
 ```
 
-## Development
-
-### Running in Development Mode
-
-```bash
-export DEV_MODE=true
-python api.py
-```
-
-This enables:
-- Hot reload on code changes
-- Detailed logging
-- API documentation at http://localhost:8002/api/v1/docs
-
-### API Documentation
-
-Interactive API documentation is available at:
-- Swagger UI: http://localhost:8002/api/v1/docs
-- ReDoc: http://localhost:8002/api/v1/redoc
-
-## Testing
-
-### Health Check
-
-```bash
-curl http://localhost:8002/api/v1/health
-```
-
-### Authenticated Request
-
-```python
-import jwt
-import requests
-
-# Generate token
-token = jwt.encode(
-    {"service": "tt_studio_backend"},
-    "your-secret-here",
-    algorithm="HS256"
-)
-
-# Make request
-headers = {"Authorization": f"Bearer {token}"}
-response = requests.get(
-    "http://localhost:8002/api/v1/containers",
-    headers=headers
-)
-```
-
-## Logging
-
-Logs are written to `logs/model_run.log` in the project root when managed by `run.py`.
-
-Log format:
-```
-%(asctime)s - %(name)s - %(levelname)s - %(message)s
-```
-
-## Error Handling
-
-The service returns standard HTTP status codes:
-- `200` - Success
-- `400` - Bad request (validation error)
-- `401` - Unauthorized (missing/invalid JWT)
-- `404` - Not found (container/image/network)
-- `409` - Conflict (resource already exists)
-- `500` - Internal server error
-
-## Security Considerations
-
-1. **JWT Secret**: Use a strong, randomly generated secret in production
-2. **Network Isolation**: Service binds to 0.0.0.0 but should only be accessible from localhost/containers
-3. **Firewall**: Ensure port 8002 is not exposed externally
-4. **Audit Logging**: All operations are logged with timestamps and source information
-5. **Resource Limits**: Enforce limits to prevent resource exhaustion
-
-## Integration with TT-Studio
-
-The service is automatically started and managed by `run.py`:
-
-```bash
-# Start TT-Studio (includes Docker Control Service)
-python3 run.py
-
-# Start without Docker Control Service
-python3 run.py --skip-docker-control
-
-# Cleanup (stops service)
-python3 run.py --stop
-```
-
-## Troubleshooting
-
-### Service Won't Start
-
-1. Check if port 8002 is available:
-   ```bash
-   lsof -i :8002
-   ```
-
-2. Check logs:
-   ```bash
-   tail -f docker-control-service.log
-   ```
-
-3. Verify Docker daemon is running:
-   ```bash
-   docker ps
-   ```
-
-### Authentication Errors
-
-1. Verify JWT_SECRET matches between backend and service
-2. Check token expiration
-3. Verify token format: `Bearer <token>`
-
-### Permission Errors
-
-The service requires access to `/var/run/docker.sock`. Ensure the user running the service has Docker permissions:
-
-```bash
-sudo usermod -aG docker $USER
-```
+This compatibility path is not used by `run.py` and does not change the
+Compose architecture.
 
 ## License
 
-Apache-2.0
-
-## Copyright
-
-© 2025 Tenstorrent AI ULC
+Apache-2.0. Copyright © 2026 Tenstorrent AI ULC.

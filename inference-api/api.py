@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
+import asyncio
 import sys
 import os
 import inspect
@@ -25,6 +26,11 @@ import math
 import shlex
 import urllib.request
 import urllib.error
+from community import cancel_serve, create_community_router
+
+# Force a sane umask so files run.py writes for read-only container bind mounts
+# (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
+os.umask(0o022)
 
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
 # Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default artifact location);
@@ -140,6 +146,61 @@ def _resolve_secret_env_vars(
 
     return resolved
 
+
+def _ensure_artifact_git_marker(root: Path) -> None:
+    """Make sure the artifact at `root` finds a git repo at its own root.
+
+    The artifact's workflows/utils.py walks up from itself for a ".git" when it is
+    imported, and its run.py runs `git rev-parse HEAD` early in main(). A source
+    checkout points `root/.git` at TT-Studio's own repo (see
+    _execute_dev_mode_subprocess). A pip install (~/.tt-studio) isn't a git checkout,
+    so there is nothing to point at: give the artifact a repo of its own instead.
+    A ".git" directory is already a real repo (that one, or a local clone) and is
+    left alone.
+    """
+    import subprocess
+
+    marker = root / ".git"
+    if marker.is_dir():
+        return
+    try:
+        tt_studio_git_dir = subprocess.check_output(
+            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (subprocess.CalledProcessError, OSError):
+        tt_studio_git_dir = None
+    if tt_studio_git_dir:
+        marker.write_text(f"gitdir: {tt_studio_git_dir}\n")
+        return
+
+    if marker.exists() or marker.is_symlink():
+        marker.unlink()  # a gitfile pointer at a repo that isn't there
+    git = [
+        "git", "-C", str(root),
+        "-c", "user.name=TT-Studio", "-c", "user.email=tt-studio@localhost",
+        "-c", "commit.gpgsign=false",
+    ]
+    try:
+        subprocess.run([*git, "init", "-q"], check=True, capture_output=True, text=True)
+        subprocess.run(
+            [*git, "commit", "-q", "--allow-empty", "--no-verify", "-m", "tt-inference-server artifact"],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        logging.warning(
+            "Could not create a git repo in %s, deploys will fail: %s",
+            root, getattr(e, "stderr", None) or e,
+        )
+        # Still enough for workflows.utils to import, so the server comes up.
+        marker.mkdir(exist_ok=True)
+
+
+# workflows.utils looks for a ".git" above itself at import time and raises if it
+# finds none, which is the case for a pip install.
+_artifact_root = artifact_path.resolve()
+_ensure_artifact_git_marker(_artifact_root)
 
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
@@ -1189,8 +1250,8 @@ def _execute_dev_mode_subprocess(
     # a ".git" marker (default) to find its own root. The fetched artifact is a
     # plain tarball extraction with no .git of its own, so an unpatched run --
     # exactly what a subprocess is -- walks past the artifact root and incorrectly
-    # resolves to TT-Studio's OWN repo root a few directories up (it always has
-    # one, since .artifacts/ lives inside it), breaking any path this function
+    # resolves to TT-Studio's OWN repo root a few directories up (a source checkout
+    # has one, since .artifacts/ lives inside it), breaking any path this function
     # builds relative to the repo root (e.g. reference_config/... lookups at
     # import time). api.py's in-process path never hits this because it patches
     # get_repo_root_path in memory; a subprocess can't inherit that patch, so
@@ -1213,17 +1274,9 @@ def _execute_dev_mode_subprocess(
     # ".git" file on disk, and an exists-only guard would leave that stale,
     # invalid marker in place forever instead of repairing it.
     #
-    # Point at TT-Studio's resolved *git directory*.
-    git_marker = script_dir / ".git"
-    try:
-        _tt_studio_git_dir = _subprocess.check_output(
-            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
-            stderr=_subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (_subprocess.CalledProcessError, OSError):
-        _tt_studio_git_dir = str(_tt_studio_root / ".git")
-    git_marker.write_text(f"gitdir: {_tt_studio_git_dir}\n")
+    # Point at TT-Studio's resolved *git directory*. A pip install has none, so
+    # the artifact gets a repo of its own there instead.
+    _ensure_artifact_git_marker(script_dir)
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
@@ -2093,8 +2146,16 @@ def _process_run_output_line(
                 "the output of the workflows is not checked",
             ]
             if not any(fp in message.lower() for fp in false_positives):
-                status = "error"
-                stage = "error"
+                # An error-looking line is not a failure on its own: `hf download`
+                # prints "Error while downloading ... peer closed connection" and then
+                # retries by itself. Marking the job "error" here made the backend
+                # give up on a deploy whose run.py later exited 0, which left an
+                # untracked container holding the chips and the service port. The
+                # run.py exit code decides the outcome; keep the line so a real
+                # failure can still report it.
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id]["last_error_line"] = message[:200]
 
         # Update progress store (only if we have meaningful progress)
         if progress > 0 or status in ["error", "completed"]:
@@ -2176,6 +2237,26 @@ app = FastAPI(
     version="1.3.0"
 )
 
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
+    tt_studio_root = Path(__file__).parent.parent.resolve()
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
+
+
+# Community-model path (tt-model-manager). Mounted here so community deploys share
+# this module's job stores and are served by the same /run/progress|logs|stream APIs.
+app.include_router(
+    create_community_router(
+        progress_store=progress_store,
+        log_store=log_store,
+        progress_lock=progress_lock,
+        max_log_messages=MAX_LOG_MESSAGES,
+        deployment_log_dir=get_model_run_logs_dir(),
+    )
+)
+
 # Test logging on startup
 logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
@@ -2250,6 +2331,9 @@ class RunRequest(BaseModel):
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
     disable_metal_timeout: Optional[bool] = False
+    # Name to give the container once it's up; defaults to the model name. Lets a
+    # training and a chat deploy of the same model hold distinct Docker names.
+    container_name: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2261,13 +2345,6 @@ def normalize_device_alias(device: str) -> str:
         "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
-
-def get_model_run_logs_dir():
-    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
-    tt_studio_root = Path(__file__).parent.parent.resolve()
-    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
-    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
-    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
@@ -2407,8 +2484,10 @@ async def cancel_run(job_id: str):
     # from _cancelled_jobs — don't record them. The pull is cancelled backend-side.
     if job_id.startswith("imgpull_"):
         return {"job_id": job_id, "status": "cancelled", "killed_processes": 0}
+    community = await asyncio.to_thread(cancel_serve, job_id)
     with _cancel_lock:
-        _cancelled_jobs.add(job_id)
+        if not community:  # only run_main() clears this, and it never sees a community job
+            _cancelled_jobs.add(job_id)
         is_active = _active_run_job_id == job_id
     killed = _kill_hf_download_children() if is_active else 0
     with progress_lock:
@@ -2423,7 +2502,7 @@ async def cancel_run(job_id: str):
                 }
             )
     logger.info("Job %s: cancel requested (active=%s, killed=%d)", job_id, is_active, killed)
-    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed}
+    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed, "community": community}
 
 
 @app.get("/run/stream/{job_id}")
@@ -2616,6 +2695,9 @@ def sync_tokens_from_tt_studio(
     if updated:
         with open(inference_server_env, 'w') as f:
             f.writelines(env_lines)
+        # Holds JWT_SECRET/HF_TOKEN: pin owner-only so the 0o022 umask can't leave it
+        # world-readable. Containers read these via docker --env-file, so 0600 is safe.
+        os.chmod(inference_server_env, 0o600)
         logger.info(f"Updated inference server .env file at {inference_server_env}")
         # Reload environment variables
         load_dotenv()
@@ -3269,7 +3351,7 @@ async def run_inference(request: RunRequest):
                                 pass
                             _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
-                            model_name = request.model.replace("/", "-")
+                            model_name = (request.container_name or request.model).replace("/", "-")
                             if original_name != model_name:
                                 try:
                                     new_container.rename(model_name)
@@ -3309,12 +3391,13 @@ async def run_inference(request: RunRequest):
                             break
                     with progress_lock:
                         if job_id in progress_store:
+                            last_error_line = progress_store[job_id].get("last_error_line")
                             progress_store[job_id].update(
                                 {
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or last_error_line or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )

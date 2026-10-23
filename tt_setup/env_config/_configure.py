@@ -155,9 +155,9 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
         reconfigure = confirm("Reconfigure all environment variables?", default=False)
     except KeyboardInterrupt:
         console.print("\n\n[warning]🛑 Setup interrupted by user (Ctrl+C)[/warning]")
-        console.print("[info]🔄 To resume setup later, run:[/info] [bold]python run.py[/bold]")
-        console.print("[info]🧹 To clean up any partial setup:[/info] [bold]python run.py --stop[/bold]")
-        console.print("[info]❓ For help:[/info] [bold]python run.py --help[/bold]")
+        console.print(f"[info]🔄 To resume setup later, run:[/info] [bold]{LAUNCH_CMD}[/bold]")
+        console.print(f"[info]🧹 To clean up any partial setup:[/info] [bold]{LAUNCH_CMD} --stop[/bold]")
+        console.print(f"[info]❓ For help:[/info] [bold]{LAUNCH_CMD} --help[/bold]")
         sys.exit(0)
 
     if reconfigure:
@@ -237,6 +237,16 @@ def adopt_hf_token_from_environment(quiet=False):
     else:
         console.print(f"[muted]🤗 HF_TOKEN picked up from {escape_markup(origin)}.[/muted]")
     return True
+
+
+def migrate_legacy_app_title():
+    """Auto-migrate legacy default from older releases to stock, preventing false image drift."""
+    current_title = get_env_var("VITE_APP_TITLE")
+    if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
+        write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+        os.environ["VITE_APP_TITLE"] = STOCK_APP_TITLE
+        return STOCK_APP_TITLE
+    return current_title
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False, accept_terms=False):
@@ -398,14 +408,25 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
+    docker_control_default = DOCKER_CONTROL_INTERNAL_URL
+    # Migrate the old host-side defaults automatically.  Do not overwrite a
+    # deliberately configured remote Docker Control endpoint.
+    legacy_docker_urls = {
+        "http://host.docker.internal:8002",
+        "http://127.0.0.1:8002",
+        "http://localhost:8002",
+    }
     if quick_setup:
-        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
-            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url) or current_docker_url in legacy_docker_urls:
+            write_env_var("DOCKER_CONTROL_SERVICE_URL", docker_control_default)
+    elif current_docker_url in legacy_docker_urls:
+        console.print(f"[info]🔄 Migrating DOCKER_CONTROL_SERVICE_URL to the internal Compose service '{docker_control_default}'...[/info]")
+        write_env_var("DOCKER_CONTROL_SERVICE_URL", docker_control_default)
+        console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL migrated.[/success]")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
         if is_placeholder(current_docker_url):
             console.print(f"[info]🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...[/info]")
-        dev_default = "http://host.docker.internal:8002"
-        val = ask("🐳 Enter DOCKER_CONTROL_SERVICE_URL", default=dev_default)
+        val = ask("🐳 Enter DOCKER_CONTROL_SERVICE_URL", default=docker_control_default)
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         console.print("[success]✅ DOCKER_CONTROL_SERVICE_URL saved.[/success]")
     else:
@@ -448,14 +469,19 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         console.print("\n[bold accent]--- ⚙️  Application Configuration  ---[/bold accent]")
 
     # VITE_APP_TITLE
-    current_title = get_env_var("VITE_APP_TITLE")
+    current_title = migrate_legacy_app_title()
+
     if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
-            write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+            os.environ["VITE_APP_TITLE"] = STOCK_APP_TITLE
+            current_title = STOCK_APP_TITLE
     elif should_configure_var("VITE_APP_TITLE", current_title):
-        dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
+        dev_default = "TT Studio (Dev)" if dev_mode else STOCK_APP_TITLE
         val = ask("📝 Enter application title", default=dev_default)
         write_env_var("VITE_APP_TITLE", val)
+        os.environ["VITE_APP_TITLE"] = val
+        current_title = val
         console.print("[success]✅ VITE_APP_TITLE saved.[/success]")
     else:
         if not quick_setup:
@@ -578,4 +604,3 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
 
     if not in_phase():  # folded into the "Set up" phase line when run inside a phase
         console.print("[success]✓[/success] Environment configured")
-

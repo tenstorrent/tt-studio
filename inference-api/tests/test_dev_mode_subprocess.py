@@ -72,6 +72,11 @@ SETUP_HOST_SRC = """
 MODEL_SPEC_SRC = """
     MODEL_SPECS = {}
 
+    class ModelSpec:
+        # api.py wraps this at import time (media/forge trace_region_size mirror).
+        def apply_overrides(self, runtime_config):
+            return None
+
     def get_runtime_model_spec(model_name, device=None, impl=None):
         raise ValueError(f"model {model_name} not in catalog")
 """
@@ -82,6 +87,8 @@ MODEL_SPEC_SRC = """
 #                                    argv/cwd/env, so tests can inspect exactly
 #                                    what _execute_dev_mode_subprocess launched.
 #   FAKE_RUN_FAIL_ALWAYS=1        -- always exit 1.
+#   FAKE_RUN_RECOVERABLE_ERROR=1  -- print a recoverable hf download error to
+#                                    stderr, then carry on and exit 0.
 #   FAKE_RUN_FAIL_ON_HOST_VOLUME=1 -- exit 1 only while --host-volume is in argv
 #                                    (mimics a real host-volume-missing failure
 #                                    that a retry without --host-volume clears).
@@ -112,6 +119,9 @@ RUN_PY_SRC = """
         print(": pull complete", flush=True)
         sys.stderr.write("diagnostic line on stderr\\n")
         sys.stderr.flush()
+        if os.environ.get("FAKE_RUN_RECOVERABLE_ERROR") == "1":
+            sys.stderr.write("Error while downloading from https://huggingface.co/x/y/resolve/main/model-00003-of-00018.safetensors: peer closed connection without sending complete message body\\n")
+            sys.stderr.flush()
         if os.environ.get("FAKE_RUN_FAIL_ALWAYS") == "1":
             print("Weights directory does not exist for demo-model.", flush=True)
             return 1
@@ -226,6 +236,40 @@ class TestDevModeSubprocess(TestCase):
         self.assertTrue(any("diagnostic line on stderr" in m for m in messages))
         self.assertEqual(self.api.progress_store[self.job_id]["status"], "completed")
         self.assertEqual(self.api.progress_store[self.job_id]["progress"], 100)
+
+    def test_recoverable_download_error_line_does_not_fail_job(self):
+        # hf download prints this mid-download and then retries on its own. The
+        # backend stops tracking a deploy as soon as the job reads "error", so a
+        # line like this must not change the status while run.py is still going.
+        pull_state = {"pull_layers_total": 0, "pull_layers_complete": 0}
+        self.api.progress_store[self.job_id].update({"status": "running", "progress": 40})
+        # Verbatim from a Qwen3.8-27B deploy that later came up healthy.
+        line = (
+            "Error while downloading from https://huggingface.co/Qwen/Qwen3.8-27B/resolve/"
+            "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/model-00003-of-00018.safetensors: "
+            "peer closed connection without sending complete message body "
+            "(received 397702860 bytes, expected 2542796952)"
+        )
+
+        self.api._process_run_output_line(self.job_id, line, "WARNING", pull_state)
+
+        progress = self.api.progress_store[self.job_id]
+        self.assertEqual(progress["status"], "running")
+        self.assertEqual(progress["progress"], 40)
+        self.assertEqual(progress["last_error_line"], line[:200])
+        self.assertTrue(any(line in m for m in self._log_messages()))
+
+    def test_run_that_exits_zero_after_error_line_completes(self):
+        initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
+        env_vars = {"AUTOMATIC_HOST_SETUP": "True", "FAKE_RUN_RECOVERABLE_ERROR": "1"}
+        request = SimpleNamespace(skip_system_sw_validation=False)
+
+        return_code, _ = self.api._run_dev_mode_job(
+            self.job_id, initial_argv, self.artifact_dir, env_vars, request, self.run_logger
+        )
+
+        self.assertEqual(return_code, 0)
+        self.assertEqual(self.api.progress_store[self.job_id]["status"], "completed")
 
     def test_subprocess_is_isolated_from_parent_process_state(self):
         initial_argv = ["run.py", "--model", "TestModel", "--dev-mode", "--docker-server"]
