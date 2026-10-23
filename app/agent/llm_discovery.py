@@ -153,8 +153,14 @@ class LLMDiscoveryService:
         
         print(f"[SELECTION] Priority models: {priority_models}")
         print(f"[SELECTION] Model type priority: {model_type_priority}")
-        
-        # First, try to find a healthy priority model (any type)
+
+        allowed_types = set(model_type_priority)
+        local_llms = [llm for llm in local_llms if llm.model_type in allowed_types]
+        if not local_llms:
+            print("[SELECTION] No chat-capable LLMs available for selection")
+            return None
+
+        # First, try to find a healthy priority model (chat-capable types only)
         for model_name in priority_models:
             for llm in local_llms:
                 if (model_name.lower() in llm.model_name.lower() and 
