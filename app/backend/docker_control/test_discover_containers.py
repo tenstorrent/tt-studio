@@ -139,6 +139,24 @@ class DiscoverContainersViewTests(SimpleTestCase):
         self.assertEqual(response.data.get("status"), "error")
         mock_logger.error.assert_called_once()
 
+    @patch("docker_control.views.logger")
+    @patch("docker_control.views.get_docker_client")
+    def test_http_error_from_service_returns_500(self, mock_get_client, mock_logger):
+        """HTTP errors from docker-control (e.g. 401 or 500) must return 500 and not be swallowed."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        http_error = requests.exceptions.HTTPError("401 Client Error: Unauthorized", response=mock_response)
+        mock_client.list_containers.side_effect = http_error
+        mock_get_client.return_value = mock_client
+
+        request = self.factory.get("/docker/discover-containers/")
+        response = self.view(request)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data.get("status"), "error")
+        mock_logger.error.assert_called_once()
+
     @patch("docker_control.models.ModelDeployment.objects.filter")
     @patch("docker_control.views.get_docker_client")
     def test_normal_discovery_flow_preserved(self, mock_get_client, mock_dep_filter):

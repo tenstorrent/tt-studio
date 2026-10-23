@@ -2812,6 +2812,19 @@ class DiscoverContainersView(APIView):
         global _discovery_outage_logged
         try:
             docker_client = get_docker_client()
+        except ValueError as e:
+            if not _discovery_outage_logged:
+                _discovery_outage_logged = True
+                logger.warning(
+                    "DiscoverContainersView: docker-control-service unconfigured (%s); "
+                    "returning empty candidate list until service is configured",
+                    e,
+                )
+            else:
+                logger.debug("DiscoverContainersView: docker-control-service still unconfigured (%s)", e)
+            return Response([], status=status.HTTP_200_OK)
+
+        try:
             response = docker_client.list_containers(all=False)
             containers_list = response.get("containers", []) if isinstance(response, dict) else []
 
@@ -2880,7 +2893,7 @@ class DiscoverContainersView(APIView):
             return Response(results, status=status.HTTP_200_OK)
 
         except Exception as e:
-            if is_service_unreachable(e) or isinstance(e, (requests.exceptions.RequestException, ValueError)):
+            if is_service_unreachable(e):
                 if not _discovery_outage_logged:
                     _discovery_outage_logged = True
                     logger.warning(
