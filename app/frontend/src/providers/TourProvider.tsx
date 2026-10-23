@@ -34,6 +34,7 @@ export function TourProvider({ children }: TourProviderProps) {
   const [run, setRun] = useState<boolean>(false);
   const [stepIndex, setStepIndex] = useState<number>(0);
   const [activeTourId, setActiveTourId] = useState<string | null>(null);
+  const [tourSessionId, setTourSessionId] = useState<number>(0);
   const [steps, setSteps] = useState<Step[]>(
     () => TOUR_REGISTRY[DEFAULT_TOUR_ID]?.steps ?? []
   );
@@ -81,6 +82,7 @@ export function TourProvider({ children }: TourProviderProps) {
               ? { ...step, locale: { last: "Next: Deploy a Model →" } }
               : step
           );
+          setTourSessionId((prev) => prev + 1);
           setSteps(chainedSteps);
           setActiveTourId("onboarding");
           setStepIndex(0);
@@ -170,6 +172,7 @@ export function TourProvider({ children }: TourProviderProps) {
       const tour = getTourById(tourId);
       if (!tour) return;
 
+      setTourSessionId((prev) => prev + 1);
       setSteps(tour.steps);
       setActiveTourId(tour.id);
       setStepIndex(initialStepIndex);
@@ -328,6 +331,7 @@ export function TourProvider({ children }: TourProviderProps) {
     <TourContext.Provider value={value}>
       {children}
       <Joyride
+        key={`${activeTourId ?? "idle"}-${tourSessionId}`}
         steps={steps}
         run={run}
         continuous={true}
