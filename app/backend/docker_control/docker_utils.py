@@ -19,11 +19,16 @@ import requests
 from board_control.services import SystemResourceService
 from django.core.cache import caches
 from shared_config.backend_config import backend_config
-from shared_config.coding_agent_config import is_coding_agent_eligible
+from shared_config.coding_agent_config import has_thinking_toggle, is_coding_agent_eligible
 from shared_config.device_config import DeviceConfigurations
+from shared_config.community_model_config import community_impl_from_deployment
 from shared_config.external_model_config import build_external_model_impl
 from shared_config.logger_config import get_logger
-from shared_config.model_config import _impl_selector, model_implmentations
+from shared_config.model_config import (
+    _impl_selector,
+    model_implmentations,
+    pick_impl_for_container,
+)
 from shared_config.model_overrides import (
     MEDIA_IMAGE_OVERRIDES as _MEDIA_IMAGE_OVERRIDES,
     TRACE_REGION_OVERRIDES as _TRACE_REGION_OVERRIDES,
@@ -552,6 +557,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "workflow": "server",  # Default workflow for container runs
             "device": device,  # Use mapped device name
             "docker_server": True,
+            "container_name": impl.deployment_container_name,
         }
 
         # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
@@ -724,7 +730,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                         deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
                         container_id=job_id,
-                        container_name=impl.model_name,
+                        container_name=impl.deployment_container_name,
                         model_name=impl.model_name,
                         model_id=impl.model_id,
                         device=device,
@@ -1103,6 +1109,7 @@ def get_container_status():
                 "image_id": attrs.get("Image"),
                 "image_name": config.get("Image"),
                 "port_bindings": network_settings.get("Ports") or {},
+                "labels": config.get("Labels") or {},
                 "networks": {
                     k: {"DNSNames": (v or {}).get("DNSNames")}
                     for k, v in raw_networks.items()
@@ -1161,6 +1168,71 @@ def _external_model_impl(con_id, con):
     return impl
 
 
+# tt-model-manager labels every container it starts (tt_kernel/container.py):
+# org.tenstorrent.tt-model=<name>, plus .profile. Unlike the tt-inference-server
+# containers — identified by sniffing cache env vars — this is an exact signal.
+TT_MODEL_LABEL = "org.tenstorrent.tt-model"
+
+
+def _community_model_impl(con_id, con):
+    """Synthetic model_impl for a container started by tt-model-manager.
+
+    Returns None when the container is not one of ours, so callers keep their
+    existing "unmatched" behaviour. The impl is rebuilt from the deployment record
+    rather than the bundle manifest: the record holds everything read off a
+    model_impl here, and the canonical listing runs too often to fetch a manifest
+    per container.
+    """
+    if TT_MODEL_LABEL not in (con.get("labels") or {}):
+        return None
+    try:
+        dep = (
+            ModelDeployment.objects.filter(
+                container_id__in=[con_id, con_id[:12]]
+            ).first()
+            or ModelDeployment.objects.filter(container_name=con["name"]).first()
+        )
+    except Exception as e:
+        logger.warning(f"Could not look up community deployment for {con_id}: {e}")
+        return None
+    if dep is None:
+        return None
+
+    impl = community_impl_from_deployment(dep)
+    if impl is None:
+        logger.warning(
+            f"Community container {con['name']} has no bundle id on its deployment record"
+        )
+        return None
+    logger.debug(f"Using community model_impl for '{con['name']}' ({impl.repo_id})")
+    return impl
+
+
+# Health routes a community app may serve, preferred first. Each tt-dit app picks its
+# own (Qwen-Image serves /health, Fish S2 Pro /v1/health) and the manifest does not say.
+_COMMUNITY_HEALTH_ROUTES = ("/health", "/v1/health")
+_community_health_routes = {}  # container id -> route read off its OpenAPI document
+
+
+def _community_health_route(con_id, base):
+    """The health route a community container serves, read once from its OpenAPI.
+
+    Until the app answers (a model still loading in its lifespan) the default is
+    probed and nothing is cached, so the badge reads "starting" rather than wrong.
+    """
+    route = _community_health_routes.get(con_id)
+    if route:
+        return route
+    try:
+        response = requests.get(f"http://{base}/openapi.json", timeout=2)
+        paths = response.json().get("paths")
+    except (requests.RequestException, ValueError):
+        return _COMMUNITY_HEALTH_ROUTES[0]
+    route = next((r for r in _COMMUNITY_HEALTH_ROUTES if r in (paths or {})), None)
+    _community_health_routes[con_id] = route or _COMMUNITY_HEALTH_ROUTES[0]
+    return _community_health_routes[con_id]
+
+
 def _enrich_container_with_model_impl(con, con_id):
     """Resolve ``model_impl`` for a live Docker container and populate the
     derived fields (``model_id``, ``weights_id``, ``model_impl``,
@@ -1182,6 +1254,8 @@ def _enrich_container_with_model_impl(con, con_id):
     model_impl = _external_model_impl(con_id, con)
     if not model_impl:
         model_impl = model_implmentations.get(con_model_id)
+    if not model_impl:
+        model_impl = _community_model_impl(con_id, con)
     if not model_impl:
         # TT Inference Server containers identify themselves via cache env vars.
         is_tt_inference_container = (
@@ -1222,14 +1296,20 @@ def _enrich_container_with_model_impl(con, con_id):
                         )
                         deployment_found = True
                     if not model_impl:
-                        for _k, v in model_implmentations.items():
-                            if v.model_name == deployment.model_name:
-                                model_impl = v
-                                logger.info(
-                                    f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
-                                )
-                                deployment_found = True
-                                break
+                        # Stored id missing or stale, e.g. a trainer deployed before
+                        # training ids got their -training- suffix.
+                        model_impl = pick_impl_for_container(
+                            [
+                                v for v in model_implmentations.values()
+                                if v.model_name == deployment.model_name
+                            ],
+                            con["env_vars"],
+                        )
+                        if model_impl:
+                            logger.info(
+                                f"Matched TT Inference Server container to model_impl: {model_impl.model_id}"
+                            )
+                            deployment_found = True
                     if not model_impl:
                         logger.warning(
                             f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
@@ -1251,25 +1331,36 @@ def _enrich_container_with_model_impl(con, con_id):
 
             if not deployment_found:
                 # Fallback: exact container-name match against catalog
-                for _k, v in model_implmentations.items():
-                    if v.model_name == con["name"]:
-                        model_impl = v
-                        logger.info(
-                            f"Matched container by exact name to model_impl: {model_impl.model_name}"
-                        )
-                        break
+                model_impl = pick_impl_for_container(
+                    [
+                        v for v in model_implmentations.values()
+                        if v.model_name == con["name"]
+                    ],
+                    con["env_vars"],
+                )
+                if model_impl:
+                    logger.info(
+                        f"Matched container by exact name to model_impl: {model_impl.model_id}"
+                    )
 
-                # Fallback: longest-substring match. Can't tell two same-named
-                # specs apart (CHAT vs TRAINING); model_id above is authoritative.
+                # Fallback: longest-substring match. A trainer is named
+                # "<model_name>-training", so this is where it lands without a record.
                 if not model_impl:
-                    best_match_len = 0
-                    for _k, v in model_implmentations.items():
-                        if v.model_name in con["name"] and len(v.model_name) > best_match_len:
-                            model_impl = v
-                            best_match_len = len(v.model_name)
-                    if model_impl:
+                    substring_matches = [
+                        v for v in model_implmentations.values()
+                        if v.model_name in con["name"]
+                    ]
+                    if substring_matches:
+                        best_match_len = max(len(v.model_name) for v in substring_matches)
+                        model_impl = pick_impl_for_container(
+                            [
+                                v for v in substring_matches
+                                if len(v.model_name) == best_match_len
+                            ],
+                            con["env_vars"],
+                        )
                         logger.info(
-                            f"Matched container by name substring to model_impl: {model_impl.model_name}"
+                            f"Matched container by name substring to model_impl: {model_impl.model_id}"
                         )
 
                 if not model_impl:
@@ -1298,7 +1389,7 @@ def _enrich_container_with_model_impl(con, con_id):
                     )
                     return False
             else:
-                model_impl = candidates[0]
+                model_impl = pick_impl_for_container(candidates, con["env_vars"])
 
     con["model_id"] = model_impl.model_id
     con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
@@ -1306,7 +1397,7 @@ def _enrich_container_with_model_impl(con, con_id):
 
     if backend_config.docker_bridge_network_name in con["networks"].keys():
         hostname = con["networks"][backend_config.docker_bridge_network_name]["DNSNames"][0]
-        # Resolve the real bound port (slot-based 7000+device_id) instead of
+        # Resolve the real bound port (allocated from 20000+) instead of
         # the static catalog service_port.
         actual_port = model_impl.service_port
         port_bindings = con.get("port_bindings", {})
@@ -1317,8 +1408,11 @@ def _enrich_container_with_model_impl(con, con_id):
                     actual_port = int(container_port_key.split("/")[0])
                 except (ValueError, IndexError):
                     pass
+        health_route = model_impl.health_route
+        if getattr(model_impl, "is_community", False):
+            health_route = _community_health_route(con_id, f"{hostname}:{actual_port}")
         con["internal_url"] = f"{hostname}:{actual_port}{model_impl.service_route}"
-        con["health_url"] = f"{hostname}:{actual_port}{model_impl.health_route}"
+        con["health_url"] = f"{hostname}:{actual_port}{health_route}"
         return True
 
     return False
@@ -1630,9 +1724,10 @@ def get_canonical_deployments():
                                   or ([dep.device_id] if dep.device_id is not None else None),
                     "model_impl": None,
                     # Resolved from model_name so clients can tie an in-flight start
-                    # back to a catalog entry. model_impl stays None: this deployment
+                    # back to a catalog entry (or, for a community bundle, to the
+                    # bundle id on its record). model_impl stays None: this deployment
                     # has no container yet, and consumers key "is it deployed?" off it.
-                    "model_id": _impl_id,
+                    "model_id": getattr(dep, "community_model_id", None) or _impl_id,
                     "weights_id": None,
                     "internal_url": None,
                     "health_url": None,
@@ -1702,6 +1797,7 @@ def serialize_canonical_entry_for_http(entry):
     model_impl = entry.get("model_impl")
     # Top-level eligibility echo for navbar gating (SSOT: coding_agent_config)
     out["coding_agent_eligible"] = is_coding_agent_eligible(model_impl)
+    out["thinking_toggle"] = model_impl is not None and has_thinking_toggle(model_impl)
     if model_impl is None:
         out["model_impl"] = None
         out.setdefault("model_type", None)
@@ -1729,13 +1825,14 @@ def serialize_canonical_entry_for_http(entry):
     return out
 
 
-def update_deploy_cache():
+def update_deploy_cache(canonical=None):
     """Materialize get_canonical_deployments() into the LocMemCache.
 
     Only running, fully-enriched "managed" deployments (those with a resolved model_impl and an internal_url) are written. 
     This preserves the existing semantics callers of get_deploy_cache() rely on: every cached entry has a Python-object model_impl they can read attributes off.
     """
-    canonical = get_canonical_deployments()
+    if canonical is None:
+        canonical = get_canonical_deployments()
     cache = caches[backend_config.django_deploy_cache_name]
 
     cached_container_ids = set()

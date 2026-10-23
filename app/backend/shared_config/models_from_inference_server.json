@@ -1494,7 +1494,7 @@
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.22.0-a3a9fb4",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.23.0-2fd9445",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",

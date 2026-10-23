@@ -52,7 +52,8 @@ import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 import type { ChipStatus } from "../../types/chipStatus";
-import { deviceIdsForRow } from "../../utils/deviceIds";
+import { deviceIdsForRow, resetDeviceIdsForStop } from "../../utils/deviceIds";
+import { deploySessionStart, restartDeploySession } from "../../lib/deploySession";
 
 export default function ModelsDeployedCard(): ReactElement {
   const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight, controlPlaneDegraded } = useModels();
@@ -261,10 +262,14 @@ export default function ModelsDeployedCard(): ReactElement {
   // them. A single model reset/delete does NOT bump resetAllNonce, so those
   // rows stay until the user clicks that row's own Remove & Reset.
   const lastResetAllNonce = useRef(resetAllNonce);
+  const sessionStartRef = useRef<number>(deploySessionStart());
   if (resetAllNonce !== lastResetAllNonce.current) {
     lastResetAllNonce.current = resetAllNonce;
     seenLiveIdsRef.current.clear();
+    sessionStartRef.current = restartDeploySession();
   }
+  const startedThisSession = (d: { deployed_at: string }) =>
+    Date.parse(d.deployed_at) >= sessionStartRef.current;
 
   // Newest history record per container. A container can accumulate several
   // records (a re-registration, a redeploy under the same id), and only the
@@ -286,20 +291,24 @@ export default function ModelsDeployedCard(): ReactElement {
     const next: Record<string, FailedDeploymentInfo> = {};
     for (const d of latestHistoryByContainer.values()) {
       if (d.stopped_by_user) continue;
-      // Only flag deployments we've actually seen alive this session OR that
+      // Only flag deployments we've actually seen alive this session or that
       // are still in the live set (so a row that's currently visible can flip
-      // to failed). Anything we never saw is ignored — that's history.
+      // to failed). Anything else is history...
       const seen =
         seenLiveIdsRef.current.has(d.container_id) ||
         liveContainerIds.has(d.container_id);
-      if (!seen) continue;
-      const looksDead =
-        d.stopped_at !== null ||
-        d.status === "exited" ||
-        d.status === "dead" ||
-        d.status === "failed" ||
-        d.status === "stopped" ||
-        !liveContainerIds.has(d.container_id);
+      const looksDead = seen
+        ? d.stopped_at !== null ||
+          d.status === "exited" ||
+          d.status === "dead" ||
+          d.status === "failed" ||
+          d.status === "stopped" ||
+          !liveContainerIds.has(d.container_id)
+        : // ...except a model started this session whose container died before
+          // the list ever showed it running. Only its own record can say so:
+          // until then it is still starting, and a failed deploy job is the
+          // deploy tray's to report.
+          startedThisSession(d) && (d.status === "exited" || d.status === "dead");
       if (!looksDead) continue;
       if (!next[d.container_id]) {
         next[d.container_id] = {
@@ -332,7 +341,7 @@ export default function ModelsDeployedCard(): ReactElement {
       const cid = d.container_id;
       if (!failedMap[cid]) continue;
       if (liveContainerIds.has(cid)) continue;
-      if (!seenLiveIdsRef.current.has(cid)) continue;
+      if (!seenLiveIdsRef.current.has(cid) && !startedThisSession(d)) continue;
       if (out.some((r) => r.id === cid)) continue;
       out.push({
         id: cid,
@@ -556,7 +565,7 @@ export default function ModelsDeployedCard(): ReactElement {
     <DeleteModelDialog
       open={showDeleteModal}
       modelId={deleteTargetId || ""}
-      deviceIds={deleteDeviceIds}
+      deviceIds={deleteStream.resetDeviceIds ?? deleteDeviceIds}
       totalDevices={chipStatus?.total_slots}
       boardType={chipStatus?.board_type}
       isLoading={deleteStream.status === "running"}
@@ -762,9 +771,18 @@ export default function ModelsDeployedCard(): ReactElement {
                     }
                   }}
                   onDelete={(id: string) => {
+                    const ids = deviceIdsForRow(rows.find((r) => r.id === id));
                     setDeleteTargetId(id);
-                    setDeleteDeviceIds(deviceIdsForRow(rows.find((r) => r.id === id)));
+                    setDeleteDeviceIds(resetDeviceIdsForStop(ids, chipStatus));
                     setShowDeleteModal(true);
+                    // chipStatus can be minutes old; preview against current occupancy.
+                    axios
+                      .get<ChipStatus>("/docker-api/chip-status/")
+                      .then((res) => {
+                        setChipStatus(res.data);
+                        setDeleteDeviceIds(resetDeviceIdsForStop(ids, res.data));
+                      })
+                      .catch(() => {});
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
                   onNavigateToModel={(id: string, name: string) => {
