@@ -2793,6 +2793,9 @@ class DeploymentHistoryView(APIView):
             )
 
 
+_discovery_outage_logged = False
+
+
 class DiscoverContainersView(APIView):
     """List running containers that are candidates for registration.
 
@@ -2806,10 +2809,27 @@ class DiscoverContainersView(APIView):
     _INFRA_PREFIXES = INFRA_CONTAINER_PREFIXES
 
     def get(self, request, *args, **kwargs):
+        global _discovery_outage_logged
         try:
             docker_client = get_docker_client()
+        except ValueError as e:
+            if not _discovery_outage_logged:
+                _discovery_outage_logged = True
+                logger.warning(
+                    "DiscoverContainersView: docker-control-service unconfigured (%s); "
+                    "returning empty candidate list until service is configured",
+                    e,
+                )
+            else:
+                logger.debug("DiscoverContainersView: docker-control-service still unconfigured (%s)", e)
+            return Response([], status=status.HTTP_200_OK)
+
+        try:
             response = docker_client.list_containers(all=False)
             containers_list = response.get("containers", []) if isinstance(response, dict) else []
+
+            if _discovery_outage_logged:
+                _discovery_outage_logged = False
 
             # Containers already tracked as running/starting deployments are excluded (they're registered/managed)
             registered_ids = set()
@@ -2873,6 +2893,18 @@ class DiscoverContainersView(APIView):
             return Response(results, status=status.HTTP_200_OK)
 
         except Exception as e:
+            if is_service_unreachable(e):
+                if not _discovery_outage_logged:
+                    _discovery_outage_logged = True
+                    logger.warning(
+                        "DiscoverContainersView: docker-control-service unreachable (%s); "
+                        "returning empty candidate list until service is restored",
+                        e,
+                    )
+                else:
+                    logger.debug("DiscoverContainersView: docker-control-service still unreachable (%s)", e)
+                return Response([], status=status.HTTP_200_OK)
+
             logger.error(f"Error discovering containers: {e}")
             return Response(
                 {"status": "error", "message": str(e)},
