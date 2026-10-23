@@ -141,7 +141,7 @@ export default function ChatComponent() {
     toggleableInlineStats: true,
     systemPrompt: "",
     seed: 0,
-    thinking: true,
+    thinking: false,
   });
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [maxTokensSliderMax, setMaxTokensSliderMax] = useState<number>(4096);

@@ -2097,8 +2097,16 @@ def _process_run_output_line(
                 "the output of the workflows is not checked",
             ]
             if not any(fp in message.lower() for fp in false_positives):
-                status = "error"
-                stage = "error"
+                # An error-looking line is not a failure on its own: `hf download`
+                # prints "Error while downloading ... peer closed connection" and then
+                # retries by itself. Marking the job "error" here made the backend
+                # give up on a deploy whose run.py later exited 0, which left an
+                # untracked container holding the chips and the service port. The
+                # run.py exit code decides the outcome; keep the line so a real
+                # failure can still report it.
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id]["last_error_line"] = message[:200]
 
         # Update progress store (only if we have meaningful progress)
         if progress > 0 or status in ["error", "completed"]:
@@ -2274,6 +2282,9 @@ class RunRequest(BaseModel):
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
     disable_metal_timeout: Optional[bool] = False
+    # Name to give the container once it's up; defaults to the model name. Lets a
+    # training and a chat deploy of the same model hold distinct Docker names.
+    container_name: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -3287,7 +3298,7 @@ async def run_inference(request: RunRequest):
                                 pass
                             _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
-                            model_name = request.model.replace("/", "-")
+                            model_name = (request.container_name or request.model).replace("/", "-")
                             if original_name != model_name:
                                 try:
                                     new_container.rename(model_name)
@@ -3327,12 +3338,13 @@ async def run_inference(request: RunRequest):
                             break
                     with progress_lock:
                         if job_id in progress_store:
+                            last_error_line = progress_store[job_id].get("last_error_line")
                             progress_store[job_id].update(
                                 {
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or last_error_line or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )
