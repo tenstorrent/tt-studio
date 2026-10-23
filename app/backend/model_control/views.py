@@ -106,6 +106,9 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         # Sticky once we've seen a real in-container download (docker-volume path).
         if prev.get("download_in_container") and not phase_dict.get("download_in_container"):
             phase_dict["download_in_container"] = True
+        # Sticky: the failure line scrolls out of the tail as /health polls pile up.
+        if prev.get("worker_init_failure") and not phase_dict.get("worker_init_failure"):
+            phase_dict["worker_init_failure"] = prev["worker_init_failure"]
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
@@ -115,6 +118,7 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
             "download_in_container": bool(
                 phase_dict.get("download_in_container") or prev.get("download_in_container")
             ),
+            "worker_init_failure": phase_dict.get("worker_init_failure"),
         }
     return phase_dict
 
@@ -397,6 +401,14 @@ class ModelHealthView(APIView):
                 # the container's stdout. Best-effort: if anything fails we still
                 # return the basic 202 so the badge logic is unaffected.
                 content["phase"] = _get_startup_phase(deploy_id)
+                failure = (content["phase"] or {}).get("worker_init_failure")
+                if failure:
+                    # The media server's worker died during startup and won't be
+                    # restarted, so this deploy will never become healthy.
+                    return Response(
+                        {"message": "Unavailable", "details": f"Model worker failed to start: {failure}"},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
                 # Anchor the frontend's warmup clock to the deploy start time so
                 # it survives page refreshes. Server-computed to avoid client
                 # clock skew; omitted if deployed_at is missing/unparseable.
