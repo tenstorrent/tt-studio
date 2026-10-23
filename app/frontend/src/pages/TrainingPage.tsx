@@ -126,12 +126,19 @@ export default function TrainingPage() {
         typeof target === "string" &&
         target.startsWith(TRAINING_DIALOG_TOUR_PREFIX);
       setDialogOpen(wantsDialog);
-      if (typeof target === "string" && !wantsDialog && target !== "body") {
+      if (typeof target === "string" && target !== "body") {
         // Joyride's own scrolling is disabled for these steps (see the tour
-        // definition), so bring the highlighted element into view here.
-        document
-          .querySelector(target)
-          ?.scrollIntoView({ block: "center", behavior: "instant" });
+        // definition), so bring the highlighted element into view here. A
+        // tooltip placed above a tall target needs the room above it.
+        const placement = tourSteps[tourStepIndex]?.placement ?? "";
+        const block = placement.startsWith("top") ? "end" : "center";
+        const scrollToTarget = () =>
+          document
+            .querySelector(target)
+            ?.scrollIntoView({ block, behavior: "instant" });
+        // A dialog step's target only mounts once the dialog has opened.
+        if (document.querySelector(target)) scrollToTarget();
+        else requestAnimationFrame(scrollToTarget);
       }
     } else if (wasFineTuneTourRef.current) {
       // Tour finished, skipped, or closed: never leave the dialog dangling.

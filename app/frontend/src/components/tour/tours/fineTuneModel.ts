@@ -11,8 +11,9 @@ export const FINE_TUNE_TOUR_ID = "fine-tune-model";
  */
 export const TRAINING_DIALOG_TOUR_PREFIX = '[data-tour="training-dialog-';
 
-// Page-level steps set skipScroll: react-joyride 3.2 stalls when a later step
-// needs the document scrolled, so TrainingPage scrolls each target into view.
+// Every targeted step sets skipScroll: react-joyride 3.2 stalls when a later
+// step needs the page or the dialog scrolled, so TrainingPage scrolls each
+// target into view.
 export const fineTuneModelSteps: Step[] = [
   {
     target: '[data-tour="training-page-header"]',
@@ -34,6 +35,7 @@ export const fineTuneModelSteps: Step[] = [
   },
   {
     target: '[data-tour="training-dialog-model"]',
+    skipScroll: true,
     title: "Choose a Base Model",
     content:
       "Select the model to fine-tune. Only models supported by the running fine-tuning container and your detected hardware are listed.",
@@ -42,6 +44,7 @@ export const fineTuneModelSteps: Step[] = [
   },
   {
     target: '[data-tour="training-dialog-dataset"]',
+    skipScroll: true,
     title: "Pick a Dataset",
     content:
       "Choose a built-in dataset, or one of your own uploads under Custom Datasets (uploading is covered a few steps ahead). A custom dataset unlocks a prompt template, column mapping, and an optional evaluation split.",
@@ -50,14 +53,16 @@ export const fineTuneModelSteps: Step[] = [
   },
   {
     target: '[data-tour="training-dialog-hyperparameters"]',
+    skipScroll: true,
     title: "Tune Hyperparameters",
     content:
-      "Set the learning rate, batch size, epochs, and maximum sequence length. The defaults are a sensible starting point for most datasets.",
+      "Set the learning rate, batch size, epochs, maximum sequence length, and seed. The defaults are a sensible starting point for most datasets.",
     skipBeacon: true,
     placement: "top",
   },
   {
     target: '[data-tour="training-dialog-lora"]',
+    skipScroll: true,
     title: "LoRA Configuration",
     content:
       "Control the adapter rank, alpha, and target modules. Lower ranks train faster and produce smaller adapters; higher ranks capture more from your data.",
@@ -66,6 +71,7 @@ export const fineTuneModelSteps: Step[] = [
   },
   {
     target: '[data-tour="training-dialog-submit"]',
+    skipScroll: true,
     title: "Launch Fine-tuning",
     content:
       "Click Start Fine-tuning to queue the job. It appears in the Jobs table immediately and moves to Running once compilation finishes.",
