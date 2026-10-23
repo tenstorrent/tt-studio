@@ -74,6 +74,18 @@ def prepare_docker_socket_path():
     return socket_path
 
 
+def prepare_container_user():
+    """Expose the invoking user's uid:gid to Compose interpolation for this run.
+
+    Non-root services read host files (e.g. the LiteLLM config), so they run as
+    the caller instead of a hard-coded 1000. Root falls back to 1000 so the
+    containers never run as root.
+    """
+    uid, gid = os.getuid(), os.getgid()
+    os.environ["TT_STUDIO_UID"] = str(uid or 1000)
+    os.environ["TT_STUDIO_GID"] = str(gid or 1000)
+
+
 def _docker_compose_v2_available():
     """True if the `docker compose` (v2) plugin runs — with a sudo fallback for
     660 sockets. The space form (`docker compose`) only succeeds on v2; legacy
@@ -436,6 +448,7 @@ def build_docker_compose_command(
     Returns:
         list: Docker Compose command with appropriate files
     """
+    prepare_container_user()
     compose_files = ["docker", "compose"]
     # The canonical env file now lives at the repo root, so point compose at it
     # explicitly. --env-file only changes variable resolution; the compose project
