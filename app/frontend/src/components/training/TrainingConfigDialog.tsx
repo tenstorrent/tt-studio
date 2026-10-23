@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { AlertTriangle, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -38,6 +38,7 @@ import {
   fetchCustomDatasetContent,
   createTrainingJob,
   CUSTOM_DATASET_LOADER,
+  MAX_TRAINING_SEED,
   type CatalogEntry,
   type CustomDataset,
 } from "../../api/trainingApi";
@@ -117,6 +118,12 @@ const formSchema = z.object({
   batch_size: z.coerce.number().int().positive().default(8),
   num_epochs: z.coerce.number().int().positive().default(1),
   max_length: z.coerce.number().int().positive().default(128),
+  seed: z.coerce
+    .number()
+    .int("Seed must be a whole number")
+    .nonnegative("Seed must be 0 or greater")
+    .lt(MAX_TRAINING_SEED, `Seed must be below ${MAX_TRAINING_SEED}`)
+    .default(0),
   max_steps: z.coerce.number().int().nonnegative().default(100),
   lora_rank: z.coerce.number().int().positive().default(4),
   lora_alpha: z.coerce.number().int().positive().default(8),
@@ -165,6 +172,7 @@ export function TrainingConfigDialog({
       batch_size: 8,
       num_epochs: 1,
       max_length: 128,
+      seed: 0,
       max_steps: 100,
       lora_rank: 4,
       lora_alpha: 8,
@@ -232,7 +240,9 @@ export function TrainingConfigDialog({
   // slice of a large file (in which case its row count says nothing useful).
   const [datasetColumns, setDatasetColumns] = useState<string[]>([]);
   const [datasetSampled, setDatasetSampled] = useState(false);
-  const maxLength = form.watch("max_length");
+  // Number inputs report edits as strings, so coerce before comparing lengths.
+  const maxLength = Number(form.watch("max_length"));
+  const seedChanged = Number(form.watch("seed")) !== 0;
   const columnMapping = form.watch("column_mapping");
 
   useEffect(() => {
@@ -360,13 +370,25 @@ export function TrainingConfigDialog({
     return sampleTokenLengths.filter((len) => len <= maxLength).length;
   }, [sampleTokenLengths, maxLength, validMaxLength, sampleTotal]);
 
-  // Rounded, but never round a non-zero share down to "0%" (shown as "<1%").
-  const rawPercent = sampleTotal > 0 ? (sampleKept / sampleTotal) * 100 : 100;
-  const includedPercentLabel =
-    sampleKept > 0 && rawPercent < 1 ? "<1" : String(Math.round(rawPercent));
+  const sampleDropped = sampleTotal - sampleKept;
+  // Rounded, but a partial share never reads as "0%" or "100%" ("<1%" / ">99%").
+  const rawDroppedPercent =
+    sampleTotal > 0 ? (sampleDropped / sampleTotal) * 100 : 0;
+  const droppedPercentLabel =
+    sampleDropped > 0 && rawDroppedPercent < 1
+      ? "<1"
+      : sampleDropped < sampleTotal && rawDroppedPercent > 99
+        ? ">99"
+        : String(Math.round(rawDroppedPercent));
 
-  const lengthWarning =
-    isCustomDataset && sampleTotal > 0 && validMaxLength && sampleKept < sampleTotal;
+  const lengthEstimateReady =
+    isCustomDataset && sampleTotal > 0 && validMaxLength;
+  const lengthWarning = lengthEstimateReady && sampleKept < sampleTotal;
+  const lengthAllFit = lengthEstimateReady && sampleKept === sampleTotal;
+  // The estimate only covers a leading slice of a large file, so a clean result
+  // can't vouch for the rows it never saw.
+  const lengthEstimatePartial =
+    datasetSampled || datasetSampleRows.length > sampleTotal;
 
   const onSubmit = async (values: FormValues) => {
     if (!device) {
@@ -389,6 +411,7 @@ export function TrainingConfigDialog({
         batch_size: values.batch_size,
         num_epochs: values.num_epochs,
         dataset_max_sequence_length: values.max_length,
+        seed: values.seed,
         lora_alpha: values.lora_alpha,
         lora_r: values.lora_rank,
         max_steps: values.max_steps,
@@ -752,17 +775,19 @@ export function TrainingConfigDialog({
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                     <p className="text-amber-800 dark:text-amber-200">
                       At a Sequence Length of{" "}
-                      <span className="font-semibold">{maxLength}</span>, only
-                      about{" "}
+                      <span className="font-semibold">{maxLength}</span>,{" "}
+                      {sampleDropped} of {sampleTotal}{" "}
+                      {lengthEstimatePartial ? "sampled " : ""}
+                      {sampleTotal === 1 ? "example" : "examples"} (
                       <span className="font-semibold">
-                        {includedPercentLabel}%
-                      </span>{" "}
-                      of examples would be used for training (estimated, template
-                      included) — examples longer than the limit are silently
-                      dropped.{" "}
+                        {droppedPercentLabel}%
+                      </span>
+                      ) {sampleDropped === 1 ? "is" : "are"}{" "}
+                      longer than the limit and would be silently dropped from
+                      training (estimated, template included).{" "}
                       {sampleKept === 0
                         ? "Every sampled example exceeds the limit, so fine-tuning would fail with an empty dataset."
-                        : "Raise Sequence Length to include more examples."}
+                        : "Raise Sequence Length to include them."}
                     </p>
                   </div>
                   <div className="flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
@@ -772,6 +797,52 @@ export function TrainingConfigDialog({
                       to lower Batch Size to avoid out-of-memory (OOM) errors.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {lengthAllFit && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs dark:border-green-700/60 dark:bg-green-900/20">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                  <p className="text-green-800 dark:text-green-200">
+                    At a Sequence Length of{" "}
+                    <span className="font-semibold">{maxLength}</span>,{" "}
+                    {lengthEstimatePartial
+                      ? `all ${sampleTotal} sampled examples fit (estimated from the start of the file, template included). Longer examples later in the file would still be dropped.`
+                      : "all examples fit and would be used for training (estimated, template included)."}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <FormField
+                  control={form.control}
+                  name="seed"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Seed</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={MAX_TRAINING_SEED - 1}
+                          step={1}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {seedChanged && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700/60 dark:bg-blue-900/20">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                  <p className="text-blue-800 dark:text-blue-200">
+                    The seed only applies on the host side. The Tenstorrent
+                    device RNG is not seeded, so runs may not be fully
+                    reproducible.
+                  </p>
                 </div>
               )}
             </div>
