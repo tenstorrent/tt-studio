@@ -2097,8 +2097,16 @@ def _process_run_output_line(
                 "the output of the workflows is not checked",
             ]
             if not any(fp in message.lower() for fp in false_positives):
-                status = "error"
-                stage = "error"
+                # An error-looking line is not a failure on its own: `hf download`
+                # prints "Error while downloading ... peer closed connection" and then
+                # retries by itself. Marking the job "error" here made the backend
+                # give up on a deploy whose run.py later exited 0, which left an
+                # untracked container holding the chips and the service port. The
+                # run.py exit code decides the outcome; keep the line so a real
+                # failure can still report it.
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id]["last_error_line"] = message[:200]
 
         # Update progress store (only if we have meaningful progress)
         if progress > 0 or status in ["error", "completed"]:
@@ -3330,12 +3338,13 @@ async def run_inference(request: RunRequest):
                             break
                     with progress_lock:
                         if job_id in progress_store:
+                            last_error_line = progress_store[job_id].get("last_error_line")
                             progress_store[job_id].update(
                                 {
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or last_error_line or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )

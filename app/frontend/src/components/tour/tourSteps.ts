@@ -3,6 +3,7 @@
 
 import { onboardingSteps } from "./tours/onboarding";
 import { deployModelSteps } from "./tours/deployModel";
+import { fineTuneModelSteps } from "./tours/fineTuneModel";
 
 export const homeTourSteps = onboardingSteps;
-export { onboardingSteps, deployModelSteps };
+export { onboardingSteps, deployModelSteps, fineTuneModelSteps };

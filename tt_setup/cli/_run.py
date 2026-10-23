@@ -677,7 +677,7 @@ def _run(args):
                 "hf_token_provided": True,
                 "tt_studio_mode": True,
                 "ai_playground_mode": False,
-                "vite_app_title": "Tenstorrent | TT Studio",
+                "vite_app_title": STOCK_APP_TITLE,
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
