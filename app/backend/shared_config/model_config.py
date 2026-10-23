@@ -5,7 +5,7 @@
 import json
 import os
 from dataclasses import dataclass, asdict
-from typing import Set, Dict, Any, Union, Optional
+from typing import Set, Dict, Any, Union, Optional, Tuple
 from pathlib import Path
 
 from shared_config.device_config import DeviceConfigurations
@@ -104,6 +104,11 @@ class ModelImpl:
     # Only honoured for requires_dev_catalog models (see
     # docker_control.views._resolve_artifact_ref).
     inference_artifact_ref: Optional[Dict[str, str]] = None
+    # Board types (detect_board_type names, e.g. "P300x2") this model must not
+    # be offered or deployed on even though one of its device_configurations
+    # maps onto them, e.g. a P150-only model on one chip of a multi-chip board
+    # that has not been validated there.
+    excluded_boards: Tuple[str, ...] = ()
     # Hand-derived tt-inference-server ModelSpec JSON to pass as
     # --runtime-model-spec-json when deploying on the given device, for a
     # (model, device) pair the source artifact never declares -- e.g. a model
@@ -403,6 +408,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             param_count=entry.get("param_count"),
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
+            excluded_boards=tuple(entry.get("excluded_boards") or ()),
             runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
             tool_call_parser=entry.get("tool_call_parser"),
             reasoning_parser=entry.get("reasoning_parser"),

@@ -375,12 +375,14 @@ class ContainersView(APIView):
                 is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
                 if not is_compatible:
                     is_compatible = vllm_mesh_fallback_fits(impl, current_board)
+                if current_board in impl.excluded_boards:
+                    is_compatible = False
                 logger.info(f"Model {impl.model_name}: is_compatible={is_compatible}")
             
             # Get all boards this model can run on
             compatible_boards = []
             for board, devices in _BOARD_TO_DEVICE_CONFIGS.items():
-                if board == 'unknown':
+                if board == 'unknown' or board in impl.excluded_boards:
                     continue
                 if bool(set(devices).intersection(impl.device_configurations)) or vllm_mesh_fallback_fits(impl, board):
                     compatible_boards.append(board)
@@ -819,6 +821,11 @@ class DeployView(APIView):
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
             board_type = detect_board_type()
+            if board_type in impl.excluded_boards:
+                return Response(
+                    {"status": "error", "message": f"{impl.model_name} is not supported on {board_type} boards."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             # Media models (e.g. FLUX) can be inferred as single-chip yet deploy across
             # a whole multi-chip board because they have no single-chip spec for the
             # board's constituent chip. The inference server then claims the full mesh,
