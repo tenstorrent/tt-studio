@@ -53,6 +53,9 @@ DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE = os.path.join(
 )
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Stock frontend settings baked into CI-published images (.github/workflows/publish-images.yml).
+# Drift against these triggers a local frontend image build.
+STOCK_APP_TITLE = "TT Studio"
 # Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
 LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
