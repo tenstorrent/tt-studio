@@ -13,7 +13,7 @@ contexts whenever a pull cannot succeed or would produce the wrong bits
 import subprocess
 
 from tt_setup import install_mode
-from tt_setup.constants import TT_STUDIO_ROOT
+from tt_setup.constants import STOCK_APP_TITLE, TT_STUDIO_ROOT
 
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/tenstorrent/tt-studio"
 CATALOG_PATH = "app/backend/shared_config/models_from_inference_server.json"
@@ -46,7 +46,7 @@ def frontend_config_drift(get_env):
     drift = []
     if str(get_env("VITE_ENABLE_DEPLOYED", "")).lower().strip() in truthy:
         drift.append("VITE_ENABLE_DEPLOYED")
-    if get_env("VITE_APP_TITLE", "") not in ("", "TT Studio", '"TT Studio"'):
+    if get_env("VITE_APP_TITLE", "") not in ("", STOCK_APP_TITLE, f'"{STOCK_APP_TITLE}"'):
         drift.append("VITE_APP_TITLE")
     if str(get_env("VITE_ENABLE_RAG_ADMIN", "")).lower().strip() in truthy:
         drift.append("VITE_ENABLE_RAG_ADMIN")

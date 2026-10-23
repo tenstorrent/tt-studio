@@ -239,6 +239,16 @@ def adopt_hf_token_from_environment(quiet=False):
     return True
 
 
+def migrate_legacy_app_title():
+    """Auto-migrate legacy default from older releases to stock, preventing false image drift."""
+    current_title = get_env_var("VITE_APP_TITLE")
+    if current_title and current_title.strip().strip('"\'') == "Tenstorrent | TT Studio":
+        write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+        os.environ["VITE_APP_TITLE"] = STOCK_APP_TITLE
+        return STOCK_APP_TITLE
+    return current_title
+
+
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, quick_setup=True, reconfigure_inference=False, accept_terms=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
@@ -459,14 +469,19 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         console.print("\n[bold accent]--- ⚙️  Application Configuration  ---[/bold accent]")
 
     # VITE_APP_TITLE
-    current_title = get_env_var("VITE_APP_TITLE")
+    current_title = migrate_legacy_app_title()
+
     if quick_setup:
         if should_configure_var("VITE_APP_TITLE", current_title):
-            write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            write_env_var("VITE_APP_TITLE", STOCK_APP_TITLE)
+            os.environ["VITE_APP_TITLE"] = STOCK_APP_TITLE
+            current_title = STOCK_APP_TITLE
     elif should_configure_var("VITE_APP_TITLE", current_title):
-        dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
+        dev_default = "TT Studio (Dev)" if dev_mode else STOCK_APP_TITLE
         val = ask("📝 Enter application title", default=dev_default)
         write_env_var("VITE_APP_TITLE", val)
+        os.environ["VITE_APP_TITLE"] = val
+        current_title = val
         console.print("[success]✅ VITE_APP_TITLE saved.[/success]")
     else:
         if not quick_setup:
