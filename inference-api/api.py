@@ -1457,21 +1457,22 @@ def _hf_xet_env_overrides(environ: Optional[Dict[str, str]] = None) -> Dict[str,
     plain-HTTPS stream, which caps a single-file checkpoint (Motif-Image-6B-Preview's
     47.6 GB .bin, for instance) at ~17-25 MB/s on a gigabit link.
 
-    Re-verified Sept 2026 with huggingface_hub 1.32 / hf_xet 1.6 (what the artifact's
-    requirements/constraints.txt resolves to): a full 47.6 GB `hf download` exits 0
-    only once the blob is complete and its sha256 matches the LFS oid, and it runs at
-    ~118 MB/s -- about 6x faster. Xet is therefore on by default, and the old
-    HTTPS-only path is an opt-out: TT_STUDIO_DISABLE_HF_XET=true in the repo .env
-    (the launcher forwards it, like HF_TOKEN) or in this process's environment.
+    Re-verified Sept 2026 with huggingface_hub 1.32 / hf_xet 1.6: a full 47.6 GB
+    `hf download` exits 0 only once the blob is complete and its sha256 matches the LFS
+    oid, and it runs at ~118 MB/s -- about 6x faster. Xet is therefore on by default,
+    and the old HTTPS-only path is an opt-out: TT_STUDIO_DISABLE_HF_XET=true in the
+    repo .env (the launcher forwards it, like HF_TOKEN) or in this process's environment.
 
-    HF_HUB_DISABLE_SHARED_BLOBS=1 is always set. huggingface_hub 1.32 dedupes Xet
+    HF_HUB_DISABLE_SHARED_BLOBS=1 is always set. huggingface_hub >= 1.32 dedupes Xet
     downloads through a cache-wide store at `$HF_HOME/hub/blobs/<xx>/<xet-hash>` and
-    leaves only a relative symlink in the per-repo `blobs/` dir. setup_host's
-    --host-hf-cache path bind-mounts just `hub/models--<repo>` into the model
-    container, so those symlinks dangle inside it and the model fails to load
+    leaves only a relative symlink in the per-repo `blobs/` dir (still the default in
+    2.3 / hf_xet 1.7, which the artifact's unpinned setup venv installs as of Oct 2026).
+    setup_host's --host-hf-cache path bind-mounts just `hub/models--<repo>` into the
+    model container, so those symlinks dangle inside it and the model fails to load
     ("does not appear to have a file named .../transformer/...safetensors" on
-    FLUX.1-schnell). With the shared store off, blobs are regular files inside the
-    repo dir again -- the same layout as an HTTPS download -- and Xet stays on.
+    FLUX.1-schnell). tt-inference-server 0.25 also mounts `hub/blobs`, but only for
+    models with a pinned revision. With the shared store off, blobs are regular files
+    inside the repo dir again (the same layout as an HTTPS download) and Xet stays on.
     """
     env = os.environ if environ is None else environ
     overrides = {"HF_HUB_DISABLE_SHARED_BLOBS": "1"}
