@@ -15,6 +15,7 @@ import re
 import fnmatch
 from tt_setup.constants import *
 from tt_setup.constants import (
+    _APP_CONTAINER_PREFIX,
     _CLEANUP_APP_VOLUME_PREFIX,
     _CLEANUP_APP_VOLUME_SUFFIX,
     _CLEANUP_IMAGE_REFS,
@@ -380,6 +381,36 @@ def _remove_named_volumes(has_docker_access, matches, name_filter):
         return len(names)
     except Exception:
         return 0
+
+
+def _remove_marketplace_app_containers(has_docker_access):
+    """Stop and remove marketplace app containers, keeping their data volumes.
+
+    The backend starts apps (Open WebUI, AnythingLLM, …) through
+    docker-control-service, so `compose down` never sees them, and they cannot
+    reach a model once the backend and LiteLLM gateway are down. Removing them
+    matches the app's own Stop button: the next launch starts a fresh container
+    on the same named volume. Returns (removed, left): the count docker reports
+    as removed, and the ids it could not remove.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "ps", "-aq", "--filter", f"name=^{_APP_CONTAINER_PREFIX}"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not ids:
+            return 0, []
+        result = subprocess.run(
+            sudo_prefix + ["docker", "rm", "-f", *ids],
+            capture_output=True, text=True, check=False,
+        )
+        # docker echoes each container it removed; anything else is still there.
+        removed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+        return len(removed), [i for i in ids if i not in removed]
+    except Exception:
+        return 0, []
 
 
 def _remove_tt_studio_network_containers(has_docker_access):
