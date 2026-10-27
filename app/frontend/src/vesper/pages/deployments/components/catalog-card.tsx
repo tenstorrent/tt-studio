@@ -51,7 +51,7 @@ export function CatalogCard({
       )}
     >
       <div className="w-full flex items-center justify-between gap-vesper-4">
-        {task ? <Tag size="sm">{task}</Tag> : <span />}
+        {!!task && <Tag size="sm">{task}</Tag>}
         <Tag size="sm" variant="accent-subtle">
           {status ?? `${devices} ${devices === 1 ? "device" : "devices"}`}
         </Tag>

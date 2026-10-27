@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from "react";
 import { Admonition } from "@tenstorrent/vesper/admonition";
-import { AIAgent } from "@tenstorrent/vesper/icons";
+import { AI } from "@tenstorrent/vesper/icons";
 import { Skeleton } from "@tenstorrent/vesper/skeleton";
 import { Toggle } from "@tenstorrent/vesper/toggle";
 import { Typography } from "@tenstorrent/vesper/typography";
@@ -170,7 +170,7 @@ export function Catalog({
             ) : (
               <CatalogCard
                 devices={voiceAgent.devices}
-                icon={<AIAgent className="w-6 h-6 text-vesper-icon-primary" />}
+                icon={<AI className="w-6 h-6 text-vesper-icon-primary" />}
                 name="Voice Agent"
                 description="Deploy the full Voice Agent pipeline in one go: an LLM, Whisper and SpeechT5, each assigned to their own device."
                 tags={["Text Generation", "Speech-to-Text", "Text-to-Speech"]}
