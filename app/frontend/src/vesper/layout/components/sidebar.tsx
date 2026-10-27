@@ -13,7 +13,6 @@ import {
   Sidebar as SidebarIcon,
 } from "@tenstorrent/vesper/icons";
 import { IconButton } from "@tenstorrent/vesper/icon-button";
-import { Tooltip } from "@tenstorrent/vesper/tooltip";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
 import {
@@ -122,7 +121,7 @@ export function Sidebar() {
           variant="heading-sm"
           as="h2"
           className={cn(
-            "text-vesper-text-primary font-vesper-mono font-normal shrink-0 transition-opacity duration-vesper-default ease-out",
+            "text-vesper-text-primary font-normal shrink-0 transition-opacity duration-vesper-default ease-out",
             collapsed ? "opacity-0 pointer-events-none" : "opacity-100"
           )}
         >
@@ -216,7 +215,7 @@ function SidebarItem({
     href === location.pathname &&
     (!state || !currentContainer || currentContainer === state.containerID);
 
-  const link = (
+  return (
     <Link
       to={href}
       state={state}
@@ -234,7 +233,7 @@ function SidebarItem({
           <span
             role="img"
             className={cn(
-              "absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-vesper-background-tertiary",
+              "absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full",
               badge === "error"
                 ? "bg-vesper-background-error-base"
                 : "bg-vesper-background-warning-base animate-pulse"
@@ -250,19 +249,12 @@ function SidebarItem({
       <Typography
         variant="label-md"
         className={cn(
-          "truncate transition-opacity duration-vesper-default ease-out",
+          "transition-opacity duration-vesper-default ease-out shrink-0",
           collapsed ? "opacity-0 pointer-events-none" : "opacity-100"
         )}
       >
         {label}
       </Typography>
     </Link>
-  );
-
-  if (!collapsed) return link;
-  return (
-    <Tooltip content={label} side="right">
-      {link}
-    </Tooltip>
   );
 }

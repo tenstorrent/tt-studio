@@ -62,7 +62,7 @@ export function CatalogCard({
           <Typography
             as="span"
             variant="label-md-mono"
-            className="truncate text-vesper-text-primary"
+            className="text-vesper-text-primary"
           >
             {name}
           </Typography>
