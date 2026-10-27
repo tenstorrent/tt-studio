@@ -61,36 +61,10 @@ export function getModelTask(model: Pick<CatalogModel, "model_type" | "name">) {
   }
 }
 
-const ORG_NAMES: Record<string, string> = {
-  "meta-llama": "Meta",
-  google: "Google",
-  qwen: "Alibaba",
-  "wan-ai": "Alibaba",
-  openai: "OpenAI",
-  "distil-whisper": "Hugging Face",
-  "deepseek-ai": "DeepSeek",
-  mistralai: "Mistral AI",
-  "black-forest-labs": "Black Forest Labs",
-  stabilityai: "Stability AI",
-  diffusers: "Hugging Face",
-  microsoft: "Microsoft",
-  baai: "BAAI",
-  genmo: "Genmo",
-  "motif-technologies": "Motif",
-  "arcee-ai": "Arcee AI",
-  tiiuae: "TII",
-};
-
 /** The organization publishing the model on Hugging Face, e.g. `meta-llama` */
 function getHfOrg(hfModelId?: string | null) {
   if (!hfModelId || !hfModelId.includes("/")) return null;
   return hfModelId.split("/")[0].toLowerCase();
-}
-
-export function getModelOrgName(hfModelId?: string | null) {
-  const org = getHfOrg(hfModelId);
-  if (!org) return null;
-  return ORG_NAMES[org] ?? hfModelId!.split("/")[0];
 }
 
 /** Brand logo for a model, falling back to a generic model icon. */
@@ -112,44 +86,6 @@ export function getModelLogo(
   return AIModel;
 }
 
-/**
- * Parameter count in billions, parsed from the model name since the catalog
- * doesn't carry one, e.g. `Llama-3.3-70B-Instruct` -> 70, `Qwen3-Embedding-0.6B`
- * -> 0.6, `Wan2.2-T2V-A14B` -> 14. Returns null when the name has no size.
- */
-export function getModelSizeB(name: string): number | null {
-  const matches = [
-    ...name.matchAll(/(?:^|[-_ .])A?(\d+(?:\.\d+)?)\s*([bm])(?=$|[-_ .])/gi),
-  ];
-  if (matches.length === 0) return null;
-  // the first size is the total size (e.g. `26B-A4B` is 26B total, 4B active)
-  const [, value, unit] = matches[0];
-  const n = parseFloat(value);
-  if (!Number.isFinite(n)) return null;
-  return unit.toLowerCase() === "m" ? n / 1000 : n;
-}
-
-export function formatModelSize(sizeB: number | null) {
-  if (sizeB === null) return null;
-  if (sizeB < 1) return `${Math.round(sizeB * 1000)}M`;
-  return `${Number.isInteger(sizeB) ? sizeB : sizeB.toFixed(1)}B`;
-}
-
-/** Steps of the size filter range, in billions of parameters. */
-export const SIZE_STEPS = [0, 1, 3, 8, 14, 32, 64, 128, 256, 500] as const;
-export const SIZE_STEP_LABELS = [
-  "<1B",
-  "1B",
-  "3B",
-  "8B",
-  "14B",
-  "32B",
-  "64B",
-  "128B",
-  "256B",
-  ">500B",
-];
-
 export type Verification = "verified" | "unverified";
 
 /**
@@ -163,28 +99,6 @@ export function getVerification(
   return model.status === "COMPLETE" || model.status === "FUNCTIONAL"
     ? "verified"
     : "unverified";
-}
-
-const STATUS_COPY: Record<string, string> = {
-  COMPLETE: "Fully supported",
-  FUNCTIONAL: "Functional",
-  EXPERIMENTAL: "Experimental",
-};
-
-/**
- * One line describing the model. The catalog carries no description, so this is
- * composed from the support status, publisher and parameter count.
- */
-export function getModelDescription(model: CatalogModel) {
-  const status = STATUS_COPY[model.status ?? ""] ?? "Experimental";
-  const board =
-    model.current_board && model.current_board !== "unknown"
-      ? ` on ${model.current_board}`
-      : "";
-  const org = getModelOrgName(model.hf_model_id);
-  const size = formatModelSize(getModelSizeB(model.name));
-  const by = [org, size].filter(Boolean).join(", ");
-  return `${status}${board}.${by ? ` ${by}.` : ""}`;
 }
 
 /** The demo pages a model of the given backend type can be used in. */

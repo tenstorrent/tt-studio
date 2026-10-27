@@ -12,7 +12,7 @@ import { ModelLogo } from "@/src/vesper/components/model-logo";
 import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
 import { useModelCatalog } from "@/src/vesper/hooks/use-model-catalog";
 import type { CatalogModel, DeploymentItem } from "@/src/vesper/types";
-import { getModelDescription, getModelTask } from "@/src/vesper/utils/models";
+import { getModelTask } from "@/src/vesper/utils/models";
 import {
   applyCatalogFilters,
   DEFAULT_FILTERS,
@@ -110,7 +110,7 @@ export function Catalog({
       {tab === "models" && loading && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-vesper-6">
           {Array.from({ length: 9 }).map((_, i) => (
-            <Skeleton key={i} height={138} className="rounded-vesper-2" />
+            <Skeleton key={i} height={98} className="rounded-vesper-2" />
           ))}
         </div>
       )}
@@ -146,7 +146,6 @@ export function Catalog({
                     />
                   }
                   name={model.name}
-                  description={getModelDescription(model)}
                   status={inFlight ? "Deploying" : undefined}
                   disabled={!inFlight && !deployability.fits}
                   disabledReason={deployability.reason}

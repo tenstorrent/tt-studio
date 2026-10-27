@@ -24,12 +24,12 @@ export function CatalogCard({
   onSelect,
 }: {
   task?: string;
-  /** Extra tags rendered below the description */
+  /** Extra tags rendered below the name and description */
   tags?: string[];
   devices: number;
   icon: ReactNode;
   name: string;
-  description: string;
+  description?: string;
   disabled?: boolean;
   disabledReason?: string | null;
   /** Shown in place of the device count, e.g. while the model is deploying */
@@ -67,12 +67,14 @@ export function CatalogCard({
             {name}
           </Typography>
         </div>
-        <Typography
-          variant="copy-xs"
-          className="line-clamp-2 text-vesper-text-tertiary"
-        >
-          {description}
-        </Typography>
+        {!!description && (
+          <Typography
+            variant="copy-xs"
+            className="line-clamp-2 text-vesper-text-tertiary"
+          >
+            {description}
+          </Typography>
+        )}
       </div>
       {tags && tags.length > 0 && (
         <div className="flex flex-wrap gap-vesper-2">

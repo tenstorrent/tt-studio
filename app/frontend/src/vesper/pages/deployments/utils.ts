@@ -13,46 +13,23 @@ import {
 import type { DeployRequest } from "./hooks/use-deploy-model";
 import type { CatalogModel } from "@/src/vesper/types";
 import {
-  getModelSizeB,
   getModelTask,
   getVerification,
-  SIZE_STEPS,
   type Verification,
 } from "@/src/vesper/utils/models";
 
 export interface CatalogFilters {
   verification: Verification[];
   tasks: string[];
-  /** Indices into `SIZE_STEPS` */
-  size: [number, number];
 }
 
 export const DEFAULT_FILTERS: CatalogFilters = {
   verification: [],
   tasks: [],
-  size: [0, SIZE_STEPS.length - 1],
 };
 
-export function isDefaultSize(size: [number, number]) {
-  return size[0] === 0 && size[1] === SIZE_STEPS.length - 1;
-}
-
 export function countActiveFilters(filters: CatalogFilters) {
-  return (
-    filters.verification.length +
-    filters.tasks.length +
-    (isDefaultSize(filters.size) ? 0 : 1)
-  );
-}
-
-function matchesSize(model: CatalogModel, [lo, hi]: [number, number]) {
-  if (isDefaultSize([lo, hi])) return true;
-  const sizeB = getModelSizeB(model.name);
-  // models with no size in their name can't be placed on the scale
-  if (sizeB === null) return false;
-  const min = lo === 0 ? 0 : SIZE_STEPS[lo];
-  const max = hi === SIZE_STEPS.length - 1 ? Infinity : SIZE_STEPS[hi];
-  return sizeB >= min && sizeB <= max;
+  return filters.verification.length + filters.tasks.length;
 }
 
 export function applyCatalogFilters(
@@ -64,8 +41,7 @@ export function applyCatalogFilters(
       (filters.verification.length === 0 ||
         filters.verification.includes(getVerification(model))) &&
       (filters.tasks.length === 0 ||
-        filters.tasks.includes(getModelTask(model))) &&
-      matchesSize(model, filters.size)
+        filters.tasks.includes(getModelTask(model)))
   );
 }
 

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Chip } from "@tenstorrent/vesper/chip";
 import { IconButton } from "@tenstorrent/vesper/icon-button";
 import { CircleXSolid } from "@tenstorrent/vesper/icons";
-import { Range } from "@tenstorrent/vesper/range";
 // vesper has no sliders icon yet, so borrow lucide's
 import { SlidersHorizontal } from "lucide-react";
 import { TextButton } from "@tenstorrent/vesper/text-button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
-import { SIZE_STEP_LABELS, type Verification } from "@/src/vesper/utils/models";
+import type { Verification } from "@/src/vesper/utils/models";
 import {
   countActiveFilters,
   DEFAULT_FILTERS,
@@ -99,14 +98,6 @@ export function CatalogFiltersButton({
     };
   }, [open]);
 
-  const sizeLabels = useMemo(
-    () => [
-      SIZE_STEP_LABELS[filters.size[0]],
-      SIZE_STEP_LABELS[filters.size[1]],
-    ],
-    [filters.size]
-  );
-
   return (
     <div ref={containerRef} className="relative">
       <IconButton
@@ -164,22 +155,6 @@ export function CatalogFiltersButton({
                 </FilterChip>
               ))}
             </div>
-          </Section>
-          <Section title="Size">
-            <Range
-              className="mt-vesper-6"
-              min={0}
-              max={SIZE_STEP_LABELS.length - 1}
-              step={1}
-              values={filters.size}
-              valueLabels={sizeLabels}
-              showValueLabels
-              showTicks
-              thumbAriaLabels={["Smallest model size", "Largest model size"]}
-              onValuesChange={(values) =>
-                onChange({ ...filters, size: [values[0], values[1]] })
-              }
-            />
           </Section>
           {activeCount > 0 && (
             <TextButton
