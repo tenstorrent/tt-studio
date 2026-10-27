@@ -45,6 +45,9 @@ export function DeploySolution({
   const isResetting = useIsResetting();
   const deploy = useDeployModel();
   const [deploying, setDeploying] = useState(false);
+  // devices taken by this run's own deploys; once reserved they read as
+  // occupied, and must not be reported as conflicts with the run itself
+  const [claimedSlots, setClaimedSlots] = useState<number[]>([]);
 
   const totalSlots = chipStatus?.total_slots ?? 4;
   const stageModels = useMemo(
@@ -75,7 +78,10 @@ export function DeploySolution({
   const targetSlots = STAGES.flatMap((stage) => plan.slots[stage]);
   const insufficient = !!chipStatus && totalSlots < plan.requiredSlots;
   const conflicts = (chipStatus?.slots ?? []).filter(
-    (s) => targetSlots.includes(s.slot_id) && s.status === "occupied"
+    (s) =>
+      targetSlots.includes(s.slot_id) &&
+      s.status === "occupied" &&
+      !claimedSlots.includes(s.slot_id)
   );
 
   const llmRepo = models.llm?.hf_model_id ?? null;
@@ -101,11 +107,15 @@ export function DeploySolution({
 
   const handleDeploy = async () => {
     setDeploying(true);
+    setClaimedSlots([]);
     const members: SolutionGroup["members"] = [];
     const failures: string[] = [];
     for (const stage of DEPLOY_ORDER) {
       const model = models[stage]!;
       const slots = plan.slots[stage];
+      // claim before the request, so the reservation the deploy adds on
+      // success is never rendered as a conflict
+      setClaimedSlots((prev) => [...prev, ...slots]);
       try {
         const result = await deploy.mutateAsync({
           modelId: model.id,
@@ -114,12 +124,19 @@ export function DeploySolution({
           deviceId: slots.length === 1 ? slots[0] : slots.join(","),
           deviceIds: slots,
         });
+        // the backend may report a wider device group than was asked for
+        setClaimedSlots((prev) => [
+          ...prev,
+          ...result.deviceIds.filter((id) => !prev.includes(id)),
+        ]);
         members.push({
           modelId: model.id,
           modelName: model.name,
           jobId: result.jobId,
         });
       } catch (err) {
+        // nothing was reserved, so these devices are not ours after all
+        setClaimedSlots((prev) => prev.filter((id) => !slots.includes(id)));
         failures.push(`${STAGE_LABEL[stage]}: ${describeDeployError(err)}`);
       }
     }
@@ -274,7 +291,10 @@ export function DeploySolution({
                 key={slot.slot_id}
                 deviceId={slot.slot_id}
                 selected={targetSlots.includes(slot.slot_id)}
-                disabled={slot.status !== "available"}
+                disabled={
+                  slot.status !== "available" &&
+                  !claimedSlots.includes(slot.slot_id)
+                }
               />
             ))}
           </div>
