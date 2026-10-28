@@ -22,7 +22,10 @@ import {
   type HardwareDevice,
 } from "@/src/vesper/hooks/use-hardware";
 import { CardGroup } from "./components/card-group";
-import { DetectingHardware } from "./components/detecting-hardware";
+import {
+  DetectingHardware,
+  ResettingHardware,
+} from "./components/detecting-hardware";
 
 export default function HardwarePage() {
   const location = useLocation();
@@ -91,6 +94,9 @@ export default function HardwarePage() {
 
       {hardware.isDetecting ? (
         <DetectingHardware />
+      ) : hardware.cards.length === 0 && isResetting ? (
+        // the backend reports no devices while a reset runs
+        <ResettingHardware />
       ) : hardware.cards.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-vesper-4 p-vesper-10 text-center">
           <EmptyPill>No Tenstorrent hardware detected</EmptyPill>
