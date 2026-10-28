@@ -12,6 +12,7 @@ import { HeroSectionProvider } from "./providers/HeroSectionContext.tsx";
 import { FooterVisibilityProvider } from "./providers/FooterVisibilityContext.tsx";
 import { ActiveDeploymentsProvider } from "./providers/ActiveDeploymentsContext.tsx";
 import CustomToaster from "./components/CustomToaster";
+import { ThemePersistenceScript } from "@tenstorrent/vesper/theme-switcher";
 // Development toolbar imports commented out - remove if not needed
 // import { StagewiseToolbar } from "@stagewise/toolbar-react";
 // import ReactPlugin from "@stagewise-plugins/react";
@@ -25,6 +26,7 @@ function App() {
 
   return (
     <>
+      <ThemePersistenceScript />
       <ThemeProvider>
         <TourProvider>
           <QueryClientProvider client={client}>

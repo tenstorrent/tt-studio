@@ -3,10 +3,9 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Chip } from "@tenstorrent/vesper/chip";
+import { SliderHorizontal } from "@tenstorrent/vesper/icons";
 import { IconButton } from "@tenstorrent/vesper/icon-button";
 import { CircleXSolid } from "@tenstorrent/vesper/icons";
-// vesper has no sliders icon yet, so borrow lucide's
-import { SlidersHorizontal } from "lucide-react";
 import { TextButton } from "@tenstorrent/vesper/text-button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
@@ -103,7 +102,7 @@ export function CatalogFiltersButton({
       <IconButton
         type="button"
         variant="subtle"
-        icon={<SlidersHorizontal strokeWidth={1.5} />}
+        icon={<SliderHorizontal />}
         aria-label={activeCount ? `Filters (${activeCount} active)` : "Filters"}
         aria-expanded={open}
         aria-haspopup="dialog"
