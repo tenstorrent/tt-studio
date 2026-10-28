@@ -121,7 +121,10 @@ export function Sidebar() {
         collapsed ? "w-19" : "w-60"
       )}
     >
-      <div className="pl-vesper-6 flex items-center gap-vesper-2 h-16 border-b border-b-vesper-border-tertiary shrink-0">
+      <Link
+        to="/"
+        className="pl-vesper-6 flex items-center gap-vesper-2 h-16 border-b border-b-vesper-border-tertiary shrink-0"
+      >
         <Tenstorrent className="text-vesper-teal-500 w-6 h-6 shrink-0 ml-vesper-half" />
         <Typography
           variant="heading-sm"
@@ -133,8 +136,8 @@ export function Sidebar() {
         >
           TT-Studio
         </Typography>
-      </div>
-      <div className="overflow-auto flex flex-col flex-1 shrink min-h-0">
+      </Link>
+      <div className="overflow-y-auto overflow-x-hidden flex flex-col flex-1 shrink min-h-0">
         <div className="px-vesper-4 py-vesper-6 flex flex-col gap-vesper-3">
           {SIDEBAR_ITEMS.map((item) => (
             <SidebarItem
