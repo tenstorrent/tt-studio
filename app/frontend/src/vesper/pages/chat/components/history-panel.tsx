@@ -37,7 +37,7 @@ function ThreadButton({
         type="button"
         aria-current={active || undefined}
         onClick={onSelect}
-        className="flex-1 min-w-0 h-10 px-vesper-2 text-left"
+        className="flex-1 min-w-0 h-10 px-vesper-2 text-left cursor-pointer"
       >
         <Typography
           as="span"

@@ -34,7 +34,7 @@ export function EmptyChat({
               type="button"
               disabled={disabled}
               onClick={() => onPick(prompt)}
-              className="w-full h-20 flex items-center gap-vesper-4 px-vesper-6 rounded-vesper-2 border border-vesper-border-secondary bg-vesper-background-secondary text-left transition-colors duration-vesper-fast hover:bg-vesper-tint-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:shadow-vesper-focus-ring"
+              className="w-full h-20 flex items-center gap-vesper-4 px-vesper-6 rounded-vesper-2 border border-vesper-border-secondary bg-vesper-background-secondary text-left transition-colors duration-vesper-fast hover:bg-vesper-tint-neutral-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:shadow-vesper-focus-ring cursor-pointer"
             >
               <span className="w-8 h-8 shrink-0 flex items-center justify-center rounded-vesper-1 bg-vesper-background-accent-subtle">
                 <Globe
