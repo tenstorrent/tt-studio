@@ -36,14 +36,12 @@ export function ModelToolbar({
     <div className="h-16 shrink-0 flex items-center gap-vesper-4 px-vesper-6 border-b border-vesper-border-tertiary bg-vesper-background-primary text-left">
       <Select
         size="sm"
-        className="w-72"
         aria-label={label}
         icon={
           selected && (
             <ModelLogo
               modelName={selected.modelName}
               hfModelId={selected.hfModelId}
-              className="w-4 h-4"
             />
           )
         }

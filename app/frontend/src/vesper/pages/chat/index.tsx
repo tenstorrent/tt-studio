@@ -91,13 +91,11 @@ export default function ChatPage() {
           {chatModels.models.length > 1 ? (
             <Select
               size="sm"
-              className="w-72"
               aria-label="Chat model"
               icon={
                 <ModelLogo
                   modelName={model?.modelName}
                   hfModelId={model?.hfModelId}
-                  className="w-4 h-4"
                 />
               }
               options={chatModels.models.map((m) => ({
