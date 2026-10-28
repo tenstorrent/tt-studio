@@ -23,7 +23,7 @@ import {
   SETTINGS_PATH,
 } from "@/src/routes/route-config";
 import { useDeployments } from "@/src/vesper/hooks/use-deployments";
-import type { DeploymentItem } from "@/src/vesper/types";
+import type { DemoLink, DeploymentItem } from "@/src/vesper/types";
 import {
   getDemoIcon,
   getDemosForModelType,
@@ -47,56 +47,62 @@ const SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { icon: Document, href: KNOWLEDGE_BASE_PATH, label: "Knowledge Base" },
 ];
 
-/** Demo pages grouped by the deployed model that powers them. */
-type DemoGroup = {
-  key: string;
-  title: string;
-  items: (SidebarItemConfig & {
-    state?: { containerID: string; modelName: string };
-  })[];
+/** The order demo pages are listed in, whichever models power them. */
+const DEMO_ORDER = [
+  "/chat",
+  "/speech-to-text",
+  "/tts",
+  VOICE_AGENT_DEMO.href,
+  "/image-generation",
+  "/video-generation",
+  "/object-detection",
+  "/face-recognition",
+  "/embedding",
+  "/training",
+];
+
+const demoRank = (href: string) => {
+  const index = DEMO_ORDER.indexOf(href);
+  return index === -1 ? DEMO_ORDER.length : index;
 };
 
-function useDemoGroups(items: DeploymentItem[]): DemoGroup[] {
+/**
+ * One link per demo page that at least one active deployment can be used in.
+ * The demo pages each have a model picker, so the links don't name a model.
+ */
+function useDemoLinks(items: DeploymentItem[]): SidebarItemConfig[] {
   return useMemo(() => {
     const active = items.filter(
       (item) => item.state === "active" && item.containerId
     );
-    const groups: DemoGroup[] = active.map((item) => ({
-      key: item.key,
-      title: item.modelName,
-      items: getDemosForModelType(item.modelType).map((demo) => ({
-        icon: getDemoIcon(demo.href),
-        href: demo.href,
-        label: demo.label,
-        state: { containerID: item.containerId!, modelName: item.modelName },
-      })),
-    }));
+    const demos = new Map<string, DemoLink>();
+    for (const item of active) {
+      for (const demo of getDemosForModelType(item.modelType)) {
+        if (!demos.has(demo.href)) demos.set(demo.href, demo);
+      }
+    }
     // the voice agent chains speech-to-text, an LLM and text-to-speech
     const has = (types: string[]) =>
       active.some((item) =>
         types.includes((item.modelType ?? "").toLowerCase())
       );
     if (has(["chat", "vlm"]) && has(["speech_recognition"]) && has(["tts"])) {
-      groups.push({
-        key: "voice-agent",
-        title: "Voice Agent",
-        items: [
-          {
-            icon: getDemoIcon(VOICE_AGENT_DEMO.href),
-            href: VOICE_AGENT_DEMO.href,
-            label: VOICE_AGENT_DEMO.label,
-          },
-        ],
-      });
+      demos.set(VOICE_AGENT_DEMO.href, VOICE_AGENT_DEMO);
     }
-    return groups.filter((group) => group.items.length > 0);
+    return [...demos.values()]
+      .sort((a, b) => demoRank(a.href) - demoRank(b.href))
+      .map((demo) => ({
+        icon: getDemoIcon(demo.href),
+        href: demo.href,
+        label: demo.label,
+      }));
   }, [items]);
 }
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { items } = useDeployments();
-  const demoGroups = useDemoGroups(items);
+  const demoLinks = useDemoLinks(items);
   const hasFailedDeployment = items.some(
     (item) =>
       item.state === "error" ||
@@ -147,28 +153,10 @@ export function Sidebar() {
             />
           ))}
         </div>
-        {demoGroups.length > 0 && (
-          <div className="border-t border-t-vesper-border-tertiary px-vesper-4 py-vesper-6 flex flex-col gap-vesper-6">
-            {demoGroups.map((group) => (
-              <div key={group.key} className="flex flex-col gap-vesper-3">
-                {!collapsed && (
-                  <Typography
-                    as="h3"
-                    variant="label-md-mono"
-                    className="uppercase font-normal text-vesper-text-primary truncate"
-                    title={group.title}
-                  >
-                    {group.title}
-                  </Typography>
-                )}
-                {group.items.map((item) => (
-                  <SidebarItem
-                    key={`${group.key}:${item.href}`}
-                    collapsed={collapsed}
-                    {...item}
-                  />
-                ))}
-              </div>
+        {demoLinks.length > 0 && (
+          <div className="border-t border-t-vesper-border-tertiary px-vesper-4 py-vesper-6 flex flex-col gap-vesper-3">
+            {demoLinks.map((item) => (
+              <SidebarItem key={item.href} collapsed={collapsed} {...item} />
             ))}
           </div>
         )}
@@ -201,24 +189,17 @@ function SidebarItem({
   icon: Icon,
   collapsed,
   badge,
-  state,
 }: SidebarItemConfig & {
   collapsed: boolean;
   /** A dot on the icon: a deployment failed, or one is in progress */
   badge?: "error" | "progress";
-  state?: { containerID: string; modelName: string };
 }) {
   const location = useLocation();
-  const currentContainer = (location.state as { containerID?: string } | null)
-    ?.containerID;
-  const active =
-    href === location.pathname &&
-    (!state || !currentContainer || currentContainer === state.containerID);
+  const active = href === location.pathname;
 
   return (
     <Link
       to={href}
-      state={state}
       aria-label={collapsed ? label : undefined}
       className={cn(
         "flex items-center rounded-vesper-2 px-vesper-3 gap-vesper-3 h-10",

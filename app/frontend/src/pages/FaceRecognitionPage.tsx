@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-
 import React from "react";
 import FaceRecognitionComponent from "../components/face_recognition/FaceRecognitionComponent";
+import { ModelToolbar } from "@/src/vesper/components/model-toolbar";
+import { useHealthyModels } from "@/src/vesper/hooks/use-healthy-models";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -35,12 +36,24 @@ class ErrorBoundary extends React.Component<
 }
 
 const FaceRecognitionPage = () => {
+  const { models, isLoading, selected, setSelectedId } =
+    useHealthyModels("face_recognition");
+
   return (
-    <ErrorBoundary>
-      <div className="h-[calc(100vh-9rem)] w-full overflow-hidden flex justify-center p-2 sm:p-3 lg:p-4">
-        <FaceRecognitionComponent />
-      </div>
-    </ErrorBoundary>
+    <div className="h-full flex flex-col">
+      <ModelToolbar
+        models={models}
+        isLoading={isLoading}
+        value={selected?.id ?? null}
+        onChange={setSelectedId}
+        emptyText="No face recognition model is ready."
+      />
+      <ErrorBoundary>
+        <div className="flex-1 min-h-0 w-full overflow-hidden flex justify-center p-2 sm:p-3 lg:p-4">
+          <FaceRecognitionComponent modelID={selected?.id ?? null} />
+        </div>
+      </ErrorBoundary>
+    </div>
   );
 };
 
