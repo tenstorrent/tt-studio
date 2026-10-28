@@ -187,7 +187,7 @@ export function DeploymentCard({
         type="button"
         onClick={onSelect}
         aria-current={selected || undefined}
-        className="text-left px-vesper-3 py-vesper-6 after:absolute after:inset-0 after:rounded-vesper-2 focus-visible:outline-none focus-visible:after:shadow-vesper-focus-ring"
+        className="cursor-pointer text-left px-vesper-3 py-vesper-6 after:absolute after:inset-0 after:rounded-vesper-2 focus-visible:outline-none focus-visible:after:shadow-vesper-focus-ring"
       >
         <Typography
           as="span"
