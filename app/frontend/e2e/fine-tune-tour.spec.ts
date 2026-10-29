@@ -23,7 +23,10 @@ const STEP_TITLES = [
 const DIALOG_STEPS = new Set([2, 3, 4, 5, 6]);
 
 test.describe("fine-tune guided tour", () => {
-  test("walks every step and drives the training dialog", async ({ page }) => {
+  // The vesper layout has no "Guided Tours & Help" entry point yet, so this
+  // tour can't be launched. Re-enable (or remove) once it's decided whether the
+  // guided tours are ported to the new UI.
+  test.fixme("walks every step and drives the training dialog", async ({ page }) => {
     const errors = collectPageErrors(page);
     await mockBackend(page);
     await page.route("**/training-api/**", (route) =>
