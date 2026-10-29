@@ -11,6 +11,7 @@ import { Select } from "@tenstorrent/vesper/select";
 import { Snippet } from "@tenstorrent/vesper/snippet";
 import { Tag } from "@tenstorrent/vesper/tag";
 import { addToast } from "@tenstorrent/vesper/toast";
+import { Tooltip } from "@tenstorrent/vesper/tooltip";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { getSettings, runHfCheck } from "@/src/api/settingsApi";
 import { fetchMergedCheckpoints } from "@/src/api/trainingApi";
@@ -35,7 +36,11 @@ import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
 import type { CatalogModel } from "@/src/vesper/types";
 import { getModelTask } from "@/src/vesper/utils/models";
 import { describeDeployError, useDeployModel } from "../hooks/use-deploy-model";
-import { buildAutoDeployRequest, LARGE_WEIGHTS_MODELS } from "../utils";
+import {
+  buildAutoDeployRequest,
+  getModelTags,
+  LARGE_WEIGHTS_MODELS,
+} from "../utils";
 
 type Tier = "single" | "pair" | "card" | "board";
 
@@ -265,9 +270,18 @@ export function DeployModel({ model }: { model: CatalogModel }) {
   return (
     <div className="w-full max-w-md mx-auto flex flex-col gap-vesper-6 py-vesper-10">
       <div className="flex flex-col gap-vesper-3">
-        <Tag size="sm" variant="accent-subtle" className="w-fit">
-          {getModelTask(model)}
-        </Tag>
+        <div className="flex flex-wrap gap-vesper-2">
+          <Tag size="sm" variant="accent-subtle">
+            {getModelTask(model)}
+          </Tag>
+          {getModelTags(model).map((tag) => (
+            <Tooltip key={tag.label} content={tag.tooltip} maxWidth={280}>
+              <Tag size="sm" variant={tag.variant}>
+                {tag.label}
+              </Tag>
+            </Tooltip>
+          ))}
+        </div>
         <div className="flex items-center gap-vesper-3">
           <ModelLogo
             hfModelId={model.hf_model_id}
@@ -284,6 +298,12 @@ export function DeployModel({ model }: { model: CatalogModel }) {
         </div>
       </div>
 
+      {model.no_page_reason && (
+        <Admonition variant="info" size="sm" subtle>
+          {model.no_page_reason} You can still deploy it and use it through its
+          API.
+        </Admonition>
+      )}
       {isResetting && (
         <Admonition variant="info" size="sm">
           Deployment is paused while the board resets. Try again once it

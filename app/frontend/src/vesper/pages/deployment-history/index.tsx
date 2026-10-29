@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from "react";
 import { Admonition } from "@tenstorrent/vesper/admonition";
 import { Button } from "@tenstorrent/vesper/button";
-import { ArrowRight, Reset } from "@tenstorrent/vesper/icons";
+import { ArrowRight, ArrowUpRight, Reset } from "@tenstorrent/vesper/icons";
 import { Skeleton } from "@tenstorrent/vesper/skeleton";
 import { StatusIndicator } from "@tenstorrent/vesper/status-indicator";
 import { Tag } from "@tenstorrent/vesper/tag";
@@ -49,6 +49,7 @@ function DeploymentStatus({ record }: { record: DeploymentHistoryRecord }) {
   }
 
   let reason: string | null = null;
+  let details: string | null = null;
   if (record.failure_reason === "hf_auth") {
     reason =
       record.failure_message ??
@@ -60,14 +61,46 @@ function DeploymentStatus({ record }: { record: DeploymentHistoryRecord }) {
   } else if (diedUnexpectedly(record)) {
     reason =
       "The container exited without being stopped. This may be an out-of-memory error, a crash, or a hardware issue.";
+    // the backend's own account of the exit, e.g. its last error lines
+    details = record.failure_message;
   }
   if (!reason) return <Tag size="sm">{record.status}</Tag>;
 
+  // no access to the weights: the tag opens the model's Hugging Face page,
+  // where access is requested
+  const accessUrl = record.failure_reason === "hf_auth" ? record.hf_url : null;
+
+  const content = (
+    <span className="flex flex-col gap-vesper-2">
+      <span>{reason}</span>
+      {details && (
+        <span className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-vesper-mono text-xs">
+          {details}
+        </span>
+      )}
+      {accessUrl && <span>Click to request access on Hugging Face.</span>}
+    </span>
+  );
+
   return (
-    <Tooltip content={reason} maxWidth={320}>
-      <Tag size="sm" variant="danger-subtle" as="button" type="button">
-        Failed
-      </Tag>
+    <Tooltip content={content} maxWidth={details ? 420 : 320}>
+      {accessUrl ? (
+        <Tag
+          size="sm"
+          variant="danger-subtle"
+          as="a"
+          href={accessUrl}
+          target="_blank"
+          rel="noreferrer"
+          icon={<ArrowUpRight />}
+        >
+          Failed
+        </Tag>
+      ) : (
+        <Tag size="sm" variant="danger-subtle" as="button" type="button">
+          Failed
+        </Tag>
+      )}
     </Tooltip>
   );
 }

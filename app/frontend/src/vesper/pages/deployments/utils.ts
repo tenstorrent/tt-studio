@@ -11,6 +11,7 @@ import {
   profileForDevices,
 } from "@/src/utils/deviceFit";
 import type { DeployRequest } from "./hooks/use-deploy-model";
+import type { CatalogCardTag } from "./components/catalog-card";
 import type { CatalogModel } from "@/src/vesper/types";
 import {
   getModelTask,
@@ -94,6 +95,23 @@ export function getDeployability(
         ),
     devices,
   };
+}
+
+/**
+ * Tags flagging what to know before deploying a model, from catalog fields
+ * only: currently, experimental support on this hardware.
+ */
+export function getModelTags(model: CatalogModel): CatalogCardTag[] {
+  const tags: CatalogCardTag[] = [];
+  if (model.status === "EXPERIMENTAL") {
+    tags.push({
+      label: "Experimental",
+      variant: "warning-subtle",
+      tooltip:
+        "Support for this model on Tenstorrent hardware is experimental, so it may not deploy or run reliably.",
+    });
+  }
+  return tags;
 }
 
 /** Large weights that Hugging Face often stalls on mid-deploy. */

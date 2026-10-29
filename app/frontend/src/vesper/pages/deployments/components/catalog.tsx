@@ -18,6 +18,7 @@ import {
   DEFAULT_FILTERS,
   getCompatibleModels,
   getDeployability,
+  getModelTags,
   type CatalogFilters,
 } from "../utils";
 import { getVoiceAgentAvailability } from "../solutions";
@@ -146,6 +147,7 @@ export function Catalog({
                     />
                   }
                   name={model.name}
+                  tags={getModelTags(model)}
                   status={inFlight ? "Deploying" : undefined}
                   disabled={!inFlight && !deployability.fits}
                   disabledReason={deployability.reason}

@@ -2,10 +2,17 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import type { ReactNode } from "react";
-import { Tag } from "@tenstorrent/vesper/tag";
+import { Tag, type TagVariant } from "@tenstorrent/vesper/tag";
 import { Tooltip } from "@tenstorrent/vesper/tooltip";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
+
+/** A tag below a catalog card's name, optionally explained on hover. */
+export interface CatalogCardTag {
+  label: string;
+  variant?: TagVariant;
+  tooltip?: string;
+}
 
 /**
  * The selectable card used in the model and solution catalogs. Disabled cards
@@ -25,7 +32,7 @@ export function CatalogCard({
 }: {
   task?: string;
   /** Extra tags rendered below the name and description */
-  tags?: string[];
+  tags?: (string | CatalogCardTag)[];
   devices: number;
   icon: ReactNode;
   name: string;
@@ -78,11 +85,21 @@ export function CatalogCard({
       </div>
       {tags && tags.length > 0 && (
         <div className="flex flex-wrap gap-vesper-2">
-          {tags.map((tag) => (
-            <Tag key={tag} size="sm">
-              {tag}
-            </Tag>
-          ))}
+          {tags.map((entry) => {
+            const tag = typeof entry === "string" ? { label: entry } : entry;
+            const element = (
+              <Tag key={tag.label} size="sm" variant={tag.variant}>
+                {tag.label}
+              </Tag>
+            );
+            return tag.tooltip ? (
+              <Tooltip key={tag.label} content={tag.tooltip} maxWidth={280}>
+                {element}
+              </Tooltip>
+            ) : (
+              element
+            );
+          })}
         </div>
       )}
     </button>
