@@ -242,7 +242,8 @@ export function DeploymentDetail({
   const inFlight = item.state === "downloading" || item.state === "deploying";
   const failed =
     item.state === "download-failed" || item.state === "deploy-failed";
-  const canOpenLogs = !!item.containerId || !!item.historyId;
+  // a container's logs, a dead container's workflow log, or the deploy job's
+  const canOpenLogs = !!item.containerId || !!item.historyId || !!item.jobId;
 
   const openDemo = (demo: DemoLink) =>
     navigate(demo.href, {

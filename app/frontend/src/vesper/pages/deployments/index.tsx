@@ -20,6 +20,10 @@ import { getErrorMessage } from "@/src/utils/errors";
 import { BackButton } from "@/src/vesper/components/back-button";
 import { ContainerLogsModal } from "@/src/vesper/components/container-logs-modal";
 import { EmptyPill } from "@/src/vesper/components/empty-pill";
+import {
+  JobLogsModal,
+  type JobLogsTarget,
+} from "@/src/vesper/components/job-logs-modal";
 import { ResetHardwareModal } from "@/src/vesper/components/reset-hardware-modal";
 import {
   WorkflowLogsModal,
@@ -73,6 +77,7 @@ export default function DeploymentsPage() {
   const [workflowLogs, setWorkflowLogs] = useState<WorkflowLogsTarget | null>(
     null
   );
+  const [jobLogs, setJobLogs] = useState<JobLogsTarget | null>(null);
   const [resetFor, setResetFor] = useState<DeploymentItem | null>(null);
 
   const tab: CatalogTab =
@@ -214,8 +219,19 @@ export default function DeploymentsPage() {
         modelName: item.modelName,
         diedUnexpectedly: item.state === "error",
       });
+    } else if (item.jobId) {
+      // no container yet, or the deploy failed before it got one
+      setJobLogs({ jobId: item.jobId, modelName: item.modelName });
     }
   }, []);
+  // keep the job log refreshing while that deploy is still running
+  const jobLogsLive =
+    jobLogs !== null &&
+    items.some(
+      (item) =>
+        item.jobId === jobLogs.jobId &&
+        (item.state === "downloading" || item.state === "deploying")
+    );
 
   const stopSolution = useCallback(
     async (item: DeploymentItem) => {
@@ -276,7 +292,7 @@ export default function DeploymentsPage() {
             navigate(`/api-info/${encodeURIComponent(item.containerId!)}`),
         });
       }
-      if (item.containerId || item.historyId) {
+      if (item.containerId || item.historyId || item.jobId) {
         menu.push({ text: "Logs", onSelect: () => openLogs(item) });
       }
       if (item.containerId && !item.dead) {
@@ -419,6 +435,11 @@ export default function DeploymentsPage() {
       <WorkflowLogsModal
         target={workflowLogs}
         onClose={() => setWorkflowLogs(null)}
+      />
+      <JobLogsModal
+        target={jobLogs}
+        live={jobLogsLive}
+        onClose={() => setJobLogs(null)}
       />
     </div>
   );

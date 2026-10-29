@@ -156,9 +156,9 @@ export function SolutionDetail({
             size="sm"
             variant="tertiary"
             className="flex-1"
-            disabled={!members.some((m) => m.containerId || m.historyId)}
+            disabled={!members.some((m) => m.containerId || m.historyId || m.jobId)}
             items={members
-              .filter((m) => m.containerId || m.historyId)
+              .filter((m) => m.containerId || m.historyId || m.jobId)
               .map((member) => ({
                 text: member.modelName,
                 onSelect: () => onOpenLogs(member),
