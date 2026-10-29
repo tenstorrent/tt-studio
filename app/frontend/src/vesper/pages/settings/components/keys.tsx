@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@tenstorrent/vesper/button";
 import {
   CaretDown,
   CaretUp,
   Eye,
   EyeSlash,
   Lock,
+  Spinner,
 } from "@tenstorrent/vesper/icons";
 import { TextInput } from "@tenstorrent/vesper/text-input";
 import { Typography } from "@tenstorrent/vesper/typography";
@@ -19,8 +22,10 @@ import {
   getSettings,
   SettingsResponse,
   updateSettings,
+  type UpdateSettingsPayload,
 } from "@/src/api/settingsApi";
 import { cn } from "@/src/lib/utils";
+import { getErrorMessage } from "@/src/utils/errors";
 
 export function Keys() {
   const [hfToken, setHfToken] = useState("");
@@ -44,72 +49,99 @@ export function Keys() {
     setTavilyApiKey(settings.data.tavily_api_key.value ?? "");
   }, [settings]);
 
-  const saveApiKey = useMutation({
-    mutationFn: (ctx: {
-      name: "hf_token" | "tavily_api_key";
-      value: string;
-    }) => {
-      // Only send fields the user actually changed; an untouched pre-filled
-      // value is not an update (re-sending the HF token would spuriously
-      // flag a redeploy). Blank still means "keep the existing value".
-      const val = ctx.value.trim();
-      if (val !== "" && val !== (settings.data?.[ctx.name].value ?? "")) {
-        return updateSettings({ hf_token: val });
-      }
+  // Only send fields the user actually changed; an untouched pre-filled
+  // value is not an update (re-sending the HF token would spuriously flag a
+  // redeploy). Blank still means "keep the existing value".
+  const changes = useMemo(() => {
+    const body: UpdateSettingsPayload = {};
+    const hf = hfToken.trim();
+    if (hf !== "" && hf !== (settings.data?.hf_token.value ?? "")) {
+      body.hf_token = hf;
+    }
+    const tavily = tavilyApiKey.trim();
+    if (
+      tavily !== "" &&
+      tavily !== (settings.data?.tavily_api_key.value ?? "")
+    ) {
+      body.tavily_api_key = tavily;
+    }
+    return body;
+  }, [hfToken, tavilyApiKey, settings.data]);
+  const hasChanges = Object.keys(changes).length > 0;
 
-      return Promise.resolve({
-        ok: true,
-        requires_redeploy: false,
-        updated: [],
-      });
+  const save = useMutation({
+    mutationFn: (payload: UpdateSettingsPayload) => updateSettings(payload),
+    onSuccess: async (resp) => {
+      // stay pending until the saved values are back, so the form doesn't
+      // briefly read as having unsaved changes
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      if (resp.updated.length === 0) {
+        addToast({ content: "No changes to save", timeout: 4000 });
+      } else if (resp.requires_redeploy) {
+        addToast({
+          variant: "success",
+          content:
+            "Settings saved. Redeploy any running model to pick up the new Hugging Face token.",
+          timeout: 8000,
+        });
+      } else {
+        addToast({
+          variant: "success",
+          content: "Settings saved",
+          timeout: 5000,
+        });
+      }
     },
-    onSuccess: () => {
-      addToast({
-        variant: "success",
-        content: "Settings saved",
-        timeout: 5000,
-      });
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
-    },
-    onError: (err: any) => {
+    onError: (err) => {
       const message =
-        err?.response?.data?.error ||
-        err?.message ||
-        "Failed to save settings.";
-      addToast({ variant: "danger", content: message });
+        axios.isAxiosError(err) && typeof err.response?.data?.error === "string"
+          ? err.response.data.error
+          : getErrorMessage(err);
+      addToast({
+        variant: "danger",
+        content: `Couldn't save settings: ${message}`,
+      });
     },
   });
 
-  // debounce `saveApiKey.mutate` so we don't ping the api on every keystroke
-  const updateSecret = useDebouncedCallback<typeof saveApiKey.mutate>(
-    saveApiKey.mutate,
-    300
-  );
+  const disabled = settings.isPending || save.isPending;
 
   return (
-    <div className="flex flex-col text-left pt-vesper-8">
+    <form
+      className="flex flex-col gap-vesper-8 text-left pt-vesper-8"
+      autoComplete="off"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (hasChanges && !save.isPending) save.mutate(changes);
+      }}
+    >
       <div className="flex flex-col gap-vesper-8">
         <HFToken
           loading={settings.isPending}
+          disabled={disabled}
           value={hfToken}
-          onChange={(value) => {
-            setHfToken(value);
-            updateSecret({ name: "hf_token", value });
-          }}
+          onChange={setHfToken}
         />
         <Divider />
         <TTSApiKey loading={settings.isPending} />
         <Divider />
         <TavilyApiKey
           loading={settings.isPending}
+          disabled={disabled}
           value={tavilyApiKey}
-          onChange={(value) => {
-            setTavilyApiKey(value);
-            updateSecret({ name: "tavily_api_key", value });
-          }}
+          onChange={setTavilyApiKey}
         />
       </div>
-    </div>
+      <div className="flex justify-end">
+        <Button
+          type="submit"
+          disabled={!hasChanges || disabled}
+          iconLeft={save.isPending && <Spinner className="animate-spin" />}
+        >
+          {save.isPending ? "Saving" : "Save"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -119,10 +151,12 @@ function Divider() {
 
 function HFToken({
   loading,
+  disabled,
   value,
   onChange,
 }: {
   loading: boolean;
+  disabled: boolean;
   value: string;
   onChange(value: string): void;
 }) {
@@ -166,7 +200,7 @@ function HFToken({
         type={showText ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        disabled={loading}
+        disabled={disabled}
       />
       <Typography
         variant="copy-sm"
@@ -224,10 +258,12 @@ function TTSApiKey({ loading }: { loading: boolean }) {
 
 function TavilyApiKey({
   loading,
+  disabled,
   value,
   onChange,
 }: {
   loading: boolean;
+  disabled: boolean;
   value: string;
   onChange(value: string): void;
 }) {
@@ -235,9 +271,6 @@ function TavilyApiKey({
 
   let placeholder = "tvly-...";
   if (loading) placeholder = "Loading...";
-
-  const timeout = useRef(-1);
-  useEffect(() => () => clearTimeout(timeout.current), []);
 
   return (
     <div className="flex flex-col">
@@ -261,23 +294,8 @@ function TavilyApiKey({
         type={showText ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        disabled={loading}
+        disabled={disabled}
       />
     </div>
-  );
-}
-
-function useDebouncedCallback<F extends (...args: any[]) => any>(
-  fn: F,
-  ms: number
-) {
-  const timeout = useRef<number>(undefined);
-
-  return useCallback(
-    (...args: Parameters<F>) => {
-      clearTimeout(timeout.current);
-      timeout.current = setTimeout(() => fn(...args), ms);
-    },
-    [fn, ms]
   );
 }
