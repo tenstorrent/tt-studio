@@ -163,5 +163,70 @@ class TestListSource(unittest.TestCase):
             self.assertIn("bundled community catalog", M.describe_community_source())
 
 
+class TestRefreshCommunityCatalog(unittest.TestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.cache = os.path.join(self._dir.name, "community_catalog.json")
+        self.bundled = os.path.join(self._dir.name, "community_catalog_bundled.json")
+        self.source = os.path.join(self._dir.name, "source.json")
+
+        # Seed bundled baseline with 50 bundles
+        with open(self.bundled, "w") as f:
+            json.dump({"schema_version": 1, "bundles": [{"repo": f"bundled/{i}"} for i in range(50)]}, f)
+
+        patchers = [
+            patch.object(M, "COMMUNITY_CATALOG_CACHE", self.cache),
+            patch.object(M, "COMMUNITY_CATALOG_BUNDLED", self.bundled),
+            patch.object(M, "community_catalog_url", return_value=self.source),
+        ]
+        for p in patchers:
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self._dir.cleanup)
+
+    def _write_source(self, data):
+        with open(self.source, "w") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+
+    def _seed_cache(self, count):
+        with open(self.cache, "w") as f:
+            json.dump({"schema_version": 1, "bundles": [{"repo": f"cached/{i}"} for i in range(count)]}, f)
+
+    def _read_cache(self):
+        with open(self.cache) as f:
+            return json.load(f)
+
+    def test_empty_catalog_is_rejected_and_keeps_cache(self):
+        self._seed_cache(20)
+        self._write_source({"schema_version": 1, "bundles": []})
+        self.assertFalse(M.refresh_community_catalog())
+        cached = self._read_cache()
+        self.assertEqual(len(cached["bundles"]), 20)
+        self.assertEqual(M.LIST_SOURCE.get(self.cache), "cached")
+
+    def test_sharply_smaller_catalog_is_rejected_and_keeps_cache(self):
+        self._seed_cache(50)
+        # 2 bundles is well below 20% of 50 (min expected 10)
+        self._write_source({"schema_version": 1, "bundles": [{"repo": "m/0"}, {"repo": "m/1"}]})
+        self.assertFalse(M.refresh_community_catalog())
+        cached = self._read_cache()
+        self.assertEqual(len(cached["bundles"]), 50)
+        self.assertEqual(M.LIST_SOURCE.get(self.cache), "cached")
+
+    def test_valid_catalog_at_or_above_threshold_is_accepted(self):
+        self._seed_cache(50)
+        # 15 bundles is >= 20% of 50
+        self._write_source({"schema_version": 1, "bundles": [{"repo": f"new/{i}"} for i in range(15)]})
+        self.assertTrue(M.refresh_community_catalog())
+        cached = self._read_cache()
+        self.assertEqual(len(cached["bundles"]), 15)
+        self.assertEqual(M.LIST_SOURCE.get(self.cache), "live")
+
+    def test_empty_cache_is_invalid_for_load(self):
+        with open(self.cache, "w") as f:
+            json.dump({"schema_version": 1, "bundles": []}, f)
+        self.assertIsNone(M._load(self.cache, M._is_valid_community_catalog))
+
+
 if __name__ == "__main__":
     unittest.main()
