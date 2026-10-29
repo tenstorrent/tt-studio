@@ -9,7 +9,27 @@ import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paus
 import type { DeploymentItem } from "@/src/vesper/types";
 import { formatDeviceLabel } from "@/src/vesper/utils/models";
 
-/** Confirms stopping every model a solution (e.g. the voice agent) is made of. */
+/** What stopping the solution does to one of its models. */
+function memberAction(member: DeploymentItem) {
+  if (member.containerId && !member.dead) {
+    const devices = member.deviceIds.map((id) => formatDeviceLabel(id));
+    return devices.length > 0 ? `Stop · ${devices.join(" + ")}` : "Stop";
+  }
+  if (
+    member.jobId &&
+    !member.containerId &&
+    (member.state === "downloading" || member.state === "deploying")
+  ) {
+    return "Cancel deploy";
+  }
+  return "Clear";
+}
+
+/**
+ * Confirms stopping every model a solution (e.g. the voice agent) is made of:
+ * running ones are stopped, deploys still in progress cancelled, and failed
+ * ones cleared.
+ */
 export function StopSolutionModal({
   item,
   onClose,
@@ -26,7 +46,10 @@ export function StopSolutionModal({
   const itemRef = useRef(item);
   if (item) itemRef.current = item;
   const shown = item ?? itemRef.current;
-  const members = (shown?.members ?? []).filter((m) => m.containerId);
+  const members = shown?.members ?? [];
+  // a pause only gets in the way of stopping running containers; deploys that
+  // haven't started one can still be cancelled
+  const blocked = !!paused && members.some((m) => m.containerId && !m.dead);
   const name = shown?.modelName ?? "this solution";
 
   return (
@@ -36,14 +59,14 @@ export function StopSolutionModal({
         if (!open) onClose();
       }}
       title={`Stop ${name}?`}
-      description="Each of its models will be stopped and the devices they run on will be reset. Anything they're processing will be interrupted."
+      description="Its running models will be stopped and their devices reset, and any deploys still in progress will be cancelled. Anything they're processing will be interrupted."
       width={520}
       buttons={[
         { children: "Cancel", onClick: onClose },
         {
           children: "Stop all",
           variant: "danger",
-          disabled: !!paused || members.length === 0,
+          disabled: blocked || members.length === 0,
           onClick: () => {
             if (item) onConfirm(item);
             onClose();
@@ -52,7 +75,7 @@ export function StopSolutionModal({
       ]}
     >
       <div className="flex flex-col gap-vesper-3 pt-vesper-2">
-        {paused && (
+        {blocked && (
           <Admonition variant="info" size="sm">
             {paused}
           </Admonition>
@@ -73,9 +96,7 @@ export function StopSolutionModal({
                 variant="label-xs-mono"
                 className="shrink-0 text-vesper-text-tertiary"
               >
-                {member.deviceIds
-                  .map((id) => formatDeviceLabel(id))
-                  .join(" + ")}
+                {memberAction(member)}
               </Typography>
             </li>
           ))}

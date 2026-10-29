@@ -107,6 +107,31 @@ export function useSolutionGroups(items: DeploymentItem[], loading: boolean) {
     setGroups(groups.filter((g) => g.id !== id));
   }, []);
 
+  /** Point a group's member at a new deploy of it, e.g. a retry. */
+  const replaceMemberJob = useCallback(
+    (groupId: string, modelName: string, jobId: string) => {
+      setGroups(
+        groups.map((group) =>
+          group.id !== groupId
+            ? group
+            : {
+                ...group,
+                members: group.members.map((member) =>
+                  member.modelName === modelName
+                    ? {
+                        modelId: member.modelId,
+                        modelName: member.modelName,
+                        jobId,
+                      }
+                    : member
+                ),
+              }
+        )
+      );
+    },
+    []
+  );
+
   const { groupedItems, staleGroupIds } = useMemo(() => {
     const consumed = new Set<string>();
     const combined: DeploymentItem[] = [];
@@ -181,5 +206,5 @@ export function useSolutionGroups(items: DeploymentItem[], loading: boolean) {
     }
   }, [staleGroupIds, loading]);
 
-  return { groupedItems, addGroup, removeGroup };
+  return { groupedItems, addGroup, removeGroup, replaceMemberJob };
 }

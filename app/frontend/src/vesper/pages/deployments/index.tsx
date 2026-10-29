@@ -50,16 +50,15 @@ import { StopSolutionModal } from "./components/stop-solution-modal";
 import { useAutoDeploy } from "./hooks/use-auto-deploy";
 import { describeDeployError, useDeployModel } from "./hooks/use-deploy-model";
 import { SOLUTION_KEY_PREFIX, useSolutionGroups } from "./solution-groups";
+import { voiceAgentMemberRequest } from "./solutions";
 import { buildAutoDeployRequest } from "./utils";
 
 export default function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { items, isLoading: deploymentsLoading, dismiss } = useDeployments();
-  const { groupedItems, addGroup, removeGroup } = useSolutionGroups(
-    items,
-    deploymentsLoading
-  );
+  const { groupedItems, addGroup, removeGroup, replaceMemberJob } =
+    useSolutionGroups(items, deploymentsLoading);
   const {
     chipStatus,
     isLoading: chipStatusLoading,
@@ -204,20 +203,21 @@ export default function DeploymentsPage() {
 
   const cancel = useCallback(
     (item: DeploymentItem) => {
+      // a solution may already have running containers among its members;
+      // confirm, then stop or cancel each (see stopSolution)
+      if (item.members) {
+        setStoppingSolution(item);
+        return;
+      }
       // once a container exists, stopping it is how a deploy is cancelled
-      if (!item.members && item.containerId) {
+      if (item.containerId) {
         setStopping({ item, redeploy: false });
         return;
       }
-      for (const target of item.members ?? [item]) {
-        if (target.containerId) {
-          void deleteModel(target.containerId).catch(() => undefined);
-        } else if (target.jobId) {
-          void cancelDeployment(target.jobId);
-          removeDeployment(target.jobId);
-        }
+      if (item.jobId) {
+        void cancelDeployment(item.jobId);
+        removeDeployment(item.jobId);
       }
-      if (item.members) removeGroup(item.key.slice(SOLUTION_KEY_PREFIX.length));
       addToast({
         variant: "default",
         content: `Cancelled ${item.modelName}`,
@@ -225,7 +225,7 @@ export default function DeploymentsPage() {
       });
       if (selectedKey === item.key) showCatalog();
     },
-    [removeDeployment, removeGroup, selectedKey, showCatalog]
+    [removeDeployment, selectedKey, showCatalog]
   );
 
   const dismissItem = useCallback(
@@ -236,12 +236,85 @@ export default function DeploymentsPage() {
     [dismiss, selectedKey, showCatalog]
   );
 
+  // Put members of a solution back on the devices the solution gave them,
+  // and point the group at the new deploys so they stay part of it. A member
+  // whose broken container still exists is stopped first, to free its devices.
+  const redeployMembers = useCallback(
+    async (group: DeploymentItem, targets: DeploymentItem[]) => {
+      const groupId = group.key.slice(SOLUTION_KEY_PREFIX.length);
+      const memberModels = (group.members ?? [])
+        .map(findCatalogModel)
+        .filter((model): model is CatalogModel => !!model);
+      const fresh = await refetchChipStatus();
+      const status = fresh.data
+        ? withReservations(fresh.data, activeJobs, reservedDeviceIds)
+        : chipStatus;
+      for (const member of targets) {
+        const model = findCatalogModel(member);
+        if (!model) {
+          addToast({
+            variant: "danger",
+            content: `${member.modelName} isn't in the model catalog, so it can't be redeployed from here.`,
+          });
+          continue;
+        }
+        try {
+          if (member.containerId && !member.dead) {
+            await deleteModel(member.containerId);
+          }
+          const result = await deploy.mutateAsync(
+            voiceAgentMemberRequest(
+              model,
+              memberModels,
+              status?.total_slots ?? 4
+            ) ?? buildAutoDeployRequest(model, status)
+          );
+          replaceMemberJob(groupId, member.modelName, result.jobId);
+          // the failed attempt has been replaced
+          dismiss(member);
+          addToast({
+            variant: "success",
+            content: `Redeploying ${model.name}`,
+            timeout: 4000,
+          });
+        } catch (err) {
+          addToast({
+            variant: "danger",
+            content: `Couldn't redeploy ${member.modelName}: ${describeDeployError(err)}`,
+          });
+        }
+      }
+      refreshModels();
+    },
+    [
+      findCatalogModel,
+      refetchChipStatus,
+      activeJobs,
+      reservedDeviceIds,
+      chipStatus,
+      deploy,
+      replaceMemberJob,
+      dismiss,
+      refreshModels,
+    ]
+  );
+
   const retry = useCallback(
     (item: DeploymentItem) => {
+      if (item.members) {
+        // just the members that failed
+        void redeployMembers(
+          item,
+          item.members.filter(
+            (m) => m.state === "download-failed" || m.state === "deploy-failed"
+          )
+        );
+        return;
+      }
       dismiss(item);
       void redeploy(item);
     },
-    [dismiss, redeploy]
+    [dismiss, redeploy, redeployMembers]
   );
 
   const openLogs = useCallback((item: DeploymentItem) => {
@@ -269,15 +342,36 @@ export default function DeploymentsPage() {
 
   const stopSolution = useCallback(
     async (item: DeploymentItem) => {
-      const members = (item.members ?? []).filter((m) => m.containerId);
       const toast = addToast({
         variant: "loading",
         content: `Stopping ${item.modelName}…`,
       });
-      try {
-        for (const member of members) {
-          await deleteModel(member.containerId!);
+      // every member, whatever state it's in, so nothing is left running
+      const failures: string[] = [];
+      for (const member of item.members ?? []) {
+        try {
+          if (member.containerId && !member.dead) {
+            // a running container: stopping it also resets its devices
+            await deleteModel(member.containerId);
+            if (member.jobId) removeDeployment(member.jobId);
+          } else if (member.jobId && !member.containerId) {
+            // a deploy with no container yet: cancel it if it's still going
+            if (
+              member.state === "downloading" ||
+              member.state === "deploying"
+            ) {
+              await cancelDeployment(member.jobId);
+            }
+            removeDeployment(member.jobId);
+          } else {
+            // a container that already died has nothing left to stop
+            dismiss(member);
+          }
+        } catch (err) {
+          failures.push(`${member.modelName}: ${getErrorMessage(err)}`);
         }
+      }
+      if (failures.length === 0) {
         toast.update({
           variant: "success",
           content: `Stopped ${item.modelName}`,
@@ -285,13 +379,22 @@ export default function DeploymentsPage() {
         });
         removeGroup(item.key.slice(SOLUTION_KEY_PREFIX.length));
         if (selectedKey === item.key) showCatalog();
-      } catch (err) {
-        toast.update({ variant: "danger", content: getErrorMessage(err) });
-      } finally {
-        refreshModels();
+      } else {
+        toast.update({
+          variant: "danger",
+          content: `Couldn't stop all of ${item.modelName}. ${failures.join(" ")}`,
+        });
       }
+      refreshModels();
     },
-    [refreshModels, removeGroup, selectedKey, showCatalog]
+    [
+      dismiss,
+      refreshModels,
+      removeDeployment,
+      removeGroup,
+      selectedKey,
+      showCatalog,
+    ]
   );
 
   const menuItemsFor = useCallback(
@@ -428,6 +531,14 @@ export default function DeploymentsPage() {
         onRetry={retry}
         onDismiss={dismissItem}
         onRemoveAndRedeploy={(item) => {
+          if (item.members) {
+            // the members whose containers died or broke
+            void redeployMembers(
+              item,
+              item.members.filter((m) => m.state === "error")
+            );
+            return;
+          }
           // a dead container has nothing left to stop
           if (item.dead) {
             dismissItem(item);

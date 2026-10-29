@@ -9,6 +9,7 @@ import {
   isQwen3_8BModel,
 } from "@/src/utils/p300x2Placement";
 import type { CatalogModel } from "@/src/vesper/types";
+import type { DeployRequest } from "./hooks/use-deploy-model";
 
 // The voice agent prefers this LLM where the board runs it, then Qwen3-8B,
 // then any Instruct model. Mirrors the original voice agent solution step.
@@ -120,6 +121,41 @@ export function planVoiceAgent(
       stt: deployId(models.stt, 1),
       tts: deployId(models.tts, 1),
     },
+  };
+}
+
+const STAGE_OF_MODEL_TYPE: Record<string, VoiceAgentStage> = {
+  chat: "llm",
+  speech_recognition: "stt",
+  tts: "tts",
+};
+
+/**
+ * The request that deploys one model of a voice agent back onto the devices
+ * the solution placed it on (e.g. to retry it), given the catalog models of
+ * all its members: the LLM decides whether the others sit a card further up.
+ * Null when the model isn't one of the pipeline's stages.
+ */
+export function voiceAgentMemberRequest(
+  model: CatalogModel,
+  memberModels: CatalogModel[],
+  totalSlots: number
+): DeployRequest | null {
+  const stage = STAGE_OF_MODEL_TYPE[model.model_type];
+  if (!stage) return null;
+  const byStage = (s: VoiceAgentStage) =>
+    memberModels.find((m) => STAGE_OF_MODEL_TYPE[m.model_type] === s);
+  const plan = planVoiceAgent(
+    { llm: byStage("llm"), stt: byStage("stt"), tts: byStage("tts") },
+    totalSlots
+  );
+  const slots = plan.slots[stage];
+  return {
+    modelId: model.id,
+    modelName: model.name,
+    deployModelId: plan.deployIds[stage],
+    deviceId: slots.length === 1 ? slots[0] : slots.join(","),
+    deviceIds: slots,
   };
 }
 
