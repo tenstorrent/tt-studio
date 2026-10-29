@@ -241,11 +241,15 @@ function CopyToClipboardButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => clearTimeout(timeout.current), []);
+  // don't let a pending reset fire after the button is gone (e.g. "Start over")
+  useEffect(() => () => clearTimeout(timeout.current), []);
 
   const handleClick = useCallback(async () => {
     const error = await copyToClipboard(text);
     setError(error);
+    setCopied(error === null);
+    // restart the timer, so a repeat click isn't cut short by the last one
+    clearTimeout(timeout.current);
     timeout.current = setTimeout(() => {
       setCopied(false);
       setError(null);
