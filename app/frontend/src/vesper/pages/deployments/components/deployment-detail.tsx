@@ -131,7 +131,7 @@ export function FailurePanel({
           {item.state === "download-failed" ? "Retry" : "Redeploy"}
         </Button>
         <Button type="button" size="xs" variant="ghost" onClick={onDismiss}>
-          Cancel
+          Dismiss
         </Button>
       </div>
     </div>
@@ -344,7 +344,7 @@ export function DeploymentDetail({
               disabled={!failed && paused && !!item.containerId}
               onClick={failed ? onDismiss : onCancel}
             >
-              Cancel
+              {failed ? "Dismiss" : "Cancel"}
             </Button>
           ) : (
             <Button

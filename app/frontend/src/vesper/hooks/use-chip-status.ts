@@ -6,9 +6,43 @@ import axios from "axios";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChipStatus } from "@/src/types/chipStatus";
 import { useActiveDeploymentsContext } from "@/src/providers/ActiveDeploymentsContext";
+import type { ActiveDeployment } from "@/src/hooks/useActiveDeployments";
 import { useRefresh } from "@/src/hooks/useRefresh";
 
 export const CHIP_STATUS_QUERY_KEY = ["chip-status"];
+
+/**
+ * Chip status with the slots that in-flight deploys have reserved marked as
+ * occupied: the backend only reserves some of them once an image pull ends.
+ */
+export function withReservations(
+  data: ChipStatus | undefined,
+  deployments: ActiveDeployment[],
+  reservedDeviceIds: number[]
+): ChipStatus | null {
+  if (!data || reservedDeviceIds.length === 0) return data ?? null;
+  const reserved = new Set(reservedDeviceIds);
+  const nameByDevice = new Map<number, string>();
+  deployments
+    .filter((d) => d.status === "active")
+    .forEach((d) =>
+      d.deviceIds.forEach((id) => {
+        if (!nameByDevice.has(id)) nameByDevice.set(id, d.modelName);
+      })
+    );
+  return {
+    ...data,
+    slots: data.slots.map((slot) =>
+      reserved.has(slot.slot_id) && slot.status !== "occupied"
+        ? {
+            ...slot,
+            status: "occupied" as const,
+            model_name: slot.model_name ?? nameByDevice.get(slot.slot_id),
+          }
+        : slot
+    ),
+  };
+}
 
 async function fetchChipStatus() {
   const { data } = await axios.get<ChipStatus>("/docker-api/chip-status/");
@@ -41,31 +75,10 @@ export function useChipStatus() {
     queryClient.invalidateQueries({ queryKey: CHIP_STATUS_QUERY_KEY });
   }, [deploymentSignature, refreshTrigger, resetAllNonce, queryClient]);
 
-  const chipStatus = useMemo(() => {
-    const data = query.data;
-    if (!data || reservedDeviceIds.length === 0) return data ?? null;
-    const reserved = new Set(reservedDeviceIds);
-    const nameByDevice = new Map<number, string>();
-    deployments
-      .filter((d) => d.status === "active")
-      .forEach((d) =>
-        d.deviceIds.forEach((id) => {
-          if (!nameByDevice.has(id)) nameByDevice.set(id, d.modelName);
-        })
-      );
-    return {
-      ...data,
-      slots: data.slots.map((slot) =>
-        reserved.has(slot.slot_id) && slot.status !== "occupied"
-          ? {
-              ...slot,
-              status: "occupied" as const,
-              model_name: slot.model_name ?? nameByDevice.get(slot.slot_id),
-            }
-          : slot
-      ),
-    };
-  }, [query.data, reservedDeviceIds, deployments]);
+  const chipStatus = useMemo(
+    () => withReservations(query.data, deployments, reservedDeviceIds),
+    [query.data, reservedDeviceIds, deployments]
+  );
 
   return {
     chipStatus,

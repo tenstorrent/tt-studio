@@ -30,7 +30,10 @@ import {
   WorkflowLogsModal,
   type WorkflowLogsTarget,
 } from "@/src/vesper/components/workflow-logs-modal";
-import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
+import {
+  useChipStatus,
+  withReservations,
+} from "@/src/vesper/hooks/use-chip-status";
 import { useDeployments } from "@/src/vesper/hooks/use-deployments";
 import { useModelCatalog } from "@/src/vesper/hooks/use-model-catalog";
 import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
@@ -57,9 +60,17 @@ export default function DeploymentsPage() {
     items,
     deploymentsLoading
   );
-  const { chipStatus, isLoading: chipStatusLoading } = useChipStatus();
+  const {
+    chipStatus,
+    isLoading: chipStatusLoading,
+    refetch: refetchChipStatus,
+  } = useChipStatus();
   const catalog = useModelCatalog();
-  const { removeDeployment } = useActiveDeploymentsContext();
+  const {
+    removeDeployment,
+    deployments: activeJobs,
+    reservedDeviceIds,
+  } = useActiveDeploymentsContext();
   const { refreshModels } = useModels();
   const deploy = useDeployModel();
 
@@ -151,7 +162,7 @@ export default function DeploymentsPage() {
   );
 
   const redeploy = useCallback(
-    (item: DeploymentItem) => {
+    async (item: DeploymentItem) => {
       const model = findCatalogModel(item);
       if (!model) {
         addToast({
@@ -160,7 +171,14 @@ export default function DeploymentsPage() {
         });
         return;
       }
-      deploy.mutate(buildAutoDeployRequest(model, chipStatus), {
+      // A redeploy often follows a stop that has only just freed the model's
+      // devices, which the cached chip status doesn't know yet. Place it
+      // against a fresh read (falling back to the cache if that fails).
+      const fresh = await refetchChipStatus();
+      const status = fresh.data
+        ? withReservations(fresh.data, activeJobs, reservedDeviceIds)
+        : chipStatus;
+      deploy.mutate(buildAutoDeployRequest(model, status), {
         onSuccess: (result) => {
           addToast({
             variant: "success",
@@ -173,7 +191,15 @@ export default function DeploymentsPage() {
           addToast({ variant: "danger", content: describeDeployError(err) }),
       });
     },
-    [findCatalogModel, deploy, chipStatus, setSearchParams]
+    [
+      findCatalogModel,
+      deploy,
+      chipStatus,
+      refetchChipStatus,
+      activeJobs,
+      reservedDeviceIds,
+      setSearchParams,
+    ]
   );
 
   const cancel = useCallback(
@@ -213,7 +239,7 @@ export default function DeploymentsPage() {
   const retry = useCallback(
     (item: DeploymentItem) => {
       dismiss(item);
-      redeploy(item);
+      void redeploy(item);
     },
     [dismiss, redeploy]
   );
@@ -405,7 +431,7 @@ export default function DeploymentsPage() {
           // a dead container has nothing left to stop
           if (item.dead) {
             dismissItem(item);
-            redeploy(item);
+            void redeploy(item);
           } else {
             setStopping({ item, redeploy: true });
           }
@@ -434,7 +460,7 @@ export default function DeploymentsPage() {
         onClose={() => setStopping(null)}
         onStopped={(item) => {
           dismiss(item);
-          if (stopping?.redeploy) redeploy(item);
+          if (stopping?.redeploy) void redeploy(item);
           else if (selectedKey === item.key) showCatalog();
         }}
       />

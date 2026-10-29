@@ -9,6 +9,7 @@ import { parseDeviceIds } from "@/src/utils/p300x2Placement";
 import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
 import { useModelCatalog } from "@/src/vesper/hooks/use-model-catalog";
 import type { CatalogModel } from "@/src/vesper/types";
+import { getErrorMessage } from "@/src/utils/errors";
 import { describeDeployError, useDeployModel } from "./use-deploy-model";
 
 /** Resolve a model by exact name, else by a unique partial match, like the CLI does. */
@@ -43,6 +44,26 @@ export function useAutoDeploy() {
 
   useEffect(() => {
     if (!modelName || fired.current) return;
+    const clearParams = (next: URLSearchParams) => {
+      next.delete("auto-deploy");
+      next.delete("device-id");
+      return next;
+    };
+
+    // without the catalog the model can't be resolved; say so, rather than
+    // leave the deploy the CLI asked for silently undone
+    if (catalog.isError) {
+      fired.current = true;
+      addToast({
+        variant: "danger",
+        content: `Auto-deploy of ${modelName} failed: couldn't load the model catalog (${getErrorMessage(catalog.error)}). Deploy it from the catalog once the backend is reachable.`,
+      });
+      setSearchParams(clearParams(new URLSearchParams(searchParams)), {
+        replace: true,
+      });
+      return;
+    }
+
     if (!catalog.data || chipStatusLoading) return;
     fired.current = true;
 
@@ -50,11 +71,6 @@ export function useAutoDeploy() {
       variant: "loading",
       content: `Auto-deploying ${modelName} from the CLI…`,
     });
-    const clearParams = (next: URLSearchParams) => {
-      next.delete("auto-deploy");
-      next.delete("device-id");
-      return next;
-    };
 
     const { model, error } = resolveModel(catalog.data, modelName);
     if (!model) {
@@ -114,6 +130,8 @@ export function useAutoDeploy() {
     modelName,
     deviceParam,
     catalog.data,
+    catalog.isError,
+    catalog.error,
     chipStatus,
     chipStatusLoading,
     deploy,

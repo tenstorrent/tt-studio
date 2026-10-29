@@ -9,8 +9,16 @@ export interface SolutionGroup {
   id: string;
   name: string;
   createdAt: number;
-  members: { modelId: string; modelName: string; jobId: string }[];
+  members: {
+    modelId: string;
+    modelName: string;
+    jobId: string;
+    /** The member's container, once its deploy job has led to one */
+    containerId?: string;
+  }[];
 }
+
+type SolutionMember = SolutionGroup["members"][number];
 
 const STORAGE_KEY = "vesper-solution-groups";
 const listeners = new Set<() => void>();
@@ -49,18 +57,37 @@ const STATE_PRIORITY: DeploymentState[] = [
   "active",
 ];
 
+/**
+ * The deployment a group member is, if it's in the list: the container it was
+ * bound to; else whatever its deploy job is; else, for a container whose job
+ * is long gone (e.g. after a reload), one of the same model that is known to
+ * have started along with the group.
+ */
+function findMember(
+  group: SolutionGroup,
+  member: SolutionMember,
+  items: DeploymentItem[]
+) {
+  if (member.containerId) {
+    // only ever that container, so a later deploy of the same model can't
+    // take its place once it's gone
+    return items.find((item) => item.containerId === member.containerId);
+  }
+  return items.find(
+    (item) =>
+      item.jobId === member.jobId ||
+      item.key === member.jobId ||
+      (!!item.containerId &&
+        item.modelName === member.modelName &&
+        // an unknown start (e.g. no history record) could be any deployment
+        item.startedAt !== undefined &&
+        item.startedAt >= group.createdAt - 60_000)
+  );
+}
+
 function memberItems(group: SolutionGroup, items: DeploymentItem[]) {
   return group.members
-    .map((member) =>
-      items.find(
-        (item) =>
-          item.jobId === member.jobId ||
-          item.key === member.jobId ||
-          (item.containerId &&
-            item.modelName === member.modelName &&
-            (item.startedAt ?? Infinity) >= group.createdAt - 60_000)
-      )
-    )
+    .map((member) => findMember(group, member, items))
     .filter((item): item is DeploymentItem => !!item);
 }
 
@@ -124,6 +151,27 @@ export function useSolutionGroups(items: DeploymentItem[], loading: boolean) {
       staleGroupIds: stale,
     };
   }, [all, items]);
+
+  // Bind each member to its container while its deploy job still links the
+  // two, so it's matched exactly from then on rather than by model name.
+  useEffect(() => {
+    if (loading) return;
+    let changed = false;
+    const next = all.map((group) => {
+      let groupChanged = false;
+      const members = group.members.map((member) => {
+        if (member.containerId) return member;
+        const containerId = findMember(group, member, items)?.containerId;
+        if (!containerId) return member;
+        groupChanged = true;
+        return { ...member, containerId };
+      });
+      if (!groupChanged) return group;
+      changed = true;
+      return { ...group, members };
+    });
+    if (changed) setGroups(next);
+  }, [all, items, loading]);
 
   // forget groups whose deployments are all gone; while the list loads, its
   // members may just not be in it yet (and a reload would forget every group)

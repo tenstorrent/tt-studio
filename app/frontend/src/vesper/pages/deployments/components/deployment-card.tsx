@@ -226,7 +226,7 @@ export function DeploymentCard({
             className="w-full"
             onClick={onDismiss}
           >
-            Cancel
+            Dismiss
           </Button>
         </div>
       )}

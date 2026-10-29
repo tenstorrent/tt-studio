@@ -164,9 +164,16 @@ function HFToken({
   const [showHfAccess, setShowHfAccess] = useState(false);
   const hfAccessCheck = useHFAccessCheck(value);
 
+  // check access once the saved settings are in. The hook returns a new object
+  // every render, so keying the effect on it re-ran the check while the first
+  // was still in flight; a ref keeps it to a single run.
+  const checkStarted = useRef(false);
   useEffect(() => {
-    if (!loading && !hfAccessCheck.hasChecked) hfAccessCheck.runCheck();
-  }, [loading, hfAccessCheck]);
+    if (loading || checkStarted.current) return;
+    checkStarted.current = true;
+    void hfAccessCheck.runCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   let placeholder = "hf_...";
   if (loading) placeholder = "Loading...";
