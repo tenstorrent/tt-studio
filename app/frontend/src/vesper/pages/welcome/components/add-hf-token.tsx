@@ -2,11 +2,14 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
+import axios from "axios";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeSlash, Spinner } from "@tenstorrent/vesper/icons";
 import { TextInput } from "@tenstorrent/vesper/text-input";
+import { addToast } from "@tenstorrent/vesper/toast";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { updateSettings } from "@/src/api/settingsApi";
+import { getErrorMessage } from "@/src/utils/errors";
 import { useHfToken, useNextStep, usePrevStep, useSettings } from "../utils";
 import { StepLayout } from "./step-layout";
 
@@ -41,10 +44,15 @@ export function AddHFToken() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       nextStep();
     },
-    onError: (err: any) => {
-      // customToast.error(
-      //   err?.response?.data?.error || err?.message || "Failed to save settings."
-      // );
+    onError: (err) => {
+      const message =
+        axios.isAxiosError(err) && typeof err.response?.data?.error === "string"
+          ? err.response.data.error
+          : getErrorMessage(err);
+      addToast({
+        variant: "danger",
+        content: `Couldn't save your Hugging Face token: ${message}`,
+      });
     },
   });
 
