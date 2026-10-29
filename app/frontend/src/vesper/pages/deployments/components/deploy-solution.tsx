@@ -14,6 +14,7 @@ import { addToast } from "@tenstorrent/vesper/toast";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { runHfCheck } from "@/src/api/settingsApi";
 import { useIsResetting } from "@/src/hooks/useIsResetting";
+import { useModels } from "@/src/hooks/useModels";
 import { isHfBlocked } from "@/src/lib/hfStatus";
 import { DeviceChip } from "@/src/vesper/components/device-tag";
 import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
@@ -43,6 +44,7 @@ export function DeploySolution({
   const catalog = useModelCatalog();
   const { chipStatus } = useChipStatus();
   const isResetting = useIsResetting();
+  const { controlPlaneDegraded } = useModels();
   const deploy = useDeployModel();
   const [deploying, setDeploying] = useState(false);
   // devices taken by this run's own deploys; once reserved they read as
@@ -98,6 +100,7 @@ export function DeploySolution({
   const canDeploy =
     !deploying &&
     !isResetting &&
+    !controlPlaneDegraded &&
     !insufficient &&
     conflicts.length === 0 &&
     !hfGate &&
@@ -193,6 +196,12 @@ export function DeploySolution({
       {isResetting && (
         <Admonition variant="info" size="sm">
           Deployment is paused while the board resets.
+        </Admonition>
+      )}
+      {controlPlaneDegraded && (
+        <Admonition variant="warning" size="sm" subtle>
+          The Docker control service is unreachable, so deploying is paused.
+          Deployed models keep working.
         </Admonition>
       )}
       {insufficient && (

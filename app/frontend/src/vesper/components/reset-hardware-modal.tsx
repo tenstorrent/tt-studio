@@ -19,6 +19,7 @@ import { TextButton } from "@tenstorrent/vesper/text-button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
 import { useIsResetting } from "@/src/hooks/useIsResetting";
+import { useModels } from "@/src/hooks/useModels";
 import { ControlledModal } from "@/src/vesper/components/controlled-modal";
 import { useDeployments } from "@/src/vesper/hooks/use-deployments";
 import { chipsForSlot } from "@/src/vesper/hooks/use-hardware";
@@ -266,6 +267,8 @@ export function ResetHardwareModal({
   const units = useResetUnits();
   const reset = useHardwareReset();
   const boardResetting = useIsResetting();
+  // a model's stop resets its devices as its last step; let it finish first
+  const { isDeleteInFlight: stopInFlight } = useModels();
   const [confirming, setConfirming] = useState<ResetUnit | "all" | null>(null);
 
   // open straight into the confirmation for a specific device
@@ -278,7 +281,21 @@ export function ResetHardwareModal({
 
   const boardStep = reset.board.step;
   const showBoardProgress = boardStep !== "idle";
-  const busy = reset.isRunning || boardResetting;
+  const { deviceState } = useDeviceState();
+  const boardState = deviceState?.state;
+  // with no device to reset, tt-smi has nothing to act on
+  const noDevice = boardState === "NOT_PRESENT";
+  const busy = reset.isRunning || boardResetting || stopInFlight || noDevice;
+  // why a reset can't start right now, for the confirmation step
+  const busyReason = boardResetting
+    ? "A board reset is already in progress."
+    : reset.isRunning
+      ? "Another reset is still running."
+      : stopInFlight
+        ? "A model is being stopped. Resets are paused until it finishes."
+        : noDevice
+          ? "No Tenstorrent device is detected."
+          : null;
 
   const confirmTitle =
     confirming === "all"
@@ -336,8 +353,29 @@ export function ResetHardwareModal({
               finishes, which takes about a minute or two.
             </Admonition>
           )}
+          {stopInFlight && !boardResetting && !reset.isRunning && (
+            <Admonition variant="info" size="sm">
+              A model is being stopped. Resets are paused until it finishes.
+            </Admonition>
+          )}
           {!showBoardProgress && (
             <>
+              {boardState === "BAD_STATE" && (
+                <Admonition variant="danger" size="sm">
+                  The board isn't responding. A reset is strongly recommended.
+                </Admonition>
+              )}
+              {boardState === "NOT_PRESENT" && (
+                <Admonition variant="danger" size="sm">
+                  No Tenstorrent device detected: /dev/tenstorrent wasn't found.
+                  Check the hardware connection.
+                </Admonition>
+              )}
+              {boardState === "HEALTHY" && (
+                <Admonition variant="success" size="sm" subtle>
+                  The board is healthy. A reset is available if you need it.
+                </Admonition>
+              )}
               <Admonition variant="danger" size="sm" subtle>
                 Warning: Resetting a chip will interrupt any ongoing processes
                 on that device.
@@ -416,6 +454,7 @@ export function ResetHardwareModal({
           {
             children: "Reset",
             variant: "danger",
+            disabled: busy,
             onClick: () => {
               const target = confirming;
               setConfirming(null);
@@ -431,7 +470,15 @@ export function ResetHardwareModal({
             },
           },
         ]}
-      />
+      >
+        {busyReason && (
+          <div className="pt-vesper-2">
+            <Admonition variant="info" size="sm">
+              {busyReason}
+            </Admonition>
+          </div>
+        )}
+      </ControlledModal>
     </>
   );
 }

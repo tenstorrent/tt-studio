@@ -4,7 +4,14 @@
 import { useCallback, useMemo, useState } from "react";
 import { parseAnsiColors } from "@/src/lib/ansi";
 
-export const LOG_LEVELS = ["INFO", "DEBUG", "TRACE", "ERROR", "WARNING", "FATAL"] as const;
+export const LOG_LEVELS = [
+  "INFO",
+  "DEBUG",
+  "TRACE",
+  "ERROR",
+  "WARNING",
+  "FATAL",
+] as const;
 
 /**
  * Which log levels are shown, a `LogViewer` filter for them, and how many of
@@ -48,5 +55,11 @@ export function useLogLevelFilter(lines: string[]) {
     [lines]
   );
 
-  return { activeLevels, toggleLevel, filter, errorCount, lineCount: lines.length };
+  return {
+    activeLevels,
+    toggleLevel,
+    filter,
+    errorCount,
+    lineCount: lines.length,
+  };
 }

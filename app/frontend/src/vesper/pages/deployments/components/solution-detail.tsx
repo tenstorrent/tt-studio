@@ -8,6 +8,7 @@ import { Menu } from "@tenstorrent/vesper/menu";
 import { StatusIndicator } from "@tenstorrent/vesper/status-indicator";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
 import type { DemoLink, DeploymentItem } from "@/src/vesper/types";
 import {
   getDemosForModelType,
@@ -41,6 +42,9 @@ export function SolutionDetail({
     (m) => m.state === "downloading" || m.state === "deploying"
   );
   const withContainers = members.filter((m) => m.containerId);
+  // stopping is paused during a board reset or a Docker control outage, and
+  // cancelling stops whichever members already have a container
+  const paused = !!useModelActionsPaused();
 
   const demos: (DemoLink & { member?: DeploymentItem })[] = [
     VOICE_AGENT_DEMO,
@@ -156,7 +160,9 @@ export function SolutionDetail({
             size="sm"
             variant="tertiary"
             className="flex-1"
-            disabled={!members.some((m) => m.containerId || m.historyId || m.jobId)}
+            disabled={
+              !members.some((m) => m.containerId || m.historyId || m.jobId)
+            }
             items={members
               .filter((m) => m.containerId || m.historyId || m.jobId)
               .map((member) => ({
@@ -173,6 +179,7 @@ export function SolutionDetail({
               variant="tertiary"
               className="flex-1"
               iconLeft={<ErrorIcon />}
+              disabled={paused && withContainers.length > 0}
               onClick={onCancel}
             >
               Cancel
@@ -184,7 +191,7 @@ export function SolutionDetail({
               variant="tertiary"
               className="shrink-0 whitespace-nowrap"
               iconLeft={<ErrorIcon />}
-              disabled={withContainers.length === 0}
+              disabled={withContainers.length === 0 || paused}
               onClick={onStop}
             >
               Stop all

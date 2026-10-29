@@ -13,9 +13,16 @@ import { useDeleteStream } from "@/src/hooks/useDeleteStream";
 import { useModels } from "@/src/hooks/useModels";
 import { useRefresh } from "@/src/hooks/useRefresh";
 import { useDeviceState } from "@/src/hooks/useDeviceState";
+import { resetDeviceIdsForStop } from "@/src/utils/deviceIds";
 import { ControlledModal } from "@/src/vesper/components/controlled-modal";
-import { CHIP_STATUS_QUERY_KEY } from "@/src/vesper/hooks/use-chip-status";
+import { DeviceTag } from "@/src/vesper/components/device-tag";
+import {
+  CHIP_STATUS_QUERY_KEY,
+  useChipStatus,
+} from "@/src/vesper/hooks/use-chip-status";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
 import type { DeploymentItem } from "@/src/vesper/types";
+import { formatDeviceLabel } from "@/src/vesper/utils/models";
 
 function Step({
   label,
@@ -79,6 +86,7 @@ export function StopDeploymentModal({
     useModels();
   const { triggerHardwareRefresh } = useRefresh();
   const { refresh: refreshDeviceState } = useDeviceState();
+  const paused = useModelActionsPaused();
   const running = deleteStream.status === "running";
   const finished =
     deleteStream.status === "success" ||
@@ -91,6 +99,9 @@ export function StopDeploymentModal({
   useEffect(() => {
     setIsDeleteInFlight(running);
   }, [running, setIsDeleteInFlight]);
+  // the stream closes with this modal (e.g. on leaving the page), and the UI
+  // loses track of the stop; don't leave resets blocked behind it
+  useEffect(() => () => setIsDeleteInFlight(false), [setIsDeleteInFlight]);
 
   // close shortly after a successful stop
   useEffect(() => {
@@ -130,6 +141,21 @@ export function StopDeploymentModal({
 
   const name = item?.modelName ?? itemRef.current?.modelName ?? "this model";
 
+  // The devices the stop resets: the model's own, plus the rest of its card
+  // when nothing else is on it (the backend resets an idle card as a whole).
+  // A preview until the backend says which devices it is resetting.
+  const { chipStatus, refetch: refetchChipStatus } = useChipStatus();
+  useEffect(() => {
+    // chip status can be a while old; preview against current occupancy
+    if (item) void refetchChipStatus();
+  }, [item, refetchChipStatus]);
+  const ownDevices = (item ?? itemRef.current)?.deviceIds ?? [];
+  const devicesToReset =
+    deleteStream.resetDeviceIds ??
+    resetDeviceIdsForStop(ownDevices, chipStatus) ??
+    ownDevices;
+  const cardSiblings = devicesToReset.filter((id) => !ownDevices.includes(id));
+
   return (
     <ControlledModal
       open={item !== null}
@@ -152,6 +178,7 @@ export function StopDeploymentModal({
               {
                 children: "Stop container",
                 variant: "danger",
+                disabled: !!paused,
                 onClick: () => {
                   if (item?.containerId) deleteStream.start(item.containerId);
                 },
@@ -166,28 +193,64 @@ export function StopDeploymentModal({
             ]
       }
     >
-      {deleteStream.status !== "idle" && (
-        <div className="flex flex-col gap-vesper-3 pt-vesper-2">
-          <Step
-            label="Stop container"
-            state={stepState("deleting")}
-            logs={deleteStream.stepLogs.deleting}
-          />
-          <Step
-            label="Reset devices"
-            state={stepState("resetting")}
-            logs={deleteStream.stepLogs.resetting}
-          />
-          {deleteStream.errorMessage && (
-            <Admonition
-              variant={deleteStream.status === "partial" ? "warning" : "danger"}
-              size="sm"
+      <div className="flex flex-col gap-vesper-3 pt-vesper-2">
+        {deleteStream.status === "idle" && paused && (
+          <Admonition variant="info" size="sm">
+            {paused}
+          </Admonition>
+        )}
+        {devicesToReset.length > 0 && deleteStream.status !== "success" && (
+          <div className="flex flex-col gap-vesper-2">
+            <Typography
+              variant="label-sm"
+              className="text-vesper-text-secondary"
             >
-              {deleteStream.errorMessage}
-            </Admonition>
-          )}
-        </div>
-      )}
+              {deleteStream.status === "idle"
+                ? "Devices that will be reset"
+                : "Devices being reset"}
+            </Typography>
+            <div className="flex flex-wrap gap-vesper-2">
+              {devicesToReset.map((id) => (
+                <DeviceTag key={id} deviceId={id} />
+              ))}
+            </div>
+            {cardSiblings.length > 0 && (
+              <Typography
+                variant="copy-xs"
+                className="text-vesper-text-tertiary"
+              >
+                {cardSiblings.map((id) => formatDeviceLabel(id)).join(" and ")}{" "}
+                {cardSiblings.length === 1 ? "is" : "are"} on the same card and
+                idle, so the whole card is reset together.
+              </Typography>
+            )}
+          </div>
+        )}
+        {deleteStream.status !== "idle" && (
+          <>
+            <Step
+              label="Stop container"
+              state={stepState("deleting")}
+              logs={deleteStream.stepLogs.deleting}
+            />
+            <Step
+              label="Reset devices"
+              state={stepState("resetting")}
+              logs={deleteStream.stepLogs.resetting}
+            />
+            {deleteStream.errorMessage && (
+              <Admonition
+                variant={
+                  deleteStream.status === "partial" ? "warning" : "danger"
+                }
+                size="sm"
+              >
+                {deleteStream.errorMessage}
+              </Admonition>
+            )}
+          </>
+        )}
+      </div>
     </ControlledModal>
   );
 }

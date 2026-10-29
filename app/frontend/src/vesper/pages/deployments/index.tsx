@@ -13,6 +13,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import type { MenuItemProps } from "@tenstorrent/vesper/menu";
 import { addToast } from "@tenstorrent/vesper/toast";
 import { Typography } from "@tenstorrent/vesper/typography";
+import { Admonition } from "@tenstorrent/vesper/admonition";
 import { cancelDeployment, deleteModel } from "@/src/api/modelsDeployedApis";
 import { useModels } from "@/src/hooks/useModels";
 import { useActiveDeploymentsContext } from "@/src/providers/ActiveDeploymentsContext";
@@ -32,6 +33,7 @@ import {
 import { useChipStatus } from "@/src/vesper/hooks/use-chip-status";
 import { useDeployments } from "@/src/vesper/hooks/use-deployments";
 import { useModelCatalog } from "@/src/vesper/hooks/use-model-catalog";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
 import type { CatalogModel, DeploymentItem } from "@/src/vesper/types";
 import { getDemosForModelType } from "@/src/vesper/utils/models";
 import { Catalog, type CatalogTab } from "./components/catalog";
@@ -41,6 +43,7 @@ import { DeploymentDetail } from "./components/deployment-detail";
 import { DeploymentsPanel } from "./components/deployments-panel";
 import { SolutionDetail } from "./components/solution-detail";
 import { StopDeploymentModal } from "./components/stop-deployment-modal";
+import { StopSolutionModal } from "./components/stop-solution-modal";
 import { useAutoDeploy } from "./hooks/use-auto-deploy";
 import { describeDeployError, useDeployModel } from "./hooks/use-deploy-model";
 import { SOLUTION_KEY_PREFIX, useSolutionGroups } from "./solution-groups";
@@ -79,6 +82,11 @@ export default function DeploymentsPage() {
   );
   const [jobLogs, setJobLogs] = useState<JobLogsTarget | null>(null);
   const [resetFor, setResetFor] = useState<DeploymentItem | null>(null);
+  const [stoppingSolution, setStoppingSolution] =
+    useState<DeploymentItem | null>(null);
+  // deploying and stopping are paused during a board reset or a Docker
+  // control outage; this says why, or is null
+  const paused = useModelActionsPaused();
 
   const tab: CatalogTab =
     searchParams.get("tab") === "solutions" ? "solutions" : "models";
@@ -267,8 +275,8 @@ export default function DeploymentsPage() {
           { text: "View details", onSelect: () => select(item) },
           {
             text: "Stop all",
-            style: "danger",
-            onSelect: () => void stopSolution(item),
+            style: paused ? "disabled" : "danger",
+            onSelect: () => setStoppingSolution(item),
           },
         ];
       }
@@ -298,13 +306,13 @@ export default function DeploymentsPage() {
       if (item.containerId && !item.dead) {
         menu.push({
           text: "Stop container",
-          style: "danger",
+          style: paused ? "disabled" : "danger",
           onSelect: () => setStopping({ item, redeploy: false }),
         });
       }
       return menu;
     },
-    [navigate, openLogs, select, stopSolution]
+    [navigate, openLogs, select, paused]
   );
 
   const deployModel =
@@ -320,7 +328,7 @@ export default function DeploymentsPage() {
           <SolutionDetail
             item={selected}
             onCancel={() => cancel(selected)}
-            onStop={() => void stopSolution(selected)}
+            onStop={() => setStoppingSolution(selected)}
             onOpenLogs={openLogs}
           />
         ) : selected ? (
@@ -403,7 +411,23 @@ export default function DeploymentsPage() {
           }
         }}
       />
-      <div className="flex-1 min-w-0 h-full overflow-auto">{view}</div>
+      <div className="flex-1 min-w-0 h-full flex flex-col">
+        {/* the deploy views explain this themselves, next to their button */}
+        {paused && !deployModelId && !deploySolution && (
+          <div className="shrink-0 px-vesper-10 pt-vesper-6">
+            <Admonition variant="info" size="sm">
+              {paused}
+            </Admonition>
+          </div>
+        )}
+        <div className="flex-1 min-h-0 overflow-auto">{view}</div>
+      </div>
+
+      <StopSolutionModal
+        item={stoppingSolution}
+        onClose={() => setStoppingSolution(null)}
+        onConfirm={(item) => void stopSolution(item)}
+      />
 
       <StopDeploymentModal
         item={stopping?.item ?? null}

@@ -11,6 +11,7 @@ import { TextButton } from "@tenstorrent/vesper/text-button";
 import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
 import { MatrixLoader } from "@/src/vesper/components/matrix-loader";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
 import type { DeploymentItem, DeploymentState } from "@/src/vesper/types";
 import { STATE_LABEL } from "../constants";
 import { formatDeviceNumber } from "@/src/vesper/utils/models";
@@ -121,6 +122,11 @@ export function DeploymentCard({
   const inFlight = item.state === "downloading" || item.state === "deploying";
   const failed =
     item.state === "download-failed" || item.state === "deploy-failed";
+  // deploying and stopping are paused during a board reset or a Docker
+  // control outage; cancelling a deploy that has a container stops it
+  const paused = !!useModelActionsPaused();
+  const cancelStopsContainer =
+    !!item.containerId || !!item.members?.some((m) => m.containerId);
 
   return (
     <div
@@ -141,6 +147,7 @@ export function DeploymentCard({
               size="sm"
               variant="subtle"
               className="relative z-10 font-vesper-mono uppercase"
+              disabled={paused && cancelStopsContainer}
               onClick={onCancel}
             >
               Cancel
@@ -207,6 +214,7 @@ export function DeploymentCard({
             size="xs"
             variant="contrast"
             className="w-full"
+            disabled={paused}
             onClick={onRetry}
           >
             {item.state === "download-failed" ? "Retry" : "Redeploy"}
@@ -230,6 +238,7 @@ export function DeploymentCard({
             variant="danger"
             className="w-full"
             iconLeft={<Reset />}
+            disabled={paused}
             onClick={onRemoveAndRedeploy}
           >
             Remove and redeploy

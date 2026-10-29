@@ -10,6 +10,7 @@ import { Typography } from "@tenstorrent/vesper/typography";
 import { cn } from "@/src/lib/utils";
 import { DeviceTag } from "@/src/vesper/components/device-tag";
 import { ModelLogo } from "@/src/vesper/components/model-logo";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
 import type {
   DeploymentItem,
   DeploymentState,
@@ -106,6 +107,7 @@ export function FailurePanel({
   onRetry(): void;
   onDismiss(): void;
 }) {
+  const paused = !!useModelActionsPaused();
   return (
     <div className="flex flex-col gap-vesper-4 p-vesper-4 rounded-vesper-1 border border-vesper-border-error-subtle bg-vesper-background-error-subtle">
       <ProgressBar size="sm" value={0} aria-label="Progress" />
@@ -123,6 +125,7 @@ export function FailurePanel({
           size="xs"
           variant="contrast"
           iconLeft={<Reset />}
+          disabled={paused}
           onClick={onRetry}
         >
           {item.state === "download-failed" ? "Retry" : "Redeploy"}
@@ -244,6 +247,9 @@ export function DeploymentDetail({
     item.state === "download-failed" || item.state === "deploy-failed";
   // a container's logs, a dead container's workflow log, or the deploy job's
   const canOpenLogs = !!item.containerId || !!item.historyId || !!item.jobId;
+  // deploying and stopping are paused during a board reset or a Docker
+  // control outage; cancelling a deploy that has a container stops it
+  const paused = !!useModelActionsPaused();
 
   const openDemo = (demo: DemoLink) =>
     navigate(demo.href, {
@@ -335,6 +341,7 @@ export function DeploymentDetail({
               variant="tertiary"
               className="flex-1"
               iconLeft={<ErrorIcon />}
+              disabled={!failed && paused && !!item.containerId}
               onClick={failed ? onDismiss : onCancel}
             >
               Cancel
@@ -346,7 +353,7 @@ export function DeploymentDetail({
               variant="tertiary"
               className="shrink-0 whitespace-nowrap"
               iconLeft={<ErrorIcon />}
-              disabled={!item.containerId || item.dead}
+              disabled={!item.containerId || item.dead || paused}
               onClick={onStop}
             >
               Stop container
