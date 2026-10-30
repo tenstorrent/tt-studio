@@ -109,6 +109,9 @@ pub fn spawn_streaming(
     let mut child = Command::new(&spec.program)
         .args(&spec.args)
         .current_dir(&spec.cwd)
+        // The reader below stops at the first non-UTF-8 line, and Python on
+        // Windows writes pipes in the ANSI code page (where "→" can't encode).
+        .env("PYTHONIOENCODING", "utf-8")
         .envs(spec.envs.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -15,7 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use common::free_port;
-use tt_studio_desktop_lib::port_clear::{clear_ports, facts_for, terminate_and_wait, HolderClass};
+use tt_studio_desktop_lib::port_clear::{clear_ports, facts_for, HolderClass};
 
 /// Hold `port` open in a child process until it is killed.
 fn hold_port(port: u16) -> Option<Child> {
@@ -81,6 +81,9 @@ fn refuses_to_kill_an_unrecognised_holder() {
     let _ = child.wait();
 }
 
+// SIGTERM via `kill` is Unix-only; on Windows facts_for() is None, so every
+// holder classifies Unknown and terminate_and_wait is never reached.
+#[cfg(unix)]
 #[test]
 fn terminate_and_wait_frees_a_port_it_is_pointed_at() {
     let port = free_port();
@@ -94,7 +97,7 @@ fn terminate_and_wait_frees_a_port_it_is_pointed_at() {
     // *whether* to call this, and this decides whether the port is actually
     // free afterwards.
     assert!(
-        terminate_and_wait(pid, port, Duration::from_secs(5)),
+        tt_studio_desktop_lib::port_clear::terminate_and_wait(pid, port, Duration::from_secs(5)),
         "SIGTERM should free the port"
     );
     assert!(!port_is_taken(port), "the port must be bindable again");
