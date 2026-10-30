@@ -20,7 +20,7 @@ def get_spdx_header_type(file_path):
     
     if suffix in ('.py', '.sh') or name == 'Dockerfile':
         return 'hash'
-    elif suffix in ('.ts', '.tsx', '.js', '.jsx'):
+    elif suffix in ('.ts', '.tsx', '.js', '.jsx', '.rs'):
         return 'double_slash'
     elif suffix == '.css':
         return 'css'
@@ -42,7 +42,7 @@ def get_spdx_headers():
 #
 # SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
 """,
-        # TypeScript, JavaScript
+        # TypeScript, JavaScript, Rust
         'double_slash': f"""// SPDX-License-Identifier: Apache-2.0
 //
 // SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
@@ -84,6 +84,8 @@ def should_skip_spdx_directory(directory_path):
         'tt-inference-server',  # Exclude (no longer used, replaced by artifact)
         '.artifacts',  # Downloaded inference-server artifact — not our source
         'logs',  # Host-side runtime logs
+        'target',  # Cargo build output (desktop/src-tauri/target)
+        'gen',  # Tauri generated schemas (desktop/src-tauri/gen)
         'tt_studio_persistent_volume',  # Exclude runtime data
     }
     
@@ -110,6 +112,7 @@ def _iter_spdx_files(repo_root):
     subtrees = [
         repo_root / "app" / "backend",
         repo_root / "app" / "agent",
+        repo_root / "desktop",
         repo_root / "dev-tools",
         repo_root / "models",
         repo_root / "docs",

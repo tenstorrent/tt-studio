@@ -23,6 +23,7 @@ from tt_setup.console._theme import (
     set_no_clear,
     set_verbose,
 )
+from tt_setup.console import _events as events
 from tt_setup.console._stepper import (
     add_note,
     begin_phase,
@@ -56,6 +57,7 @@ from tt_setup.console._prompts import ask, confirm, secret
 from tt_setup.console._steps import download_with_progress, step
 
 __all__ = [
+    "events",
     "TT_THEME", "Console", "console", "_real_console", "real_console", "set_verbose",
     "is_verbose", "set_no_clear", "no_clear", "progress_status", "_fmt_duration",
     "in_phase", "show_detail", "add_note", "get_notes",

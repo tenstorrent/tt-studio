@@ -1,0 +1,262 @@
+name: Desktop release
+
+# Builds the TT-Studio desktop app (desktop/, Tauri v2) for macOS, Windows,
+# and Linux and attaches the installers + the updater manifest (latest.json)
+# to the GitHub release, so one v* tag drives both the GHCR service images
+# (publish-images.yml) and the desktop artifacts.
+#
+# Publishing is deliberately release-only: a v* tag push or a published GitHub
+# release uploads artifacts to the release for that tag. workflow_dispatch
+# builds everything as a dry run by default; its `publish` input allows an
+# explicit ad-hoc upload (only when dispatched on a v* tag ref). Nothing
+# publishes from dev or feature branches automatically.
+#
+# Caveat (same as publish-images.yml): tags/releases created by another
+# workflow using the default GITHUB_TOKEN do not trigger this workflow
+# (GitHub suppresses recursive triggers). Release tagging today is done from
+# a maintainer's machine (run.py --merge-rc-branch) with their credentials,
+# which does trigger it; if tagging is ever automated, that workflow must
+# call this one via workflow_call or push the tag with a PAT.
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload artifacts + latest.json to the GitHub release (off = dry-run build only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+# contents: write is required to upload assets to the release.
+permissions:
+  contents: write
+
+jobs:
+  # Resolves which release tag (if any) this run targets and whether artifacts
+  # should be uploaded, so every build job shares one publish decision.
+  prepare:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - name: Compute tag and publish decision
+        id: meta
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          TAG=""
+          case "$GITHUB_REF" in
+            refs/tags/v*) TAG="$GITHUB_REF_NAME" ;;
+          esac
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="$RELEASE_TAG"
+          fi
+
+          PUBLISH=true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PUBLISH="${DISPATCH_PUBLISH:-false}"
+          fi
+          # Without a v* tag there is no release to attach artifacts to.
+          [ -n "$TAG" ] || PUBLISH=false
+
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "publish=$PUBLISH"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag='$TAG' publish=$PUBLISH"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ships one universal .dmg (aarch64 + x86_64 in a single
+          # binary) rather than per-arch installers.
+          - name: macos-universal
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - name: windows-x64
+            os: windows-latest
+            args: --bundles nsis
+          # ubuntu-22.04 (not -latest) keeps the AppImage/.deb glibc floor low
+          # enough for older distros. Shipping a .deb follows the precedent
+          # set by tt-local-generator's release-deb workflow.
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: --bundles appimage,deb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install launcher dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # tauri.conf.json sets createUpdaterArtifacts, which makes the bundler
+      # sign the update packages with TAURI_SIGNING_PRIVATE_KEY and fail hard
+      # if it's absent. Forks and dry runs without the secret still need green
+      # builds, so in that case updater artifacts are disabled via a config
+      # overlay (installers still build — they're just not updater-servable).
+      - name: Configure updater artifact signing
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            OVERLAY="${RUNNER_TEMP//\\//}/tauri-conf-overlay.json"
+            [ -f "$OVERLAY" ] || echo '{}' > "$OVERLAY"
+            jq '.bundle.createUpdaterArtifacts = false' "$OVERLAY" > "$OVERLAY.tmp"
+            mv "$OVERLAY.tmp" "$OVERLAY"
+            echo "TAURI_EXTRA_ARGS=--config $OVERLAY" >> "$GITHUB_ENV"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building without updater artifacts"
+          fi
+
+      # Releases are plain git tags with no version bumps committed to the
+      # tree (same philosophy as tt_setup/env_config/_version.py), so the
+      # checked-in desktop versions are dev placeholders. Sync them to the
+      # tag before bundling; dry runs off a tag keep the placeholder.
+      - name: Stamp version from release tag
+        if: needs.prepare.outputs.version != ''
+        shell: bash
+        working-directory: desktop
+        run: node scripts/stamp-version.mjs "${{ needs.prepare.outputs.version }}"
+
+      # The tauri bundler codesigns when APPLE_CERTIFICATE (base64 .p12) +
+      # APPLE_SIGNING_IDENTITY are in the env, and notarizes when APPLE_ID /
+      # APPLE_PASSWORD / APPLE_TEAM_ID are too. It treats the variables as
+      # enabled the moment they exist — even empty — so absent secrets must
+      # not reach the build env: export them only when non-empty, and build
+      # unsigned otherwise instead of failing.
+      - name: Enable macOS code signing and notarization
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::APPLE_CERTIFICATE not set — building unsigned, unnotarized macOS bundles"
+            exit 0
+          fi
+          for VAR in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                     APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!VAR}" ]; then
+              {
+                echo "${VAR}<<TT_EOF"
+                echo "${!VAR}"
+                echo "TT_EOF"
+              } >> "$GITHUB_ENV"
+            fi
+          done
+          if [ -z "$APPLE_ID" ]; then
+            echo "::warning::APPLE_ID not set — signing but skipping notarization"
+          fi
+
+      # Windows Authenticode via Azure Trusted Signing: when the AZURE_*
+      # secrets exist, wire the bundler's signCommand to trusted-signing-cli
+      # (authenticates with the AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET env
+      # on the build step). Without them the NSIS installer builds unsigned.
+      - name: Enable Windows code signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AZURE_CLIENT_SECRET" ]; then
+            echo "::warning::AZURE_CLIENT_SECRET not set — building unsigned Windows installer"
+            exit 0
+          fi
+          cargo install trusted-signing-cli --locked
+          OVERLAY="${RUNNER_TEMP//\\//}/tauri-conf-overlay.json"
+          [ -f "$OVERLAY" ] || echo '{}' > "$OVERLAY"
+          jq --arg cmd "trusted-signing-cli -e $AZURE_SIGNING_ENDPOINT -a $AZURE_SIGNING_ACCOUNT -c $AZURE_SIGNING_PROFILE %1" \
+            '.bundle.windows.signCommand = $cmd' "$OVERLAY" > "$OVERLAY.tmp"
+          mv "$OVERLAY.tmp" "$OVERLAY"
+          echo "TAURI_EXTRA_ARGS=--config $OVERLAY" >> "$GITHUB_ENV"
+
+      # tauri-action runs the bundler (beforeBuildCommand builds the launcher
+      # bundle first) and, when tagName is set, uploads the installers to the
+      # GitHub release for that tag — creating the release if the tag push got
+      # here before run.py --merge-rc-branch created it. On a dry run tagName
+      # is empty and nothing is uploaded.
+      #
+      # includeUpdaterJson makes each matrix job upload/merge latest.json on
+      # the release, so once all three finish it lists every platform. The
+      # tauri updater plugin in the app polls exactly that asset (endpoint in
+      # desktop/src-tauri/tauri.conf.json).
+      - name: Build desktop app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Consumed by trusted-signing-cli when the Windows signCommand is
+          # configured above; harmless (unused) when empty.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        with:
+          projectPath: desktop
+          tagName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
+          releaseName: ${{ needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.tag || '' }}
+          releaseDraft: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }} ${{ env.TAURI_EXTRA_ARGS }}
