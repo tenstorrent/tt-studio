@@ -21,13 +21,33 @@ HF_GATED_MODELS = [
 ]
 
 
-def _check_repo(token: str, repo_id: str, filename: str = "config.json") -> Optional[int]:
-    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+def _check_repo(
+    token: str, repo_id: str, filename: Optional[str] = "config.json"
+) -> Optional[int]:
     headers = {"User-Agent": "tt-studio"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        return requests.get(url, headers=headers, timeout=10, allow_redirects=True).status_code
+        if filename:
+            url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+            return requests.get(
+                url, headers=headers, timeout=10, allow_redirects=True
+            ).status_code
+        url = f"https://huggingface.co/api/models/{repo_id}"
+        resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        if resp.status_code != 200:
+            return resp.status_code
+        data = resp.json() if hasattr(resp, "json") else {}
+        if isinstance(data, dict) and data.get("gated"):
+            siblings = data.get("siblings") or []
+            first_file = (
+                siblings[0].get("rfilename")
+                if siblings and isinstance(siblings[0], dict)
+                else None
+            )
+            if first_file:
+                return _check_repo(token, repo_id, first_file)
+        return 200
     except Exception:
         return None
 
@@ -63,6 +83,8 @@ def check_hf_repos(token: str, repos: List[str]) -> List[Dict]:
         code = _check_repo(token, repo)
         if code == 404:
             code = _check_repo(token, repo, "model_index.json")
+        if code == 404:
+            code = _check_repo(token, repo, None)
         status = _status_from_code(code)
         if not token and status in ("auth_failed", "denied"):
             status = "no_token"
