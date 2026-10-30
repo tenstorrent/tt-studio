@@ -1,3 +1,4 @@
+from docker_control.deploy_guards import hugging_face_access_refusal
 # SPDX-License-Identifier: Apache-2.0
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
@@ -499,6 +500,18 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
         # First probe config.json (default), then fall back to model_index.json.
         self.assertEqual(repo_mock.call_count, 2)
         self.assertEqual(repo_mock.call_args_list[1].args[2], "model_index.json")
+
+    @patch("api.hf_access._check_repo", side_effect=[404, 404, 200])
+    @patch("shared_config.user_config.get_hf_token", return_value="")
+    def test_community_weights_repo_without_config_falls_back_to_model_api(
+        self, _token_mock, repo_mock
+    ):
+        """Community weights repos (e.g. Ruicheng/moge-2-vitl-normal) have no
+        config.json or model_index.json; falling back to the model-info API
+        (filename=None) must allow the pre-check to pass."""
+        self.assertIsNone(hugging_face_access_refusal("Ruicheng/moge-2-vitl-normal"))
+        self.assertEqual(repo_mock.call_count, 3)
+        self.assertIsNone(repo_mock.call_args_list[2].args[2])
 
 
 @dataclass
