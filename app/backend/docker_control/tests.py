@@ -404,6 +404,51 @@ class ClassifyFailureTests(SimpleTestCase):
         self.assertEqual(_classify_failure(""), (None, None))
 
 
+class ExcludedBoardTests(SimpleTestCase):
+    """A catalog row's excluded_boards hides and refuses it on those boards, even
+    when one of its device_configurations maps onto the board (P150 on P300x2)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.impl_id = next(
+            (mid for mid, impl in model_implmentations.items() if impl.excluded_boards),
+            None,
+        )
+        self.assertIsNotNone(self.impl_id, "expected a catalog row with excluded_boards")
+        self.impl = model_implmentations[self.impl_id]
+        self.board = self.impl.excluded_boards[0]
+
+    def _row(self, board):
+        with patch("docker_control.views.detect_board_type", return_value=board):
+            response = self.client.get("/docker/get_containers/")
+        self.assertEqual(response.status_code, 200)
+        return next(r for r in response.data if r["id"] == self.impl_id)
+
+    def test_listed_as_incompatible_on_an_excluded_board(self):
+        row = self._row(self.board)
+        self.assertFalse(row["is_compatible"])
+        self.assertNotIn(self.board, row["compatible_boards"])
+
+    def test_still_compatible_on_its_own_board(self):
+        row = self._row("P150")
+        self.assertTrue(row["is_compatible"])
+        self.assertIn("P150", row["compatible_boards"])
+
+    @patch("api.hf_access._check_repo", return_value=200)
+    @patch("shared_config.user_config.get_hf_token", return_value="fake-token")
+    def test_deploy_is_refused_on_an_excluded_board(self, _token_mock, _repo_mock):
+        with patch("docker_control.views.detect_board_type", return_value=self.board), patch(
+            "docker_control.models.ModelDeployment.objects.filter"
+        ):
+            response = self.client.post(
+                "/docker/deploy/",
+                {"model_id": self.impl_id, "weights_id": ""},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(f"not supported on {self.board}", response.data.get("message", ""))
+
+
 class DeployViewHfPreCheckTests(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()

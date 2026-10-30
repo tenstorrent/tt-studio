@@ -25,6 +25,13 @@ export async function mockBackend(page: Page): Promise<void> {
   // bare array (a mismatch throws during render and blanks the whole tree).
   // Registered after the generic handler: Playwright matches routes in
   // reverse registration order, so these take precedence.
+  // A leftover public/.cleanup-pending (armed by `run.py --cleanup-all`) is
+  // gitignored but still copied into dist/, and the app wipes localStorage the
+  // first time it sees a fresh token -- which would silently undo anything a
+  // test seeded before navigating. Absent is the normal state, so say absent.
+  await page.route("**/.cleanup-pending", (route) =>
+    route.fulfill({ status: 404, contentType: "text/plain", body: "" })
+  );
   await page.route("**/docker-api/deployment-history/**", (route) =>
     route.fulfill({
       status: 200,
@@ -32,6 +39,20 @@ export async function mockBackend(page: Page): Promise<void> {
       body: JSON.stringify({ status: "success", deployments: [], count: 0 }),
     })
   );
+}
+
+// The onboarding tour auto-starts on a first visit and its spotlight overlay
+// swallows pointer events, so any test that clicks has to opt out. Marking the
+// tour complete in localStorage before the app boots is the same switch a
+// returning user trips. Purely-visual tests do not need this.
+export async function suppressOnboardingTour(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("tourCompleted:onboarding", "true");
+    } catch {
+      // Storage disabled; the tour will show and the caller will see why.
+    }
+  });
 }
 
 // Console noise that does not indicate a rendering failure. Uncaught page
