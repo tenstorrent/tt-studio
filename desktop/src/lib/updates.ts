@@ -19,11 +19,6 @@ export interface ShellUpdate {
 }
 
 /**
- * Ask the release feed whether a newer shell exists. Resolves null when
- * already current; rejects when the feed is unreachable (offline) — callers
- * decide whether that's silent (launch check) or surfaced (manual check).
- */
-/**
  * What (if anything) to tell the user when a stack update was skipped.
  * null = say nothing: up-to-date and policy "never" are the expected quiet
  * paths, and a missing checkout gets cloned at the latest release anyway.
@@ -41,6 +36,11 @@ export function stackSkipNotice(reason: StackSkipReason): string | null {
   }
 }
 
+/**
+ * Ask the release feed whether a newer shell exists. Resolves null when
+ * already current; rejects when the feed is unreachable (offline) — callers
+ * decide whether that's silent (launch check) or surfaced (manual check).
+ */
 export async function checkShellUpdate(): Promise<ShellUpdate | null> {
   const update = await check();
   if (!update) return null;

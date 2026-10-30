@@ -157,9 +157,9 @@ function LogsViewer({ onBack }: { onBack: () => void }) {
         </p>
       )}
 
-      <pre
+      <div
         data-testid="logs-body"
-        className="min-h-0 flex-1 overflow-auto rounded-md border border-zinc-800 bg-zinc-900 p-3 text-xs leading-5"
+        className="min-h-0 flex-1 overflow-auto whitespace-pre rounded-md border border-zinc-800 bg-zinc-900 p-3 font-mono text-xs leading-5"
       >
         {files.length === 0
           ? "No launcher logs yet — they appear after the first bring-up."
@@ -168,7 +168,7 @@ function LogsViewer({ onBack }: { onBack: () => void }) {
                 {selected?.ndjson ? l.text : l.raw}
               </div>
             ))}
-      </pre>
+      </div>
     </main>
   );
 }

@@ -73,12 +73,15 @@ def _git_head():
 def _hardware_label():
     """The detected hardware label, probed the same way as the ready panel."""
     import shutil
+    from tt_setup.cli._run import _qb2_configured
     from tt_setup.docker import detect_tt_hardware
     from tt_setup.shell import check_tt_smi, resolve_hardware_label
     tt_status, tt_detail, tt_board = None, "", ""
-    if shutil.which("tt-smi"):
+    tt_smi_present = bool(shutil.which("tt-smi"))
+    if tt_smi_present:
         tt_status, tt_detail, tt_board = check_tt_smi()
-    label, _ = resolve_hardware_label(tt_status, tt_detail, tt_board, False,
+    label, _ = resolve_hardware_label(tt_status, tt_detail, tt_board,
+                                      _qb2_configured() and tt_smi_present,
                                       hw_present=detect_tt_hardware())
     return label
 
