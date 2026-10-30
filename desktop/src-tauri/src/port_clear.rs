@@ -24,8 +24,10 @@
 //! is that argv names an alias whose own config forwards this port, which is
 //! why `ssh_config.rs` collects `local_forwards`.
 
+#[cfg(not(windows))]
 use std::path::Path;
 use std::process::Command;
+#[cfg(not(windows))]
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -153,6 +155,7 @@ pub fn classify(
 // ---- gathering facts about a pid ----
 
 /// `ps -o uid=,command=` output: the leading uid, then the command line.
+#[cfg(any(not(windows), test))]
 fn parse_ps_row(stdout: &str) -> Option<(u32, String)> {
     let line = stdout.lines().find(|l| !l.trim().is_empty())?;
     let trimmed = line.trim_start();

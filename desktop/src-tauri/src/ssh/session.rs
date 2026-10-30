@@ -200,8 +200,12 @@ async fn agent_auth(handle: &mut Handle<Checker>, user: &str) -> Result<(), Stri
         {
             Ok(agent) => agent_auth_with(handle, user, agent).await,
             Err(pipe_err) => {
-                if pageant::is_pageant_running().await {
-                    let agent = keys::agent::client::AgentClient::connect_pageant().await;
+                // connect_pageant() succeeds even with no Pageant running (the
+                // window-message transport only fails on first use), so ask first.
+                if pageant::wmmessage::is_pageant_running() {
+                    let agent = keys::agent::client::AgentClient::connect_pageant()
+                        .await
+                        .map_err(|e| format!("pageant not available ({e})"))?;
                     agent_auth_with(handle, user, agent).await
                 } else {
                     Err(format!("not available ({pipe_err})"))

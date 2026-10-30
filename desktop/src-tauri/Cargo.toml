@@ -42,6 +42,10 @@ tauri-plugin-single-instance = "2"
 # Decode `base64` output when copying remote bundles back over ssh exec.
 base64 = "0.22"
 
+[target.'cfg(windows)'.dependencies]
+# Pageant presence check for the ssh-agent fallback (russh already depends on it).
+pageant = "0.2"
+
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 tempfile = "3.27.0"

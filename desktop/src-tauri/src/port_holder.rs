@@ -51,6 +51,7 @@ fn unix_listener(port: u16) -> Option<PortHolder> {
 
 /// First pid/command pair in lsof's `-F` output. Several rows are normal
 /// (one per bound address family); they're the same process.
+#[cfg(any(not(windows), test))]
 fn parse_lsof(stdout: &str) -> Option<PortHolder> {
     let mut pid = None;
     for line in stdout.lines() {
