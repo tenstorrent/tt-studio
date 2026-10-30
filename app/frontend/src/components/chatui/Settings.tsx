@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
+import { DEFAULT_MAX_OUTPUT_TOKENS } from "./tokenLimits";
 import { Switch } from "../ui/switch";
 
 interface SettingsProps {
@@ -63,11 +64,29 @@ const DEFAULT_VALUES = {
 
 // System prompt presets
 const SYSTEM_PROMPT_PRESETS = [
-  { label: "Pirate", prompt: "You are a pirate. Respond to everything in pirate speak." },
-  { label: "Code Tutor", prompt: "You are a coding tutor. Respond only with code examples and brief explanations." },
-  { label: "3 Bullets", prompt: "Always respond in exactly 3 bullet points, no more, no less." },
-  { label: "JSON Output", prompt: "Always respond in valid JSON format with keys: answer, confidence, source." },
-  { label: "Sarcastic", prompt: "You are a sarcastic AI who answers questions reluctantly but accurately." },
+  {
+    label: "Pirate",
+    prompt: "You are a pirate. Respond to everything in pirate speak.",
+  },
+  {
+    label: "Code Tutor",
+    prompt:
+      "You are a coding tutor. Respond only with code examples and brief explanations.",
+  },
+  {
+    label: "3 Bullets",
+    prompt: "Always respond in exactly 3 bullet points, no more, no less.",
+  },
+  {
+    label: "JSON Output",
+    prompt:
+      "Always respond in valid JSON format with keys: answer, confidence, source.",
+  },
+  {
+    label: "Sarcastic",
+    prompt:
+      "You are a sarcastic AI who answers questions reluctantly but accurately.",
+  },
 ];
 
 const validateParam = (key: string, value: number): number => {
@@ -263,67 +282,70 @@ export default function Settings({
             {/* System Prompt — hidden in template/completion mode, where the raw
                 prompt is sent as-is and no system prompt is applied. */}
             {!hideSystemPrompt && (
-            <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
-                  <MessageSquare className="h-4 w-4" />
-                </div>
+              <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                    System Prompt
-                  </span>
+                  <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
+                    <MessageSquare className="h-4 w-4" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                      System Prompt
+                    </span>
+                  </div>
                 </div>
-              </div>
-              {/* Active prompt status */}
-              {settings.systemPrompt ? (
-                <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-[#7C68FA]/10 text-[#7C68FA] w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C68FA] inline-block" />
-                  Custom override active
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Active (auto-generated):
-                  </p>
-                  <p className="text-xs font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded px-2 py-1.5 break-words">
-                    {defaultSystemPrompt}
-                  </p>
-                </div>
-              )}
-              <textarea
-                value={settings.systemPrompt}
-                onChange={(e) => onSettingsChange("systemPrompt", e.target.value)}
-                placeholder="Leave blank to use auto-generated prompt above…"
-                rows={4}
-                className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] resize-y"
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {SYSTEM_PROMPT_PRESETS.map((preset) => {
-                  const isActive = settings.systemPrompt === preset.prompt;
-                  return (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() =>
-                        onSettingsChange(
-                          "systemPrompt",
-                          isActive ? "" : preset.prompt
-                        )
-                      }
-                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${isActive
-                        ? "bg-[#7C68FA] text-white border-[#7C68FA]"
-                        : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
+                {/* Active prompt status */}
+                {settings.systemPrompt ? (
+                  <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-[#7C68FA]/10 text-[#7C68FA] w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#7C68FA] inline-block" />
+                    Custom override active
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Active (auto-generated):
+                    </p>
+                    <p className="text-xs font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded px-2 py-1.5 break-words">
+                      {defaultSystemPrompt}
+                    </p>
+                  </div>
+                )}
+                <textarea
+                  value={settings.systemPrompt}
+                  onChange={(e) =>
+                    onSettingsChange("systemPrompt", e.target.value)
+                  }
+                  placeholder="Leave blank to use auto-generated prompt above…"
+                  rows={4}
+                  className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] resize-y"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {SYSTEM_PROMPT_PRESETS.map((preset) => {
+                    const isActive = settings.systemPrompt === preset.prompt;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() =>
+                          onSettingsChange(
+                            "systemPrompt",
+                            isActive ? "" : preset.prompt
+                          )
+                        }
+                        className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                          isActive
+                            ? "bg-[#7C68FA] text-white border-[#7C68FA]"
+                            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
                         }`}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Custom instructions fully replace the auto-generated prompt
+                </p>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Custom instructions fully replace the auto-generated prompt
-              </p>
-            </div>
             )}
 
             <Parameter
@@ -351,13 +373,27 @@ export default function Settings({
                 if (!settings.maxLength || settings.maxLength <= 0) {
                   onSettingsChange(
                     "maxLength",
-                    Math.max(1, Math.floor(((maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) * 3) / 4))
+                    Math.min(
+                      DEFAULT_MAX_OUTPUT_TOKENS,
+                      Math.max(
+                        1,
+                        Math.floor(
+                          ((maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) *
+                            3) /
+                            4
+                        )
+                      )
+                    )
                   );
                 }
               }}
               min={PARAM_RANGES.maxLength.min}
               max={maxTokensSliderMax ?? PARAM_RANGES.maxLength.max}
-              step={(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) > 8192 ? 256 : 1}
+              step={
+                (maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) > 8192
+                  ? 256
+                  : 1
+              }
               description={`Maximum output tokens (model context: ${formatTokenCount(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max)})`}
               formatValue={formatTokenCount}
             />
@@ -403,7 +439,10 @@ export default function Settings({
                 if (isNaN(numValue) || numValue < 0) {
                   onSettingsChange("seed", 0);
                 } else {
-                  onSettingsChange("seed", Math.min(numValue, PARAM_RANGES.seed.max));
+                  onSettingsChange(
+                    "seed",
+                    Math.min(numValue, PARAM_RANGES.seed.max)
+                  );
                 }
               }}
               onBlur={() => {
