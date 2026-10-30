@@ -787,8 +787,10 @@ mod tests {
         assert_eq!(status.forwards[0].remote_port, 9999);
         // The status update lands when the supervisor drops the forward; the
         // listener's accept task unwinds a scheduler tick later, and until it
-        // does the kernel still completes handshakes from its backlog.
-        let closed = tokio::time::timeout(Duration::from_secs(2), async {
+        // does the kernel still completes handshakes from its backlog. Windows
+        // retries a refused loopback connect for ~2s before failing, so the
+        // budget has to cover one of those on top of the unwind.
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
             while tokio::net::TcpStream::connect(("127.0.0.1", port))
                 .await
                 .is_ok()
