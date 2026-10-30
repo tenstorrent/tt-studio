@@ -60,7 +60,7 @@ export const useChat = (modelID: string) => {
         }
       }
     },
-    [isGenerating]
+    [isGenerating, modelID]
   );
 
   const scrollToBottom = useCallback(() => {

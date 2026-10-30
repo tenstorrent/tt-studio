@@ -21,6 +21,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
   const [controlPlaneDegraded, setControlPlaneDegraded] = useState<boolean>(false);
+  const [modelsLoaded, setModelsLoaded] = useState<boolean>(false);
 
   // Pause polling while a hardware reset is running.
   const { deviceState } = useDeviceState();
@@ -68,6 +69,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
         setModels([]);
         setHasDeployedModels(false);
       }
+    } finally {
+      setModelsLoaded(true);
     }
   }, [setUserStoppedModel]);
 
@@ -87,7 +90,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight, controlPlaneDegraded }}
+      value={{ models, setModels, refreshModels, modelsLoaded, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight, controlPlaneDegraded }}
     >
       {children}
     </ModelsContext.Provider>

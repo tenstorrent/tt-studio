@@ -1,0 +1,624 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import type { MenuItemProps } from "@tenstorrent/vesper/menu";
+import { addToast } from "@tenstorrent/vesper/toast";
+import { Typography } from "@tenstorrent/vesper/typography";
+import { Admonition } from "@tenstorrent/vesper/admonition";
+import { cancelDeployment, deleteModel } from "@/src/api/modelsDeployedApis";
+import { useModels } from "@/src/hooks/useModels";
+import { useActiveDeploymentsContext } from "@/src/providers/ActiveDeploymentsContext";
+import { getErrorMessage } from "@/src/utils/errors";
+import { BackButton } from "@/src/vesper/components/back-button";
+import { ContainerLogsModal } from "@/src/vesper/components/container-logs-modal";
+import { EmptyPill } from "@/src/vesper/components/empty-pill";
+import {
+  JobLogsModal,
+  type JobLogsTarget,
+} from "@/src/vesper/components/job-logs-modal";
+import { ResetHardwareModal } from "@/src/vesper/components/reset-hardware-modal";
+import {
+  WorkflowLogsModal,
+  type WorkflowLogsTarget,
+} from "@/src/vesper/components/workflow-logs-modal";
+import {
+  useChipStatus,
+  withReservations,
+} from "@/src/vesper/hooks/use-chip-status";
+import { useDeployments } from "@/src/vesper/hooks/use-deployments";
+import { useModelCatalog } from "@/src/vesper/hooks/use-model-catalog";
+import { useModelActionsPaused } from "@/src/vesper/hooks/use-model-actions-paused";
+import type { CatalogModel, DeploymentItem } from "@/src/vesper/types";
+import { getDemosForModelType } from "@/src/vesper/utils/models";
+import { Catalog, type CatalogTab } from "./components/catalog";
+import { DeployModel } from "./components/deploy-model";
+import { DeploySolution } from "./components/deploy-solution";
+import { DeploymentDetail } from "./components/deployment-detail";
+import { DeploymentsPanel } from "./components/deployments-panel";
+import { SolutionDetail } from "./components/solution-detail";
+import { StopDeploymentModal } from "./components/stop-deployment-modal";
+import { StopSolutionModal } from "./components/stop-solution-modal";
+import { useAutoDeploy } from "./hooks/use-auto-deploy";
+import { describeDeployError, useDeployModel } from "./hooks/use-deploy-model";
+import { SOLUTION_KEY_PREFIX, useSolutionGroups } from "./solution-groups";
+import { voiceAgentMemberRequest } from "./solutions";
+import { buildAutoDeployRequest } from "./utils";
+
+export default function DeploymentsPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { items, isLoading: deploymentsLoading, dismiss } = useDeployments();
+  const { groupedItems, addGroup, removeGroup, replaceMemberJob } =
+    useSolutionGroups(items, deploymentsLoading);
+  const {
+    chipStatus,
+    isLoading: chipStatusLoading,
+    refetch: refetchChipStatus,
+  } = useChipStatus();
+  const catalog = useModelCatalog();
+  const {
+    removeDeployment,
+    deployments: activeJobs,
+    reservedDeviceIds,
+  } = useActiveDeploymentsContext();
+  const { refreshModels } = useModels();
+  const deploy = useDeployModel();
+
+  useAutoDeploy();
+
+  // Every view here reads the deployments, which devices are free and the
+  // model catalog. Drawn as each arrives, the page settles in stages (catalog
+  // cards disable once device availability is in), so it shows its loading
+  // state until all three are.
+  const isLoading =
+    deploymentsLoading || chipStatusLoading || catalog.isPending;
+
+  const [stopping, setStopping] = useState<{
+    item: DeploymentItem;
+    redeploy: boolean;
+  } | null>(null);
+  const [logsFor, setLogsFor] = useState<DeploymentItem | null>(null);
+  const [workflowLogs, setWorkflowLogs] = useState<WorkflowLogsTarget | null>(
+    null
+  );
+  const [jobLogs, setJobLogs] = useState<JobLogsTarget | null>(null);
+  const [resetFor, setResetFor] = useState<DeploymentItem | null>(null);
+  const [stoppingSolution, setStoppingSolution] =
+    useState<DeploymentItem | null>(null);
+  // deploying and stopping are paused during a board reset or a Docker
+  // control outage; this says why, or is null
+  const paused = useModelActionsPaused();
+
+  const tab: CatalogTab =
+    searchParams.get("tab") === "solutions" ? "solutions" : "models";
+  const selectedKey = searchParams.get("deployment");
+  const deployModelId = searchParams.get("deploy");
+  const deploySolution = searchParams.get("solution");
+  const resumeModelId = searchParams.get("resume");
+
+  const showCatalog = useCallback(
+    () => setSearchParams(tab === "solutions" ? { tab } : {}),
+    [setSearchParams, tab]
+  );
+  const select = useCallback(
+    (item: DeploymentItem) => setSearchParams({ deployment: item.key }),
+    [setSearchParams]
+  );
+
+  // a deploy's card is keyed by its job until its container exists; follow it
+  const lastSelected = useRef<DeploymentItem | null>(null);
+  const selected = useMemo(() => {
+    if (!selectedKey) return null;
+    const allItems = [...groupedItems, ...items];
+    return (
+      allItems.find((i) => i.key === selectedKey) ??
+      allItems.find((i) => i.jobId === selectedKey) ??
+      groupedItems.find((g) => g.members?.some((m) => m.key === selectedKey)) ??
+      null
+    );
+  }, [selectedKey, groupedItems, items]);
+
+  useEffect(() => {
+    if (selected) {
+      lastSelected.current = selected;
+      if (selected.key !== selectedKey) {
+        setSearchParams({ deployment: selected.key }, { replace: true });
+      }
+      return;
+    }
+    // the job finished and its container is coming up under a new key
+    const previous = lastSelected.current;
+    if (selectedKey && previous && !previous.members) {
+      const successor = items.find(
+        (i) => i.modelName === previous.modelName && i.key !== previous.key
+      );
+      if (successor)
+        setSearchParams({ deployment: successor.key }, { replace: true });
+    }
+  }, [selected, selectedKey, items, setSearchParams]);
+
+  // `?resume=<model id>` (from the CLI, or the old wizard) opens that deploy
+  useEffect(() => {
+    if (!resumeModelId) return;
+    const item = items.find((i) => i.catalogModelId === resumeModelId);
+    if (item) setSearchParams({ deployment: item.key }, { replace: true });
+  }, [resumeModelId, items, setSearchParams]);
+
+  const findCatalogModel = useCallback(
+    (item: DeploymentItem): CatalogModel | undefined =>
+      catalog.data?.find((m) => m.id === item.catalogModelId) ??
+      catalog.data?.find((m) => m.name === item.modelName),
+    [catalog.data]
+  );
+
+  const redeploy = useCallback(
+    async (item: DeploymentItem) => {
+      const model = findCatalogModel(item);
+      if (!model) {
+        addToast({
+          variant: "danger",
+          content: `${item.modelName} isn't in the model catalog, so it can't be redeployed from here.`,
+        });
+        return;
+      }
+      // A redeploy often follows a stop that has only just freed the model's
+      // devices, which the cached chip status doesn't know yet. Place it
+      // against a fresh read (falling back to the cache if that fails).
+      const fresh = await refetchChipStatus();
+      const status = fresh.data
+        ? withReservations(fresh.data, activeJobs, reservedDeviceIds)
+        : chipStatus;
+      deploy.mutate(buildAutoDeployRequest(model, status), {
+        onSuccess: (result) => {
+          addToast({
+            variant: "success",
+            content: `Redeploying ${model.name}`,
+            timeout: 4000,
+          });
+          setSearchParams({ deployment: result.jobId });
+        },
+        onError: (err) =>
+          addToast({ variant: "danger", content: describeDeployError(err) }),
+      });
+    },
+    [
+      findCatalogModel,
+      deploy,
+      chipStatus,
+      refetchChipStatus,
+      activeJobs,
+      reservedDeviceIds,
+      setSearchParams,
+    ]
+  );
+
+  const cancel = useCallback(
+    (item: DeploymentItem) => {
+      // a solution may already have running containers among its members;
+      // confirm, then stop or cancel each (see stopSolution)
+      if (item.members) {
+        setStoppingSolution(item);
+        return;
+      }
+      // once a container exists, stopping it is how a deploy is cancelled
+      if (item.containerId) {
+        setStopping({ item, redeploy: false });
+        return;
+      }
+      if (item.jobId) {
+        void cancelDeployment(item.jobId);
+        removeDeployment(item.jobId);
+      }
+      addToast({
+        variant: "default",
+        content: `Cancelled ${item.modelName}`,
+        timeout: 4000,
+      });
+      if (selectedKey === item.key) showCatalog();
+    },
+    [removeDeployment, selectedKey, showCatalog]
+  );
+
+  const dismissItem = useCallback(
+    (item: DeploymentItem) => {
+      (item.members ?? [item]).forEach(dismiss);
+      if (selectedKey === item.key) showCatalog();
+    },
+    [dismiss, selectedKey, showCatalog]
+  );
+
+  // Put members of a solution back on the devices the solution gave them,
+  // and point the group at the new deploys so they stay part of it. A member
+  // whose broken container still exists is stopped first, to free its devices.
+  const redeployMembers = useCallback(
+    async (group: DeploymentItem, targets: DeploymentItem[]) => {
+      const groupId = group.key.slice(SOLUTION_KEY_PREFIX.length);
+      const memberModels = (group.members ?? [])
+        .map(findCatalogModel)
+        .filter((model): model is CatalogModel => !!model);
+      const fresh = await refetchChipStatus();
+      const status = fresh.data
+        ? withReservations(fresh.data, activeJobs, reservedDeviceIds)
+        : chipStatus;
+      for (const member of targets) {
+        const model = findCatalogModel(member);
+        if (!model) {
+          addToast({
+            variant: "danger",
+            content: `${member.modelName} isn't in the model catalog, so it can't be redeployed from here.`,
+          });
+          continue;
+        }
+        try {
+          if (member.containerId && !member.dead) {
+            await deleteModel(member.containerId);
+          }
+          const result = await deploy.mutateAsync(
+            voiceAgentMemberRequest(
+              model,
+              memberModels,
+              status?.total_slots ?? 4
+            ) ?? buildAutoDeployRequest(model, status)
+          );
+          replaceMemberJob(groupId, member.modelName, result.jobId);
+          // the failed attempt has been replaced
+          dismiss(member);
+          addToast({
+            variant: "success",
+            content: `Redeploying ${model.name}`,
+            timeout: 4000,
+          });
+        } catch (err) {
+          addToast({
+            variant: "danger",
+            content: `Couldn't redeploy ${member.modelName}: ${describeDeployError(err)}`,
+          });
+        }
+      }
+      refreshModels();
+    },
+    [
+      findCatalogModel,
+      refetchChipStatus,
+      activeJobs,
+      reservedDeviceIds,
+      chipStatus,
+      deploy,
+      replaceMemberJob,
+      dismiss,
+      refreshModels,
+    ]
+  );
+
+  const retry = useCallback(
+    (item: DeploymentItem) => {
+      if (item.members) {
+        // just the members that failed
+        void redeployMembers(
+          item,
+          item.members.filter(
+            (m) => m.state === "download-failed" || m.state === "deploy-failed"
+          )
+        );
+        return;
+      }
+      dismiss(item);
+      void redeploy(item);
+    },
+    [dismiss, redeploy, redeployMembers]
+  );
+
+  const openLogs = useCallback((item: DeploymentItem) => {
+    if (item.containerId && item.state !== "error") {
+      setLogsFor(item);
+    } else if (item.historyId) {
+      setWorkflowLogs({
+        deploymentId: item.historyId,
+        modelName: item.modelName,
+        diedUnexpectedly: item.state === "error",
+      });
+    } else if (item.jobId) {
+      // no container yet, or the deploy failed before it got one
+      setJobLogs({ jobId: item.jobId, modelName: item.modelName });
+    }
+  }, []);
+  // keep the job log refreshing while that deploy is still running
+  const jobLogsLive =
+    jobLogs !== null &&
+    items.some(
+      (item) =>
+        item.jobId === jobLogs.jobId &&
+        (item.state === "downloading" || item.state === "deploying")
+    );
+
+  const stopSolution = useCallback(
+    async (item: DeploymentItem) => {
+      const toast = addToast({
+        variant: "loading",
+        content: `Stopping ${item.modelName}…`,
+      });
+      // every member, whatever state it's in, so nothing is left running
+      const failures: string[] = [];
+      for (const member of item.members ?? []) {
+        try {
+          if (member.containerId && !member.dead) {
+            // a running container: stopping it also resets its devices
+            await deleteModel(member.containerId);
+            if (member.jobId) removeDeployment(member.jobId);
+          } else if (member.jobId && !member.containerId) {
+            // a deploy with no container yet: cancel it if it's still going
+            if (
+              member.state === "downloading" ||
+              member.state === "deploying"
+            ) {
+              await cancelDeployment(member.jobId);
+            }
+            removeDeployment(member.jobId);
+          } else {
+            // a container that already died has nothing left to stop
+            dismiss(member);
+          }
+        } catch (err) {
+          failures.push(`${member.modelName}: ${getErrorMessage(err)}`);
+        }
+      }
+      if (failures.length === 0) {
+        toast.update({
+          variant: "success",
+          content: `Stopped ${item.modelName}`,
+          timeout: 4000,
+        });
+        removeGroup(item.key.slice(SOLUTION_KEY_PREFIX.length));
+        if (selectedKey === item.key) showCatalog();
+      } else {
+        toast.update({
+          variant: "danger",
+          content: `Couldn't stop all of ${item.modelName}. ${failures.join(" ")}`,
+        });
+      }
+      refreshModels();
+    },
+    [
+      dismiss,
+      refreshModels,
+      removeDeployment,
+      removeGroup,
+      selectedKey,
+      showCatalog,
+    ]
+  );
+
+  const menuItemsFor = useCallback(
+    (item: DeploymentItem): MenuItemProps[] => {
+      if (item.members) {
+        return [
+          { text: "View details", onSelect: () => select(item) },
+          {
+            text: "Stop all",
+            style: paused ? "disabled" : "danger",
+            onSelect: () => setStoppingSolution(item),
+          },
+        ];
+      }
+      const menu: MenuItemProps[] = [];
+      if (item.state === "active" && item.containerId) {
+        for (const demo of getDemosForModelType(item.modelType)) {
+          menu.push({
+            text: `Open ${demo.label}`,
+            onSelect: () =>
+              navigate(demo.href, {
+                state: {
+                  containerID: item.containerId,
+                  modelName: item.modelName,
+                },
+              }),
+          });
+        }
+        menu.push({
+          text: "API",
+          onSelect: () =>
+            navigate(`/api-info/${encodeURIComponent(item.containerId!)}`),
+        });
+      }
+      if (item.containerId || item.historyId || item.jobId) {
+        menu.push({ text: "Logs", onSelect: () => openLogs(item) });
+      }
+      if (item.containerId && !item.dead) {
+        menu.push({
+          text: "Stop container",
+          style: paused ? "disabled" : "danger",
+          onSelect: () => setStopping({ item, redeploy: false }),
+        });
+      }
+      return menu;
+    },
+    [navigate, openLogs, select, paused]
+  );
+
+  const deployModel =
+    deployModelId && catalog.data
+      ? catalog.data.find((m) => m.id === deployModelId)
+      : undefined;
+
+  let view: ReactNode;
+  if (selectedKey) {
+    view = (
+      <DrillDown onBack={showCatalog}>
+        {isLoading ? null : selected?.members ? (
+          <SolutionDetail
+            item={selected}
+            onCancel={() => cancel(selected)}
+            onStop={() => setStoppingSolution(selected)}
+            onOpenLogs={openLogs}
+          />
+        ) : selected ? (
+          <DeploymentDetail
+            item={selected}
+            demos={getDemosForModelType(selected.modelType)}
+            onCancel={() => cancel(selected)}
+            onRetry={() => retry(selected)}
+            onDismiss={() => dismissItem(selected)}
+            onStop={() => setStopping({ item: selected, redeploy: false })}
+            onReset={() => setResetFor(selected)}
+            onOpenLogs={() => openLogs(selected)}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-vesper-4 py-vesper-16 text-center">
+            <EmptyPill>This deployment is no longer running</EmptyPill>
+            <Typography
+              variant="copy-sm"
+              className="text-vesper-text-secondary"
+            >
+              It may have been stopped or cancelled.
+            </Typography>
+          </div>
+        )}
+      </DrillDown>
+    );
+  } else if (deploySolution) {
+    view = (
+      <DrillDown onBack={showCatalog}>
+        {isLoading ? null : <DeploySolution onGroupCreated={addGroup} />}
+      </DrillDown>
+    );
+  } else if (deployModelId) {
+    view = (
+      <DrillDown onBack={showCatalog}>
+        {isLoading ? null : deployModel ? (
+          <DeployModel key={deployModel.id} model={deployModel} />
+        ) : (
+          <div className="flex justify-center py-vesper-16">
+            <EmptyPill>This model isn't in the catalog</EmptyPill>
+          </div>
+        )}
+      </DrillDown>
+    );
+  } else {
+    view = (
+      <Catalog
+        tab={tab}
+        loading={isLoading}
+        onTabChange={(next) =>
+          setSearchParams(next === "solutions" ? { tab: next } : {})
+        }
+        deployments={items}
+        onSelectModel={(model) => setSearchParams({ deploy: model.id })}
+        onSelectDeployment={select}
+        onSelectSolution={() => setSearchParams({ solution: "voice-agent" })}
+      />
+    );
+  }
+
+  return (
+    <div className="h-full flex text-left">
+      <DeploymentsPanel
+        items={groupedItems}
+        loading={isLoading}
+        chipStatus={chipStatus}
+        selectedKey={selected?.key ?? null}
+        menuItemsFor={menuItemsFor}
+        onSelect={select}
+        onCancel={cancel}
+        onRetry={retry}
+        onDismiss={dismissItem}
+        onRemoveAndRedeploy={(item) => {
+          if (item.members) {
+            // the members whose containers died or broke
+            void redeployMembers(
+              item,
+              item.members.filter((m) => m.state === "error")
+            );
+            return;
+          }
+          // a dead container has nothing left to stop
+          if (item.dead) {
+            dismissItem(item);
+            void redeploy(item);
+          } else {
+            setStopping({ item, redeploy: true });
+          }
+        }}
+      />
+      <div className="flex-1 min-w-0 h-full flex flex-col">
+        {/* the deploy views explain this themselves, next to their button */}
+        {paused && !deployModelId && !deploySolution && (
+          <div className="shrink-0 px-vesper-10 pt-vesper-6">
+            <Admonition variant="info" size="sm">
+              {paused}
+            </Admonition>
+          </div>
+        )}
+        <div className="flex-1 min-h-0 overflow-auto">{view}</div>
+      </div>
+
+      <StopSolutionModal
+        item={stoppingSolution}
+        onClose={() => setStoppingSolution(null)}
+        onConfirm={(item) => void stopSolution(item)}
+      />
+
+      <StopDeploymentModal
+        item={stopping?.item ?? null}
+        onClose={() => setStopping(null)}
+        onStopped={(item) => {
+          dismiss(item);
+          if (stopping?.redeploy) void redeploy(item);
+          else if (selectedKey === item.key) showCatalog();
+        }}
+      />
+      <ResetHardwareModal
+        open={resetFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setResetFor(null);
+        }}
+        initialSlot={resetFor?.deviceIds[0] ?? null}
+        onResetFinished={() => {
+          if (resetFor) dismissItem(resetFor);
+        }}
+      />
+      <ContainerLogsModal
+        open={logsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setLogsFor(null);
+        }}
+        containerId={logsFor?.containerId ?? null}
+        modelName={logsFor?.modelName}
+      />
+      <WorkflowLogsModal
+        target={workflowLogs}
+        onClose={() => setWorkflowLogs(null)}
+      />
+      <JobLogsModal
+        target={jobLogs}
+        live={jobLogsLive}
+        onClose={() => setJobLogs(null)}
+      />
+    </div>
+  );
+}
+
+function DrillDown({
+  onBack,
+  children,
+}: {
+  onBack(): void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-full flex flex-col p-vesper-4">
+      <BackButton onClick={onBack} className="self-start" />
+      <div className="flex-1 flex flex-col justify-center px-vesper-6">
+        {children}
+      </div>
+    </div>
+  );
+}

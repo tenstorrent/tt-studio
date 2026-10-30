@@ -18,7 +18,7 @@
  * }
  *
  * Notes:
- * - All routes will automatically be wrapped with MainLayout
+ * - All routes will automatically be wrapped with the shared app Layout
  * - Use the 'condition' property for feature flags or environment-specific routes
  */
 
@@ -40,11 +40,12 @@ const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 
 import React from "react";
 import { Navigate } from "react-router-dom";
-import HomePage from "../pages/HomePage";
-import ModelsDeployed from "../pages/ModelsDeployed";
+import HardwarePage from "@/src/vesper/pages/hardware";
+import SettingsPage from "@/src/vesper/pages/settings";
+import DeploymentsPage from "@/src/vesper/pages/deployments";
 import RegisterModelPage from "../pages/RegisterModelPage";
-import ChatUI from "../pages/ChatUIPage";
-import RagManagement from "../components/rag/RagManagement";
+import ChatPage from "@/src/vesper/pages/chat";
+import KnowledgeBasePage from "@/src/vesper/pages/knowledge-base";
 import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 import FaceRecognitionPage from "../pages/FaceRecognitionPage";
@@ -52,13 +53,13 @@ import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
-import VoiceAgentPage from "../pages/VoiceAgentPage";
-import SpeechToTextPage from "../pages/SpeechToTextPage";
-import ApiInfoPage from "../pages/ApiInfoPage";
-import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
-import TTSPage from "../pages/TTSPage";
+import VoiceAgentPage from "@/src/vesper/pages/voice-agent";
+import SpeechToTextPage from "@/src/vesper/pages/speech-to-text";
+import ApiPage from "@/src/vesper/pages/api";
+import DeploymentHistoryPage from "@/src/vesper/pages/deployment-history";
+import TextToSpeechPage from "@/src/vesper/pages/text-to-speech";
 import EmbeddingPage from "../pages/EmbeddingPage";
-import WelcomePage from "../pages/WelcomePage";
+import WelcomePage from "@/src/vesper/pages/welcome";
 import WorkflowsPage from "../pages/WorkflowsPage";
 import CanvasPage from "../pages/CanvasPage";
 import VideoGenPage from "../pages/VideoGenPage";
@@ -71,17 +72,27 @@ export interface RouteConfig {
   path: string;
   element: React.ReactNode;
   condition?: boolean;
-  /** When true, the route renders without the MainLayout (no navbar / footer). */
-  bare?: boolean;
+  hideFooter?: boolean;
+  hideHeader?: boolean;
+  hideSidebar?: boolean;
+  title?: string;
 }
+
+// keep these paths as constants so if they get changed, they update in the sidebar automatically
+export const HOMEPAGE_PATH = "/";
+export const DEPLOYMENTS_PATH = "/models-deployed";
+export const DEPLOYMENT_HISTORY_PATH = "/deployment-history";
+export const KNOWLEDGE_BASE_PATH = "/rag-management";
+export const SETTINGS_PATH = "/settings";
 
 // Function to generate routes based on environment variables
 export const getRoutes = (): RouteConfig[] => {
   return [
     {
-      path: "/",
-      element: isDeployedEnabled ? <DeployedHomePage /> : <HomePage />,
+      path: HOMEPAGE_PATH,
+      element: <HardwarePage />,
       condition: true,
+      title: "Hardware",
     },
     {
       path: "/register-model",
@@ -89,19 +100,22 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/models-deployed",
-      element: <ModelsDeployed />,
+      path: DEPLOYMENTS_PATH,
+      element: <DeploymentsPage />,
       condition: true,
+      title: "Deployments",
     },
     {
       path: "/chat",
-      element: <ChatUI />,
+      element: <ChatPage />,
       condition: true,
+      title: "Chat",
     },
     {
-      path: "/rag-management",
-      element: <RagManagement />,
+      path: KNOWLEDGE_BASE_PATH,
+      element: <KnowledgeBasePage />,
       condition: true,
+      title: "Knowledge Base",
     },
     {
       path: "/logs",
@@ -137,26 +151,31 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/voice-agent",
       element: <VoiceAgentPage />,
       condition: true,
+      title: "Voice Agent"
     },
     {
       path: "/speech-to-text",
       element: <SpeechToTextPage />,
       condition: true,
+      title: "Speech to Text"
     },
     {
       path: "/api-info/:modelId",
-      element: <ApiInfoPage />,
+      element: <ApiPage />,
       condition: true,
+      title: 'API'
     },
     {
-      path: "/deployment-history",
+      path: DEPLOYMENT_HISTORY_PATH,
       element: <DeploymentHistoryPage />,
       condition: true,
+      title: "Deployment History",
     },
     {
       path: "/tts",
-      element: <TTSPage />,
+      element: <TextToSpeechPage />,
       condition: true,
+      title: "Text to Speech",
     },
     {
       path: "/embedding",
@@ -203,7 +222,14 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/welcome",
       element: <WelcomePage />,
       condition: true,
-      bare: true,
+      hideHeader: true,
+      hideSidebar: true,
+    },
+    {
+      path: SETTINGS_PATH,
+      element: <SettingsPage />,
+      condition: true,
+      title: "Settings",
     },
     {
       // catch all for all other routes

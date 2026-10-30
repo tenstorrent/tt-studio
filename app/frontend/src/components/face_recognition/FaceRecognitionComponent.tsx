@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "../ui/button";
@@ -31,10 +31,13 @@ interface Detection {
   confidence?: number;
 }
 
-export default function FaceRecognitionComponent() {
-  const location = useLocation();
+export default function FaceRecognitionComponent({
+  modelID,
+}: {
+  /** Deploy id of the face recognition model picked on the page */
+  modelID: string | null;
+}) {
   const navigate = useNavigate();
-  const modelID = (location.state?.containerID || location.state?.modelID) as string | undefined;
   // Camera & recognition state
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isLiveMode, setIsLiveMode] = useState(false);
