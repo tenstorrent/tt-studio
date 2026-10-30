@@ -18,10 +18,13 @@ import { useRefresh } from "../hooks/useRefresh";
 import { useTour } from "../hooks/useTour";
 import type { ChipStatus } from "../types/chipStatus";
 import {
-  autoPlacement,
+  autoPlacementFor,
   fullBoardSlots,
-  getModelPlacement,
   isMultiChipModel,
+  minDevicesFor,
+  placementFor,
+  profileForDevices,
+  type ServeProfile,
 } from "../utils/deviceFit";
 import { getDeployModelSteps } from "./tour/tours/deployModel";
 import { parseDeviceIds } from "../utils/p300x2Placement";
@@ -39,9 +42,15 @@ export interface Model {
   current_board: string; // The detected board type
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
-  chips_required?: number; // Number of chips required (1 or 4)
+  chips_required?: number; // Chips the model occupies: 1, a bundle's mesh size, or 4 for a whole board
   /** Hugging Face repo backing this model; null when it has no HF source. */
   hf_model_id?: string | null;
+  /** Serve profiles the model declares, and the one deployed by default. A model
+   *  with profiles is placed by them (see placementFor). */
+  profiles?: ServeProfile[];
+  profile?: string;
+  /** Why no TT Studio page drives the model, when none does (deploy only). */
+  no_page_reason?: string | null;
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
@@ -204,26 +213,39 @@ export default function StepperDemo() {
     if (resumeModelId) setSelectedModel(resumeModelId);
   }, [resumeModelId]);
 
+  const selectedModelRow = models?.find((m) => m.id === selectedModel);
   // Chip requirement of the currently selected model (selectedModel holds the id).
-  const selectedModelChips =
-    models?.find((m) => m.id === selectedModel)?.chips_required ?? 1;
+  const selectedModelChips = selectedModelRow?.chips_required ?? 1;
   // Model type gates placement (e.g. training builds claim the whole board).
-  const selectedModelType =
-    models?.find((m) => m.id === selectedModel)?.model_type ?? "";
+  const selectedModelType = selectedModelRow?.model_type ?? "";
 
   const boardType = effectiveChipStatus?.board_type;
+  const selectedProfiles = selectedModelRow?.profiles;
+  const preferredProfile = selectedModelRow?.profile;
+  const hasProfiles = (selectedProfiles?.length ?? 0) > 0;
+  const placementModel = useMemo(
+    () => ({
+      name: selectedModelName ?? selectedModel ?? "",
+      chips_required: selectedModelChips,
+      model_type: selectedModelType,
+      profiles: selectedProfiles,
+      profile: preferredProfile,
+    }),
+    [
+      selectedModelName,
+      selectedModel,
+      selectedModelChips,
+      selectedModelType,
+      selectedProfiles,
+      preferredProfile,
+    ]
+  );
   // Supported device configurations for the selected model (single source of truth).
   // Memoized so re-renders hand ChipConfigStep the same placement object instead of
   // a fresh one, which its selection effects would read as a rule change.
   const placement = useMemo(
-    () =>
-      getModelPlacement(
-        selectedModelName ?? selectedModel ?? "",
-        selectedModelChips,
-        boardType,
-        selectedModelType
-      ),
-    [selectedModelName, selectedModel, selectedModelChips, boardType, selectedModelType]
+    () => placementFor(placementModel, boardType, totalSlots ?? 4),
+    [placementModel, boardType, totalSlots]
   );
   // Flexible models (e.g. Llama 3.1 8B on P300x2) can run as a card pair or full-board.
   const isFlexible = placement.cardGroups.length > 0;
@@ -238,15 +260,13 @@ export default function StepperDemo() {
   // free slot. null when nothing fits.
   const autoPlace = advancedActive
     ? null
-    : autoPlacement(placement, selectedModelChips, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
+    : autoPlacementFor(placementModel, placement, effectiveChipStatus?.slots ?? [], totalSlots ?? 4);
   // The full-board (force_full_board) flow applies to flexible (card-pair) models
   // and to single-vs-full-board opt-in models; both need every slot selected in
   // advanced mode, or a full-board auto-placement, to actually mean "full board".
   const fullBoardSelected =
     (isFlexible || hasFullBoardOptIn) &&
     (advancedActive ? allSlotsSelected : !!autoPlace?.fullBoard);
-  // Chips the deployment actually occupies (full-board takes every slot).
-  const effectiveChips = fullBoardSelected ? 4 : selectedModelChips;
   // Devices shown in the deploy preview; undefined means the backend auto-allocates.
   const previewDeviceIds: number[] | undefined = (() => {
     if (!advancedActive) return autoPlace?.deviceIds;
@@ -258,12 +278,28 @@ export default function StepperDemo() {
     }
     return selectedDeviceIds.length ? selectedDeviceIds : undefined;
   })();
+  // A profiled model deploys the profile whose mesh matches the devices chosen.
+  const deployProfile = previewDeviceIds?.length
+    ? profileForDevices(placementModel, previewDeviceIds.length, totalSlots ?? 4)
+    : undefined;
+  // Chips the deployment actually occupies: full-board takes every slot, a profiled
+  // model its profile's mesh (its smallest until devices are chosen).
+  const effectiveChips = hasProfiles
+    ? previewDeviceIds?.length || minDevicesFor(placementModel, totalSlots ?? 4)
+    : fullBoardSelected
+      ? 4
+      : selectedModelChips;
+  const usesCardGroup = hasProfiles
+    ? effectiveChips > 1 && effectiveChips < fullBoardSlots(totalSlots ?? 4).length
+    : isFlexible && !fullBoardSelected;
   // Auto mode with no available configuration → block deploy with a clear reason.
   const placementBlocked = !advancedActive && !!chipStatus && autoPlace === null;
-  // Single-device and flexible models in advanced mode need an explicit pick;
-  // true multi-chip models auto-allocate the whole board.
+  // Single-device and flexible models in advanced mode need an explicit pick, as do
+  // meshes smaller than the board (which have card groups to choose between) and
+  // bundles with a single-device profile; only true whole-board models auto-allocate.
   const requireDeviceSelection =
-    advancedActive && !isMultiChipModel(selectedModelChips);
+    advancedActive &&
+    (isFlexible || placement.allowsSingle || !isMultiChipModel(selectedModelChips));
 
   // Models with a deploy already in flight — stay selectable (so the user can
   // reconnect to their progress) rather than being greyed by their own reservation.
@@ -574,10 +610,10 @@ export default function StepperDemo() {
         // also allows a single-device default (e.g. Qwen3-Embedding-0.6B), where
         // sending it unconditionally would override that default. Use the same
         // placement rules the manual flow uses to decide.
-        const resolvedPlacement = getModelPlacement(
-          model.name,
-          model.chips_required ?? 1,
-          effectiveChipStatus?.board_type
+        const resolvedPlacement = placementFor(
+          model,
+          effectiveChipStatus?.board_type,
+          effectiveChipStatus?.total_slots ?? 4
         );
         if (!resolvedPlacement.allowsSingle) {
           deployPayload.force_full_board = true;
@@ -615,9 +651,14 @@ export default function StepperDemo() {
 
       // Devices this deploy occupies: the ones the CLI pinned, else whatever the
       // backend allocated (a slot number, or "0,1" / [0, 1] for multi-chip models).
+      // These feed the in-flight chip reservations, so a mesh spanning several slots
+      // has to report all of them or a second deploy is offered a busy chip.
       let deviceIds: number[] = [];
       if (deviceIdParam !== null && deviceIdParam !== "") {
         deviceIds = parseDeviceIds(deviceIdParam);
+      } else if (Array.isArray(data.device_ids) && data.device_ids.length > 0) {
+        // The full group, when the backend reports one.
+        deviceIds = data.device_ids.map(Number).filter((n: number) => Number.isFinite(n));
       } else {
         const allocated = data.allocated_device_id;
         if (typeof allocated === "number") deviceIds = [allocated];
@@ -708,7 +749,7 @@ export default function StepperDemo() {
       setLoading(false);
     }, 2500);
 
-    const model_id = selectedModel || "0";
+    const model_id = deployProfile?.id ?? (selectedModel || "0");
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
@@ -1139,6 +1180,8 @@ export default function StepperDemo() {
                     requireDeviceSelection={requireDeviceSelection}
                     deviceAutoSelected={!advancedActive}
                     placementBlocked={placementBlocked}
+                    usesCardGroup={usesCardGroup}
+                    profileName={deployProfile?.name}
                     chipStatus={effectiveChipStatus}
                     registerDeployment={(d) => addDeployment({ ...d, startedAt: Date.now() })}
                     activeDeployment={deploymentForSelected}

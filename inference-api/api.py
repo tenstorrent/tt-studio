@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, Iterable, Tuple
+import asyncio
 import sys
 import os
 import inspect
@@ -25,6 +26,7 @@ import math
 import shlex
 import urllib.request
 import urllib.error
+from community import cancel_serve, create_community_router
 
 # Force a sane umask so files run.py writes for read-only container bind mounts
 # (e.g. the runtime model spec JSON) stay world-readable. See tenstorrent/tt-studio#1342.
@@ -144,6 +146,61 @@ def _resolve_secret_env_vars(
 
     return resolved
 
+
+def _ensure_artifact_git_marker(root: Path) -> None:
+    """Make sure the artifact at `root` finds a git repo at its own root.
+
+    The artifact's workflows/utils.py walks up from itself for a ".git" when it is
+    imported, and its run.py runs `git rev-parse HEAD` early in main(). A source
+    checkout points `root/.git` at TT-Studio's own repo (see
+    _execute_dev_mode_subprocess). A pip install (~/.tt-studio) isn't a git checkout,
+    so there is nothing to point at: give the artifact a repo of its own instead.
+    A ".git" directory is already a real repo (that one, or a local clone) and is
+    left alone.
+    """
+    import subprocess
+
+    marker = root / ".git"
+    if marker.is_dir():
+        return
+    try:
+        tt_studio_git_dir = subprocess.check_output(
+            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (subprocess.CalledProcessError, OSError):
+        tt_studio_git_dir = None
+    if tt_studio_git_dir:
+        marker.write_text(f"gitdir: {tt_studio_git_dir}\n")
+        return
+
+    if marker.exists() or marker.is_symlink():
+        marker.unlink()  # a gitfile pointer at a repo that isn't there
+    git = [
+        "git", "-C", str(root),
+        "-c", "user.name=TT-Studio", "-c", "user.email=tt-studio@localhost",
+        "-c", "commit.gpgsign=false",
+    ]
+    try:
+        subprocess.run([*git, "init", "-q"], check=True, capture_output=True, text=True)
+        subprocess.run(
+            [*git, "commit", "-q", "--allow-empty", "--no-verify", "-m", "tt-inference-server artifact"],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        logging.warning(
+            "Could not create a git repo in %s, deploys will fail: %s",
+            root, getattr(e, "stderr", None) or e,
+        )
+        # Still enough for workflows.utils to import, so the server comes up.
+        marker.mkdir(exist_ok=True)
+
+
+# workflows.utils looks for a ".git" above itself at import time and raises if it
+# finds none, which is the case for a pip install.
+_artifact_root = artifact_path.resolve()
+_ensure_artifact_git_marker(_artifact_root)
 
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
@@ -1157,7 +1214,7 @@ def _execute_dev_mode_subprocess(
     argv = [sys.executable, str(script_dir / "run.py")] + argv_for_attempt[1:]
 
     child_env = os.environ.copy()       # per-call snapshot; never mutates api.py's own os.environ
-    child_env.update(env_vars_to_set)   # AUTOMATIC_HOST_SETUP, SERVICE_PORT, HF_HUB_DISABLE_XET,
+    child_env.update(env_vars_to_set)   # AUTOMATIC_HOST_SETUP, SERVICE_PORT, HF_HUB_DISABLE_XET (opt-out only),
                                          # and -- a nice side benefit -- JWT_SECRET/HF_TOKEN now
                                          # flow ONLY into this dict, never into the shared process env
     child_env["MODEL_SPECS_ENV"] = "dev"  # belt-and-braces; run.py's own argv scan already does this
@@ -1193,8 +1250,8 @@ def _execute_dev_mode_subprocess(
     # a ".git" marker (default) to find its own root. The fetched artifact is a
     # plain tarball extraction with no .git of its own, so an unpatched run --
     # exactly what a subprocess is -- walks past the artifact root and incorrectly
-    # resolves to TT-Studio's OWN repo root a few directories up (it always has
-    # one, since .artifacts/ lives inside it), breaking any path this function
+    # resolves to TT-Studio's OWN repo root a few directories up (a source checkout
+    # has one, since .artifacts/ lives inside it), breaking any path this function
     # builds relative to the repo root (e.g. reference_config/... lookups at
     # import time). api.py's in-process path never hits this because it patches
     # get_repo_root_path in memory; a subprocess can't inherit that patch, so
@@ -1217,17 +1274,9 @@ def _execute_dev_mode_subprocess(
     # ".git" file on disk, and an exists-only guard would leave that stale,
     # invalid marker in place forever instead of repairing it.
     #
-    # Point at TT-Studio's resolved *git directory*.
-    git_marker = script_dir / ".git"
-    try:
-        _tt_studio_git_dir = _subprocess.check_output(
-            ["git", "-C", str(_tt_studio_root), "rev-parse", "--absolute-git-dir"],
-            stderr=_subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (_subprocess.CalledProcessError, OSError):
-        _tt_studio_git_dir = str(_tt_studio_root / ".git")
-    git_marker.write_text(f"gitdir: {_tt_studio_git_dir}\n")
+    # Point at TT-Studio's resolved *git directory*. A pip install has none, so
+    # the artifact gets a repo of its own there instead.
+    _ensure_artifact_git_marker(script_dir)
 
     logger.info(f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}")
     logger.info(
@@ -1393,6 +1442,46 @@ def _default_hf_home() -> Path:
     )
 
 
+# Spellings accepted as "true" for TT_STUDIO_DISABLE_HF_XET (.env.default ships it as false).
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _hf_xet_env_overrides(environ: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Env additions for the deploy (run.py / `hf download`) process that govern
+    Hugging Face Xet transfer.
+
+    History: commit 1b0eb0f (June 2026) hard-coded HF_HUB_DISABLE_XET=1 into
+    env_vars_to_set because the hf_xet client of the day let `hf download` exit 0
+    before every blob had finished landing on disk, so setup_host carried on with
+    truncated weights. The price was steep: with Xet off, each file is a single
+    plain-HTTPS stream, which caps a single-file checkpoint (Motif-Image-6B-Preview's
+    47.6 GB .bin, for instance) at ~17-25 MB/s on a gigabit link.
+
+    Re-verified Sept 2026 with huggingface_hub 1.32 / hf_xet 1.6: a full 47.6 GB
+    `hf download` exits 0 only once the blob is complete and its sha256 matches the LFS
+    oid, and it runs at ~118 MB/s -- about 6x faster. Xet is therefore on by default,
+    and the old HTTPS-only path is an opt-out: TT_STUDIO_DISABLE_HF_XET=true in the
+    repo .env (the launcher forwards it, like HF_TOKEN) or in this process's environment.
+
+    HF_HUB_DISABLE_SHARED_BLOBS=1 is always set. huggingface_hub >= 1.32 dedupes Xet
+    downloads through a cache-wide store at `$HF_HOME/hub/blobs/<xx>/<xet-hash>` and
+    leaves only a relative symlink in the per-repo `blobs/` dir (still the default in
+    2.3 / hf_xet 1.7, which the artifact's unpinned setup venv installs as of Oct 2026).
+    setup_host's --host-hf-cache path bind-mounts just `hub/models--<repo>` into the
+    model container, so those symlinks dangle inside it and the model fails to load
+    ("does not appear to have a file named .../transformer/...safetensors" on
+    FLUX.1-schnell). tt-inference-server 0.25 also mounts `hub/blobs`, but only for
+    models with a pinned revision. With the shared store off, blobs are regular files
+    inside the repo dir again (the same layout as an HTTPS download) and Xet stays on.
+    """
+    env = os.environ if environ is None else environ
+    overrides = {"HF_HUB_DISABLE_SHARED_BLOBS": "1"}
+    raw = env.get("TT_STUDIO_DISABLE_HF_XET", "")
+    if str(raw).strip().lower() in _TRUTHY_ENV_VALUES:
+        overrides["HF_HUB_DISABLE_XET"] = "1"
+    return overrides
+
+
 def _hf_cache_repo_root(hf_home: Path, repo_id: str) -> Optional[Path]:
     """Return the repo cache root under HF_HOME (supports both 'hub/' and legacy layouts)."""
     local_repo = repo_id.replace("/", "--")
@@ -1408,7 +1497,14 @@ def _hf_cache_repo_root(hf_home: Path, repo_id: str) -> Optional[Path]:
 
 
 def _dir_size_bytes(path: Path) -> int:
-    """Fast, non-recursive size sum for a directory of files."""
+    """Fast, non-recursive size sum for a directory of files.
+
+    Symlinks are followed. Deploys set HF_HUB_DISABLE_SHARED_BLOBS=1 so blobs are
+    regular files, but a cache populated by a bare `hf download` (huggingface_hub
+    >= 1.32 with Xet) holds only a symlink per blob into the shared store at
+    `$HF_HOME/hub/blobs/<xx>/<xet-hash>`; skipping those would make a finished
+    download read as 0 B and defeat the pre-cached-weights detection.
+    """
     try:
         total = 0
         if not path.exists() or not path.is_dir():
@@ -1416,10 +1512,10 @@ def _dir_size_bytes(path: Path) -> int:
         with os.scandir(path) as it:
             for entry in it:
                 try:
-                    if entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
+                    if entry.is_file():
+                        total += entry.stat().st_size
                 except FileNotFoundError:
-                    # File may disappear mid-scan; ignore.
+                    # File (or a symlink's target) may disappear mid-scan; ignore.
                     continue
         return total
     except Exception:
@@ -1639,6 +1735,42 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
         return None
 
 
+class _ThroughputWindow:
+    """Time-weighted download rate over a sliding window of (time, bytes) samples.
+
+    Replaces the per-poll EMA of instantaneous rates that the weights monitor used
+    to keep. That EMA weighted every 1 s poll equally, which was fine for a plain
+    HTTPS stream (bytes arrive smoothly) but breaks down with Xet transfer: hf_xet
+    materialises each file in multi-GB bursts separated by 10-20 s plateaus, so the
+    burst polls (GB/s instantaneous) dominated the average while the plateau polls
+    were skipped as "stagnant". Measured on a gigabit box: 220-500 MB/s displayed
+    against 123 MB/s on the wire. Bytes-over-elapsed-time across a window that
+    spans several bursts is immune to that, and it decays to 0 by itself when a
+    download stalls (no separate stagnant-poll bookkeeping needed).
+    """
+
+    def __init__(self, window_seconds: float = 60.0, min_span_seconds: float = 5.0):
+        self.window_seconds = window_seconds
+        self.min_span_seconds = min_span_seconds
+        self._samples: deque = deque()  # (timestamp, downloaded_bytes)
+
+    def update(self, now: float, downloaded_bytes: int) -> Optional[float]:
+        """Record a sample; return bytes/s over the window, or None until enough
+        time has elapsed for the estimate to mean anything."""
+        self._samples.append((now, downloaded_bytes))
+        # Drop samples older than the window, but always keep one sample at or
+        # before the cutoff so the span stays close to window_seconds.
+        while len(self._samples) >= 2 and now - self._samples[1][0] >= self.window_seconds:
+            self._samples.popleft()
+        oldest_t, oldest_bytes = self._samples[0]
+        span = now - oldest_t
+        if span < self.min_span_seconds:
+            return None
+        # A transient dip (huggingface_hub renames a finished blob into the shared
+        # store a moment before it drops the symlink in) must not go negative.
+        return max(0.0, (downloaded_bytes - oldest_bytes) / span)
+
+
 def _weights_progress_monitor(
     job_id: str,
     stop_event: threading.Event,
@@ -1655,13 +1787,8 @@ def _weights_progress_monitor(
     Docker named volume (or host bind-mount path) the deployment writes to.
     Otherwise we fall back to log-scraped HF_HOME (legacy path).
     """
-    last_bytes = 0
-    last_t = time.time()
-    ema_speed_bps: Optional[float] = None
-    stable_speed_bps: Optional[float] = None
-    stagnant_polls = 0
-    MAX_STAGNANT_POLLS = 15  # 15s grace period
-    MIN_SPEED_BPS = 64 * 1024  # Ignore tiny fluctuations under 64KB/s
+    speed_bps: Optional[float] = None
+    throughput = _ThroughputWindow()
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
     total_bytes: Optional[int] = None
@@ -1743,37 +1870,9 @@ def _weights_progress_monitor(
                 first_size_check = False
                 if downloaded >= total_bytes:
                     weights_already_cached = True
-            now = time.time()
-            dt = max(1e-3, now - last_t)
-            delta = downloaded - last_bytes
-           
-            if delta > MIN_SPEED_BPS:
-                stagnant_polls = 0
-
-                inst_speed = delta / dt
-
-                # Faster convergence early, slower later
-                alpha = 0.35 if ema_speed_bps is None else 0.15
-
-                if ema_speed_bps is None:
-                    ema_speed_bps = inst_speed
-                else:
-                    ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
-
-                stable_speed_bps = ema_speed_bps
-
-                last_bytes = downloaded
-                last_t = now
-            else:
-                stagnant_polls += 1
-
-                # Hold previous speed briefly during shard verification/unpacking
-                if stagnant_polls < MAX_STAGNANT_POLLS:
-                    ema_speed_bps = stable_speed_bps
-                else:
-                    # Slowly decay speed instead of hard-dropping
-                    if ema_speed_bps is not None:
-                        ema_speed_bps *= 0.92
+            # Time-weighted rate across a sliding window (see _ThroughputWindow for
+            # why a per-poll EMA over-reports 2-3x with Xet's bursty writes).
+            speed_bps = throughput.update(time.time(), downloaded)
 
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
@@ -1793,7 +1892,7 @@ def _weights_progress_monitor(
                     # slightly so users can tell we're alive (cap below host-setup completion).
                     progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
-                    speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
+                    speed_txt = _format_bytes(speed_bps) + "/s" if speed_bps else "—"
                     
                     if total_bytes and downloaded >= total_bytes:
                         msg = "Finalizing model weights and cache..."
@@ -1804,11 +1903,11 @@ def _weights_progress_monitor(
                     eta_seconds: Optional[float] = None
                     if (
                         total_bytes is not None
-                        and ema_speed_bps is not None
-                        and ema_speed_bps > 0
+                        and speed_bps is not None
+                        and speed_bps > 0
                         and total_bytes > downloaded
                     ):
-                        raw_eta = (total_bytes - downloaded) / ema_speed_bps
+                        raw_eta = (total_bytes - downloaded) / speed_bps
                         # Clamp unrealistic spikes/jitter
                         if eta_seconds is None:
                             eta_seconds = raw_eta
@@ -1825,7 +1924,7 @@ def _weights_progress_monitor(
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
                             "total_bytes": int(total_bytes) if total_bytes is not None else None,
-                            "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                            "speed_bps": float(speed_bps) if speed_bps is not None else None,
                             "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
                             "weights_cached": weights_already_cached,
                         }
@@ -2048,8 +2147,16 @@ def _process_run_output_line(
                 "the output of the workflows is not checked",
             ]
             if not any(fp in message.lower() for fp in false_positives):
-                status = "error"
-                stage = "error"
+                # An error-looking line is not a failure on its own: `hf download`
+                # prints "Error while downloading ... peer closed connection" and then
+                # retries by itself. Marking the job "error" here made the backend
+                # give up on a deploy whose run.py later exited 0, which left an
+                # untracked container holding the chips and the service port. The
+                # run.py exit code decides the outcome; keep the line so a real
+                # failure can still report it.
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id]["last_error_line"] = message[:200]
 
         # Update progress store (only if we have meaningful progress)
         if progress > 0 or status in ["error", "completed"]:
@@ -2131,6 +2238,26 @@ app = FastAPI(
     version="1.3.0"
 )
 
+def get_model_run_logs_dir():
+    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
+    tt_studio_root = Path(__file__).parent.parent.resolve()
+    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
+    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
+    return model_run_logs_dir
+
+
+# Community-model path (tt-model-manager). Mounted here so community deploys share
+# this module's job stores and are served by the same /run/progress|logs|stream APIs.
+app.include_router(
+    create_community_router(
+        progress_store=progress_store,
+        log_store=log_store,
+        progress_lock=progress_lock,
+        max_log_messages=MAX_LOG_MESSAGES,
+        deployment_log_dir=get_model_run_logs_dir(),
+    )
+)
+
 # Test logging on startup
 logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
@@ -2205,6 +2332,9 @@ class RunRequest(BaseModel):
     # aggressive 5s TT_METAL_OPERATION_TIMEOUT_SECONDS (needed for large first-load
     # weight remaps on experimental models like Qwen3.5-9B).
     disable_metal_timeout: Optional[bool] = False
+    # Name to give the container once it's up; defaults to the model name. Lets a
+    # training and a chat deploy of the same model hold distinct Docker names.
+    container_name: Optional[str] = None
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2216,13 +2346,6 @@ def normalize_device_alias(device: str) -> str:
         "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
-
-def get_model_run_logs_dir():
-    """Get the per-deployment model run logs directory under TT Studio root's logs/"""
-    tt_studio_root = Path(__file__).parent.parent.resolve()
-    model_run_logs_dir = tt_studio_root / "logs" / "model_run_logs"
-    model_run_logs_dir.mkdir(parents=True, exist_ok=True)
-    return model_run_logs_dir
 
 def create_deployment_log_handler(job_id: str, model: str, device: str):
     """Create a per-deployment log file handler with model and device in filename"""
@@ -2362,8 +2485,10 @@ async def cancel_run(job_id: str):
     # from _cancelled_jobs — don't record them. The pull is cancelled backend-side.
     if job_id.startswith("imgpull_"):
         return {"job_id": job_id, "status": "cancelled", "killed_processes": 0}
+    community = await asyncio.to_thread(cancel_serve, job_id)
     with _cancel_lock:
-        _cancelled_jobs.add(job_id)
+        if not community:  # only run_main() clears this, and it never sees a community job
+            _cancelled_jobs.add(job_id)
         is_active = _active_run_job_id == job_id
     killed = _kill_hf_download_children() if is_active else 0
     with progress_lock:
@@ -2378,7 +2503,7 @@ async def cancel_run(job_id: str):
                 }
             )
     logger.info("Job %s: cancel requested (active=%s, killed=%d)", job_id, is_active, killed)
-    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed}
+    return {"job_id": job_id, "status": "cancelled", "killed_processes": killed, "community": community}
 
 
 @app.get("/run/stream/{job_id}")
@@ -2697,8 +2822,12 @@ async def run_inference(request: RunRequest):
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
             "SERVICE_PORT": request.service_port or "20000",  # Requested dynamically-allocated service port
-            "HF_HUB_DISABLE_XET": "1",  # force synchronous HTTPS download; XET exits 0 before blobs finish
         }
+        # Hugging Face Xet transfer stays enabled unless TT_STUDIO_DISABLE_HF_XET opts
+        # out (adds HF_HUB_DISABLE_XET=1); the hub's shared blob store is always off so
+        # the per-repo cache dir stays self-contained for the container bind-mount.
+        # See _hf_xet_env_overrides() for the history.
+        env_vars_to_set.update(_hf_xet_env_overrides())
         
         # Handle secrets. See _resolve_secret_env_vars() for why these must not be
         # conditioned on the current os.environ.
@@ -3223,7 +3352,7 @@ async def run_inference(request: RunRequest):
                                 pass
                             _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
-                            model_name = request.model.replace("/", "-")
+                            model_name = (request.container_name or request.model).replace("/", "-")
                             if original_name != model_name:
                                 try:
                                     new_container.rename(model_name)
@@ -3263,12 +3392,13 @@ async def run_inference(request: RunRequest):
                             break
                     with progress_lock:
                         if job_id in progress_store:
+                            last_error_line = progress_store[job_id].get("last_error_line")
                             progress_store[job_id].update(
                                 {
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or last_error_line or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )

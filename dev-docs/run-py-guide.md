@@ -225,7 +225,7 @@ The default setup uses the following values:
 | `JWT_SECRET` | `test-secret-456` | JWT authentication secret (not secure) |
 | `DJANGO_SECRET_KEY` | `django-insecure-default` | Django backend security key (not secure) |
 | `TAVILY_API_KEY` | `tavily-api-key-not-configured` | Search functionality (disabled) |
-| `VITE_APP_TITLE` | `Tenstorrent \| TT Studio` | Application title |
+| `VITE_APP_TITLE` | `TT Studio` | Application title |
 | `VITE_ENABLE_DEPLOYED` | `false` | AI Playground mode (disabled - uses TT Studio mode) |
 | `VITE_ENABLE_RAG_ADMIN` | `false` | RAG admin interface (disabled) |
 | `RAG_ADMIN_PASSWORD` | `tt-studio-rag-admin-password` | Default admin password |
@@ -407,7 +407,9 @@ When you run `python run.py`, the script:
 | | VITE_ENABLE_RAG_ADMIN | Enable RAG admin interface | Yes |
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
 | **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
+| **Downloads** | TT_STUDIO_DISABLE_HF_XET | Set `true` to turn off Hugging Face Xet transfer and use plain HTTPS downloads (slower; see [Troubleshooting](troubleshooting.md#slow-model-weight-downloads-hugging-face-xet)) | Optional (default false) |
 | **Inference Artifact** | TT_MODEL_SUPPORT_URL | Model support spec (tt-cli `model_support.json`) the model catalog syncs from; its `release_version` is the default artifact, and a different artifact builds the catalog from the artifact and `model_overrides.toml` instead | Optional (defaults to the latest tt-cli release) |
+| **Community Models** | TT_COMMUNITY_CATALOG_URL | Verified community bundles (tt-cli `community_catalog.json`); the only community models listed | Optional (defaults to the latest tt-cli release) |
 | | TT_INFERENCE_ARTIFACT_VERSION | Pin a tt-inference-server release instead of the spec's | Optional |
 | | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |
 | | TT_QB2_LAUNCH_BRANCH | Artifact branch for the QB2 launch (branch selection only) | Optional |

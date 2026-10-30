@@ -26,8 +26,8 @@ export default function RegisterModelPage() {
               Register External Model
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Connect a running Docker container to TT Studio. Pick a container —
-              its model and devices are detected automatically.
+              Connect running Docker containers to TT Studio. Select the ones to
+              register — each one's model and devices are detected automatically.
             </p>
           </div>
           <RegisterModelForm onSuccess={handleSuccess} />

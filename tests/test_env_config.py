@@ -74,6 +74,34 @@ class TestEnvFileRoundTrip(unittest.TestCase):
         self.assertEqual(existing.get("A"), "1")
         self.assertEqual(existing.get("B"), "2")
 
+    def test_legacy_app_title_migration(self):
+        """Legacy default 'Tenstorrent | TT Studio' in .env must migrate to STOCK_APP_TITLE."""
+        from tt_setup.constants import STOCK_APP_TITLE
+
+        # The migration writes os.environ; restore it afterwards so the value does
+        # not leak into later tests, and drop any shell value so .env is what's read.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VITE_APP_TITLE", None)
+            M.write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            self.assertEqual(M.get_env_var("VITE_APP_TITLE"), "Tenstorrent | TT Studio")
+
+            # Exercise the real production migration helper
+            migrated = _ecfg_configure.migrate_legacy_app_title()
+            self.assertEqual(migrated, STOCK_APP_TITLE)
+            self.assertEqual(M.get_env_var("VITE_APP_TITLE"), STOCK_APP_TITLE)
+            self.assertEqual(os.environ.get("VITE_APP_TITLE"), STOCK_APP_TITLE)
+
+    def test_legacy_app_title_migration_overwrites_os_environ(self):
+        """Migration must update os.environ so get_env_var does not see the old value."""
+        from tt_setup.constants import STOCK_APP_TITLE
+
+        with patch.dict(os.environ, {"VITE_APP_TITLE": "Tenstorrent | TT Studio"}):
+            M.write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            migrated = _ecfg_configure.migrate_legacy_app_title()
+            self.assertEqual(migrated, STOCK_APP_TITLE)
+            self.assertEqual(os.environ.get("VITE_APP_TITLE"), STOCK_APP_TITLE)
+            self.assertEqual(M.get_env_var("VITE_APP_TITLE"), STOCK_APP_TITLE)
+
 
 class TestOsEnvironPrecedence(unittest.TestCase):
     """os.environ must take precedence over .env file values (issue #804)."""

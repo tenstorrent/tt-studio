@@ -20,13 +20,19 @@ django.setup()
 from model_control.marketplace_utils import (
     DEFAULT_EMBEDDING_MAX_LENGTH,
     embedding_model_env,
+    image_model_env,
     stt_model_env,
     tts_model_env,
 )
-from shared_config.marketplace_config import MarketplaceApp, AppKind
+from shared_config.marketplace_config import MARKETPLACE_APPS, MarketplaceApp, AppKind
 
 
-def _app(embedding_gateway_env=None, stt_gateway_env=None, tts_gateway_env=None):
+def _app(
+    embedding_gateway_env=None,
+    stt_gateway_env=None,
+    tts_gateway_env=None,
+    image_gateway_env=None,
+):
     return MarketplaceApp(
         id="test-app",
         name="Test App",
@@ -37,6 +43,7 @@ def _app(embedding_gateway_env=None, stt_gateway_env=None, tts_gateway_env=None)
         embedding_gateway_env=embedding_gateway_env or {},
         stt_gateway_env=stt_gateway_env or {},
         tts_gateway_env=tts_gateway_env or {},
+        image_gateway_env=image_gateway_env or {},
     )
 
 
@@ -135,6 +142,24 @@ class TestTtsModelEnv:
         rendered = tts_model_env(app, "some-tts")
         assert rendered["TTS_PROVIDER"] == "generic-openai"
         assert rendered["TTS_OPEN_AI_COMPATIBLE_MODEL"] == "some-tts"
+
+
+class TestImageModelEnv:
+    def test_no_model_renders_nothing(self):
+        # Without a pick the app keeps its own default: image generation off.
+        app = _app(image_gateway_env={"MODEL": "{model}"})
+        assert image_model_env(app, None) == {}
+
+    def test_app_without_image_support_renders_nothing(self):
+        assert image_model_env(_app(), "some-image-model") == {}
+
+    def test_open_webui_is_pointed_at_the_picked_model(self):
+        open_webui = next(a for a in MARKETPLACE_APPS if a.id == "open-webui")
+        rendered = image_model_env(open_webui, "Qwen/Qwen-Image-2.1")
+        assert rendered["ENABLE_IMAGE_GENERATION"] == "true"
+        assert rendered["IMAGE_GENERATION_ENGINE"] == "openai"
+        assert rendered["IMAGE_GENERATION_MODEL"] == "Qwen/Qwen-Image-2.1"
+        assert rendered["IMAGES_OPENAI_API_BASE_URL"].endswith("/models/openai/v1")
 
 
 if __name__ == "__main__":

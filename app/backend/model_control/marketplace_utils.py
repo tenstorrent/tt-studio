@@ -22,8 +22,10 @@ the app catalog itself is in `shared_config.marketplace_config`.
 import fcntl
 import json
 import os
+import re
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -280,10 +282,10 @@ def deployed_model_names() -> List[str]:
 
     names: List[str] = []
     for _, entry in _running_coding_agent_deploys():
-        model_name = getattr(entry.get("model_impl"), "model_name", None)
-        if not model_name:
+        impl = entry.get("model_impl")
+        if not getattr(impl, "model_name", None):
             continue
-        names.extend(n for n in get_gateway_model_names(model_name) if n not in names)
+        names.extend(n for n in get_gateway_model_names(impl) if n not in names)
     return names
 
 
@@ -422,6 +424,12 @@ def tts_model_env(app: MarketplaceApp, tts_model: Optional[str]) -> Dict[str, st
     return _companion_model_env(app.tts_gateway_env, tts_model)
 
 
+def image_model_env(app: MarketplaceApp, image_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's image-generation env vars, if the user picked a deployed
+    image model. Without one the app keeps its own default (usually disabled)."""
+    return _companion_model_env(app.image_gateway_env, image_model)
+
+
 # --- Serialization ----------------------------------------------------------
 
 
@@ -474,6 +482,7 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
         "embedding_choice": bool(app.embedding_gateway_env),
         "stt_choice": bool(app.stt_gateway_env),
         "tts_choice": bool(app.tts_gateway_env),
+        "image_choice": bool(app.image_gateway_env),
     }
 
     # Apps configured through their own UI need the endpoint as reachable from
@@ -509,6 +518,8 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
             host_port=published_host_port(container, app.container_port),
             open_path=app.open_path,
         )
+        if "WEBUI_AUTH=True" in (container.get("environment") or []):
+            payload["first_run_note"] = OPEN_WEBUI_SIGN_IN_NOTE
     elif job and job.get("state") == "error":
         # Kept after the launch failed so the card can explain why.
         payload.update(status="error", message=job["message"])
@@ -595,6 +606,90 @@ def _run_post_ready_hook(app: MarketplaceApp) -> None:
         logger.warning(f"marketplace: could not configure {app.id}: {e}. Please configure the app manually.")
 
 
+# --- Pre-launch checks ------------------------------------------------------
+#
+# Hooks keyed by app id that run before the container starts and return extra
+# env vars for it. A failure is logged and the app starts with its defaults.
+
+# Open WebUI is launched with WEBUI_AUTH=False so it opens straight into a chat,
+# signing everyone in as admin@localhost. It refuses that when its data volume
+# already holds accounts but not that one (e.g. created before auth was turned
+# off), and the page then spins on "Signing in" forever. Reading the user table
+# first lets such a volume start with auth on instead.
+_OPEN_WEBUI_USERS_SCRIPT = """
+import os, sqlite3
+db = "/app/backend/data/webui.db"
+users = admin = 0
+if os.path.exists(db):
+    conn = sqlite3.connect("file:" + db + "?mode=ro", uri=True)
+    users = conn.execute("select count(*) from user").fetchone()[0]
+    admin = conn.execute(
+        "select count(*) from user where lower(email) = ?", ("admin@localhost",)
+    ).fetchone()[0]
+print("users=%d admin=%d" % (users, admin))
+"""
+
+OPEN_WEBUI_SIGN_IN_NOTE = (
+    "This Open WebUI already has accounts from an earlier launch, so it asks you "
+    "to sign in with one of them. To start over without accounts (this deletes "
+    "its chats), stop Open WebUI and run: docker volume rm tt_studio_open_webui_data"
+)
+
+PROBE_TIMEOUT_S = 60
+
+
+def _open_webui_env(app: MarketplaceApp, client) -> Dict[str, str]:
+    """Turn auth back on when the volume's accounts would block the auto sign-in."""
+    # A name of its own per check, so overlapping launches never touch each
+    # other's probe; only this probe is ever removed below.
+    probe = f"{app.container_name}_probe_{uuid.uuid4().hex[:8]}"
+    client.run_container(
+        image=app.image,
+        name=probe,
+        command="python3 -c \"import os; exec(os.environ['PROBE'])\"",
+        environment={"PROBE": _OPEN_WEBUI_USERS_SCRIPT},
+        volumes=dict(app.volumes),
+    )
+    try:
+        deadline = time.monotonic() + PROBE_TIMEOUT_S
+        while _container_state(client, probe) not in ("exited", "dead"):
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"user check did not finish in {PROBE_TIMEOUT_S}s")
+            threading.Event().wait(1)
+        output = " ".join(client.tail_logs(probe, tail=20))
+    finally:
+        remove_container_if_present(client, probe)
+
+    counts = re.search(r"users=(\d+) admin=(\d+)", output)
+    if not counts:
+        raise RuntimeError(f"unexpected user check output: {output[-200:]!r}")
+    users, admin = (int(n) for n in counts.groups())
+    if users and not admin:
+        logger.info(
+            f"marketplace: {app.id} volume has {users} account(s) and no "
+            "admin@localhost; launching with sign-in"
+        )
+        return {"WEBUI_AUTH": "True"}
+    return {}
+
+
+PRE_LAUNCH_ENV_HOOKS = {"open-webui": _open_webui_env}
+
+
+def _pre_launch_env(app: MarketplaceApp, client) -> Dict[str, str]:
+    hook = PRE_LAUNCH_ENV_HOOKS.get(app.id)
+    if hook is None:
+        return {}
+    try:
+        return hook(app, client)
+    except Exception as e:
+        logger.warning(
+            f"marketplace: pre-launch check for {app.id} failed: {e}; "
+            "launching with its defaults"
+        )
+        return {}
+
+
 # --- Launching and stopping -------------------------------------------------
 
 
@@ -641,11 +736,12 @@ def start_launch(
     embedding_model: Optional[str] = None,
     stt_model: Optional[str] = None,
     tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
 ) -> None:
     """Pull and start an app in the background. Poll get_job / serialize_app."""
     threading.Thread(
         target=_launch,
-        args=(app, host_port, embedding_model, stt_model, tts_model),
+        args=(app, host_port, embedding_model, stt_model, tts_model, image_model),
         daemon=True,
         name=f"launch-{app.id}",
     ).start()
@@ -665,6 +761,7 @@ def _launch(
     embedding_model: Optional[str] = None,
     stt_model: Optional[str] = None,
     tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
 ) -> None:
     """Pull the image if needed, then run the container. Runs in a worker thread."""
     client = get_docker_client()
@@ -696,10 +793,12 @@ def _launch(
                 ports={f"{app.container_port}/tcp": host_port},
                 environment={
                     **app.env,
+                    **_pre_launch_env(app, client),
                     **_model_env(app),
                     **embedding_model_env(app, embedding_model),
                     **stt_model_env(app, stt_model),
                     **tts_model_env(app, tts_model),
+                    **image_model_env(app, image_model),
                 },
                 volumes=dict(app.volumes),
                 network=backend_config.docker_bridge_network_name,

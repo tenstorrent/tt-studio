@@ -23,6 +23,7 @@ from tt_setup.docker import (
     detect_foreign_tt_studio_stacks,
     detect_tt_hardware,
     fix_docker_issues,
+    grant_container_read,
     prepare_docker_socket_path,
     remove_docker_control_container,
     stop_tt_studio_stack,
@@ -60,10 +61,14 @@ from tt_setup.inference_server import (
     catalog_matches_artifact,
     setup_artifact_with_fallback,
 )
+from tt_setup.model_manager import setup_tt_model_manager
 from tt_setup.model_support import (
     default_artifact_version,
+    describe_community_source,
     describe_list_source,
+    enrich_community_catalog,
     fetch_model_support,
+    refresh_community_catalog,
     save_model_support,
 )
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
@@ -329,6 +334,9 @@ def _run(args):
 {C_YELLOW}{C_BOLD}Optional Services:{C_RESET}
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
+  {C_YELLOW}TT_STUDIO_DISABLE_HF_XET{C_RESET}            Set true to disable Hugging Face Xet
+                                      transfer for weight downloads and use
+                                      plain HTTPS instead (slower; default off)
 
 {C_ORANGE}{C_BOLD}Hardware:{C_RESET}
 {'=' * 80}
@@ -349,6 +357,8 @@ def _run(args):
   {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
                                       (branch selection only — hardware is
                                       governed by IS_QB2, not this)
+  {C_YELLOW}TT_COMMUNITY_CATALOG_URL{C_RESET}            Verified community bundles (tt-cli
+                                      community_catalog.json); URL or local path
 
 {C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
 {'=' * 80}
@@ -670,7 +680,7 @@ def _run(args):
                 "hf_token_provided": True,
                 "tt_studio_mode": True,
                 "ai_playground_mode": False,
-                "vite_app_title": "Tenstorrent | TT Studio",
+                "vite_app_title": STOCK_APP_TITLE,
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
@@ -973,6 +983,17 @@ def _run(args):
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
+
+                # Community-model path. Non-fatal by design: without it the backend
+                # simply doesn't offer community models, and inference-server
+                # deploys are unaffected.
+                with step("tt-model-manager artifact", spinner=True) as handle:
+                    if not setup_tt_model_manager():
+                        handle.fail()
+                refresh_community_catalog()
+                enrich_community_catalog()
+                if show_detail():
+                    console.print(f"[muted]{describe_community_source()}[/muted]")
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
@@ -1008,6 +1029,19 @@ def _run(args):
                     ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", _mount_dir],
                     check=False,
                 )
+
+        # Files mounted into containers that run as a fixed non-root uid must be
+        # world-readable, which a clone made under umask 0007 (files at 0660) is not.
+        unreadable = grant_container_read([
+            os.path.join(TT_STUDIO_ROOT, "app", "litellm", "config.yaml"),
+            os.path.join(TT_STUDIO_ROOT, "app", "agent"),
+        ])
+        if unreadable:
+            console.print(
+                f"[warning]⚠️  Couldn't make {len(unreadable)} file(s) readable for the "
+                f"LiteLLM/agent containers (first: {unreadable[0]}). If those containers "
+                "keep restarting, run: chmod -R a+rX app/litellm app/agent[/warning]"
+            )
 
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.

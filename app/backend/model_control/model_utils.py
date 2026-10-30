@@ -93,6 +93,12 @@ def find_deployed_tts_model(model_identifier: str) -> Optional[dict]:
     return find_deployed_model_by_type(model_identifier, ModelTypes.TTS)
 
 
+def find_deployed_image_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running IMAGE_GENERATION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.IMAGE_GENERATION)
+
+
 def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:
     """POST one text to a deployed embedding model's /v1/embeddings route and
     return the raw OpenAI-shaped response ({"data": [{"embedding": [...]}], ...}).
@@ -214,7 +220,12 @@ _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
 
-def get_deploy_cache():
+def get_deploy_cache(canonical=None):
+    """Running deployments keyed by container id.
+
+    Pass ``canonical`` when the caller already holds get_canonical_deployments()
+    so the cache is refreshed from it instead of querying Docker again.
+    """
     # the cache is initialized when by docker_control is imported
     def get_all_records():
         # need to strip out the key version tag
@@ -225,8 +236,8 @@ def get_deploy_cache():
 
     global _last_deploy_cache_update
     now = time.monotonic()
-    if now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
-        update_deploy_cache()
+    if canonical is not None or now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
+        update_deploy_cache(canonical)
         _last_deploy_cache_update = now
     data = get_all_records()
 
@@ -252,6 +263,17 @@ def get_deploy_cache():
     return data
 
 
+_NOT_READY_STATUSES = frozenset({"loading", "initializing", "starting"})
+
+
+def _reports_not_ready(content) -> bool:
+    """True for a health body declaring the server up but not yet serving."""
+    if not isinstance(content, dict):
+        return False
+    status_text = str(content.get("status", "")).lower()
+    return content.get("ready") is False or status_text in _NOT_READY_STATUSES
+
+
 def health_check(url, json_data, timeout=5, auth_token: str = None):
     logger.info(f"calling health_url:= {url}")
     try:
@@ -266,11 +288,15 @@ def health_check(url, json_data, timeout=5, auth_token: str = None):
         return False, str(e)
 
     if response.status_code == 200:
-        logger.info(f"Health check passed: {response.status_code}")
         try:
             content = response.json() if response.content else {}
         except Exception:
             content = {}
+        if _reports_not_ready(content):
+            # tt-dit apps answer 200 while their pipeline is still warming up.
+            logger.info(f"Health check: up but not ready yet: {content}")
+            return None, content
+        logger.info(f"Health check passed: {response.status_code}")
         return True, content
 
     # Detect transient "still warming up" responses. The media-server stack
@@ -316,6 +342,10 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
         "thread_id": json_data["thread_id"],
         "message": json_data["messages"][-1]["content"],
     }
+    # Per-request template flags (the Voice Agent turns thinking off) for the
+    # agent to forward to its LLM call.
+    if json_data.get("chat_template_kwargs"):
+        new_json_data["chat_template_kwargs"] = json_data["chat_template_kwargs"]
     logger.info(f"POST {url} data:={new_json_data}")
     try:
         async with _vllm_client.stream("POST", url, json=new_json_data) as response:

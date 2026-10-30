@@ -188,6 +188,14 @@ class ModelImpl:
         return self.image_name.split("/")[-1]
 
     @property
+    def deployment_container_name(self) -> str:
+        # Mirrors get_default_model_id() so a training container doesn't fight a
+        # chat container of the same model_name for one Docker name.
+        if self.model_type == ModelTypes.TRAINING:
+            return f"{self.model_name}-training"
+        return self.model_name
+
+    @property
     def host_path(self) -> Path:
         return Path(backend_config.host_peristent_storage_volume).joinpath(
             self.volume_name
@@ -226,6 +234,10 @@ class ModelImpl:
             logger.info(f"model_name:={self.model_name} does not have a hf_model_id set")
 
     def get_default_model_id(self):
+        # A training row can share model_name and version with a chat row
+        # (Llama-3.1-8B-Instruct), so it gets its own id.
+        if self.model_type == ModelTypes.TRAINING:
+            return f"id_{self.impl_id}-{self.model_name}-training-v{self.version}"
         return f"id_{self.impl_id}-{self.model_name}-v{self.version}"
         
     def get_model_env_file(self):
@@ -465,22 +477,45 @@ def validate_model_implemenation_config(impl):
 # Build final model_implmentations dict
 # ---------------------------------------------------------------------------
 
+# tt-inference-server names trainer runners `trainer-<variant>`; without a deployment
+# record, that's the only way to tell a trainer from a same-named chat model.
+TRAINER_MODEL_RUNNER_PREFIX = "trainer-"
+
+
+def pick_impl_for_container(candidates, env_vars):
+    """Pick TRAINING for a trainer runner, a non-training impl otherwise; fall back
+    to the first candidate when none has the wanted type."""
+    if not candidates:
+        return None
+    runner = str((env_vars or {}).get("MODEL_RUNNER") or "")
+    wants_training = runner.startswith(TRAINER_MODEL_RUNNER_PREFIX)
+    for impl in candidates:
+        if (impl.model_type == ModelTypes.TRAINING) == wants_training:
+            return impl
+    return candidates[0]
+
+
+def register_model_implementations(impls) -> dict:
+    registry = {}
+    for impl in impls:
+        validate_model_implemenation_config(impl)
+        # Only training ids are scoped, so same-name, same-version non-training rows
+        # on different engines still collide. Fail loudly instead of overwriting.
+        if impl.model_id in registry:
+            existing = registry[impl.model_id]
+            raise ValueError(
+                f"Duplicate model_id '{impl.model_id}': "
+                f"'{existing.model_name}' ({existing.inference_engine}) and "
+                f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+                "Give them different versions or model_ids."
+            )
+        registry[impl.model_id] = impl
+    return registry
+
+
 _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 
-model_implmentations = {}
-for impl in _json_impls + _hardcoded_impls:
-    validate_model_implemenation_config(impl)
-    # model_id omits the engine, so same-name cross-engine rows collide unless
-    # their versions differ. Fail loudly instead of silently overwriting.
-    if impl.model_id in model_implmentations:
-        existing = model_implmentations[impl.model_id]
-        raise ValueError(
-            f"Duplicate model_id '{impl.model_id}': "
-            f"'{existing.model_name}' ({existing.inference_engine}) and "
-            f"'{impl.model_name}' ({impl.inference_engine}) collide. "
-            "Give them different versions or model_ids."
-        )
-    model_implmentations[impl.model_id] = impl
+model_implmentations = register_model_implementations(_json_impls + _hardcoded_impls)
 
 
 # ---------------------------------------------------------------------------

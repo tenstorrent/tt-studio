@@ -22,4 +22,6 @@ export interface ChipStatus {
   board_type: string;
   total_slots: number;
   slots: ChipStatusSlot[];
+  /** Chips grouped by the card they sit on (tt-smi board_id), e.g. [[0, 1], [2, 3]]. */
+  cards?: number[][];
 }
