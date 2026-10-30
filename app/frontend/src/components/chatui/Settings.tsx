@@ -10,20 +10,14 @@ import {
   TextQuote,
   Shuffle,
   ListFilter,
-  Info,
   BarChart2,
   MessageSquare,
   Hash,
+  Brain,
 } from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/src/components/ui/tooltip";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -36,15 +30,20 @@ interface SettingsProps {
     seed: number;
     toggleableInlineStats: boolean;
     systemPrompt: string;
+    thinking?: boolean;
   };
   onSettingsChange: (key: string, value: number | boolean | string) => void;
   defaultSystemPrompt: string;
   maxTokensSliderMax?: number;
+  /** Hide the system prompt editor (e.g. template/completion mode ignores it). */
+  hideSystemPrompt?: boolean;
+  /** Show the thinking on/off switch (only for models that support it). */
+  showThinkingToggle?: boolean;
 }
 
 // Parameter validation ranges
 const PARAM_RANGES = {
-  temperature: { min: 0.1, max: 1.0, step: 0.1 },
+  temperature: { min: 0, max: 1.0, step: 0.1 },
   maxLength: { min: 1, max: 131072, step: 1 },
   topP: { min: 0.1, max: 1.0, step: 0.1 },
   topK: { min: 1, max: 50, step: 1 },
@@ -59,6 +58,7 @@ const DEFAULT_VALUES = {
   topK: 20,
   seed: 0,
   toggleableInlineStats: true,
+  thinking: false,
 };
 
 // System prompt presets
@@ -78,8 +78,8 @@ const validateParam = (key: string, value: number): number => {
     return typeof defaultValue === "number" ? defaultValue : 1;
   }
 
-  // If value is zero or less than minimum, use default
-  if (value <= 0) {
+  // If value is less than zero, use default
+  if (value < 0) {
     const defaultValue = DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
     const numericDefault = typeof defaultValue === "number" ? defaultValue : 1;
     console.warn(
@@ -110,7 +110,6 @@ interface ParameterProps {
   min: number;
   max: number;
   step: number;
-  tooltip: string;
   description: string;
   formatValue?: (v: number) => string;
 }
@@ -124,7 +123,6 @@ const Parameter = ({
   min,
   max,
   step,
-  tooltip,
   description,
   formatValue,
 }: ParameterProps) => (
@@ -138,16 +136,6 @@ const Parameter = ({
           <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
             {label}
           </span>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-gray-400 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </div>
       <div className="flex items-center gap-1.5">
@@ -184,14 +172,12 @@ const Parameter = ({
 const ToggleSetting = ({
   label,
   description,
-  tooltip,
   icon,
   checked,
   onChange,
 }: {
   label: string;
   description: string;
-  tooltip: string;
   icon: React.ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -206,16 +192,6 @@ const ToggleSetting = ({
           <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
             {label}
           </span>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-gray-400 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </div>
       <Switch
@@ -235,10 +211,12 @@ export default function Settings({
   onSettingsChange,
   defaultSystemPrompt,
   maxTokensSliderMax,
+  hideSystemPrompt,
+  showThinkingToggle,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
-    if (!value || isNaN(numValue) || numValue <= 0) {
+    if (!value || isNaN(numValue) || numValue < 0) {
       onSettingsChange(key, DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES]);
       return;
     }
@@ -282,7 +260,9 @@ export default function Settings({
 
           {/* Settings Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* System Prompt */}
+            {/* System Prompt — hidden in template/completion mode, where the raw
+                prompt is sent as-is and no system prompt is applied. */}
+            {!hideSystemPrompt && (
             <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
@@ -292,16 +272,6 @@ export default function Settings({
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
                     System Prompt
                   </span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-4 w-4 text-gray-400 cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Sets the initial instructions and persona for the model</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
               </div>
               {/* Active prompt status */}
@@ -340,11 +310,10 @@ export default function Settings({
                           isActive ? "" : preset.prompt
                         )
                       }
-                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                        isActive
-                          ? "bg-[#7C68FA] text-white border-[#7C68FA]"
-                          : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
-                      }`}
+                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${isActive
+                        ? "bg-[#7C68FA] text-white border-[#7C68FA]"
+                        : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
+                        }`}
                     >
                       {preset.label}
                     </button>
@@ -355,21 +324,21 @@ export default function Settings({
                 Custom instructions fully replace the auto-generated prompt
               </p>
             </div>
+            )}
 
             <Parameter
               label="Temperature"
-              value={settings.temperature || DEFAULT_VALUES.temperature}
+              value={settings.temperature ?? DEFAULT_VALUES.temperature}
               icon={<Thermometer className="h-4 w-4" />}
               onChange={(value) => handleInputChange("temperature", value)}
               onBlur={() => {
-                if (!settings.temperature || settings.temperature <= 0) {
+                if (settings.temperature == null || settings.temperature < 0) {
                   onSettingsChange("temperature", DEFAULT_VALUES.temperature);
                 }
               }}
               min={PARAM_RANGES.temperature.min}
               max={PARAM_RANGES.temperature.max}
               step={PARAM_RANGES.temperature.step}
-              tooltip="Controls the randomness of the model's output"
               description="Lower values are more focused, higher values more creative"
             />
 
@@ -380,13 +349,15 @@ export default function Settings({
               onChange={(value) => handleInputChange("maxLength", value)}
               onBlur={() => {
                 if (!settings.maxLength || settings.maxLength <= 0) {
-                  onSettingsChange("maxLength", DEFAULT_VALUES.maxLength);
+                  onSettingsChange(
+                    "maxLength",
+                    Math.max(1, Math.floor(((maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) * 3) / 4))
+                  );
                 }
               }}
               min={PARAM_RANGES.maxLength.min}
               max={maxTokensSliderMax ?? PARAM_RANGES.maxLength.max}
               step={(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) > 8192 ? 256 : 1}
-              tooltip="Sets the maximum length of the generated response"
               description={`Maximum output tokens (model context: ${formatTokenCount(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max)})`}
               formatValue={formatTokenCount}
             />
@@ -404,7 +375,6 @@ export default function Settings({
               min={PARAM_RANGES.topP.min}
               max={PARAM_RANGES.topP.max}
               step={PARAM_RANGES.topP.step}
-              tooltip="Controls the diversity of token selection"
               description="Nucleus sampling: Controls diversity of generated text"
             />
 
@@ -421,7 +391,6 @@ export default function Settings({
               min={PARAM_RANGES.topK.min}
               max={PARAM_RANGES.topK.max}
               step={PARAM_RANGES.topK.step}
-              tooltip="Limits the vocabulary size for token selection"
               description="Limits vocabulary: Lower values make text more focused"
             />
 
@@ -445,14 +414,22 @@ export default function Settings({
               min={PARAM_RANGES.seed.min}
               max={PARAM_RANGES.seed.max}
               step={PARAM_RANGES.seed.step}
-              tooltip="Controls output reproducibility. Set to 0 for random."
               description="Set to 0 for random. Same seed produces reproducible outputs."
             />
+
+            {showThinkingToggle && (
+              <ToggleSetting
+                label="Thinking"
+                description="Let the model reason step by step before it answers. Turn off for faster, more direct replies."
+                icon={<Brain className="h-4 w-4" />}
+                checked={settings.thinking ?? DEFAULT_VALUES.thinking}
+                onChange={(checked) => onSettingsChange("thinking", checked)}
+              />
+            )}
 
             <ToggleSetting
               label="Inline Stats"
               description="Always show inference statistics inline for all messages"
-              tooltip="When enabled, displays inference statistics inline next to each assistant message"
               icon={<BarChart2 className="h-4 w-4" />}
               checked={
                 settings.toggleableInlineStats ??

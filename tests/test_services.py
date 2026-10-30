@@ -3,9 +3,10 @@
 
 """Characterization tests for service helpers (ports, git, frontend config)."""
 import os
+import signal
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 try:
     from tt_setup import services as M
@@ -17,6 +18,7 @@ try:
     from tt_setup.services import _ports as _ports_mod
 except ImportError:
     _ports_mod = M
+
 
 # Browser/health helpers live in the _health submodule; patch the names it looks
 # up (wait_for_service_health, webbrowser) there.
@@ -64,10 +66,17 @@ class TestWaitForFrontendAndOpenBrowser(unittest.TestCase):
         wb.open.assert_not_called()
 
 # Docker Control lifecycle helpers live in the _docker_control submodule.
+
 try:
-    from tt_setup.services import _docker_control as _dc_mod
+    from tt_setup.services import _docker_control as _docker_control_mod
 except ImportError:
-    _dc_mod = M
+    _docker_control_mod = M
+
+# FastAPI lifecycle helpers live in the _fastapi submodule.
+try:
+    from tt_setup.services import _fastapi as _fa_mod
+except ImportError:
+    _fa_mod = M
 
 
 class TestGetFrontendConfig(unittest.TestCase):
@@ -110,6 +119,260 @@ class TestCheckPortAvailable(unittest.TestCase):
         nc = MagicMock(stdout="", returncode=0)
         with patch("subprocess.run", side_effect=[lsof, nc]):
             self.assertFalse(M.check_port_available(12345))
+
+
+class TestContainerHealth(unittest.TestCase):
+    def test_probe_container_health_uses_docker_inspect(self):
+        result = MagicMock(returncode=0, stdout="healthy\n")
+        with patch("subprocess.run", return_value=result) as run:
+            self.assertTrue(M.probe_container_health("tt_studio_docker_control"))
+        self.assertIn("docker", run.call_args.args[0])
+        self.assertIn("tt_studio_docker_control", run.call_args.args[0])
+
+    def test_probe_container_health_rejects_starting_container(self):
+        result = MagicMock(returncode=0, stdout="starting\n")
+        with patch("subprocess.run", return_value=result):
+            self.assertFalse(M.probe_container_health("tt_studio_docker_control"))
+
+
+class TestLegacyDockerControlCleanup(unittest.TestCase):
+    def test_stops_identified_listener_when_pid_file_is_missing(self):
+        legacy_command = f"python {M.DOCKER_CONTROL_SERVICE_DIR}/start_docker_control.py"
+
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps":
+                return MagicMock(stdout=legacy_command, returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        def kill_process(pid, sig):
+            if sig == 0:
+                raise ProcessLookupError
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+             patch.object(_ports_mod, "run_command", side_effect=lambda cmd, **kw: MagicMock(returncode=0)), \
+             patch.object(_docker_control_mod, "kill_process_on_port"), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+    def test_stale_pid_file_does_not_hide_identified_listener(self):
+        legacy_command = f"python {M.DOCKER_CONTROL_SERVICE_DIR}/start_docker_control.py"
+
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps" and command[2] == "9999":
+                return MagicMock(stdout="python unrelated_service.py", returncode=0)
+            if command[0] == "ps" and command[2] == "4242":
+                return MagicMock(stdout=legacy_command, returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = os.path.join(directory, "docker-control.pid")
+            with open(pid_file, "w") as handle:
+                handle.write("9999")
+            with patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", pid_file), \
+                 patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+                 patch.object(_ports_mod, "run_command", side_effect=lambda cmd, **kw: MagicMock(returncode=0)), \
+                 patch.object(_docker_control_mod, "kill_process_on_port"), \
+                 patch.object(_ports_mod.time, "sleep"):
+                M.cleanup_docker_control_service(no_sudo=True)
+
+    def test_leaves_unidentified_port_8002_listener_running(self):
+        def run_command(command, **kwargs):
+            if command[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if command[0] == "ps":
+                return MagicMock(stdout="python unrelated_service.py", returncode=0)
+            self.fail(f"Unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=run_command), \
+             patch.object(_ports_mod, "_terminate_pid_graceful_then_force") as term:
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        term.assert_not_called()
+
+    def test_cleanup_terminates_supervisor_wrapper_first(self):
+        legacy_command = f"python {M.DOCKER_CONTROL_SERVICE_DIR}/start_docker_control.py"
+        supervisor_command = f"/bin/bash /tmp/tmp_supervisor.sh {M.DOCKER_CONTROL_SERVICE_DIR} /path/to/pid .venv log"
+
+        terminated = []
+
+        def fake_run_command(cmd, **kwargs):
+            if cmd[0] == "lsof":
+                return MagicMock(stdout="4242\n", returncode=0)
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "4242":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1111\n", returncode=0)
+                    return MagicMock(stdout=legacy_command, returncode=0)
+                if p == "1111":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1\n", returncode=0)
+                    return MagicMock(stdout=supervisor_command, returncode=0)
+                return MagicMock(stdout="", returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-15":
+                terminated.append(int(cmd[2]))
+                return MagicMock(returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-0":
+                return MagicMock(returncode=1)  # process dead
+            return MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=fake_run_command), \
+             patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        self.assertEqual(terminated, [1111, 4242],
+                         "Supervisor wrapper (1111) must be terminated before listener child (4242)")
+
+    def test_cleanup_identifies_via_parent_supervisor_when_child_is_plain_python(self):
+        worker_command = "/usr/bin/python3.12 -c from multiprocessing.spawn import spawn_main"
+        supervisor_command = f"/bin/bash /tmp/tmp_supervisor.sh {M.DOCKER_CONTROL_SERVICE_DIR} /path/to/pid .venv log"
+
+        terminated = []
+
+        def fake_run_command(cmd, **kwargs):
+            if cmd[0] == "lsof":
+                if 747888 in terminated:
+                    return MagicMock(stdout="", returncode=1)
+                return MagicMock(stdout="747888\n", returncode=0)
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747888":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="537390\n", returncode=0)
+                    return MagicMock(stdout=worker_command, returncode=0)
+                if p == "537390":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1\n", returncode=0)
+                    return MagicMock(stdout=supervisor_command, returncode=0)
+                return MagicMock(stdout="", returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-15":
+                terminated.append(int(cmd[2]))
+                return MagicMock(returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-0":
+                return MagicMock(returncode=1)
+            # Anything else (the final port guard's ss/nc probes) finds nothing.
+            return MagicMock(stdout="", returncode=1)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=fake_run_command), \
+             patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        self.assertEqual(terminated, [537390, 747888],
+                         "Supervisor (537390) must be terminated before plain python child (747888)")
+
+    def test_cleanup_discovers_listener_via_ss_when_lsof_fails(self):
+        supervisor_command = f"/bin/bash /tmp/tmp_supervisor.sh {M.DOCKER_CONTROL_SERVICE_DIR} /path/to/pid .venv log"
+        terminated = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            if cmd[0] == "lsof":
+                raise FileNotFoundError("lsof not found")
+            if cmd[0] == "ss":
+                return MagicMock(stdout='users:(("uvicorn",pid=747886))\n', returncode=0)
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747886":
+                    return MagicMock(stdout="uvicorn api:app", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        def fake_ports_run_command(cmd, **kwargs):
+            if cmd[0] == "ps":
+                p = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                if p == "747886":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="537390\n", returncode=0)
+                    return MagicMock(stdout="uvicorn api:app", returncode=0)
+                if p == "537390":
+                    if "ppid=" in cmd:
+                        return MagicMock(stdout="1\n", returncode=0)
+                    return MagicMock(stdout=supervisor_command, returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-15":
+                terminated.append(int(cmd[2]))
+                return MagicMock(returncode=0)
+            if cmd[0] == "kill" and cmd[1] == "-0":
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(_docker_control_mod.shutil, "which", return_value="/usr/bin/ss"), \
+             patch.object(_docker_control_mod, "DOCKER_CONTROL_PID_FILE", os.path.join(directory, "missing.pid")), \
+             patch.object(_docker_control_mod.subprocess, "run", side_effect=fake_subprocess_run), \
+             patch.object(_ports_mod, "run_command", side_effect=fake_ports_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            M.cleanup_docker_control_service(no_sudo=True)
+
+        self.assertEqual(terminated, [537390, 747886])
+
+class TestGetBackendPort(unittest.TestCase):
+    def test_default_is_8000(self):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
+            self.assertEqual(M.get_backend_port(), 8000)
+
+    def test_env_override(self):
+        with patch.dict(os.environ, {"BACKEND_PORT": "8010"}), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
+            self.assertEqual(M.get_backend_port(), 8010)
+
+    def test_garbage_value_falls_back_to_default(self):
+        with patch.dict(os.environ, {"BACKEND_PORT": "not-a-port"}), \
+             patch("tt_setup.env_config._dotenv.ENV_FILE_PATH", "/nonexistent/.env"):
+            self.assertEqual(M.get_backend_port(), 8000)
+
+
+class TestFindAvailablePort(unittest.TestCase):
+    def test_returns_start_port_when_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=True):
+            self.assertEqual(M.find_available_port(8000), 8000)
+
+    def test_skips_occupied_and_reserved_ports(self):
+        # 8000 is busy; 8001/8002 are reserved for the inference server and
+        # docker-control even when they look free — the scan must land on 8003.
+        free = {8003}
+        with patch.object(_ports_mod, "check_port_available", side_effect=lambda p: p in free):
+            self.assertEqual(M.find_available_port(8000), 8003)
+
+    def test_returns_none_when_nothing_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=False):
+            self.assertIsNone(M.find_available_port(8000, max_tries=5))
+
+
+class TestResolveBackendPort(unittest.TestCase):
+    def test_keeps_configured_port_when_free(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=True):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
+
+    def test_keeps_port_held_by_own_backend_container(self):
+        # A restart: our backend container publishes 8000. Compose recreates
+        # it, so the port must be kept rather than incremented away.
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=True):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
+
+    def test_increments_past_a_foreign_listener(self):
+        free = {8003}
+        with patch.object(_ports_mod, "check_port_available", side_effect=lambda p: p in free), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=False):
+            self.assertEqual(M.resolve_backend_port(8000), (8003, True))
+
+    def test_falls_back_to_configured_port_when_scan_finds_nothing(self):
+        with patch.object(_ports_mod, "check_port_available", return_value=False), \
+             patch.object(_ports_mod, "_port_published_by_backend", return_value=False):
+            self.assertEqual(M.resolve_backend_port(8000), (8000, False))
 
 
 class TestPortFreeingNeverKillsDocker(unittest.TestCase):
@@ -224,112 +487,213 @@ class TestDiagnoseServiceLog(unittest.TestCase):
         self.assertEqual(d["evidence"], "")
 
 
+class TestSupervisorGhostSelfTermination(unittest.TestCase):
+    """Regression guards for Issue #1307:
+    Supervisor wrappers must exit immediately (code 0) when the PID file is
+    removed (by --stop / --purge-all) or overwritten by another launcher run,
+    preventing orphaned ghost loops from surviving and fighting for ports."""
+
+    def test_fastapi_dev_wrapper_checks_pid_file_and_ownership(self):
+        import inspect
+        src = inspect.getsource(_fa_mod.start_fastapi_server)
+        self.assertIn('[ ! -f "$2" ]', src, "must verify PID file still exists")
+        self.assertIn('"$(cat "$2" 2>/dev/null)" != "$$"', src, "must verify PID still matches wrapper PID")
+        self.assertIn("Exiting ghost loop", src)
+        self.assertIn("exit 0", src)
+
+
+class TestSupervisorTreeTraversal(unittest.TestCase):
+    """Regression guards for Issue #1307:
+    Freeing a port held by a supervisor's child must climb the process tree
+    and terminate the supervisor wrapper first, preventing restart loops."""
+
+    def test_is_supervisor_wrapper_detection(self):
+        # Matches Linux temp wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /tmp/tmpera45p4b.sh /path/to/docker-control-service /path/to/pid .venv log"
+        ))
+        # Matches macOS temp wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /var/folders/zb/tmpcjb01kdb.sh /path/to/docker-control-service"
+        ))
+        # Matches inference-api wrapper
+        self.assertTrue(_ports_mod._is_supervisor_wrapper(
+            "/bin/bash /tmp/tmp12345.sh /path/to/inference-api"
+        ))
+        # Does not match regular processes or arbitrary user scripts in /tmp
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/usr/bin/python3 app.py"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("com.docker.backend"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("node server.js"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash /tmp/ci_job_step.sh"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash /var/folders/zb/T/my_launcher.sh"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/bin/bash -c source /tmp/session-snapshot.sh && eval 'ls /tmp'"))
+        self.assertFalse(_ports_mod._is_supervisor_wrapper("/home/user/docker-control-service/.venv/bin/python3.12 .venv/bin/uvicorn api:app --reload"))
+
+    def test_find_supervisor_wrapper_pid_climbs_tree(self):
+        # Simulate worker (300) -> reloader (200) -> supervisor (100) -> init (1)
+        tree = {300: 200, 200: 100, 100: 1}
+        cmds = {
+            300: "python uvicorn api:app",
+            200: "/path/to/docker-control-service/.venv/bin/python .venv/bin/uvicorn api:app --reload",
+            100: "/bin/bash /tmp/tmp_supervisor.sh /path/to/docker-control-service",
+            1: "init",
+        }
+        with patch.object(_ports_mod, "_get_parent_pid", side_effect=lambda p, **kw: tree.get(p)), \
+             patch.object(_ports_mod, "_get_process_command", side_effect=lambda p, **kw: cmds.get(p, "")):
+            supervisor_pid = _ports_mod._find_supervisor_wrapper_pid(300)
+        self.assertEqual(supervisor_pid, 100)
+
+    def test_process_inspection_does_not_use_sudo(self):
+        with patch.object(_ports_mod, "run_command") as mock_run_cmd:
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="123\n", stderr="")
+            ppid = _ports_mod._get_parent_pid(456)
+            self.assertEqual(ppid, 123)
+            mock_run_cmd.assert_called_with(["ps", "-o", "ppid=", "-p", "456"], check=False, capture_output=True)
+
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="/bin/bash script.sh\n", stderr="")
+            cmd = _ports_mod._get_process_command(456)
+            self.assertEqual(cmd, "/bin/bash script.sh")
+            mock_run_cmd.assert_called_with(["ps", "-o", "command=", "-p", "456"], check=False, capture_output=True)
+
+    def test_terminate_pid_graceful_then_force_graceful_exit(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            if cmd[:2] == ["kill", "-0"]:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [["kill", "-15", "999"], ["kill", "-0", "999"]])
+
+    def test_terminate_pid_graceful_then_force_escalates_to_force_kill(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            if cmd[:2] == ["kill", "-0"]:
+                return MagicMock(returncode=0)
+            return MagicMock(returncode=0)
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"), \
+             patch.object(_ports_mod.time, "time", side_effect=[100.0, 100.0, 108.0]):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, timeout=7.0, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [
+            ["kill", "-15", "999"],
+            ["kill", "-0", "999"],
+            ["kill", "-9", "999"],
+        ])
+
+    def test_kill_port_holder_terminates_supervisor_first(self):
+        terminated = []
+        with patch.object(_ports_mod, "shutil") as mock_shutil, \
+             patch.object(_ports_mod, "run_command") as mock_run_cmd, \
+             patch.object(_ports_mod, "_process_is_docker", return_value=False), \
+             patch.object(_ports_mod, "_find_supervisor_wrapper_pid", return_value=100), \
+             patch.object(_ports_mod, "_terminate_pid_graceful_then_force",
+                          side_effect=lambda p, **kw: terminated.append(p) or True):
+            mock_shutil.which.return_value = "/usr/bin/lsof"
+            # Return PID 300 for lsof
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="300\n", stderr="")
+            result = _ports_mod._kill_port_holder(8002, no_sudo=True, quiet=True)
+
+        self.assertTrue(result)
+        self.assertEqual(terminated, [100, 300],
+                         "supervisor (100) must be terminated before listener child (300)")
+
+    def test_kill_port_holder_fails_if_supervisor_termination_fails(self):
+        with patch.object(_ports_mod, "shutil") as mock_shutil, \
+             patch.object(_ports_mod, "run_command") as mock_run_cmd, \
+             patch.object(_ports_mod, "_process_is_docker", return_value=False), \
+             patch.object(_ports_mod, "_find_supervisor_wrapper_pid", return_value=100), \
+             patch.object(_ports_mod, "_terminate_pid_graceful_then_force", return_value=False):
+            mock_shutil.which.return_value = "/usr/bin/lsof"
+            mock_run_cmd.return_value = MagicMock(returncode=0, stdout="300\n", stderr="")
+            result = _ports_mod._kill_port_holder(8002, no_sudo=True, quiet=True)
+
+        self.assertFalse(result, "kill_port_holder must return False if supervisor wrapper termination fails")
+
+
+class TestPortFreeingOnlyTargetsTheListener(unittest.TestCase):
+    """`lsof -ti tcp:<port>` also lists processes that merely hold a *client*
+    connection to the port. When the listener is invisible to the non-sudo pass
+    (docker-proxy runs as root), that made the launcher kill whatever user
+    process had a connection open, including the previous `run.py --dev`
+    launcher and any curl/IDE client. Only the LISTEN socket may be targeted."""
+
+    def test_lsof_is_restricted_to_listening_sockets(self):
+        lsof_calls = []
+
+        def fake_run_command(cmd, **kwargs):
+            if "lsof" in cmd:
+                lsof_calls.append(cmd)
+            return MagicMock(returncode=1, stdout="", stderr="")
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch("shutil.which", return_value="/usr/bin/lsof"):
+            _ports_mod._kill_port_holder(8000, no_sudo=True, quiet=True)
+
+        self.assertTrue(lsof_calls, "lsof must be consulted")
+        for cmd in lsof_calls:
+            self.assertIn("-sTCP:LISTEN", cmd,
+                          f"lsof must only report the listening process, got {cmd}")
+
+    def test_docker_guard_falls_back_to_sudo_ps_when_the_process_is_hidden(self):
+        # /proc mounted with hidepid hides root's docker-proxy from a plain ps,
+        # which used to make the guard return False and the proxy get killed.
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "sudo":
+                return MagicMock(returncode=0, stdout="docker-proxy\n")
+            return MagicMock(returncode=1, stdout="")
+
+        with patch.object(_ports_mod.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(_ports_mod._process_is_docker(4242))
+            self.assertEqual(calls[-1][:2], ["sudo", "ps"])
+
+            calls.clear()
+            self.assertFalse(_ports_mod._process_is_docker(4242, no_sudo=True))
+            self.assertFalse(any(c[0] == "sudo" for c in calls),
+                             "no_sudo must not fall back to sudo ps")
+
+
+class TestZombieProcessesAreTreatedAsDead(unittest.TestCase):
+    """A zombie (state Z) still answers `kill -0`, but it is already gone: the
+    alive checks must not wait on it or refuse to start because of it."""
+
+    ZOMBIE_STAT = "999 (docker_control) Z 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+    SLEEPING_STAT = "999 (docker_control) S 1 999 999 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n"
+
+    def test_pid_is_zombie_returns_true_for_zombie(self):
+        with patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)):
+            self.assertTrue(_ports_mod._pid_is_zombie(999))
+        with patch("builtins.open", mock_open(read_data=self.SLEEPING_STAT)):
+            self.assertFalse(_ports_mod._pid_is_zombie(999))
+
+    def test_terminate_pid_graceful_then_force_does_not_force_kill_zombie(self):
+        run_calls = []
+        def fake_run_command(cmd, **kwargs):
+            run_calls.append(cmd)
+            return MagicMock(returncode=0)  # `kill -0` keeps succeeding for a zombie
+
+        with patch.object(_ports_mod, "run_command", side_effect=fake_run_command), \
+             patch.object(_ports_mod.time, "sleep"), \
+             patch("builtins.open", mock_open(read_data=self.ZOMBIE_STAT)):
+            success = _ports_mod._terminate_pid_graceful_then_force(999, quiet=True)
+
+        self.assertTrue(success)
+        self.assertEqual(run_calls, [["kill", "-15", "999"], ["kill", "-0", "999"]],
+                         "a zombie must be reported dead on the first poll, without kill -9")
+
+
 if __name__ == "__main__":
     unittest.main()
 
-
-class TestDockerControlAdoptsHealthyService(unittest.TestCase):
-    """A healthy service on 8002 must be adopted, never replaced.
-
-    Regression guard: the adopt check used to run AFTER the port was freed, so it
-    could never succeed. Every `python run.py` therefore spawned another
-    supervisor, and because the port was freed by killing only the listener, the
-    previous supervisor respawned it and the two fought over 8002. They
-    accumulated across runs (five were seen, restart counters in the thousands).
-    Each change of ownership dropped in-flight image pulls, which surfaced in the
-    UI as an unexplained "Deployment failed".
-    """
-
-    def test_healthy_service_is_adopted_without_killing_or_spawning(self):
-        with patch.object(_dc_mod, "check_docker_access", return_value=True), \
-             patch.object(_dc_mod, "_service_is_healthy", return_value=True), \
-             patch.object(_dc_mod, "kill_process_on_port") as kill_port, \
-             patch.object(_dc_mod, "_stop_previous_supervisor") as stop_prev, \
-             patch.object(_dc_mod, "subprocess") as sub:
-            result = _dc_mod.start_docker_control_service()
-
-        self.assertTrue(result)
-        kill_port.assert_not_called()
-        stop_prev.assert_not_called()
-        sub.Popen.assert_not_called()
-
-    def test_unhealthy_port_holder_stops_previous_supervisor_first(self):
-        """Killing the listener alone leaves its restart loop to respawn it."""
-        call_order = []
-        with patch.object(_dc_mod, "check_docker_access", return_value=True), \
-             patch.object(_dc_mod, "_service_is_healthy", return_value=False), \
-             patch.object(_dc_mod, "_stop_previous_supervisor",
-                          side_effect=lambda **kw: call_order.append("stop_supervisor")), \
-             patch.object(_dc_mod, "check_port_available",
-                          side_effect=lambda *a, **kw: call_order.append("check_port") or False), \
-             patch.object(_dc_mod, "kill_process_on_port",
-                          side_effect=lambda *a, **kw: call_order.append("kill_port") or False):
-            result = _dc_mod.start_docker_control_service()
-
-        self.assertFalse(result)  # could not free the port
-        self.assertEqual(call_order[0], "stop_supervisor",
-                         "the previous supervisor must be stopped before the port is freed")
-        self.assertIn("kill_port", call_order)
-
-
-class TestDockerControlSupervisorPid(unittest.TestCase):
-    def test_reads_pid_written_by_wrapper(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".pid", delete=False) as f:
-            f.write("4242\n")
-            path = f.name
-        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", path):
-            self.assertEqual(_dc_mod._read_supervisor_pid(), 4242)
-        os.unlink(path)
-
-    def test_missing_file_returns_none(self):
-        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", "/nonexistent/xyz.pid"):
-            self.assertIsNone(_dc_mod._read_supervisor_pid())
-
-    def test_garbage_contents_return_none(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".pid", delete=False) as f:
-            f.write("not-a-pid")
-            path = f.name
-        with patch.object(_dc_mod, "DOCKER_CONTROL_PID_FILE", path):
-            self.assertIsNone(_dc_mod._read_supervisor_pid())
-        os.unlink(path)
-
-    def test_dead_previous_supervisor_is_not_signalled(self):
-        with patch.object(_dc_mod, "_read_supervisor_pid", return_value=4242), \
-             patch.object(_dc_mod, "_process_is_alive", return_value=False), \
-             patch.object(_dc_mod, "_terminate_pid") as term:
-            _dc_mod._stop_previous_supervisor()
-        term.assert_not_called()
-
-    def test_live_previous_supervisor_is_terminated(self):
-        with patch.object(_dc_mod, "_read_supervisor_pid", return_value=4242), \
-             patch.object(_dc_mod, "_process_is_alive", return_value=True), \
-             patch.object(_dc_mod, "_terminate_pid") as term:
-            _dc_mod._stop_previous_supervisor()
-        term.assert_called_once()
-        self.assertEqual(term.call_args[0][0], 4242)
-
-
-class TestDockerControlRestartLoopIsBounded(unittest.TestCase):
-    """An unbounded loop turned a permanent fault (port taken) into thousands of
-    restarts and an ever-growing log, hiding the real cause."""
-
-    def _wrapper_source(self):
-        import inspect
-        return inspect.getsource(_dc_mod.start_docker_control_service)
-
-    def test_loop_gives_up_after_repeated_rapid_failures(self):
-        src = self._wrapper_source()
-        self.assertIn("MAX_CONSECUTIVE_FAILURES", src)
-        self.assertIn("CONSECUTIVE_FAILURES", src)
-        self.assertNotIn("while true; do\n    \"$3/bin/uvicorn\"", src,
-                         "the bare unbounded loop must be gone")
-
-    def test_a_long_healthy_run_resets_the_failure_budget(self):
-        src = self._wrapper_source()
-        self.assertIn("MIN_HEALTHY_SECONDS", src)
-        self.assertIn("CONSECUTIVE_FAILURES=0", src)
-
-    def test_giving_up_points_at_the_port(self):
-        src = self._wrapper_source()
-        self.assertIn("8002", src)
-        self.assertIn("Giving up", src)

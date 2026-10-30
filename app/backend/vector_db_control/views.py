@@ -3,7 +3,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import os
-import uuid
 import json
 from typing import List
 from datetime import datetime
@@ -24,20 +23,16 @@ from vector_db_control.chroma import (
     insert_to_chroma_collection,
     serialize_collection,
     delete_collection,
+    embedding_func_name_for,
 )
 from vector_db_control.singletons import ChromaClient
 from vector_db_control.documents import chunk_document, deterministic_chunk_id
 from vector_db_control.retrieval import approx_token_count, retrieve
 from vector_db_control.rewrite import maybe_rewrite_query
+from vector_db_control.tt_embedding_function import TT_EMBED_PREFIX
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
-
-# Shared collection holding the Tenstorrent documentation corpus. It is populated
-# once at startup (see apps.py) and merged into per-collection query results so the
-# corpus does not need to be re-embedded into every user collection.
-INTERNAL_KNOWLEDGE_COLLECTION = "tenstorrent_internal_knowledge"
-
 
 def _resolve_max_distance(request):
     """Resolve the effective cosine-distance ceiling for a query.
@@ -88,44 +83,6 @@ def _filter_results_by_distance(results, max_distance):
     }
 
 
-def _merge_query_results(primary, secondary, limit):
-    """Merge two Chroma query result dicts (single query), primary results first.
-
-    The primary collection is the one the caller explicitly queried, so its matches
-    take the available slots first; secondary (shared internal knowledge) results only
-    fill whatever capacity remains, closest first. Merging purely by distance instead
-    would let the large documentation corpus crowd the user's own documents out of the
-    response entirely.
-
-    Preserves Chroma's ``{ids, documents, metadatas, distances}`` shape with one inner
-    list per query so the response contract is unchanged.
-    """
-    def _entries(result):
-        if not result or not result.get("documents") or not result["documents"][0]:
-            return []
-        documents = result["documents"][0]
-        ids = result["ids"][0]
-        metadatas = result["metadatas"][0] if result.get("metadatas") else [None] * len(documents)
-        distances = result["distances"][0] if result.get("distances") else [None] * len(documents)
-        return [
-            (distances[i], ids[i], documents[i], metadatas[i])
-            for i in range(len(documents))
-        ]
-
-    combined = _entries(primary)[:limit]
-    remaining = limit - len(combined)
-    if remaining > 0:
-        secondary_entries = _entries(secondary)
-        secondary_entries.sort(key=lambda item: item[0] if item[0] is not None else float("inf"))
-        combined.extend(secondary_entries[:remaining])
-
-    return {
-        "ids": [[item[1] for item in combined]],
-        "documents": [[item[2] for item in combined]],
-        "metadatas": [[item[3] for item in combined]],
-        "distances": [[item[0] for item in combined]],
-    }
-
 class VectorCollectionsAPIView(ViewSet):
     EMBED_MODEL = None
     chromadb_client = None
@@ -135,43 +92,23 @@ class VectorCollectionsAPIView(ViewSet):
         super().__init__(**kwargs)
         if hasattr(settings, "CHROMA_DB_EMBED_MODEL"):
             self.EMBED_MODEL = settings.CHROMA_DB_EMBED_MODEL
-            
-    def get_user_identifier(self, request):
-        """Get a unique identifier for the current user/session"""
-        # Check if user is authenticated (with proper None check)
-        if hasattr(request, 'user') and request.user is not None and request.user.is_authenticated:
-            logger.info(f"Using authenticated user ID: {request.user.id}")
-            return f"user_{request.user.id}"
-        
-        # Check for browser ID in header
-        browser_id = request.headers.get('X-Browser-ID')
-        logger.info(f"Browser ID from headers: {browser_id}")
-        if not browser_id:
-            browser_id = str(uuid.uuid4())
-            logger.info(f"Generated new browser ID: {browser_id}")
-        
-        return f"session_{browser_id}"
+
+    def _resolve_embed_func(self, collection_name: str) -> str:
+        """The embedding_func_name an existing collection actually carries, e.g. a
+        TT-hardware model chosen at creation -- never assume self.EMBED_MODEL, or a
+        non-default collection gets queried/inserted into the wrong vector space."""
+        return embedding_func_name_for(collection_name, default=self.EMBED_MODEL)
 
     def list(self, request):
         logger.info(f"List collections request received. Headers: {request.headers}")
         collections: List[Collection] = list_collections()
-        user_id = self.get_user_identifier(request)
-        logger.info(f"User identifier for list: {user_id}")
-        logger.info(f"Total collections before filtering: {len(collections)}")
-        
-        # Filter collections by user identifier
-        filtered_collections = [
-            col for col in collections 
-            if not col.metadata or not col.metadata.get('user_id') or col.metadata.get('user_id') == user_id
-        ]
-        
-        logger.info(f"Filtered collections: {len(filtered_collections)}")
-        for col in filtered_collections:
+        logger.info(f"Total collections: {len(collections)}")
+        for col in collections:
             logger.info(f"Collection: {col.name}, Metadata: {col.metadata}")
         
         # Serialize collections and add fallback for missing document names
         serialized_collections = []
-        for collection in filtered_collections:
+        for collection in collections:
             serialized_collection = serialize_collection(collection)
             
             # If last_uploaded_document is missing from collection metadata, 
@@ -185,7 +122,7 @@ class VectorCollectionsAPIView(ViewSet):
                         latest_date = None
                         
                         for metadata in results["metadatas"]:
-                            if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                            if metadata and metadata.get("source"):
                                 upload_date = metadata.get("upload_date")
                                 if upload_date and (not latest_date or upload_date > latest_date):
                                     latest_date = upload_date
@@ -213,50 +150,65 @@ class VectorCollectionsAPIView(ViewSet):
             metadata = request.data.get("metadata", dict())
             logger.info(f"Creating collection {name} with metadata {metadata}")
             
-            # Add user identifier to collection metadata
-            user_id = self.get_user_identifier(request)
-            logger.info(f"User identifier for post: {user_id}")
-            
             # Check if collection with this name already exists
             collections: List[Collection] = list_collections()
             existing_collection = next((col for col in collections if col.name == name), None)
             
             if existing_collection:
                 logger.warning(f"Collection with name {name} already exists")
-                # Check if the collection is owned by the current user
-                if existing_collection.metadata and existing_collection.metadata.get('user_id') == user_id:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"error": f"A collection with name '{name}' already exists."}
+                )
+
+            # A collection can opt into a TT-hardware-deployed embedding model
+            # instead of the default local ONNX one, keyed by the model's stable
+            # identity (hf_model_id or model_name) rather than a deploy_id, which
+            # doesn't survive a redeploy.
+            tt_model_identifier = (request.data.get("tt_embedding_model") or "").strip()
+            if tt_model_identifier:
+                from model_control.model_utils import find_deployed_embedding_model
+
+                if find_deployed_embedding_model(tt_model_identifier) is None:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
-                        data={"error": f"A collection with name '{name}' already exists and is owned by you."}
+                        data={"error": f"Embedding model '{tt_model_identifier}' is not currently deployed."}
                     )
-                else:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"error": f"A collection with name '{name}' already exists and is owned by another user."}
-                    )
-            
-            metadata.update({"user_id": user_id})
-            
+                embedding_func_name = f"{TT_EMBED_PREFIX}{tt_model_identifier}"
+            else:
+                embedding_func_name = self.EMBED_MODEL
+
             logger.info(f"Final metadata for creation: {metadata}")
-            
-            # Debug the EMBED_MODEL
-            logger.info(f"Using EMBED_MODEL: {self.EMBED_MODEL}")
-            
+            logger.info(f"Using embedding_func_name: {embedding_func_name}")
+
             collection = create_collection(
                 collection_name=name,
                 metadata=metadata,
-                embedding_func_name=self.EMBED_MODEL,
+                embedding_func_name=embedding_func_name,
             )
 
-            # Internal knowledge lives once in the shared INTERNAL_KNOWLEDGE_COLLECTION
-            # and is merged in at query time, so we no longer re-embed the whole corpus
-            # into every new collection.
             logger.info(f"Collection created successfully: {collection.name}")
             serialized = serialize_collection(collection)
             logger.info(f"Serialized response: {serialized}")
             
             return Response(data=serialized)
         except Exception as e:
+            # Handle race condition where Chroma raises UniqueConstraintError
+            # when two concurrent requests try to create the same collection.
+            if "already exists" in str(e).lower() or type(e).__name__ == "UniqueConstraintError":
+                col_name = (
+                    request.data.get("name")
+                    if isinstance(request.data, dict)
+                    else "unknown"
+                )
+                logger.warning(
+                    f"Collection with name '{col_name}' already exists (concurrency race): {e}"
+                )
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"error": f"A collection with name '{col_name}' already exists."},
+                )
+
             logger.error(f"Error creating collection: {str(e)}", exc_info=True)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -269,17 +221,8 @@ class VectorCollectionsAPIView(ViewSet):
             return self.list(request)
             
         collection = get_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL
+            collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
         )
-        
-        # Check if user has access to this collection
-        user_id = self.get_user_identifier(request)
-        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
-            logger.warning(f"User {user_id} attempted to access collection {pk} owned by {collection.metadata.get('user_id')}")
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"error": "You don't have access to this collection"}
-            )
         
         serialized_collection = serialize_collection(collection)
         
@@ -294,7 +237,7 @@ class VectorCollectionsAPIView(ViewSet):
                     latest_date = None
                     
                     for metadata in results["metadatas"]:
-                        if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                        if metadata and metadata.get("source"):
                             upload_date = metadata.get("upload_date")
                             if upload_date and (not latest_date or upload_date > latest_date):
                                 latest_date = upload_date
@@ -319,19 +262,7 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 data={"error": "No collection name provided"},
             )
-            
-        # Check if user has access to this collection
-        collection = get_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL
-        )
-        user_id = self.get_user_identifier(request)
-        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
-            logger.warning(f"User {user_id} attempted to delete collection {pk} owned by {collection.metadata.get('user_id')}")
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"error": "You don't have access to this collection"}
-            )
-            
+
         delete_collection(collection_name=pk)
         logger.info(f"Collection {pk} deleted successfully")
         return Response(status=200)
@@ -339,17 +270,6 @@ class VectorCollectionsAPIView(ViewSet):
     @action(methods=["POST"], detail=True)
     def insert_document(self, request, pk=None):
         logger.info(f"Insert document request for collection: {pk}")
-        # Check if user has access to this collection
-        collection = get_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL
-        )
-        user_id = self.get_user_identifier(request)
-        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
-            logger.warning(f"User {user_id} attempted to insert document to collection {pk} owned by {collection.metadata.get('user_id')}")
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"error": "You don't have access to this collection"}
-            )
 
         if "document" not in request.FILES:
             return Response(
@@ -437,7 +357,7 @@ class VectorCollectionsAPIView(ViewSet):
                 documents=documents,
                 ids=ids,
                 metadatas=metadatas,
-                embedding_func_name=self.EMBED_MODEL,
+                embedding_func_name=self._resolve_embed_func(pk),
                 upsert=True,
             )
 
@@ -446,7 +366,7 @@ class VectorCollectionsAPIView(ViewSet):
             # keeps the collection valid even if the request dies mid-way.
             try:
                 collection = get_collection(
-                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                    collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
                 )
                 existing = collection.get(where={"source": filename}, include=[])
                 ids_set = set(ids)
@@ -464,7 +384,7 @@ class VectorCollectionsAPIView(ViewSet):
             try:
                 # Get the collection and update its metadata
                 collection = get_collection(
-                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                    collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
                 )
                 
                 # Update the collection metadata to include the last uploaded document
@@ -482,7 +402,7 @@ class VectorCollectionsAPIView(ViewSet):
                 
                 # Verify the metadata was updated by re-fetching the collection
                 updated_collection = get_collection(
-                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                    collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
                 )
                 
                 if updated_collection.metadata and updated_collection.metadata.get('last_uploaded_document') == filename:
@@ -499,7 +419,7 @@ class VectorCollectionsAPIView(ViewSet):
                         
                         # Try one more verification
                         final_collection = get_collection(
-                            collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                            collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
                         )
                         if final_collection.metadata and final_collection.metadata.get('last_uploaded_document') == filename:
                             metadata_update_success = True
@@ -531,7 +451,7 @@ class VectorCollectionsAPIView(ViewSet):
             # Add current collection metadata to response for debugging
             try:
                 current_collection = get_collection(
-                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                    collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
                 )
                 upload_info["collection_metadata"] = current_collection.metadata
             except Exception as meta_e:
@@ -568,18 +488,6 @@ class VectorCollectionsAPIView(ViewSet):
                 data={"error": "No collection name provided"},
             )
 
-        # Check if user has access to this collection
-        collection = get_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL
-        )
-        user_id = self.get_user_identifier(request)
-        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
-            logger.warning(f"User {user_id} attempted to query collection {pk} owned by {collection.metadata.get('user_id')}")
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"error": "You don't have access to this collection"}
-            )
-
         query_text = request.GET.get("query_text")
         logger.info(f"Query text: {query_text}")
         if not query_text:
@@ -597,30 +505,14 @@ class VectorCollectionsAPIView(ViewSet):
                 data={"error": f"Invalid query filter: {str(e)}"},
             )
 
+        embed_func_name = self._resolve_embed_func(pk)
         results = query_collection(
             collection_name=pk,
             query_texts=[query_text],
             n_results=self.query_results_limit,
-            embedding_func_name=self.EMBED_MODEL,
+            embedding_func_name=embed_func_name,
             where=where,
         )
-
-        # Backfill leftover result slots from the shared Tenstorrent knowledge so
-        # single-collection queries can still surface documentation, without copying the
-        # corpus into every collection. The queried collection's own matches always take
-        # priority (see _merge_query_results). Skip the merge when a metadata filter is
-        # set — the caller is scoping to their own chunks.
-        if pk != INTERNAL_KNOWLEDGE_COLLECTION and not where:
-            try:
-                internal_results = query_collection(
-                    collection_name=INTERNAL_KNOWLEDGE_COLLECTION,
-                    query_texts=[query_text],
-                    n_results=self.query_results_limit,
-                    embedding_func_name=self.EMBED_MODEL,
-                )
-                results = _merge_query_results(results, internal_results, self.query_results_limit)
-            except Exception as e:
-                logger.error(f"Error merging internal knowledge into query for {pk}: {e}")
 
         results = _filter_results_by_distance(results, max_distance)
 
@@ -645,31 +537,31 @@ class VectorCollectionsAPIView(ViewSet):
                 data={"error": f"Invalid query filter: {str(e)}"},
             )
 
-        # Get all collections the user has access to
+        # Get all collections
         all_collections: List[Collection] = list_collections()
-        user_id = self.get_user_identifier(request)
-        user_collections = [
-            col for col in all_collections 
-            if not col.metadata or not col.metadata.get('user_id') or col.metadata.get('user_id') == user_id
-        ]
         
-        if not user_collections:
+        if not all_collections:
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
-                data={"error": "No collections found for this user."}
+                data={"error": "No collections found."}
             )
 
-        logger.info(f"Querying across {len(user_collections)} collections for user {user_id}")
+        logger.info(f"Querying across {len(all_collections)} collections")
         
         all_results = {"results": []}
-        for collection in user_collections:
+        for collection in all_collections:
             logger.info(f"Querying collection: {collection.name}")
             try:
+                # Already have the collection object from list_collections() above,
+                # so read its embedding_func_name straight off it rather than
+                # re-fetching (see _resolve_embed_func for why this can't be a flat
+                # self.EMBED_MODEL: a collection may be TT-hardware-embedded).
+                collection_embed_func = (collection.metadata or {}).get("embedding_func_name") or self.EMBED_MODEL
                 results = query_collection(
                     collection_name=collection.name,
                     query_texts=[query_text],
                     n_results=self.query_results_limit,
-                    embedding_func_name=self.EMBED_MODEL,
+                    embedding_func_name=collection_embed_func,
                     where=where,
                 )
                 if results and results.get("documents"):
@@ -709,7 +601,15 @@ class VectorCollectionsAPIView(ViewSet):
     @action(methods=["POST"], detail=False, url_path="retrieve", url_name="retrieve-documents")
     def retrieve_documents(self, request):
         """Server-side RAG pipeline: rewrite -> dense + BM25 -> RRF -> rerank ->
-        parent expansion -> relevance threshold -> token budget."""
+        parent expansion -> relevance threshold -> token budget.
+
+        Still assumes every target collection shares self.EMBED_MODEL (unlike
+        query()/query_all_collections(), which resolve each collection's own
+        embedding_func_name). A collection embedded with a different function --
+        e.g. a TT-hardware model -- fails dense retrieval for that collection with
+        a clear per-collection error in collection_errors rather than silently
+        returning wrong results; it just isn't reachable via this endpoint yet.
+        """
         import time as _time
 
         started = _time.monotonic()
@@ -761,11 +661,10 @@ class VectorCollectionsAPIView(ViewSet):
             else str(rerank_raw).strip().lower() not in ("0", "false", "no", "")
         )
 
-        user_id = self.get_user_identifier(request)
         if collection_name:
-            # Single-collection mode: same ownership rules as /query.
+            # Single-collection mode
             try:
-                collection = get_collection(
+                get_collection(
                     collection_name=collection_name, embedding_func_name=self.EMBED_MODEL
                 )
             except Exception:
@@ -773,31 +672,15 @@ class VectorCollectionsAPIView(ViewSet):
                     status=status.HTTP_404_NOT_FOUND,
                     data={"error": f"Collection {collection_name} not found"},
                 )
-            owner = (collection.metadata or {}).get("user_id")
-            if owner and owner != user_id:
-                return Response(
-                    status=status.HTTP_403_FORBIDDEN,
-                    data={"error": "You don't have access to this collection"},
-                )
             targets = [collection_name]
-            # Merge in the shared corpus unless the caller scopes with a filter,
-            # mirroring the /query behavior.
-            if collection_name != INTERNAL_KNOWLEDGE_COLLECTION and not where:
-                targets.append(INTERNAL_KNOWLEDGE_COLLECTION)
             mode = "single"
         else:
             all_collections: List[Collection] = list_collections()
-            targets = [
-                col.name
-                for col in all_collections
-                if not col.metadata
-                or not col.metadata.get("user_id")
-                or col.metadata.get("user_id") == user_id
-            ]
+            targets = [col.name for col in all_collections]
             if not targets:
                 return Response(
                     status=status.HTTP_404_NOT_FOUND,
-                    data={"error": "No collections found for this user."},
+                    data={"error": "No collections found."},
                 )
             mode = "all"
 
@@ -890,19 +773,20 @@ class VectorCollectionsAPIView(ViewSet):
             )
 
         try:
+            embed_func_name = self._resolve_embed_func(pk)
             collection = get_collection(
-                collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                collection_name=pk, embedding_func_name=embed_func_name
             )
-            
+
             # Get all documents from the collection
             results = collection.get(
                 include=["metadatas", "documents", "embeddings"]
             )
-            
+
             debug_info = {
                 "collection_name": pk,
                 "total_documents": len(results.get("documents", [])) if results else 0,
-                "embedding_model": self.EMBED_MODEL,
+                "embedding_model": embed_func_name,
                 "sample_documents": results.get("documents", [])[:3] if results else [],  # First 3 docs
                 "sample_metadatas": results.get("metadatas", [])[:3] if results else [],  # First 3 metadatas
                 "has_embeddings": bool(results.get("embeddings")) if results else False,
@@ -929,15 +813,8 @@ class VectorCollectionsAPIView(ViewSet):
 
         # Check if user has access to this collection
         collection = get_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL
+            collection_name=pk, embedding_func_name=self._resolve_embed_func(pk)
         )
-        user_id = self.get_user_identifier(request)
-        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
-            logger.warning(f"User {user_id} attempted to list documents in collection {pk} owned by {collection.metadata.get('user_id')}")
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"error": "You don't have access to this collection"}
-            )
 
         try:
             # Get all documents from the collection
@@ -950,7 +827,7 @@ class VectorCollectionsAPIView(ViewSet):
             
             if results and results.get("metadatas"):
                 for i, metadata in enumerate(results["metadatas"]):
-                    if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                    if metadata and metadata.get("source"):
                         source = metadata.get("source")
                         folder_path = metadata.get("folder_path", source)
                         folder_type = metadata.get("folder_type", "other")

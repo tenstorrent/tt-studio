@@ -2,15 +2,24 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APIClient
 
-from docker_control.chip_allocator import ChipSlotAllocator
+from docker_control.chip_allocator import (
+    AllocationError,
+    ChipSlotAllocator,
+    MultiChipConflictError,
+)
+from docker_control import deployment_store
 from docker_control.deployment_sync import _classify_failure
+from docker_control.models import ModelDeployment
+from docker_control.artifact_resolution import _LLAMA_V014_IMAGE, training_image_override
 from docker_control.docker_utils import (
     claims_whole_board,
     deploys_whole_board,
@@ -21,7 +30,8 @@ from docker_control.docker_utils import (
     vllm_mesh_fallback_fits,
 )
 from docker_control.views import (
-    _LLAMA_V014_IMAGE,
+    _card_groups,
+    _card_reset_device_ids,
     _resolve_artifact_ref,
     _resolve_override_docker_image,
 )
@@ -100,6 +110,269 @@ class ChipAllocatorDeviceIdsTests(TestCase):
             if slot["status"] == "occupied"
         }
         self.assertEqual(occupied_slots, {2})
+
+
+def _container(name, devices, container_id="0123456789abcdef"):
+    """A container entry as the docker-control service lists it."""
+    return {
+        "id": container_id,
+        "name": name,
+        "HostConfig": {
+            "Devices": [{"PathOnHost": d, "PathInContainer": d} for d in devices],
+        },
+    }
+
+
+class _FakeDockerClient:
+    def __init__(self, containers=None, error=None):
+        self._containers = containers or []
+        self._error = error
+
+    def list_containers(self, all=False):
+        if self._error:
+            raise self._error
+        return {"status": "success", "containers": self._containers}
+
+
+class ChipAllocatorExternalContainerTests(TestCase):
+    """Chips held by containers TT-Studio did not deploy must read as occupied."""
+
+    def _make_allocator(self) -> ChipSlotAllocator:
+        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
+            return ChipSlotAllocator()
+
+    def _with_docker(self, allocator, containers=None, error=None, deployments=None):
+        client = _FakeDockerClient(containers=containers, error=error)
+        return (
+            patch("docker_control.docker_control_client.get_docker_client", return_value=client),
+            patch.object(allocator, "_get_active_deployments", return_value=deployments or []),
+            patch.object(allocator, "_get_chips_required", return_value=1),
+        )
+
+    def _enter(self, patches):
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_single_chip_bound_by_foreign_container_is_occupied_and_not_allocatable(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("tt-model-devstral", ["/dev/tenstorrent/2"])]))
+
+        status = allocator.get_chip_status()
+        slot = status["slots"][2]
+        self.assertEqual(slot["status"], "occupied")
+        self.assertEqual(slot["model_name"], "tt-model-devstral")
+        self.assertIsNone(slot["deployment_id"])
+        self.assertEqual(slot["source"], "external")
+        self.assertEqual([s["status"] for s in status["slots"]], ["available", "available", "occupied", "available"])
+
+        # Auto placement skips the held chip, manual placement on it is refused by name.
+        self.assertEqual(allocator.allocate_chip_slot("bge-m3"), 0)
+        with self.assertRaises(AllocationError) as ctx:
+            allocator.allocate_chip_slot("bge-m3", manual_override=2)
+        self.assertIn("tt-model-devstral", str(ctx.exception))
+        self.assertIn("not deployed by TT-Studio", str(ctx.exception))
+
+    def test_whole_device_directory_bound_by_foreign_container_holds_every_chip(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("tt-model-devstral", ["/dev/tenstorrent"])]))
+
+        status = allocator.get_chip_status()
+        self.assertTrue(all(s["status"] == "occupied" for s in status["slots"]))
+        self.assertTrue(all(s["is_multi_chip"] for s in status["slots"]))
+
+        with self.assertRaises(AllocationError):
+            allocator.allocate_chip_slot("bge-m3")
+        with patch.object(allocator, "_get_chips_required", return_value=4):
+            with self.assertRaises(MultiChipConflictError) as ctx:
+                allocator.allocate_chip_slot("Llama-3.3-70B")
+        self.assertEqual(
+            [(c["model"], c["deployment_id"], c["source"]) for c in ctx.exception.conflicts],
+            [("tt-model-devstral", None, "external")],
+        )
+
+    def test_tt_studio_infrastructure_containers_are_ignored(self):
+        allocator = self._make_allocator()
+        infra = [
+            _container("tt_studio_backend_api_dev", ["/dev/tenstorrent"], container_id="aaa"),
+            _container("docker-control-service", ["/dev/tenstorrent"], container_id="bbb"),
+        ]
+        self._enter(self._with_docker(allocator, infra))
+
+        status = allocator.get_chip_status()
+        self.assertTrue(all(s["status"] == "available" for s in status["slots"]))
+        self.assertEqual(allocator._get_occupied_slots(), set())
+
+    def test_container_tracked_as_a_deployment_is_counted_once_from_its_record(self):
+        allocator = self._make_allocator()
+        deployment = _FakeDeployment(id=7, model_name="bge-m3", device_id=0, device_ids=[0], port=7000)
+        deployment.container_id = "feedfacefeedfacefeedface"
+        deployment.container_name = "bge-m3"
+        containers = [_container("bge-m3", ["/dev/tenstorrent/0"], container_id="feedfacefeedfacefeedface")]
+        self._enter(self._with_docker(allocator, containers, deployments=[deployment]))
+
+        status = allocator.get_chip_status()
+        slot = status["slots"][0]
+        self.assertEqual(slot["status"], "occupied")
+        self.assertEqual(slot["deployment_id"], 7)
+        self.assertNotIn("source", slot)
+        self.assertEqual(allocator._get_occupied_slots(), {0})
+
+    def test_get_chip_status_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            status = allocator.get_chip_status()
+
+        self.assertTrue(all(slot["status"] == "available" for slot in status["slots"]))
+        self.assertEqual(active_mock.call_count, 1)
+
+    def test_get_occupied_slots_reuses_active_deployments_snapshot_for_external_occupancy(self):
+        allocator = self._make_allocator()
+        with patch("docker_control.docker_control_client.get_docker_client", return_value=_FakeDockerClient()), \
+             patch.object(allocator, "_get_active_deployments", return_value=[]) as active_mock, \
+             patch.object(allocator, "_get_chips_required", return_value=1):
+            occupied = allocator._get_occupied_slots()
+
+        self.assertEqual(occupied, set())
+        self.assertEqual(active_mock.call_count, 1)
+
+    def test_docker_listing_failure_falls_back_to_deployment_records(self):
+        allocator = self._make_allocator()
+        deployment = _FakeDeployment(id=3, model_name="bge-m3", device_id=1, device_ids=[1], port=7001)
+        self._enter(self._with_docker(allocator, error=RuntimeError("docker-control unreachable"), deployments=[deployment]))
+
+        status = allocator.get_chip_status()
+        self.assertEqual([s["status"] for s in status["slots"]], ["available", "occupied", "available", "available"])
+        self.assertEqual(allocator.allocate_chip_slot("whisper"), 0)
+
+    def test_containers_without_tenstorrent_devices_are_ignored(self):
+        allocator = self._make_allocator()
+        self._enter(self._with_docker(allocator, [_container("chromadb", ["/dev/fuse"]), _container("plain", [])]))
+        self.assertEqual(allocator._get_occupied_slots(), set())
+
+
+# tt-smi -s on a QuietBox 2: two P300 cards, two chips each.
+_QB2_TT_SMI = {
+    "device_info": [
+        {"board_info": {"board_type": "p300c", "board_id": "card-a"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-a"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-b"}},
+        {"board_info": {"board_type": "p300c", "board_id": "card-b"}},
+    ]
+}
+
+
+class CardResetDeviceIdsTests(SimpleTestCase):
+    """Stopping a model resets its whole P300 card when the card is otherwise idle."""
+
+    def setUp(self):
+        # ModelDeployment is a JSON-file store, not the ORM; keep it in a scratch file.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store_patch = patch.object(deployment_store, "_STORE_PATH", Path(tmp.name) / "deployments.json")
+        store_patch.start()
+        self.addCleanup(store_patch.stop)
+        self.stopped_id = ModelDeployment.objects.create(
+            container_id="container-abc", model_name="speecht5_tts", device_id=3, status="stopped",
+        ).id
+
+    def _reset_ids(self, device_ids, occupied, tt_smi=_QB2_TT_SMI, containers=(), listing_error=None):
+        """occupied: {slot_id: deployment_id or None (a foreign container)}.
+        containers: running containers as docker-control lists them."""
+        slots = [
+            {"slot_id": i, "status": "occupied", "deployment_id": occupied[i]}
+            if i in occupied
+            else {"slot_id": i, "status": "available"}
+            for i in range(4)
+        ]
+        client = _FakeDockerClient(list(containers), error=listing_error)
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=tt_smi), \
+             patch("docker_control.chip_allocator.ChipSlotAllocator") as allocator_cls, \
+             patch("docker_control.docker_control_client.get_docker_client", return_value=client):
+            allocator_cls.return_value.get_chip_status.return_value = {"slots": slots}
+            return _card_reset_device_ids(device_ids, "container-abc")
+
+    def test_sibling_still_running_a_model_is_left_alone(self):
+        self.assertEqual(self._reset_ids([3], occupied={2: 11}), [3])
+
+    def test_idle_sibling_is_reset_with_the_stopped_chip(self):
+        self.assertEqual(self._reset_ids([2], occupied={}), [2, 3])
+
+    def test_other_card_is_never_touched(self):
+        self.assertEqual(self._reset_ids([2], occupied={0: 11, 1: 12}), [2, 3])
+
+    def test_two_chip_model_resets_its_own_card(self):
+        self.assertEqual(self._reset_ids([2, 3], occupied={0: 11}), [2, 3])
+
+    def test_stopped_model_still_listed_on_its_chip_does_not_block_the_card(self):
+        self.assertEqual(self._reset_ids([3], occupied={3: self.stopped_id}), [2, 3])
+
+    def test_sibling_held_by_a_foreign_container_is_left_alone(self):
+        self.assertEqual(self._reset_ids([2], occupied={3: None}), [2])
+
+    def test_unknown_topology_resets_only_the_stopped_chips(self):
+        self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=None), [2])
+
+    def test_sibling_bound_by_a_container_the_records_miss_is_left_alone(self):
+        holder = _container("tt-model-s2-pro", ["/dev/tenstorrent/3"], "f00d" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[holder]), [2])
+
+    def test_container_bound_to_the_whole_device_dir_blocks_widening(self):
+        holder = _container("manual-run", ["/dev/tenstorrent"], "beef" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[holder]), [2])
+
+    def test_tt_studio_infrastructure_containers_do_not_block_widening(self):
+        backend = _container("tt_studio_backend_api_dev", ["/dev/tenstorrent"], "cafe" * 16)
+        self.assertEqual(self._reset_ids([2], occupied={}, containers=[backend]), [2, 3])
+
+    def test_unreadable_container_listing_resets_only_the_stopped_chips(self):
+        self.assertEqual(
+            self._reset_ids([2], occupied={}, listing_error=ConnectionError("docker-control down")), [2]
+        )
+
+    def test_card_groups_follow_board_id(self):
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=_QB2_TT_SMI):
+            self.assertEqual(_card_groups(), [[0, 1], [2, 3]])
+        with patch("docker_control.views.SystemResourceService.get_tt_smi_data", return_value=None):
+            self.assertEqual(_card_groups(), [])
+
+    def test_single_chip_cards_have_no_siblings(self):
+        tt_smi = {"device_info": [{"board_info": {"board_id": f"card-{i}"}} for i in range(4)]}
+        self.assertEqual(self._reset_ids([2], occupied={}, tt_smi=tt_smi), [2])
+
+
+class ChipResetLockTests(SimpleTestCase):
+    """Two resets of the same card must never run tt-smi at the same time."""
+
+    def test_concurrent_reset_streams_run_one_after_another(self):
+        import asyncio
+
+        from django.test import RequestFactory
+
+        from docker_control.views import ResetStreamView
+
+        events = []
+
+        async def fake_reset(device_ids, *, force_refresh):
+            events.append("start")
+            await asyncio.sleep(0.05)
+            events.append("end")
+            yield ("ok", True)
+
+        async def drain(device_id):
+            response = await ResetStreamView().get(RequestFactory().get("/"), device_id=device_id)
+            async for _ in response.streaming_content:
+                pass
+
+        async def main():
+            await asyncio.gather(drain(2), drain(3))
+
+        with patch("docker_control.views._astream_tt_smi_reset", fake_reset):
+            asyncio.run(main())
+
+        self.assertEqual(events, ["start", "end", "start", "end"])
 
 
 class ClassifyFailureTests(SimpleTestCase):
@@ -234,6 +507,30 @@ class _FakeModelImpl:
     requires_dev_catalog: bool = False
     image_version: str = "ghcr.io/example/img:v1"
     inference_artifact_ref: Optional[dict] = None
+    model_type: ModelTypes = ModelTypes.CHAT
+
+
+class TrainingImageOverrideTests(SimpleTestCase):
+    """A TRAINING row's catalog docker_image is the deploy image, verbatim."""
+
+    _STUDIO_TAG = "ghcr.io/tenstorrent/tt-studio/studio_images:training-llama-3.1-8b-20260908"
+
+    def test_training_row_forwards_its_catalog_image(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=self._STUDIO_TAG)
+        self.assertEqual(training_image_override(impl), self._STUDIO_TAG)
+
+    def test_local_build_tag_is_forwarded_verbatim(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version="tt-media-server-forge:local")
+        self.assertEqual(training_image_override(impl), "tt-media-server-forge:local")
+
+    def test_non_training_row_gets_no_override(self):
+        impl = _FakeModelImpl(model_type=ModelTypes.CHAT, image_version=self._STUDIO_TAG)
+        self.assertIsNone(training_image_override(impl))
+
+    def test_training_row_without_image_leaves_server_spec_in_charge(self):
+        # model_config renders an empty catalog docker_image as ":latest".
+        impl = _FakeModelImpl(model_type=ModelTypes.TRAINING, image_version=":latest")
+        self.assertIsNone(training_image_override(impl))
 
 
 class OverrideDockerImageResolutionTests(SimpleTestCase):

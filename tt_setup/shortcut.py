@@ -11,12 +11,14 @@ working directory untouched. Bash/zsh are installed automatically; other shells
 get a printed snippet to paste.
 
 Surfaced two ways (see tt_setup/cli/_run.py): `python run.py --install-shortcut`,
-and a one-time offer on a normal launch when it isn't already set up.
+and a one-time offer on a normal launch when it isn't already set up. A pip
+install already has a real `tt-studio` command, so none of this applies there.
 """
 
 import os
 import re
 
+from tt_setup import install_mode
 from tt_setup.console import confirm, console, notice_panel
 from tt_setup.constants import OS_NAME, TT_STUDIO_ROOT
 from tt_setup.env_config import get_preference, save_preference
@@ -147,6 +149,10 @@ def maybe_repair_shortcut():
     """Re-point an installed shortcut whose baked-in path no longer matches this
     checkout (the repo moved, or the user launched a different clone). Silent
     no-op otherwise; never raises — a broken rc file must not block startup."""
+    # A pip install's root is ~/.tt-studio, not a checkout — re-pointing a dev
+    # clone's shortcut there would hijack it.
+    if install_mode.is_pip_install():
+        return
     try:
         _, rc_path = _detect_shell_rc()
         if not rc_path or not is_shortcut_installed(rc_path):
@@ -196,6 +202,10 @@ def uninstall_shortcut():
 def install_shortcut():
     """Add (or update) the `tt-studio` shortcut in the user's shell rc. Returns
     True on success. Unsupported shells get a printed manual snippet instead."""
+    if install_mode.is_pip_install():
+        console.print(f"[success]✓[/success] `{SHORTCUT_NAME}` is already on your PATH — pip installed it "
+                      "as a command. Run it from any directory.")
+        return True
     shell, rc_path = _detect_shell_rc()
 
     if not rc_path:
@@ -247,6 +257,9 @@ def maybe_offer_shortcut(args):
     """One-time offer to install the shortcut during a normal launch. Skips when
     non-interactive, already installed, already offered, or the shell isn't
     auto-supported — so it never nags."""
+    if install_mode.is_pip_install():
+        # `tt-studio` is already a console script; an rc function would shadow it.
+        return
     if not console.is_terminal:
         return
     _, rc_path = _detect_shell_rc()

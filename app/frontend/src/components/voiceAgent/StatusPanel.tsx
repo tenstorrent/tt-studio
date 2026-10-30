@@ -3,12 +3,27 @@
 
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
-import { Mic, Volume2, MessageSquare } from "lucide-react";
-import type { PipelineStage, DeployedModelState } from "./types";
+import { Mic, Volume2, MessageSquare, type LucideIcon } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import type {
+  PipelineStage,
+  DeployedModel,
+  DeployedModelState,
+  DeployedModelOptions,
+  ModelSlot,
+} from "./types";
 
 interface StatusPanelProps {
   stage: PipelineStage;
   models: DeployedModelState;
+  modelOptions: DeployedModelOptions;
+  onSelectModel: (slot: ModelSlot, id: string) => void;
   conversationId: string | null;
   messageCount: number;
 }
@@ -39,16 +54,74 @@ function StatusDot({ connected }: { connected: boolean }) {
   return (
     <span
       className={cn(
-        "inline-block w-2 h-2 rounded-full",
+        "inline-block w-2 h-2 shrink-0 rounded-full",
         connected ? "bg-green-500" : "bg-gray-400"
       )}
     />
   );
 }
 
+const MODEL_ROWS: { slot: ModelSlot; label: string; icon: LucideIcon }[] = [
+  { slot: "whisper", label: "Speech-to-text", icon: Mic },
+  { slot: "llm", label: "LLM", icon: MessageSquare },
+  { slot: "tts", label: "Text-to-speech", icon: Volume2 },
+];
+
+interface ModelRowProps {
+  label: string;
+  icon: LucideIcon;
+  selected: DeployedModel | null;
+  options: DeployedModel[];
+  onSelect: (id: string) => void;
+}
+
+function ModelRow({ label, icon: Icon, selected, options, onSelect }: ModelRowProps) {
+  const { theme } = useTheme();
+  const nameClass = cn(
+    "text-xs truncate max-w-[100px]",
+    theme === "dark" ? "text-gray-400" : "text-gray-500"
+  );
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 shrink-0">
+        <Icon className="w-3.5 h-3.5 text-TT-purple-accent" />
+        <span className="text-xs whitespace-nowrap">{label}</span>
+      </div>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <StatusDot connected={!!selected} />
+        {options.length > 1 ? (
+          <Select value={selected?.id} onValueChange={onSelect}>
+            <SelectTrigger
+              aria-label={`${label} model`}
+              title={selected?.modelName}
+              className="h-6 w-auto max-w-[110px] gap-1 border-none bg-transparent px-1.5 py-0 text-xs font-medium text-TT-purple-accent hover:bg-TT-purple-accent/10 focus:ring-0 [&>span]:truncate [&>svg]:h-3 [&>svg]:w-3"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {options.map((m) => (
+                <SelectItem key={m.id} value={m.id} className="text-xs">
+                  {m.modelName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className={nameClass} title={selected?.modelName}>
+            {selected?.modelName || "None"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StatusPanel({
   stage,
   models,
+  modelOptions,
+  onSelectModel,
   conversationId,
   messageCount,
 }: StatusPanelProps) {
@@ -99,62 +172,16 @@ export function StatusPanel({
           Models
         </h3>
         <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Mic className="w-3.5 h-3.5 text-TT-purple-accent" />
-              <span className="text-xs">Speech-to-text</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <StatusDot connected={!!models.whisper} />
-              <span
-                className={cn(
-                  "text-xs truncate max-w-[100px]",
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                )}
-                title={models.whisper?.modelName}
-              >
-                {models.whisper?.modelName || "None"}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-3.5 h-3.5 text-TT-purple-accent" />
-              <span className="text-xs">LLM</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <StatusDot connected={!!models.llm} />
-              <span
-                className={cn(
-                  "text-xs truncate max-w-[100px]",
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                )}
-                title={models.llm?.modelName}
-              >
-                {models.llm?.modelName || "None"}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Volume2 className="w-3.5 h-3.5 text-TT-purple-accent" />
-              <span className="text-xs">Text-to-speech</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <StatusDot connected={!!models.tts} />
-              <span
-                className={cn(
-                  "text-xs truncate max-w-[100px]",
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                )}
-                title={models.tts?.modelName}
-              >
-                {models.tts?.modelName || "None"}
-              </span>
-            </div>
-          </div>
+          {MODEL_ROWS.map(({ slot, label, icon }) => (
+            <ModelRow
+              key={slot}
+              label={label}
+              icon={icon}
+              selected={models[slot]}
+              options={modelOptions[slot]}
+              onSelect={(id) => onSelectModel(slot, id)}
+            />
+          ))}
         </div>
       </section>
 

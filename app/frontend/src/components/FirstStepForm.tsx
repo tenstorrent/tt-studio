@@ -36,9 +36,13 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
-// import { DeployedModelsWarning } from "./DeployedModelsWarning"; // hidden for now
 import { useModels } from "../hooks/useModels";
-import { autoPlacement, deployabilityReason, getModelPlacement } from "../utils/deviceFit";
+import {
+  autoPlacementFor,
+  deployabilityReason,
+  minDevicesFor,
+  placementFor,
+} from "../utils/deviceFit";
 import type { ChipStatus } from "../types/chipStatus";
 
 // Status configuration with icons and labels
@@ -76,7 +80,9 @@ const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
   TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
   EMBEDDING: { label: "Embedding Models", order: 7 },
   CNN: { label: "CNN Models", order: 8 },
-  TRAINING: { label: "Training", order: 9 },
+  TRAINING: { label: "Fine-tuning", order: 9 },
+  // Models no TT Studio page drives: deployable and manageable only.
+  OTHER: { label: "Other Models (deploy only)", order: 10 },
 };
 
 // Models whose weights are large and frequently fail/stall when Hugging Face
@@ -89,6 +95,8 @@ const EXPERIMENTAL_DEPLOY_MODELS: Record<string, string> = {
   "Wan2.2-T2V-A14B-Diffusers": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
 };
 
+const MUTED = "text-gray-400 dark:text-gray-500";
+
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
@@ -97,6 +105,8 @@ const FirstFormSchema = z.object({
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
+  autoDeployModel,
+  isAutoDeploying,
   chipMode,
   onModelNameChange,
   chipStatus,
@@ -104,6 +114,8 @@ export function FirstStepForm({
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
+  autoDeployModel?: string | null;
+  isAutoDeploying?: boolean;
   chipMode?: "single" | "multi";
   onModelNameChange?: (name: string) => void;
   chipStatus?: ChipStatus | null;
@@ -132,7 +144,7 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider stopping existing models before deploying new ones.`,
         "deployed-models-warning"
       );
     }
@@ -171,7 +183,7 @@ export function FirstStepForm({
   const onSubmit = async (data: z.infer<typeof FirstFormSchema>) => {
     setIsSubmitting(true);
     try {
-      const selectedModel = models.find((model) => model.name === data.model);
+      const selectedModel = models.find((model) => model.id === data.model);
       if (selectedModel) {
         if (selectedModel.is_compatible === false) {
           customToast.error(
@@ -189,7 +201,7 @@ export function FirstStepForm({
         // Extra warning if models are deployed
         if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to stop ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 
@@ -218,6 +230,33 @@ export function FirstStepForm({
       setIsSubmitting(false);
     }
   };
+
+  // Auto-select model when in auto-deploy mode
+  useEffect(() => {
+    if (autoDeployModel && models.length > 0 && isAutoDeploying) {
+      const targetModel = models.find(
+        (model) =>
+          model.name.toLowerCase().includes(autoDeployModel.toLowerCase()) ||
+          model.name === autoDeployModel
+      );
+
+      if (targetModel) {
+        console.log("Auto-selecting model:", targetModel.name);
+        form.setValue("model", targetModel.id);
+
+        // Auto-submit the form after a short delay
+        setTimeout(() => {
+          form.handleSubmit(onSubmit)();
+        }, 1000);
+      } else {
+        customToast.error(`Auto-deploy model "${autoDeployModel}" not found`);
+        console.error(
+          "Available models:",
+          models.map((m) => m.name)
+        );
+      }
+    }
+  }, [autoDeployModel, models, isAutoDeploying, form, onSubmit]);
 
   // Get current board info and group models by status and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
@@ -268,10 +307,10 @@ export function FirstStepForm({
 
   // Group models by display type, then by status, then by hardware compatibility
   type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };
-  const groupModelsByType = () => {
+  const groupModelsByType = (models: Model[]) => {
     const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
-    filteredModels.forEach((model) => {
+    models.forEach((model) => {
       const displayType = model.display_model_type || "LLM";
       const modelStatus = model.status || "EXPERIMENTAL";
 
@@ -289,47 +328,136 @@ export function FirstStepForm({
     return grouped;
   };
 
-  const groupedModels = groupModelsByType();
   const allModelsUnknown =
     filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
+  // Yellow only when the board itself is undetected, as the banner above explains;
+  // an unmapped profile hardware label is not worth a warning of its own.
+  const dotClass = currentBoard === "unknown" ? "text-yellow-500" : "text-green-500";
+
   // Render a model row, greying it out (and explaining why) when it can't be
   // deployed against the currently free devices.
-  const renderModelItem = (model: Model, dotClass: string) => {
-    const chips = model.chips_required ?? 1;
-    const placement = getModelPlacement(model.name, chips, chipStatus?.board_type);
+  const renderModelItem = (model: Model) => {
+    const totalSlots = chipStatus?.total_slots ?? 4;
+    const placement = placementFor(model, chipStatus?.board_type, totalSlots);
     // A model already deploying stays selectable so the user can reopen its progress.
     const isDeploying = deployingModelIds?.has(model.id) ?? false;
+    // A profiled model fits when any of its profiles does, not just the default one.
     const fits =
       isDeploying ||
       !chipStatus ||
-      autoPlacement(placement, chips, chipStatus.slots, chipStatus.total_slots) !== null;
+      autoPlacementFor(model, placement, chipStatus.slots, totalSlots) !== null;
     const reason = !isDeploying && chipStatus
-      ? deployabilityReason(placement, chips, chipStatus.slots, chipStatus.total_slots)
+      ? deployabilityReason(
+          placement,
+          minDevicesFor(model, totalSlots),
+          chipStatus.slots,
+          totalSlots
+        )
       : null;
+    // One status line for every model: what it is, then anything blocking it.
+    const statusParts: { text: string; className: string; title?: string }[] = [];
+    if (model.no_page_reason) {
+      statusParts.push({ text: "deploy only", className: MUTED, title: model.no_page_reason });
+    }
+    if (isDeploying) {
+      statusParts.push({ text: "Deploying…", className: "text-TT-purple-accent" });
+    } else if (!fits && reason) {
+      statusParts.push({ text: reason, className: MUTED });
+    }
     return (
       <SelectItem
         key={model.id}
-        value={model.name}
+        value={model.id}
         disabled={!fits}
         className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
       >
         <div className="flex items-center w-full">
           <span className={`${dotClass} mr-2 text-xs`}>●</span>
           <span className="flex-1">{model.name}</span>
-          {isDeploying ? (
-            <span className="ml-2 text-[10px] text-TT-purple-accent whitespace-nowrap">
-              Deploying…
+          {statusParts.length > 0 && (
+            <span className="ml-2 text-[10px] whitespace-nowrap">
+              {statusParts.map((part, i) => (
+                <span key={part.text} title={part.title} className={part.className}>
+                  {i > 0 && <span className={MUTED}> · </span>}
+                  {part.text}
+                </span>
+              ))}
             </span>
-          ) : (
-            !fits && reason && (
-              <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                {reason}
-              </span>
-            )
           )}
         </div>
       </SelectItem>
+    );
+  };
+
+  // Models grouped by type, then verification status.
+  const renderTypeGroups = (models: Model[]) => {
+    const groupedModels = groupModelsByType(models);
+    return (
+      <>
+        {Object.entries(groupedModels)
+          .sort(([a], [b]) => {
+            const orderA = TYPE_CONFIG[a]?.order ?? 99;
+            const orderB = TYPE_CONFIG[b]?.order ?? 99;
+            return orderA - orderB;
+          })
+          .map(([displayType, statusGroups], typeIndex) => {
+            const typeConfig = TYPE_CONFIG[displayType];
+            const typeLabel = typeConfig?.label || `${displayType} Models`;
+
+            return (
+              <div key={displayType}>
+                {/* Type Group Header */}
+                {typeIndex > 0 && (
+                  <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
+                )}
+                <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
+                  <span>{typeLabel}</span>
+                </div>
+
+                {/* Status sub-groups within this type */}
+                {Object.entries(statusGroups)
+                  .sort(
+                    ([a], [b]) =>
+                      (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
+                  )
+                  .map(([modelStatus, modelsByCompatibility]) => {
+                    const statusConfig =
+                      STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
+                    const hasModels =
+                      modelsByCompatibility.compatible.length +
+                      modelsByCompatibility.unknown.length > 0;
+
+                    if (!hasModels) return null;
+
+                    const IconComponent = statusConfig?.icon || Bot;
+
+                    return (
+                      <div key={`${displayType}-${modelStatus}`}>
+                        {/* Status Sub-Header */}
+                        <div
+                          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                        >
+                          <IconComponent className="w-3 h-3" />
+                          <span>{statusConfig?.label || modelStatus}</span>
+                        </div>
+
+                        {/* Compatible Models */}
+                        {modelsByCompatibility.compatible.map((model: Model) =>
+                          renderModelItem(model)
+                        )}
+
+                        {/* Unknown Compatibility Models */}
+                        {modelsByCompatibility.unknown.map((model: Model) =>
+                          renderModelItem(model)
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            );
+          })}
+      </>
     );
   };
 
@@ -345,10 +473,27 @@ export function FirstStepForm({
           />
         )} */}
 
+        {/* Auto-deploy indicator */}
+        {isAutoDeploying && autoDeployModel && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span className="text-blue-800 dark:text-blue-200 font-medium">
+                🤖 Auto-deploying: {autoDeployModel}
+              </span>
+            </div>
+          </div>
+        )}
+
         <FormField
           control={form.control}
           name="model"
-          render={({ field }) => (
+          render={({ field }) => {
+            // field.value holds the unique model id; resolve its display name so
+            // the large-weights download warning can be keyed by name as before.
+            const selectedModelName =
+              models.find((m) => m.id === field.value)?.name ?? "";
+            return (
             <FormItem className="w-full mb-4 p-8">
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 <div className="flex items-center gap-3 mb-4">
@@ -371,7 +516,7 @@ export function FirstStepForm({
                 disabled={isLoading}
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger data-tour="model-select-dropdown">
                     <SelectValue
                       placeholder={
                         isLoading ? "Loading models..." : "Select a model"
@@ -391,69 +536,7 @@ export function FirstStepForm({
                   )}
 
                   {/* Render models grouped by type, then by status */}
-                  {Object.entries(groupedModels)
-                    .sort(([a], [b]) => {
-                      const orderA = TYPE_CONFIG[a]?.order ?? 99;
-                      const orderB = TYPE_CONFIG[b]?.order ?? 99;
-                      return orderA - orderB;
-                    })
-                    .map(([displayType, statusGroups], typeIndex) => {
-                      const typeConfig = TYPE_CONFIG[displayType];
-                      const typeLabel = typeConfig?.label || `${displayType} Models`;
-
-                      return (
-                        <div key={displayType}>
-                          {/* Type Group Header */}
-                          {typeIndex > 0 && (
-                            <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
-                          )}
-                          <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
-                            <span>{typeLabel}</span>
-                          </div>
-
-                          {/* Status sub-groups within this type */}
-                          {Object.entries(statusGroups)
-                            .sort(
-                              ([a], [b]) =>
-                                (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
-                            )
-                            .map(([modelStatus, modelsByCompatibility]) => {
-                              const statusConfig =
-                                STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
-                              const hasModels =
-                                modelsByCompatibility.compatible.length +
-                                modelsByCompatibility.unknown.length > 0;
-
-                              if (!hasModels) return null;
-
-                              const IconComponent = statusConfig?.icon || Bot;
-
-                              return (
-                                <div key={`${displayType}-${modelStatus}`}>
-                                  {/* Status Sub-Header */}
-                                  <div
-                                    className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
-                                  >
-                                    <IconComponent className="w-3 h-3" />
-                                    <span>{statusConfig?.label || modelStatus}</span>
-                                  </div>
-
-                                  {/* Compatible Models */}
-                                  {modelsByCompatibility.compatible.map((model: Model) =>
-                                    renderModelItem(model, "text-green-500")
-                                  )}
-
-
-                                  {/* Unknown Compatibility Models */}
-                                  {modelsByCompatibility.unknown.map((model: Model) =>
-                                    renderModelItem(model, "text-yellow-500")
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      );
-                    })}
+                  {renderTypeGroups(filteredModels)}
 
                   {/* If no models loaded yet */}
                   {filteredModels.length === 0 && !isLoading && (
@@ -466,7 +549,10 @@ export function FirstStepForm({
 
               {/* Summary info */}
               {filteredModels.length > 0 && !isLoading && (
-                <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
+                <div
+                  data-tour="board-info-box"
+                  className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200"
+                >
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
                       {chipMode === "single" && displayBoard !== currentBoard
@@ -511,7 +597,7 @@ export function FirstStepForm({
               )}
 
               {/* Download-reliability warning: HF often stalls fetching these large weights */}
-              {EXPERIMENTAL_DEPLOY_MODELS[field.value] && (
+              {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName] && (
                 <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <div className="space-y-2">
@@ -519,19 +605,19 @@ export function FirstStepForm({
                       Download the weights first to avoid a failed deploy
                     </p>
                     <p>
-                      Hugging Face often stalls downloading {field.value}'s large
+                      Hugging Face often stalls downloading {selectedModelName}'s large
                       weights mid-deploy, which fails the deployment. Pre-fetch them
                       first — run this, let it finish, then deploy:
                     </p>
                     <div className="flex items-center gap-2 rounded bg-amber-100 px-2 py-1.5 font-mono text-xs dark:bg-amber-900/40">
                       <code className="flex-1 break-all">
-                        hf download {EXPERIMENTAL_DEPLOY_MODELS[field.value]}
+                        hf download {EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}
                       </code>
                       <button
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(
-                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[field.value]}`
+                            `hf download ${EXPERIMENTAL_DEPLOY_MODELS[selectedModelName]}`
                           );
                           customToast.success("Command copied to clipboard");
                         }}
@@ -556,7 +642,8 @@ export function FirstStepForm({
                 {form.formState.errors.model?.message}
               </FormMessage>
             </FormItem>
-          )}
+            );
+          }}
         />
         <StepperFormActions
           form={form}

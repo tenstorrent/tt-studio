@@ -63,6 +63,28 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(_cl_rops, "BROWSER_CLEANUP_SENTINEL", str(sentinel)),
         )
 
+    def test_preserved_summary_uses_install_mode_cleanup_command(self):
+        for is_pip_install, expected_command in (
+            (True, "tt-studio --purge-all"),
+            (False, "python run.py --purge-all"),
+        ):
+            with self.subTest(is_pip_install=is_pip_install):
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(patch.object(
+                        _cl_orch.install_mode, "is_pip_install", return_value=is_pip_install,
+                    ))
+                    stack.enter_context(patch.object(
+                        _cl_orch, "LAUNCH_CMD", _cl_orch.install_mode.launch_cmd(),
+                    ))
+                    stack.enter_context(patch.object(_cl_orch, "_docker_daemon_status", return_value="down"))
+                    panel = stack.enter_context(patch.object(_cl_orch, "kept_panel", return_value="panel"))
+                    stack.enter_context(patch.object(_cl_orch.console, "print"))
+
+                    _cl_orch._print_preserved_summary(has_docker_access=False)
+
+                footer = panel.call_args.args[2]
+                self.assertIn(f"[accent]{expected_command}[/accent]", footer[0])
+
     def test_cleanup_helpers_handle_sizes_and_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             nested = Path(tmp) / "nested"
@@ -542,6 +564,35 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
             ("Stopping inference API", False),
             ("Stopping Docker control", False),
         ])
+
+    def test_stop_skip_docker_control_leaves_its_container_and_legacy_process_alone(self):
+        args = SimpleNamespace(
+            dev=False,
+            no_sudo=True,
+            cleanup_all=False,
+            skip_docker_control=True,
+        )
+        compose_calls = []
+
+        def build_compose(**kwargs):
+            compose_calls.append(kwargs)
+            return ["docker", "compose"]
+
+        with patch.object(_cl_runt, "_docker_daemon_status", return_value="ok"), \
+             patch.object(_cl_runt, "build_docker_compose_command", side_effect=build_compose), \
+             patch.object(_cl_runt, "run_docker_command"), \
+             patch.object(_cl_runt, "cleanup_fastapi_server"), \
+             patch.object(_cl_runt, "cleanup_docker_control_service") as cleanup_docker_control, \
+             contextlib.redirect_stdout(io.StringIO()):
+            run._cleanup_runtime(args, has_docker_access=True)
+
+        self.assertEqual(compose_calls, [{
+            "dev_mode": False,
+            "show_hardware_info": False,
+            "quiet": True,
+            "include_docker_control": False,
+        }])
+        cleanup_docker_control.assert_not_called()
 
 
 class TermsAcceptanceGateTests(unittest.TestCase):

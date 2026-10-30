@@ -13,10 +13,12 @@ other startup work begins.
 """
 
 import os
+import re
 import subprocess
 import json
 import urllib.request
 
+from tt_setup import install_mode
 from tt_setup.console import console, is_verbose
 
 
@@ -39,6 +41,27 @@ def _fetch_github_sha(owner: str, repo: str, branch: str) -> str | None:
             return data["object"]["sha"]
     except Exception:
         return None
+
+
+def _fetch_pypi_latest(package: str) -> str | None:
+    """Latest release version of `package` on PyPI, or None on failure."""
+    try:
+        with urllib.request.urlopen(f"https://pypi.org/pypi/{package}/json", timeout=8) as resp:
+            return json.loads(resp.read())["info"]["version"]
+    except Exception:
+        return None
+
+
+def _release_tuple(version: str) -> tuple | None:
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version or "")
+    return tuple(int(p) for p in match.groups()) if match else None
+
+
+def pypi_update_available(installed: str, latest: str) -> bool:
+    """Whether PyPI's latest release is newer than the installed X.Y.Z. A dev
+    build of the next version (2.12.1.dev3) counts as current for 2.12.0."""
+    have, want = _release_tuple(installed), _release_tuple(latest)
+    return bool(have and want and want > have)
 
 
 def _read_artifact_commit_sha(tt_studio_root: str) -> str | None:
@@ -116,7 +139,8 @@ def check_startup_freshness(
     Freshness check called at the very start of main(), before any startup work.
 
     Compares:
-      1. Local tt-studio HEAD vs the same branch on GitHub.
+      1. Local tt-studio HEAD vs the same branch on GitHub (for a pip install:
+         the installed version vs the latest release on PyPI).
       2. Stored artifact commit SHA vs the latest on GitHub (branch mode only).
 
     Prints green checkmarks when up to date, yellow warnings when behind.
@@ -169,17 +193,33 @@ def check_startup_freshness(
             qb2_branch = artifact_env
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
-    try:
-        local_sha = subprocess.run(
-            ["git", "-C", tt_studio_root, "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=False,
-        ).stdout.strip()
-        local_branch = subprocess.run(
-            ["git", "-C", tt_studio_root, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, check=False,
-        ).stdout.strip()
-    except Exception:
+    pip_install = install_mode.is_pip_install()
+    if pip_install:
+        # No checkout to compare — ask PyPI whether a newer release exists.
+        # Never blocks: an older release is still a complete, consistent install.
+        installed = install_mode.package_version()
+        latest = _fetch_pypi_latest(install_mode.PACKAGE_NAME)
+        if latest is None:
+            notes.append("[muted]tt-studio: couldn't reach PyPI to check for updates[/muted]")
+        elif pypi_update_available(installed, latest):
+            result["tt_studio_behind"] = True
+            actionable.append(f"[warning]⚠️  tt-studio {latest} is available (you have {installed})[/warning]")
+            actionable.append("[warning]     → pipx upgrade tt-studio  (or: pip install -U tt-studio)[/warning]")
+        else:
+            ok_items.append(("tt-studio", f"[success]✓[/success] tt-studio {installed}: up to date"))
         local_sha = local_branch = ""
+    else:
+        try:
+            local_sha = subprocess.run(
+                ["git", "-C", tt_studio_root, "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=False,
+            ).stdout.strip()
+            local_branch = subprocess.run(
+                ["git", "-C", tt_studio_root, "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True, check=False,
+            ).stdout.strip()
+        except Exception:
+            local_sha = local_branch = ""
 
     # Always check the local checked-out branch against its own remote — that's
     # the only meaningful "is my working tree in sync?" question. (Previously
@@ -214,7 +254,7 @@ def check_startup_freshness(
                 # Feature branch just behind-but-continuing → informational only.
                 quiet.append(f"[warning]⚠️  tt-studio is behind origin/{studio_check_branch}  ·  git pull to update[/warning]")
             quiet.append(f"[muted]     local {local_sha[:7]}  ·  remote {remote_sha[:7]}[/muted]")
-    else:
+    elif not pip_install:
         notes.append("[muted]tt-studio: couldn't determine branch/SHA[/muted]")
 
     # ── 2. Artifact (tt-inference-server) freshness check ────────────────────

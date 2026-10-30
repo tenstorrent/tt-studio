@@ -89,11 +89,10 @@ comma-separated list (e.g. `--device-id 0,1`).
 | Option | Description |
 | --- | --- |
 | `--reconfigure` | Reset saved preferences and reconfigure all options from scratch. |
-| `--resync` | Force a resync of the model catalog. |
 | `--pull-branch` | Re-download the inference artifact from its configured branch/SHA. |
 | `--build-images` | Build the container images locally instead of pulling prebuilt ones from ghcr.io. By default `run.py` pulls the images CI published for the exact checkout (release tag, else `sha-<12>`) and falls back to a local build automatically when they aren't available (feature branch, local changes, offline, custom frontend config). |
 | `--skip-fastapi` | Skip TT Inference Server FastAPI setup (see the note below). |
-| `--skip-docker-control` | Skip starting the Docker Control Service (port 8002). |
+| `--skip-docker-control` | Skip the internal Docker Control Compose service. |
 | `--no-sudo` | Skip sudo usage for FastAPI setup (may limit functionality). |
 | `--no-browser` | Don't open the frontend in a browser automatically. |
 | `--wait-for-services` | Block until all services report healthy before returning. |
@@ -107,12 +106,22 @@ comma-separated list (e.g. `--device-id 0,1`).
 | `--add-headers` | Add missing SPDX license headers (excludes frontend). |
 | `--check-headers` | Report files missing SPDX license headers (no changes). |
 
+### Release (maintainers)
+
+These automate the release process in CONTRIBUTING.md (RC branch cut from `main`, cherry-picks from `dev`, squash-merge back, tag). They need the GitHub CLI (`gh`) installed and logged in with push access. They never switch your checkout (the RC branch is created with git plumbing and cherry-picked inside a scratch worktree), so run them from whatever branch you're on.
+
+| Option | Description |
+| --- | --- |
+| `--make-rc-branch [major\|minor\|patch\|vX.Y.Z]` | Cut a new `rc-vX.Y.Z` branch from `origin/main` (plus one empty marker commit so GitHub allows the PR before the first cherry-pick) and open the `Rc vX.Y.Z` PR against `main` with the release test plan. The bare flag asks which part of the version to bump; the last release is detected across tags, `rc-v*` branches, and RC merge commits. Refuses while an unshipped (untagged) `rc-v*` branch is on origin — one release at a time. |
+| `--update-rc-branch` | Cherry-pick new `dev` commits into the current `rc-vX.Y.Z` branch via an interactive picker. Lists dev commits newer than the `main` commit the RC was cut from (releases squash into `main`, so that date is the only reliable cutoff), minus picks already on the RC. Older dev commits can still be cherry-picked by hand. A conflict rolls the failing pick back and prints manual-resolution steps. |
+| `--merge-rc-branch` | Ship the RC: verifies the PR is approved (≥2 approvals) with green checks, asks for one confirmation, then squash-merges into `main`, pushes the `vX.Y.Z` tag (which triggers the Publish images workflow → GHCR), and creates the GitHub release with auto-generated notes. |
+
 ### Troubleshooting & Info
 
 | Option | Description |
 | --- | --- |
 | `--help-env` | Show detailed help for environment variables. |
-| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and open a pre-filled GitHub issue. |
+| `--report-bug` | Collect a diagnostics bundle (`logs/tt-studio-logs-ttbr-*.zip`) and write a ready-to-send support email to support@tenstorrent.com with it attached (`logs/tt-studio-bug-report-ttbr-*.eml`). |
 | `--verbose`, `-v` | Show full per-phase output instead of the calm summary (see [Verbose & calm output](#verbose--calm-output)). |
 | `--no-clear` | Don't clear the terminal at startup — keep whatever was already on screen and stream the full per-phase detail. Like `--verbose`, but it also preserves your scrollback. |
 
@@ -218,7 +227,7 @@ The default setup uses the following values:
 | `JWT_SECRET` | `test-secret-456` | JWT authentication secret (not secure) |
 | `DJANGO_SECRET_KEY` | `django-insecure-default` | Django backend security key (not secure) |
 | `TAVILY_API_KEY` | `tavily-api-key-not-configured` | Search functionality (disabled) |
-| `VITE_APP_TITLE` | `Tenstorrent \| TT Studio` | Application title |
+| `VITE_APP_TITLE` | `TT Studio` | Application title |
 | `VITE_ENABLE_DEPLOYED` | `false` | AI Playground mode (disabled - uses TT Studio mode) |
 | `VITE_ENABLE_RAG_ADMIN` | `false` | RAG admin interface (disabled) |
 | `RAG_ADMIN_PASSWORD` | `tt-studio-rag-admin-password` | Default admin password |
@@ -400,7 +409,10 @@ When you run `python run.py`, the script:
 | | VITE_ENABLE_RAG_ADMIN | Enable RAG admin interface | Yes |
 | | RAG_ADMIN_PASSWORD | RAG admin password | If RAG enabled |
 | **Hardware** | IS_QB2 | Opt-in QB2 board verification (see below) | Optional (default off) |
-| **Inference Artifact** | TT_INFERENCE_ARTIFACT_VERSION | Pinned tt-inference-server release to download | Auto-configured |
+| **Downloads** | TT_STUDIO_DISABLE_HF_XET | Set `true` to turn off Hugging Face Xet transfer and use plain HTTPS downloads (slower; see [Troubleshooting](troubleshooting.md#slow-model-weight-downloads-hugging-face-xet)) | Optional (default false) |
+| **Inference Artifact** | TT_MODEL_SUPPORT_URL | Model support spec (tt-cli `model_support.json`) the model catalog syncs from; its `release_version` is the default artifact, and a different artifact builds the catalog from the artifact and `model_overrides.toml` instead | Optional (defaults to the latest tt-cli release) |
+| **Community Models** | TT_COMMUNITY_CATALOG_URL | Verified community bundles (tt-cli `community_catalog.json`); the only community models listed | Optional (defaults to the latest tt-cli release) |
+| | TT_INFERENCE_ARTIFACT_VERSION | Pin a tt-inference-server release instead of the spec's | Optional |
 | | TT_INFERENCE_ARTIFACT_BRANCH | Dev override: fetch a branch/SHA instead of a release | Optional |
 | | TT_QB2_LAUNCH_BRANCH | Artifact branch for the QB2 launch (branch selection only) | Optional |
 | **Cloud Models** | CLOUD_*_URL | Model endpoint URLs | If AI Playground enabled |
@@ -583,10 +595,16 @@ confirmation covers both; answering no leaves everything in place.
 python run.py --report-bug
 ```
 Collects the available host-side logs (startup, model-run, docker-control) plus a
-non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip` and opens a
-pre-filled GitHub issue in your browser — attach the ZIP to that issue. The
-bundle never includes your `.env` (only whether it exists). If `python run.py`
-itself errors, it offers the same flow interactively from the "Next steps" panel.
+non-secret system snapshot into `logs/tt-studio-logs-ttbr-*.zip`, and writes
+`logs/tt-studio-bug-report-ttbr-*.eml` next to it: a ready-to-send email to
+support@tenstorrent.com with the ZIP already attached. On a desktop it opens in
+your mail client (Outlook opens it as a draft; in Thunderbird choose *Edit As New
+Message*); on a headless server, copy the `.eml` to your own machine and open it
+there. Then hit Send. Only if the `.eml` can't be written does a pre-filled
+mailto: draft open instead, and then you attach the ZIP by hand. The support
+inbox files the ticket and replies stream back to your inbox. The bundle never includes your `.env` (only
+whether it exists). If `python run.py` itself errors, it offers the same flow
+interactively from the "Next steps" panel.
 
 ### Running on Remote Machine
 To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser:
@@ -598,4 +616,4 @@ ssh -L 3000:localhost:3000 -L 8001:localhost:8001 <username>@<remote_server>
 
 ---
 
-For troubleshooting issues with `run.py`, please refer to our [Troubleshooting Guide](troubleshooting.md). 
+For troubleshooting issues with `run.py`, please refer to our [Troubleshooting Guide](troubleshooting.md).

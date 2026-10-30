@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Loader2,
   Copy,
   Save,
-  Trash2 as Trash,
   Mic,
   MessageSquare,
   Clock,
@@ -19,6 +18,7 @@ import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
 import { FileUpload } from "../ui/file-upload";
+import { isAudioRecordingSupported } from "../../lib/mediaUtils";
 import { cn } from "../../lib/utils";
 import {
   Tooltip,
@@ -109,6 +109,7 @@ export function MainContent({
   const [showUpload, setShowUpload] = useState(true);
   const [partialRun, setPartialRun] = useState<PartialRun | null>(null);
   const { theme } = useTheme();
+  const isMicSupported = useMemo(() => isAudioRecordingSupported(), []);
 
   // Anything that blocks starting new work.
   const isProcessing = progress !== null;
@@ -734,9 +735,18 @@ export function MainContent({
                         : "bg-white/80 border-TT-purple-shade/30 hover:border-TT-purple-shade/50"
                     )}
                   >
-                    <h2 className="text-lg sm:text-xl font-semibold text-TT-purple">
-                      Or upload an audio file
-                    </h2>
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-lg sm:text-xl font-semibold text-TT-purple">
+                        {isMicSupported
+                          ? "Or upload an audio file"
+                          : "Upload an audio file"}
+                      </h2>
+                      {!isMicSupported && (
+                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-TT-purple-shade/20 text-TT-purple-accent dark:text-TT-purple-tint1 font-medium">
+                          Available on HTTP
+                        </span>
+                      )}
+                    </div>
                     <FileUpload
                       onChange={handleFileUpload}
                       accept={ACCEPTED_AUDIO}
@@ -894,23 +904,6 @@ export function MainContent({
                                     </Tooltip>
                                   </TooltipProvider>
                                 )}
-
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 hover:bg-TT-red-shade/20 text-TT-red"
-                                      >
-                                        <Trash className="h-3 w-3 sm:h-4 sm:w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      Delete transcription
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
                               </div>
                             </div>
 

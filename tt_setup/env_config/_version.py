@@ -4,7 +4,7 @@
 """Frontend version stamping + quick-setup config snapshot."""
 
 import subprocess
-from tt_setup import config_store
+from tt_setup import config_store, install_mode
 from tt_setup.constants import *
 from tt_setup.console import console, is_verbose
 from tt_setup.env_config._dotenv import write_env_var
@@ -23,6 +23,7 @@ def set_app_version_env():
         VITE_APP_VERSION is set to it.
       - Otherwise this is an unofficial build; VITE_APP_VERSION is cleared and the
         frontend falls back to showing the branch name (VITE_APP_GIT_BRANCH).
+    A pip install has no git metadata and uses the installed package version.
     """
     def _git(git_args):
         try:
@@ -36,21 +37,29 @@ def set_app_version_env():
             pass
         return ""
 
-    # An exact tag match on the current commit => official release build.
-    version = _git(["describe", "--tags", "--exact-match"])
-    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
-    if branch == "HEAD":
-        # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
-        branch = _git(["rev-parse", "--short", "HEAD"])
+    if install_mode.is_pip_install():
+        # No git here: the installed package version is the build identity.
+        # A release (2.12.0) is labelled v2.12.0 like a tagged checkout; a
+        # dev/test wheel shows its full version as the "branch" label.
+        package_version = install_mode.package_version()
+        version = install_mode.release_tag(package_version)
+        branch = "" if version else package_version
+        image_tag = install_mode.image_tag(package_version)
+    else:
+        # An exact tag match on the current commit => official release build.
+        version = _git(["describe", "--tags", "--exact-match"])
+        branch = _git(["rev-parse", "--abbrev-ref", "HEAD"])
+        if branch == "HEAD":
+            # Detached checkout (e.g. CI / `git checkout <tag>`): use short sha as label.
+            branch = _git(["rev-parse", "--short", "HEAD"])
+        # Pin the compose image tag to this checkout (release tag, else sha-<12>,
+        # else "latest") so a pull fetches exactly the bits CI built for it.
+        image_tag = compute_image_tag(version, _git(["rev-parse", "HEAD"]))
 
     write_env_var("VITE_APP_VERSION", version)
     write_env_var("VITE_APP_GIT_BRANCH", branch)
-
-    # Pin the compose image tag to this checkout (release tag, else sha-<12>,
-    # else "latest") so a pull fetches exactly the bits CI built for it.
     # TT_STUDIO_IMAGE_REGISTRY is user-owned and never written here.
-    full_sha = _git(["rev-parse", "HEAD"])
-    write_env_var("TT_STUDIO_IMAGE_TAG", compute_image_tag(version, full_sha))
+    write_env_var("TT_STUDIO_IMAGE_TAG", image_tag)
 
     # Low-priority provenance: show a muted one-liner for official releases;
     # the unofficial-branch note is detail, shown only with --verbose.

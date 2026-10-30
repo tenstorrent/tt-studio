@@ -1,10 +1,49 @@
 {
   "source": {
-    "artifact_version": "0.20.0",
-    "generated_at": "2026-08-17T18:22:32.785689+00:00"
+    "artifact_version": "0.23.0",
+    "model_support_release": "0.23.0",
+    "generated_at": "2026-10-09T14:58:35.835821+00:00"
   },
-  "total_models": 60,
+  "total_models": 74,
   "models": [
+    {
+      "model_name": "DeepSeek-R1-Distill-Llama-70B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+      "inference_engine": "vLLM",
+      "impl": "llama3-70b-galaxy",
+      "status": "COMPLETE",
+      "version": "0.16.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70,
+      "tool_call_parser": "deepseek_v3",
+      "reasoning_parser": "deepseek_r1",
+      "unavailable_devices": {
+        "P150X4": {
+          "reason": "known_broken",
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
+        },
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Non-functional deploy (tt-studio#869)."
+        }
+      }
+    },
     {
       "model_name": "distil-large-v3",
       "model_type": "SPEECH_RECOGNITION",
@@ -75,6 +114,143 @@
       "param_count": null
     },
     {
+      "model_name": "gemma-4-31B-it",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P300x2"
+      ],
+      "hf_model_id": "google/gemma-4-31B-it",
+      "inference_engine": "vLLM",
+      "impl": "tt-transformers",
+      "status": "COMPLETE",
+      "version": "0.23.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.23.0-2fd9445-7250ddf",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "GEMMA4_PAGE_BLOCK_SIZE": "64",
+        "GEMMA4_MAX_TOKENS_ALL_USERS": "49152"
+      },
+      "param_count": 31,
+      "tool_call_parser": "gemma4",
+      "reasoning_parser": "gemma4",
+      "requires_dev_catalog": true
+    },
+    {
+      "model_name": "Llama-3.1-70B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-70B",
+      "inference_engine": "vLLM",
+      "impl": "llama3-70b-galaxy",
+      "status": "COMPLETE",
+      "version": "0.16.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
+      "service_route": "/v1/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70,
+      "tool_call_parser": "llama3_json",
+      "unavailable_devices": {
+        "P150X4": {
+          "reason": "known_broken",
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
+        },
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Deploy does not resolve a usable image (tt-studio#904)."
+        }
+      }
+    },
+    {
+      "model_name": "Llama-3.1-70B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-70B-Instruct",
+      "inference_engine": "vLLM",
+      "impl": "llama3-70b-galaxy",
+      "status": "COMPLETE",
+      "version": "0.16.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.16.0-669d59e-3334377",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70,
+      "tool_call_parser": "llama3_json",
+      "unavailable_devices": {
+        "P150X4": {
+          "reason": "known_broken",
+          "details": "Does not deploy. Both four-chip Blackhole meshes are known bad for this model, so neither is offered."
+        },
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Deploy needs a docker image override tt cannot express (tt-studio#904). Use Llama-3.3-70B-Instruct instead."
+        }
+      }
+    },
+    {
+      "model_name": "Llama-3.1-8B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "P100",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-8B",
+      "inference_engine": "vLLM",
+      "impl": null,
+      "status": "COMPLETE",
+      "version": "0.19.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.19.0-b204341-9bd099c",
+      "service_route": "/v1/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8,
+      "tool_call_parser": "llama3_json"
+    },
+    {
       "model_name": "Llama-3.1-8B-Instruct",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -93,7 +269,7 @@
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "inference_engine": "vLLM",
-      "impl": null,
+      "impl": "tt-transformers",
       "status": "COMPLETE",
       "version": "0.19.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.19.0-b204341-9bd099c",
@@ -105,7 +281,8 @@
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1"
       },
-      "param_count": 8
+      "param_count": 8,
+      "tool_call_parser": "llama3_json"
     },
     {
       "model_name": "Llama-3.3-70B-Instruct",
@@ -114,7 +291,6 @@
       "device_configurations": [
         "GALAXY",
         "GALAXY_T3K",
-        "P150X4",
         "P150X8",
         "P300x2",
         "T3K"
@@ -133,7 +309,14 @@
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1"
       },
-      "param_count": 70
+      "param_count": 70,
+      "tool_call_parser": "llama3_json",
+      "unavailable_devices": {
+        "P150X4": {
+          "reason": "known_broken",
+          "details": "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
+        }
+      }
     },
     {
       "model_name": "Mistral-7B-Instruct-v0.3",
@@ -181,6 +364,62 @@
       "param_count": null
     },
     {
+      "model_name": "mochi-1-preview",
+      "model_type": "VIDEO",
+      "display_model_type": "VIDEO",
+      "device_configurations": [
+        "GALAXY",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "genmo/mochi-1-preview",
+      "inference_engine": "media",
+      "impl": null,
+      "status": "COMPLETE",
+      "version": "0.10.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
+      "service_route": "/v1/videos/generations",
+      "health_route": "/health",
+      "env_vars": {},
+      "param_count": null,
+      "unavailable_devices": {
+        "P150X4": {
+          "reason": "known_broken",
+          "details": "Does not deploy on p150x4 either, for the same reason as its p300x2 entry: no image override is known that makes it work on a four-chip Blackhole mesh."
+        },
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Deploy fails with the spec-pinned image; needs a newer media image plus a spec-level env override the release artifact does not carry."
+        }
+      }
+    },
+    {
+      "model_name": "Motif-Image-6B-Preview",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
+      "inference_engine": "media",
+      "impl": null,
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
+      "service_route": "/v1/images/generations",
+      "health_route": "/health",
+      "env_vars": {},
+      "param_count": 6,
+      "unavailable_devices": {
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "The media container never reaches a healthy state."
+        }
+      }
+    },
+    {
       "model_name": "Qwen3-32B",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -195,8 +434,8 @@
       "inference_engine": "vLLM",
       "impl": "qwen3-32b-galaxy",
       "status": "COMPLETE",
-      "version": "0.17.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a",
+      "version": "0.21.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.21.0-bc4c4df-be7d805",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
       "env_vars": {
@@ -206,7 +445,9 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 32
+      "param_count": 32,
+      "tool_call_parser": "hermes",
+      "reasoning_parser": "qwen3"
     },
     {
       "model_name": "speecht5_tts",
@@ -395,6 +636,32 @@
       "param_count": null
     },
     {
+      "model_name": "yolox_nano",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "P150"
+      ],
+      "hf_model_id": "yolox_nano",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "COMPLETE",
+      "version": "0.18.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.18.0-c49bb76",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {},
+      "param_count": null,
+      "requires_dev_catalog": true,
+      "inference_artifact_ref": {
+        "P300x2": "raahem/yolox_nano_qb2"
+      },
+      "available_in_studio": false,
+      "unavailable_reason": "known_broken",
+      "unavailable_details": "Not deployable today, and not because of any board: the forge image runs as USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is created root-owned, so warmup dies in ~0.3s with a PermissionError on cache_root/huggingface before the device is ever opened. Verified on P300x2; the same volume ownership applies on every board. Drop this entry once the forge image ships a uid-1000-owned cache_root. Will be available in tt-inference-server release after merging raahem/yolox_nano_qb2 into main, or once the object detection UI is fixed in TT-Studio and the model is added to the catalog with a custom branch."
+    },
+    {
       "model_name": "Llama-3.2-11B-Vision",
       "model_type": "VLM",
       "display_model_type": "VLM",
@@ -466,7 +733,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 1
+      "param_count": 1,
+      "tool_call_parser": "llama3_json"
     },
     {
       "model_name": "Llama-3.2-1B-Instruct",
@@ -492,7 +760,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 1
+      "param_count": 1,
+      "tool_call_parser": "llama3_json"
     },
     {
       "model_name": "Llama-3.2-3B",
@@ -507,8 +776,8 @@
       "inference_engine": "vLLM",
       "impl": "tt-transformers",
       "status": "FUNCTIONAL",
-      "version": "0.12.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
+      "version": "0.3.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.3.0-20edc39-03cb300",
       "service_route": "/v1/completions",
       "health_route": "/health",
       "env_vars": {
@@ -517,7 +786,8 @@
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1"
       },
-      "param_count": 3
+      "param_count": 3,
+      "tool_call_parser": "llama3_json"
     },
     {
       "model_name": "Llama-3.2-3B-Instruct",
@@ -542,7 +812,8 @@
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1"
       },
-      "param_count": 3
+      "param_count": 3,
+      "tool_call_parser": "llama3_json"
     },
     {
       "model_name": "Llama-3.2-90B-Vision",
@@ -659,7 +930,8 @@
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
         "MAX_PREFILL_CHUNK_SIZE": "16"
       },
-      "param_count": 72
+      "param_count": 72,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-72B-Instruct",
@@ -686,7 +958,8 @@
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
         "MAX_PREFILL_CHUNK_SIZE": "16"
       },
-      "param_count": 72
+      "param_count": 72,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-VL-72B-Instruct",
@@ -710,7 +983,43 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 72
+      "param_count": 72,
+      "tool_call_parser": "hermes"
+    },
+    {
+      "model_name": "Qwen3-8B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-8B",
+      "inference_engine": "vLLM",
+      "impl": null,
+      "status": "FUNCTIONAL",
+      "version": "0.10.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e0e0500-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8,
+      "tool_call_parser": "hermes",
+      "reasoning_parser": "qwen3",
+      "unavailable_devices": {
+        "P300": {
+          "reason": "known_broken",
+          "details": "Removed from the deploy UI in #878 after failing on our Blackhole box. Scoped to P300 rather than P300x2 because this model only ever claims the single-chip Blackhole device; its Wormhole boards (N150/N300/T3K/Galaxy) are untested and stay available."
+        }
+      }
     },
     {
       "model_name": "Qwen3-VL-32B-Instruct",
@@ -760,7 +1069,9 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 32
+      "param_count": 32,
+      "tool_call_parser": "hermes",
+      "reasoning_parser": "deepseek_r1"
     },
     {
       "model_name": "resnet-50",
@@ -799,6 +1110,31 @@
       "health_route": "/health",
       "env_vars": {},
       "param_count": null
+    },
+    {
+      "model_name": "Z-Image-Turbo",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [],
+      "hf_model_id": "Tongyi-MAI/Z-Image-Turbo",
+      "inference_engine": "media",
+      "impl": null,
+      "status": "FUNCTIONAL",
+      "version": "0.17.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10",
+      "service_route": "/v1/images/generations",
+      "health_route": "/health",
+      "env_vars": {},
+      "param_count": null,
+      "unavailable_devices": {
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "Wedges Blackhole p300 devices during warmup (eth-core init timeout, or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-check once the media image ships a tt-metal/firmware combination validated on firmware 19.7.0."
+        }
+      },
+      "available_in_studio": false,
+      "unavailable_reason": "known_broken",
+      "unavailable_details": "No supported device left: P300x2: Wedges Blackhole p300 devices during warmup (eth-core init timeout, or a hard device hang mid kernel-compile) badly enough that the host needs a board reset. Re-check once the media image ships a tt-metal/firmware combination validated on firmware 19.7.0."
     },
     {
       "model_name": "AFM-4.5B",
@@ -840,7 +1176,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "3072",
@@ -851,6 +1187,42 @@
         "DEFAULT_THROTTLE_LEVEL": "0"
       },
       "param_count": null
+    },
+    {
+      "model_name": "bge-m3",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "P150",
+        "P300",
+        "P300x2"
+      ],
+      "hf_model_id": "BAAI/bge-m3",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.20.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
+      "service_route": "/v1/embeddings",
+      "health_route": "/health",
+      "env_vars": {
+        "MODEL_RUNNER": "vllmforge_bge_m3",
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
+        "VLLM__MAX_MODEL_LENGTH": "128",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "8",
+        "BENCHMARK_MAX_CONCURRENCY": "32",
+        "MAX_BATCH_SIZE": "8",
+        "TT_MESH_GRAPH_DESC_PATH": "/home/container_app_user/app/server/venv-worker/lib/python3.12/site-packages/pjrt_plugin_tt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto",
+        "USE_DYNAMIC_BATCHER": "false",
+        "DEFAULT_THROTTLE_LEVEL": "0",
+        "TT_METAL_INSPECTOR_RPC": "0"
+      },
+      "param_count": null,
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/bge-m3-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/bge-m3-p300.json"
+      }
     },
     {
       "model_name": "DeepSeek-R1-0528",
@@ -873,7 +1245,9 @@
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1"
       },
-      "param_count": null
+      "param_count": null,
+      "tool_call_parser": "deepseek_v3",
+      "reasoning_parser": "deepseek_r1"
     },
     {
       "model_name": "diffusiongemma-26B-A4B-it",
@@ -911,7 +1285,9 @@
         "DG_UPFRONT_PREFILL_WARMUP_LENS": "32,64,96",
         "DG_TRACE_REGION_SIZE": "3758096384"
       },
-      "param_count": 4
+      "param_count": 4,
+      "tool_call_parser": "gemma4",
+      "reasoning_parser": "gemma4"
     },
     {
       "model_name": "efficientnet",
@@ -931,6 +1307,39 @@
       "health_route": "/health",
       "env_vars": {},
       "param_count": null
+    },
+    {
+      "model_name": "Falcon3-7B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "P150"
+      ],
+      "hf_model_id": "tiiuae/Falcon3-7B-Instruct",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.18.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.18.0-c49bb76",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "MAX_MODEL_LENGTH": "32768",
+        "MAX_NUM_SEQS": "32",
+        "GPU_MEMORY_UTILIZATION": "0.35",
+        "TT_KV_POOL_GB": "32",
+        "OPTIMIZATION_LEVEL": "1",
+        "CPU_SAMPLING": "false",
+        "ENABLE_TRACE": "true",
+        "KV_CACHE_DTYPE": "bfp_bf8",
+        "PREFILL_CHUNK_SIZE": "1024",
+        "MIN_NUM_SEQS": "1",
+        "PREFILL_BATCH_THRESHOLD": "16"
+      },
+      "param_count": 7,
+      "available_in_studio": false,
+      "unavailable_reason": "known_broken",
+      "unavailable_details": "Not deployable today, and not because of any board: the forge image runs as USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is created root-owned, so warmup dies in ~0.3s with a PermissionError on cache_root/huggingface before the device is ever opened. Verified on P300x2; the same volume ownership applies on every board. Drop this entry once the forge image ships a uid-1000-owned cache_root."
     },
     {
       "model_name": "gemma-3-1b-it",
@@ -1005,18 +1414,19 @@
       "param_count": 4
     },
     {
-      "model_name": "gemma-4-31B-it",
+      "model_name": "gpt-oss-120b",
       "model_type": "CHAT",
       "display_model_type": "LLM",
       "device_configurations": [
-        "P300x2"
+        "GALAXY",
+        "T3K"
       ],
-      "hf_model_id": "google/gemma-4-31B-it",
+      "hf_model_id": "openai/gpt-oss-120b",
       "inference_engine": "vLLM",
       "impl": null,
       "status": "EXPERIMENTAL",
-      "version": "0.18.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.18.0-c49bb76-6b4a3a7",
+      "version": "0.17.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
       "env_vars": {
@@ -1024,12 +1434,17 @@
         "VLLM_RPC_TIMEOUT": "900000",
         "VLLM_TARGET_DEVICE": "tt",
         "TORCHDYNAMO_DISABLE": "1",
-        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
-        "GEMMA4_PAGE_BLOCK_SIZE": "64",
-        "GEMMA4_MAX_TOKENS_ALL_USERS": "49152"
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 31,
-      "requires_dev_catalog": true
+      "param_count": 120,
+      "tool_call_parser": "openai",
+      "reasoning_parser": "openai_gptoss",
+      "unavailable_devices": {
+        "P300x2": {
+          "reason": "known_broken",
+          "details": "The vLLM container never reaches a healthy state."
+        }
+      }
     },
     {
       "model_name": "gpt-oss-20b",
@@ -1057,38 +1472,65 @@
         "VLLM_ENABLE_RESPONSES_API_STORE": "1",
         "VLLM_GPT_OSS_HARMONY_SYSTEM_INSTRUCTIONS": "1"
       },
-      "param_count": 20
+      "param_count": 20,
+      "tool_call_parser": "openai",
+      "reasoning_parser": "openai_gptoss"
     },
     {
-      "model_name": "Llama-3.1-8B",
+      "model_name": "Llama-3.1-8B-Instruct",
       "hand_owned": true,
       "model_type": "TRAINING",
       "display_model_type": "TRAINING",
       "device_configurations": [
-        "P150"
+        "P150",
+        "P300",
+        "P300X2"
       ],
-      "hf_model_id": "meta-llama/Llama-3.1-8B",
+      "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "inference_engine": "forge",
-      "impl": "training-lora",
+      "impl": "trainer-training-lora",
       "supported_modalities": [
         "text"
       ],
       "status": "EXPERIMENTAL",
       "version": "0.0.1",
-      "docker_image": "tt-media-server-forge:local",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.23.0-2fd9445",
       "service_route": "/v1/jobs",
       "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
-        "MODEL_RUNNER": "training-lora",
-        "TRAINING_MODEL": "Llama-3.1-8B",
+        "MODEL_RUNNER": "trainer-training-lora",
+        "TRAINING_MODEL": "Llama-3.1-8B-Instruct",
         "ENABLE_JOB_PERSISTENCE": true,
         "JOB_CLEANUP_INTERVAL_SECONDS": 10000,
         "JOB_MAX_STUCK_TIME_SECONDS": 100000,
         "REQUEST_PROCESSING_TIMEOUT_SECONDS": 100000
       },
       "param_count": null
+    },
+    {
+      "model_name": "Llama-3.2-3B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-3B",
+      "inference_engine": "forge",
+      "impl": "forge-vllm-plugin",
+      "status": "EXPERIMENTAL",
+      "version": "0.12.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
+      "service_route": "/v1/chat/completions",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "2048",
+        "VLLM__MAX_MODEL_LENGTH": "2048",
+        "VLLM__MIN_MODEL_LENGTH": "32"
+      },
+      "param_count": 3
     },
     {
       "model_name": "medgemma-27b-it",
@@ -1162,7 +1604,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 7
+      "param_count": 7,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-7B-Instruct",
@@ -1187,7 +1630,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 7
+      "param_count": 7,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-Coder-32B-Instruct",
@@ -1212,7 +1656,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 32
+      "param_count": 32,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-VL-32B-Instruct",
@@ -1236,7 +1681,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 32
+      "param_count": 32,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-VL-3B-Instruct",
@@ -1261,7 +1707,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 3
+      "param_count": 3,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen2.5-VL-7B-Instruct",
@@ -1286,7 +1733,8 @@
         "TORCHDYNAMO_DISABLE": "1",
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1"
       },
-      "param_count": 7
+      "param_count": 7,
+      "tool_call_parser": "hermes"
     },
     {
       "model_name": "Qwen3-4B",
@@ -1312,6 +1760,77 @@
       "param_count": 4
     },
     {
+      "model_name": "Qwen3-Embedding-0.6B",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "P150",
+        "P300",
+        "P300x2"
+      ],
+      "hf_model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.20.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
+      "service_route": "/v1/embeddings",
+      "health_route": "/health",
+      "env_vars": {
+        "MODEL_RUNNER": "vllmforge_qwen_embedding_0_6b",
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
+        "VLLM__MAX_MODEL_LENGTH": "128",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "8",
+        "BENCHMARK_MAX_CONCURRENCY": "32",
+        "MAX_BATCH_SIZE": "8",
+        "TT_MESH_GRAPH_DESC_PATH": "/home/container_app_user/app/server/venv-worker/lib/python3.12/site-packages/pjrt_plugin_tt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto",
+        "USE_DYNAMIC_BATCHER": "false",
+        "DEFAULT_THROTTLE_LEVEL": "0",
+        "TT_METAL_INSPECTOR_RPC": "0"
+      },
+      "param_count": 0,
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-0.6b-p300.json"
+      }
+    },
+    {
+      "model_name": "Qwen3-Embedding-4B",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "P150",
+        "P300",
+        "P300x2",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-Embedding-4B",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.20.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server-forge:0.20.0-de59f8a",
+      "service_route": "/v1/embeddings",
+      "health_route": "/health",
+      "env_vars": {
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
+        "VLLM__MAX_MODEL_LENGTH": "1024",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "1",
+        "MAX_BATCH_SIZE": "1",
+        "DEFAULT_THROTTLE_LEVEL": "0"
+      },
+      "param_count": 4,
+      "runtime_model_spec_overrides": {
+        "P150": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p150.json",
+        "P300": "app/backend/shared_config/runtime_model_specs/qwen3-embedding-4b-p300.json"
+      }
+    },
+    {
       "model_name": "Qwen3-Embedding-8B",
       "model_type": "EMBEDDING",
       "display_model_type": "EMBEDDING",
@@ -1327,7 +1846,7 @@
       "status": "EXPERIMENTAL",
       "version": "0.12.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/enqueue",
+      "service_route": "/v1/embeddings",
       "health_route": "/health",
       "env_vars": {
         "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
@@ -1365,13 +1884,16 @@
       "requires_dev_catalog": true,
       "inference_artifact_ref": {
         "P150": "tt-studio/qwen3.5-9b-p150"
-      }
+      },
+      "tool_call_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
     },
     {
       "model_name": "Qwen3.6-27B",
       "model_type": "CHAT",
       "display_model_type": "LLM",
       "device_configurations": [
+        "P150X8",
         "P300x2"
       ],
       "hf_model_id": "Qwen/Qwen3.6-27B",
@@ -1392,53 +1914,9 @@
         "TT_MESH_GRAPH_DESC_PATH": "../../tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_x2_mesh_graph_descriptor.textproto",
         "QWEN36_MAX_TOKENS_ALL_USERS": "525312"
       },
-      "param_count": 27
-    },
-    {
-      "model_name": "unet",
-      "model_type": "CNN",
-      "display_model_type": "CNN",
-      "device_configurations": [
-        "N150",
-        "N300"
-      ],
-      "hf_model_id": "unet",
-      "inference_engine": "forge",
-      "impl": null,
-      "status": "EXPERIMENTAL",
-      "version": "0.12.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "env_vars": {},
-      "param_count": null
-    },
-    {
-      "model_name": "Qwen3-Embedding-4B",
-      "model_type": "EMBEDDING",
-      "display_model_type": "EMBEDDING",
-      "device_configurations": [
-        "GALAXY",
-        "N150",
-        "N300",
-        "T3K"
-      ],
-      "hf_model_id": "Qwen/Qwen3-Embedding-4B",
-      "inference_engine": "forge",
-      "status": "EXPERIMENTAL",
-      "version": "0.12.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "env_vars": {
-        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
-        "VLLM__MAX_MODEL_LENGTH": "1024",
-        "VLLM__MIN_CONTEXT_LENGTH": "32",
-        "VLLM__MAX_NUM_SEQS": "1",
-        "MAX_BATCH_SIZE": "1",
-        "DEFAULT_THROTTLE_LEVEL": "0"
-      },
-      "param_count": 4
+      "param_count": 27,
+      "tool_call_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
     },
     {
       "model_name": "Qwen3.8-27B",
@@ -1470,35 +1948,28 @@
       "requires_dev_catalog": true,
       "inference_artifact_ref": {
         "P300x2": "tt-studio/qwen3.8-27b-p300x2"
-      }
+      },
+      "tool_call_parser": "qwen3_coder",
+      "reasoning_parser": "qwen3"
     },
     {
-      "model_name": "Qwen3-8B",
-      "hand_owned": true,
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
+      "model_name": "unet",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
       "device_configurations": [
-        "GALAXY",
-        "GALAXY_T3K",
         "N150",
-        "N300",
-        "P300",
-        "T3K"
+        "N300"
       ],
-      "hf_model_id": "Qwen/Qwen3-8B",
-      "inference_engine": "vLLM",
-      "status": "FUNCTIONAL",
-      "version": "0.10.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e0e0500-409b1cd",
+      "hf_model_id": "unet",
+      "inference_engine": "forge",
+      "impl": null,
+      "status": "EXPERIMENTAL",
+      "version": "0.12.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
       "health_route": "/health",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": 8
+      "env_vars": {},
+      "param_count": null
     }
   ]
 }

@@ -192,6 +192,14 @@ interface StepperProps extends StepOptions {
   steps: StepItem[];
 }
 
+type StepElementProps = {
+  children?: React.ReactNode;
+  index?: number;
+  isCompletedStep?: boolean;
+  isCurrentStep?: boolean;
+  isLastStep?: boolean;
+};
+
 const VARIABLE_SIZES = {
   sm: "36px",
   md: "40px",
@@ -203,18 +211,18 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
     const {
       className,
       children,
-      orientation: orientationProp,
+      orientation: orientationProp = "horizontal",
       state,
-      responsive,
+      responsive = true,
       checkIcon,
       errorIcon,
       onClickStep,
       mobileBreakpoint,
       expandVerticalSteps = false,
       initialStep = 0,
-      size,
+      size = "md",
       steps,
-      variant,
+      variant = "circle",
       styles,
       variables,
       scrollTracking = false,
@@ -223,10 +231,10 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
 
     const childArr = React.Children.toArray(children);
 
-    const items = [] as React.ReactElement[];
+    const items: React.ReactElement<StepElementProps>[] = [];
 
     const footer = childArr.map((child, _index) => {
-      if (!React.isValidElement(child)) {
+      if (!React.isValidElement<StepElementProps>(child)) {
         throw new Error("Stepper children must be valid React elements.");
       }
       if (child.type === Step) {
@@ -263,7 +271,7 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
           clickable,
           stepCount,
           isVertical,
-          variant: variant || "circle",
+          variant,
           expandVerticalSteps,
           steps,
           scrollTracking,
@@ -285,7 +293,7 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
             {
               "--step-icon-size":
                 variables?.["--step-icon-size"] ||
-                `${VARIABLE_SIZES[size || "md"]}`,
+                `${VARIABLE_SIZES[size]}`,
               "--step-gap": variables?.["--step-gap"] || "8px",
             } as React.CSSProperties
           }
@@ -302,12 +310,6 @@ const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
   }
 );
 
-Stepper.defaultProps = {
-  size: "md",
-  orientation: "horizontal",
-  responsive: true,
-};
-
 const VerticalContent = ({ children }: { children: React.ReactNode }) => {
   const { activeStep } = useStepper();
 
@@ -317,10 +319,9 @@ const VerticalContent = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
       {React.Children.map(children, (child, i) => {
-        const isCompletedStep =
-          (React.isValidElement(child) &&
-            (child.props as any).isCompletedStep) ??
-          i < activeStep;
+        const isCompletedStep = React.isValidElement<StepElementProps>(child)
+          ? child.props.isCompletedStep ?? i < activeStep
+          : i < activeStep;
         const isLastStep = i === stepCount - 1;
         const isCurrentStep = i === activeStep;
 
@@ -331,7 +332,7 @@ const VerticalContent = ({ children }: { children: React.ReactNode }) => {
           isLastStep,
         };
 
-        if (React.isValidElement(child)) {
+        if (React.isValidElement<StepElementProps>(child)) {
           return React.cloneElement(child, stepProps);
         }
         return null;
@@ -348,19 +349,13 @@ const HorizontalContent = ({ children }: { children: React.ReactNode }) => {
     return null;
   }
 
-  return (
-    <>
-      {React.Children.map(childArr[activeStep], (node) => {
-        if (!React.isValidElement(node)) {
-          return null;
-        }
-        return React.Children.map(
-          node.props.children,
-          (childNode) => childNode
-        );
-      })}
-    </>
-  );
+  const currentStepNode = childArr[activeStep];
+
+  if (!React.isValidElement<StepElementProps>(currentStepNode)) {
+    return null;
+  }
+
+  return <>{currentStepNode.props.children}</>;
 };
 
 // <---------- STEP ---------->

@@ -20,11 +20,12 @@ import {
   ChevronLeft,
   BrainCog,
   Video,
+  Binary,
   type LucideIcon,
   History,
   Settings as SettingsIcon,
   Workflow,
-  PanelLeft,
+  // PanelLeft, // was Canvas's nav icon; Canvas is hidden from the UI
   Plus,
   LayoutGrid,
 } from "lucide-react";
@@ -398,9 +399,9 @@ export default function NavBar() {
   }, [modelIdsKey]);
 
   // Only models that are actually healthy/usable should surface in the navbar.
-  // Model types with no interaction page (embeddings, and containers whose model
-  // could not be identified) are managed from the Models page only — a nav entry
-  // for them would route to a page that cannot drive them.
+  // Model types with no interaction page (containers whose model could not be
+  // identified) are managed from the Models page only — a nav entry for them
+  // would route to a page that cannot drive them.
   const healthyModels = useMemo(
     () =>
       models.filter((m) => {
@@ -412,6 +413,29 @@ export default function NavBar() {
       }),
     [models, healthById]
   );
+
+  // One nav button per destination ROUTE, not per deployed instance -- keyed
+  // by route rather than model type because several types share one page
+  // (ChatModel/VLM both open Chat UI, ObjectDetectionModel/CNN both open
+  // Object Detection), so type alone would still duplicate those. Deploying a
+  // second model of the same type (e.g. two embedding models) must not
+  // duplicate its nav entry either way. The page each button opens has its
+  // own picker to switch between multiple healthy models it can drive, so
+  // only the first one found is passed along as the initial selection.
+  const uniqueHealthyModelsByType = useMemo(() => {
+    const seen = new Set<string>();
+    const unique: typeof healthyModels = [];
+    for (const model of healthyModels) {
+      const t = model.model_type
+        ? getModelTypeFromBackendType(model.model_type)
+        : getModelTypeFromName(model.name, model.image);
+      const route = getDestinationFromModelType(t);
+      if (seen.has(route)) continue;
+      seen.add(route);
+      unique.push(model);
+    }
+    return unique;
+  }, [healthyModels]);
 
   // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
   const isVoiceAgentReady = useMemo(() => {
@@ -433,19 +457,19 @@ export default function NavBar() {
   // Surface the Register Model entry only when there's a stray container to adopt.
   const { hasStray } = useStrayContainers();
 
-  // Workflows and Canvas both drive an LLM/VLM under the hood, so they're only
-  // usable once a chat-capable model is healthy. Gate the navbar entries the
-  // same way we gate Voice Agent / Coding Agents.
-  const isLlmReady = useMemo(
-    () =>
-      healthyModels.some((m) => {
-        const t = m.model_type
-          ? getModelTypeFromBackendType(m.model_type)
-          : getModelTypeFromName(m.name, m.image);
-        return t === ModelType.ChatModel || t === ModelType.VLM;
-      }),
-    [healthyModels],
-  );
+  // Workflows and Canvas both drive an LLM/VLM under the hood, so they were only
+  // shown once a chat-capable model was healthy. Unused now that both nav
+  // entries below are hidden (currently non-functional).
+  // const isLlmReady = useMemo(
+  //   () =>
+  //     healthyModels.some((m) => {
+  //       const t = m.model_type
+  //         ? getModelTypeFromBackendType(m.model_type)
+  //         : getModelTypeFromName(m.name, m.image);
+  //       return t === ModelType.ChatModel || t === ModelType.VLM;
+  //     }),
+  //   [healthyModels],
+  // );
 
   // Check if we're in Chat UI, Image Generation, Video Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
@@ -576,8 +600,9 @@ export default function NavBar() {
     switch (model_type) {
       case ModelType.ChatModel:
       case ModelType.VLM:
-      case ModelType.Embedding:
         return BotMessageSquare;
+      case ModelType.Embedding:
+        return Binary;
       case ModelType.ImageGeneration:
         return Image;
       case ModelType.VideoGeneration:
@@ -619,9 +644,9 @@ export default function NavBar() {
       case ModelType.TTS:
         return "Text to Speech";
       case ModelType.Embedding:
-        return "Chat UI";
+        return "Embeddings";
       case ModelType.Training:
-        return "Training";
+        return "Fine-tuning (Beta)";
       default:
         return "Model";
     }
@@ -674,26 +699,25 @@ export default function NavBar() {
         },
       ]
       : []),
-    // Workflows and Canvas both need a healthy chat-capable model to be useful,
-    // so only surface them once one is up.
-    ...(isLlmReady
-      ? [
-        {
-          type: "link" as const,
-          to: "/workflows",
-          icon: Workflow,
-          label: "Workflows",
-          tooltip: "Build and run multi-step AI pipelines",
-        },
-        {
-          type: "link" as const,
-          to: "/canvas",
-          icon: PanelLeft,
-          label: "Canvas",
-          tooltip: "AI code canvas with live preview",
-        },
-      ]
-      : []),
+    // Workflows and Canvas are currently non-functional; hidden from the nav.
+    // ...(isLlmReady
+    //   ? [
+    //     {
+    //       type: "link" as const,
+    //       to: "/workflows",
+    //       icon: Workflow,
+    //       label: "Workflows",
+    //       tooltip: "Build and run multi-step AI pipelines",
+    //     },
+    //     {
+    //       type: "link" as const,
+    //       to: "/canvas",
+    //       icon: PanelLeft,
+    //       label: "Canvas",
+    //       tooltip: "AI code canvas with live preview",
+    //     },
+    //   ]
+    //   : []),
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
@@ -716,7 +740,7 @@ export default function NavBar() {
       // ready to use. Models still deploying/warming up are intentionally hidden.
       if (healthyModels.length > 0) {
         // Show navigation items for each healthy model
-        return healthyModels.map((model) => {
+        return uniqueHealthyModelsByType.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
@@ -781,7 +805,7 @@ export default function NavBar() {
     } else {
       // In TT-Studio mode, show only models that are healthy and ready to use.
       console.log("TT-Studio mode - creating navigation for healthy models");
-      return healthyModels.map((model) => {
+      return uniqueHealthyModelsByType.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
@@ -815,8 +839,8 @@ export default function NavBar() {
   ];
   const toolsGroupLabels = [
     "Rag Management",
-    "Workflows",
-    "Canvas",
+    // "Workflows", // hidden from the nav; currently non-functional
+    // "Canvas", // hidden from the nav; currently non-functional
     "Connect Agents",
     "Voice Agent",
   ];

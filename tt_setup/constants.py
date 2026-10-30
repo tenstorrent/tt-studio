@@ -6,6 +6,9 @@
 import os
 import platform
 
+# Underscored so `from tt_setup.constants import *` doesn't re-export it.
+from tt_setup import install_mode as _install_mode
+
 # --- Color definitions ---
 C_RESET = '\033[0m'
 C_RED = '\033[0;31m'
@@ -20,8 +23,12 @@ C_ORANGE = '\033[38;5;208m'
 C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Environment / platform ---
-TT_STUDIO_ROOT = os.getcwd()
+# The checkout's working directory, or ~/.tt-studio for a pip install
+# (tt_setup/install_mode.py).
+TT_STUDIO_ROOT = _install_mode.resolve_root()
 OS_NAME = platform.system()
+# How the user runs the launcher, for hints ("python run.py --stop" vs "tt-studio --stop").
+LAUNCH_CMD = _install_mode.launch_cmd()
 
 TENSTORRENT_ASCII_ART = r"""   __                  __                             __
   / /____  ____  _____/ /_____  _____________  ____  / /_
@@ -41,13 +48,28 @@ DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
 DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
+DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE = os.path.join(
+    TT_STUDIO_ROOT, "app", "docker-compose.skip-docker-control.yml"
+)
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Stock frontend settings baked into CI-published images (.github/workflows/publish-images.yml).
+# Drift against these triggers a local frontend image build.
+STOCK_APP_TITLE = "TT Studio"
 # Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
 LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
+MODEL_MANAGER_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-model-manager")
+MODEL_MANAGER_REPO_URL = "https://github.com/tenstorrent/tt-model-manager"
+# Pin used when TT_MODEL_MANAGER_REF is unset. Kept in sync with .env.default.
+# An immutable SHA on purpose: the install stamp records the ref verbatim, so a
+# floating ref like "main" is only ever fetched once and then never refreshed.
+# Must be at or after PR #50 (mounts /weight-cache; bundles pointing a weight cache
+# there fail to boot without it) and PR #102, which scopes a serve to the chips its
+# profile needs — community device selection depends on it.
+MODEL_MANAGER_DEFAULT_REF = "f14f5a87b690e3adadfb15633a84978014133c58"
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 # All host-side runtime logs and PID files live under a single logs/ directory so
@@ -64,6 +86,11 @@ FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
 MODEL_RUN_LOG_FILE = os.path.join(LOGS_DIR, "model_run.log")
 MODEL_RUN_LOGS_DIR = os.path.join(LOGS_DIR, "model_run_logs")
 DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
+# Docker Control runs as an internal Compose service.  Keep the explicit
+# container name stable so lifecycle/health tooling can inspect it without
+# relying on Compose's project-name suffixes.
+DOCKER_CONTROL_CONTAINER_NAME = "tt_studio_docker_control"
+DOCKER_CONTROL_INTERNAL_URL = "http://docker-control:8002"
 DOCKER_CONTROL_PID_FILE = os.path.join(LOGS_DIR, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(LOGS_DIR, "docker-control-service.log")
 # Previous instances' logs, archived per restart the same way model_run_logs/
@@ -97,6 +124,8 @@ _CLEANUP_VOLUME_PREFIX = "volume_id_"
 # Sentinel injected by the CLI when --purge-model is passed with no model name,
 # meaning "open the interactive picker" (typer can't express optional values).
 _PURGE_MODEL_PICKER = "__picker__"
+# Same trick for a bare --make-rc-branch: "ask which version part to bump".
+_RC_BUMP_PICKER = "__bump-picker__"
 # Marketplace apps (Open WebUI, AnythingLLM, Vane, …) keep their state in named
 # volumes declared in shared_config/marketplace_config.py. Matched by shape
 # rather than an app list so volumes left by apps since removed from the

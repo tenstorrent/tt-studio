@@ -426,7 +426,7 @@ def purge_models(args):
             console.print(notice_panel(
                 "[bold]--purge-model needs a terminal for its picker[/bold]",
                 ["No model names were given and stdin is not interactive.",
-                 "Pass names directly:  [accent]python run.py --purge-model MODEL[/accent]"],
+                 f"Pass names directly:  [accent]{LAUNCH_CMD} --purge-model MODEL[/accent]"],
                 border_style="error",
             ))
             return 1
@@ -443,7 +443,7 @@ def purge_models(args):
             for name, suggestions in errors:
                 hint = f" — did you mean: {', '.join(suggestions)}?" if suggestions else ""
                 lines.append(f"Unknown model [bold]{name}[/bold]{hint}")
-            lines.append("Run bare [accent]python run.py --purge-model[/accent] "
+            lines.append(f"Run bare [accent]{LAUNCH_CMD} --purge-model[/accent] "
                          "to pick from installed models.")
             console.print()
             console.print(notice_panel("[bold]Model not found[/bold]", lines,

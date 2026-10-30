@@ -7,18 +7,11 @@ import { Link } from "react-router-dom";
 
 import {
   Breadcrumb,
-  BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "../ui/breadcrumb";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -46,7 +39,6 @@ import {
   Database,
   Search,
   FolderOpen,
-  BookOpen,
   // Settings as SettingsIcon,
   Sliders,
 } from "lucide-react";
@@ -61,9 +53,6 @@ interface HeaderProps {
   setModelID: (id: string) => void;
   setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
-  // Seeded documentation collections, shown in their own group. Kept out of
-  // ragDataSources so "Your Collections" holds only what the user created.
-  systemCollections?: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
@@ -83,37 +72,56 @@ interface RagDataSource {
     last_uploaded_document?: string;
   };
 }
+// The current model, shown as a plain label when there's nothing to switch
+// to, or as a compact dropdown (name + chevron) once more than one chat model
+// is deployed -- previously that dropdown existed but was tucked behind a
+// bare "..." ellipsis with no visible affordance, so it went unnoticed.
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
   {
     modelsDeployed: HeaderProps["modelsDeployed"];
+    modelName: HeaderProps["modelName"];
     setModelID: HeaderProps["setModelID"];
     setModelName: HeaderProps["setModelName"];
   }
->(({ modelsDeployed, setModelID, setModelName }, ref) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger
-      ref={ref}
-      className="flex items-center gap-1 focus:outline-none"
+>(({ modelsDeployed, modelName, setModelID, setModelName }, ref) => {
+  if (modelsDeployed.length <= 1) {
+    return (
+      <BreadcrumbPage
+        ref={ref as React.Ref<HTMLSpanElement>}
+        className="text-[#7C68FA] dark:text-[#7C68FA] font-bold truncate max-w-[80px] sm:max-w-full"
+      >
+        {modelName}
+      </BreadcrumbPage>
+    );
+  }
+  return (
+    <Select
+      value={modelName ?? ""}
+      onValueChange={(v) => {
+        const model = modelsDeployed.find((m) => m.name === v);
+        if (model) {
+          setModelID(model.id);
+          setModelName(model.name);
+        }
+      }}
     >
-      <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
-      <span className="sr-only">Toggle menu</span>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start">
-      {modelsDeployed.map((model) => (
-        <DropdownMenuItem
-          key={model.id}
-          onClick={() => {
-            setModelID(model.id);
-            setModelName(model.name);
-          }}
-        >
-          {model.name}
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  </DropdownMenu>
-));
+      <SelectTrigger
+        ref={ref}
+        className="h-6 w-auto max-w-[160px] gap-1 border-none bg-transparent px-1.5 py-0 text-xs font-bold text-[#7C68FA] hover:bg-[#7C68FA]/10 focus:ring-0 dark:text-[#7C68FA] [&>svg]:h-3 [&>svg]:w-3"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="start">
+        {modelsDeployed.map((model) => (
+          <SelectItem key={model.id} value={model.name}>
+            {model.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+});
 
 ModelSelector.displayName = "ModelSelector";
 
@@ -121,9 +129,8 @@ const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Select> & {
     ragDataSources?: any[];
-    systemCollections?: RagDataSource[];
   }
->(({ ragDataSources, systemCollections, value, onValueChange, ...selectProps }, ref) => (
+>(({ ragDataSources, value, onValueChange, ...selectProps }, ref) => (
   <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
@@ -164,46 +171,13 @@ const ForwardedSelect = React.forwardRef<
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-0.5 rounded-full text-xs shrink-0">
               <Database className="h-3.5 w-3.5" />
-              {/* Spans both groups below, so count both. */}
-              <span>
-                {(ragDataSources?.length || 0) +
-                  (systemCollections?.length || 0)}
-              </span>
+              <span>{ragDataSources?.length || 0}</span>
             </div>
           </div>
         </SelectItem>
       </div>
 
       <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
-
-      {Array.isArray(systemCollections) && systemCollections.length > 0 && (
-        <>
-          <div className="px-2 py-1">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
-              <BookOpen className="h-4 w-4" />
-              <span>Built-in Documentation</span>
-            </div>
-
-            {systemCollections.map((c) => (
-              <SelectItem
-                key={c.id}
-                value={c.name}
-                className={`rounded-lg my-1 ${value === c.name
-                    ? "bg-gray-100 dark:bg-[#2A2A2A]"
-                    : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
-                  }`}
-              >
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  <span className="text-gray-900 dark:text-white">{c.name}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </div>
-
-          <SelectSeparator className="my-1 bg-gray-200 dark:bg-gray-800" />
-        </>
-      )}
 
       <div className="px-2 py-1">
         <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
@@ -257,7 +231,6 @@ export default function Header({
   setModelID,
   setModelName,
   ragDataSources,
-  systemCollections,
   ragDatasource,
   setRagDatasource,
   isHistoryPanelOpen,
@@ -367,38 +340,31 @@ export default function Header({
                     <BreadcrumbSeparator className="mx-1 md:mx-2 text-white/40 dark:text-white/40 hidden sm:block">
                       /
                     </BreadcrumbSeparator>
-                    <BreadcrumbItem className="hidden sm:block">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <ModelSelector
-                              modelsDeployed={modelsDeployed}
-                              setModelID={setModelID}
-                              setModelName={setModelName}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                            <p>Select a different model</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator className="mx-1 md:mx-2 text-white/40 dark:text-white/40 hidden sm:block">
-                      /
-                    </BreadcrumbSeparator>
                     <BreadcrumbItem>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <BreadcrumbPage className="text-[#7C68FA] dark:text-[#7C68FA] font-bold hover:text-[#7C68FA]/80 dark:hover:text-[#7C68FA]/80 transition-colors duration-300 truncate max-w-[80px] sm:max-w-full">
-                              {modelName}
-                            </BreadcrumbPage>
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                            <p>Current selected model</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      {modelsDeployed.length > 1 ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <ModelSelector
+                                modelsDeployed={modelsDeployed}
+                                modelName={modelName}
+                                setModelID={setModelID}
+                                setModelName={setModelName}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                              <p>Switch to a different deployed model</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <ModelSelector
+                          modelsDeployed={modelsDeployed}
+                          modelName={modelName}
+                          setModelID={setModelID}
+                          setModelName={setModelName}
+                        />
+                      )}
                     </BreadcrumbItem>
                   </>
                 )}
@@ -601,17 +567,15 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = [
-                      ...ragDataSources,
-                      ...(systemCollections ?? []),
-                    ].find((rds) => rds.name === v);
+                    const dataSource = ragDataSources.find(
+                      (rds) => rds.name === v
+                    );
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
                   }
                 }}
                 ragDataSources={ragDataSources}
-                systemCollections={systemCollections}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
@@ -715,17 +679,15 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = [
-                        ...ragDataSources,
-                        ...(systemCollections ?? []),
-                      ].find((rds) => rds.name === v);
+                      const dataSource = ragDataSources.find(
+                        (rds) => rds.name === v
+                      );
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
                     }
                   }}
                   ragDataSources={ragDataSources}
-                  systemCollections={systemCollections}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>

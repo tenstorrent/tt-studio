@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-"""FastAPI inference-api lifecycle: venv setup, catalog overlay, start, cleanup."""
+"""FastAPI inference-api lifecycle: venv setup, start, cleanup."""
 
 import os
-import sys
 import subprocess
 import time
 import tempfile
 import signal
 from tt_setup.constants import *
+from tt_setup.model_manager import model_manager_python, model_manager_status
 from tt_setup.venv_utils import print_manual_fix_steps, recreate_venv_if_stale
 from tt_setup.shell import run_command
 from tt_setup.env_config import get_env_var
 from tt_setup.console import console, progress_status, show_detail
-from tt_setup.services._ports import check_port_available, kill_process_on_port
+from tt_setup.services._ports import check_port_available, kill_process_on_port, _pid_is_zombie
 
 
 def setup_fastapi_environment():
@@ -80,43 +80,6 @@ def setup_fastapi_environment():
         os.chdir(original_dir)
 
 
-def apply_media_catalog_env_overlay():
-    """STOPGAP: overlay HF_HUB_DISABLE_XET=1 onto the extracted model-spec catalog.
-
-    Runs after the artifact is extracted and before uvicorn loads it. Uses the
-    inference-api venv interpreter because the top-level run.py has no PyYAML, while
-    the inference-api venv does (it parses these same catalog YAMLs). Non-fatal: a
-    failure here only forfeits the Xet workaround, it must not block server start.
-    See app/backend/shared_config/patch_catalog_env.py for the full rationale.
-    """
-    if not os.path.exists(INFERENCE_ARTIFACT_DIR):
-        return
-    patch_script = os.path.join(
-        TT_STUDIO_ROOT, "app", "backend", "shared_config", "patch_catalog_env.py",
-    )
-    if not os.path.exists(patch_script):
-        console.print(f"[warning]⚠️  Catalog env overlay script not found: {patch_script}[/warning]")
-        return
-    venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "python")
-    if OS_NAME == "Windows":
-        venv_python = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "python.exe")
-    if not os.path.exists(venv_python):
-        venv_python = sys.executable  # fall back to the launcher interpreter
-    try:
-        result = subprocess.run(
-            [venv_python, patch_script, INFERENCE_ARTIFACT_DIR],
-            capture_output=True, text=True, check=False,
-        )
-        for line in (result.stdout or "").strip().splitlines():
-            console.print(f"   {line}")
-        if result.returncode != 0 and (result.stderr or "").strip():
-            console.print("[warning]⚠️  Catalog env overlay reported errors:[/warning]")
-            for line in result.stderr.strip().splitlines():
-                console.print(f"   {line}")
-    except Exception as e:
-        console.print(f"[warning]⚠️  Catalog env overlay failed (continuing): {e}[/warning]")
-
-
 def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     if show_detail():   # the "Starting inference server…" step line already says this
@@ -143,6 +106,9 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     jwt_secret = get_env_var("JWT_SECRET")
     hf_token = get_env_var("HF_TOKEN")
     tts_api_key = get_env_var("TTS_API_KEY")
+    # Opt-out for Hugging Face Xet transfer; inference-api reads only its process
+    # env, so forward the .env value the same way HF_TOKEN reaches it.
+    disable_hf_xet = get_env_var("TT_STUDIO_DISABLE_HF_XET")
     
     # Export the environment variables
     env = os.environ.copy()
@@ -152,6 +118,8 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         env["HF_TOKEN"] = hf_token
     if tts_api_key:
         env["TTS_API_KEY"] = tts_api_key
+    if disable_hf_xet:
+        env["TT_STUDIO_DISABLE_HF_XET"] = disable_hf_xet
     
     # Set artifact path and version/branch so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -167,15 +135,15 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
 
-    # STOPGAP (excise when upstream catalog carries the var): overlay
-    # HF_HUB_DISABLE_XET=1 onto every model-spec template in the freshly-extracted
-    # artifact. Media containers get their per-model env solely from the catalog
-    # env_vars block (run_docker_server.py forwards model_spec.env_vars as -e flags),
-    # so nothing set on the compose services reaches them.
-    # Without it, large media weight downloads stall on the Xet CDN and hang past the
-    # model-load timeout. Real fix: add it to tt-inference-server's catalogs and bump
-    # the pin, then delete this block and patch_catalog_env.py.
-    apply_media_catalog_env_overlay()
+    # Point inference-api at the tt-model-manager venv so the community-model path
+    # can run its bridge (tt_model_runner.py) under that interpreter. Absent means
+    # community models are simply not offered.
+    mm_python = model_manager_python()
+    if os.path.exists(mm_python):
+        env["TT_MODEL_MANAGER_PYTHON"] = mm_python
+        mm_ref = model_manager_status()["ref"]
+        if mm_ref:
+            env["TT_MODEL_MANAGER_REF"] = mm_ref
 
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
@@ -213,8 +181,22 @@ while true; do
     "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1
     EXIT_CODE=$?
     RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    # Check if this supervisor is still tracked by the PID file. If the PID file
+    # was removed (via --stop or --purge-all) or overwritten by another launcher
+    # run, this process has become an untracked ghost. Exit cleanly immediately.
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
+
     echo "[$(date)] FastAPI exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
     sleep 3
+
+    if [ ! -f "$2" ] || [ "$(cat "$2" 2>/dev/null)" != "$$" ]; then
+        echo "[$(date)] FastAPI supervisor PID file removed or belongs to another process ($$ vs $(cat "$2" 2>/dev/null)). Exiting ghost loop." >> "$4"
+        exit 0
+    fi
 done
 '''
             else:
@@ -304,6 +286,8 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files (quiet — only warns on errors)."""
     # Helper function to check if process is still alive
     def is_process_alive(pid):
+        if _pid_is_zombie(pid):
+            return False
         try:
             os.kill(int(pid), 0)
             return True
@@ -316,6 +300,14 @@ def cleanup_fastapi_server(no_sudo=False):
                 return result.returncode == 0
             return True
 
+    def wait_for_death(pid, timeout=2.5, interval=0.1):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not is_process_alive(pid):
+                return True
+            time.sleep(interval)
+        return not is_process_alive(pid)
+
     # Kill process if PID file exists
     if os.path.exists(FASTAPI_PID_FILE):
         try:
@@ -323,20 +315,18 @@ def cleanup_fastapi_server(no_sudo=False):
                 pid = f.read().strip()
             if pid and pid.isdigit():
                 pid_int = int(pid)
-                if is_process_alive(pid_int):
+                if pid_int > 1 and is_process_alive(pid_int):
                     try:
                         os.kill(pid_int, signal.SIGTERM)
-                        time.sleep(2)
-                        if is_process_alive(pid_int):
+                        if not wait_for_death(pid_int, timeout=2.0):
                             os.kill(pid_int, signal.SIGKILL)
-                            time.sleep(1)
+                            wait_for_death(pid_int, timeout=1.0)
                     except PermissionError:
                         if not no_sudo:
                             subprocess.run(["sudo", "kill", "-15", pid], check=False)
-                            time.sleep(2)
-                            if is_process_alive(pid_int):
+                            if not wait_for_death(pid_int, timeout=2.0):
                                 subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                                time.sleep(1)
+                                wait_for_death(pid_int, timeout=1.0)
                         else:
                             print(f"{C_YELLOW}⚠️  Could not kill FastAPI process {pid} (no sudo){C_RESET}")
                     except (ProcessLookupError, Exception):

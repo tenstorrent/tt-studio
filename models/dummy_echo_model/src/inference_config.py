@@ -56,7 +56,7 @@ ModelConfig = namedtuple(
 # The exception is secrets, which are used directly as os.getenv() calls.
 # get_env_var() is used to add helpful documentation for environment variables
 CACHE_ROOT = get_env_var("CACHE_ROOT", msg="Base path for all data caches.")
-SERVICE_PORT = int(os.getenv("SERVICE_PORT", 7000))
+SERVICE_PORT = int(os.getenv("SERVICE_PORT", 20000))
 MOCK_MODEL = bool(int(os.getenv("MOCK_MODEL", 0)))
 BACKEND_DEBUG_MODE = bool(int(os.getenv("BACKEND_DEBUG_MODE", 0)))
 FRONTEND_DEBUG_MODE = bool(int(os.getenv("FRONTEND_DEBUG_MODE", 0)))

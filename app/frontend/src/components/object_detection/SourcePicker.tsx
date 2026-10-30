@@ -17,7 +17,7 @@ import {
 } from "./utils/colorUtils";
 
 interface SourcePickerProps {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   setDetections: (data: {
     boxes: Detection[];
     metadata: DetectionMetadata;

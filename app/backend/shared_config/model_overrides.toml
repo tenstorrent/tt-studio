@@ -1,0 +1,325 @@
+# TT-Studio's own model data, read by sync_models_from_inference_server.py
+# (unavailable/chip_tier/parser_override) and docker_control/docker_utils.py
+# (device_fallback/serve_override, at deploy time). With a matching tt-cli model
+# support spec (TT_MODEL_SUPPORT_URL) the sync only adds what the spec does not
+# say, and lists those additions; without one this file is the full set of
+# fixes on top of the artifact. Mirrors tt-cli's
+# modelhub/model_support_overrides.toml: a fix belongs in DATA here, not in
+# code, and should be upstreamed there too. `chip_tier` is the one addition
+# TT-Studio alone needs.
+#
+# INPUT, never generated: sync_models_from_inference_server.py reads and
+# validates this file but never writes it. Deleting an [[unavailable]] entry
+# genuinely un-hides the model/device on the next sync -- so every entry has to
+# say what breaks, or a stale mark outlives its bug. `verified_on`/`source` are
+# optional today (this file was migrated from pre-existing Python tables with
+# no recorded verification history) but should be filled in on new entries.
+#
+# device values are lowercase (the runtime inference-server device name, e.g.
+# "p300x2") for `device_fallback` and `serve_override` -- matching what
+# docker_utils.py resolves at deploy time. For `unavailable`, device is the
+# tt-studio "device_configurations" spelling instead (e.g. "P300x2") -- that
+# table acts on the catalog after normalization, which already uses that
+# casing everywhere (the frontend's compatibility badge, infer_chips_required).
+
+schema_version = 1
+
+# ===========================================================================
+# Unavailable model/device marks
+# ===========================================================================
+# Models/devices TT-Studio must not offer. Many repeat the spec's own
+# unsupported marks on purpose: this table is what a rebuild from the artifact
+# alone (no matching spec) relies on, so keep it complete. Where the spec marks
+# the same device, the spec's reason is kept. Deleting
+# rows from the catalog does not survive a resync, and loses the record of
+# *why*. These marks are script-owned, NOT hand-owned: deleting an entry
+# genuinely unhides the model/device.
+#
+# reason:
+#   known_broken          - does not deploy, or deploys and does not run. A bug.
+#   unsupported_in_studio - runs fine on the inference server, but TT-Studio
+#                           has no UI for its modality. Nothing is broken;
+#                           there is just nowhere to put it.
+#
+# Omit `device` for a defect that is not board-specific -- prefer naming a
+# device where possible, since a model-wide mark hides the model from boards
+# nobody ever tested. A device the model's spec does not claim is an error,
+# not a silent no-op: a casing slip ("P150x4" vs the catalog's "P150X4") once
+# left a model on offer on a board it was meant to be pulled from.
+
+[[unavailable]]
+model = "yolox_nano"
+reason = "known_broken"
+details = """
+Not deployable today, and not because of any board: the forge image runs as \
+USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is \
+created root-owned, so warmup dies in ~0.3s with a PermissionError on \
+cache_root/huggingface before the device is ever opened. Verified on P300x2; \
+the same volume ownership applies on every board. Drop this entry once the \
+forge image ships a uid-1000-owned cache_root. Will be available in \
+tt-inference-server release after merging raahem/yolox_nano_qb2 into main, or \
+once the object detection UI is fixed in TT-Studio and the model is added to \
+the catalog with a custom branch."""
+
+[[unavailable]]
+model = "Falcon3-7B-Instruct"
+reason = "known_broken"
+details = """
+Not deployable today, and not because of any board: the forge image runs as \
+USER=container_app_user (uid 1000) while CACHE_ROOT's named Docker volume is \
+created root-owned, so warmup dies in ~0.3s with a PermissionError on \
+cache_root/huggingface before the device is ever opened. Verified on P300x2; \
+the same volume ownership applies on every board. Drop this entry once the \
+forge image ships a uid-1000-owned cache_root."""
+
+[[unavailable]]
+model = "Z-Image-Turbo"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Wedges Blackhole P300 devices during warmup (eth-core init timeout or a hard \
+device hang mid kernel-compile) badly enough that the host needs a board \
+reset. Re-enable once the media image ships a tt-metal/firmware combo \
+validated on fw 19.7.0."""
+
+[[unavailable]]
+model = "Motif-Image-6B-Preview"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Media container never reaches a healthy state. Verified broken on a P300x2 \
+(4x p300c Blackhole) box. Untested on this model's other boards, so it stays \
+available there."""
+
+[[unavailable]]
+model = "gpt-oss-120b"
+device = "P300x2"
+reason = "known_broken"
+details = """
+vLLM container never reaches a healthy state. Verified broken on a P300x2 \
+(4x p300c Blackhole) box. Untested on this model's other boards, so it stays \
+available there."""
+
+[[unavailable]]
+model = "mochi-1-preview"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Deploy fails with the catalog-pinned image; needs a newer media image plus a \
+spec-level env override the artifact does not carry. Verified broken on a \
+P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it \
+stays available there."""
+
+[[unavailable]]
+model = "mochi-1-preview"
+device = "P150X4"
+reason = "known_broken"
+verified_on = "2026-09-03"
+source = "tt-cli"
+details = """
+Does not deploy on P150X4 either, for the same reason as its P300x2 entry: no \
+image override is known that makes it work on a four-chip Blackhole mesh."""
+
+[[unavailable]]
+model = "DeepSeek-R1-Distill-Llama-70B"
+device = "P150X4"
+reason = "known_broken"
+details = """
+Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry \
+below: both four-chip Blackhole meshes are known bad for it, so neither is \
+offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay \
+available."""
+
+[[unavailable]]
+model = "DeepSeek-R1-Distill-Llama-70B"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Non-functional deploy (#869). Verified broken on a P300x2 (4x p300c \
+Blackhole) box. Untested on this model's other boards, so it stays available \
+there."""
+
+[[unavailable]]
+model = "Llama-3.1-70B"
+device = "P150X4"
+reason = "known_broken"
+details = """
+Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry \
+below: both four-chip Blackhole meshes are known bad for it, so neither is \
+offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay \
+available."""
+
+[[unavailable]]
+model = "Llama-3.1-70B"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Base (non-instruct) 70B pulled alongside the Instruct variant in #904; deploy \
+does not resolve a usable image. Verified broken on a P300x2 (4x p300c \
+Blackhole) box. Untested on this model's other boards, so it stays available \
+there."""
+
+[[unavailable]]
+model = "Llama-3.1-70B-Instruct"
+device = "P150X4"
+reason = "known_broken"
+details = """
+Does not deploy on P150X4 either. Blocked alongside this model's P300x2 entry \
+below: both four-chip Blackhole meshes are known bad for it, so neither is \
+offered. Its GALAXY/GALAXY_T3K/P150X8/T3K specs are untested and stay \
+available."""
+
+[[unavailable]]
+model = "Llama-3.1-70B-Instruct"
+device = "P300x2"
+reason = "known_broken"
+details = """
+Removed from the deploy UI in #904 - deploy needs a docker image override the \
+catalog cannot express. Use Llama-3.3-70B-Instruct. Verified broken on a \
+P300x2 (4x p300c Blackhole) box. Untested on this model's other boards, so it \
+stays available there."""
+
+[[unavailable]]
+model = "Qwen3-8B"
+device = "P300"
+reason = "known_broken"
+details = """
+Removed from the deploy UI in #878 after failing on our Blackhole box. Scoped \
+to P300 rather than P300x2 because this model only ever claims the \
+single-chip Blackhole device; its Wormhole boards (N150/N300/T3K/Galaxy) are \
+untested and stay available."""
+
+[[unavailable]]
+model = "Llama-3.3-70B-Instruct"
+device = "P150X4"
+reason = "known_broken"
+details = "Trace region size currently set to 30MB, it needs to be increased to minimum 57MB."
+
+# ===========================================================================
+# vLLM parser overrides
+# ===========================================================================
+# tool_call_parser / reasoning_parser for models the spec gives none (or the
+# wrong one), e.g. coding-agent models verified with a parser upstream has not
+# recorded, or dev-catalog models absent from the spec. Fills only parsers the
+# row lacks.
+
+[[parser_override]]
+model = "diffusiongemma-26B-A4B-it"
+tool_call_parser = "gemma4"
+reasoning_parser = "gemma4"
+details = "Coding-agent eligible; verified with the gemma4 parsers, which the spec omits."
+
+[[parser_override]]
+model = "Qwen3.5-9B"
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"
+details = "Dev-catalog model absent from the spec."
+
+[[parser_override]]
+model = "Qwen3.8-27B"
+tool_call_parser = "qwen3_coder"
+reasoning_parser = "qwen3"
+details = "Dev-catalog model absent from the spec."
+
+# ===========================================================================
+# vLLM mesh device fallback
+# ===========================================================================
+# The vLLM plugin maps both four-chip Blackhole mesh labels to the same (1, 4)
+# topology, so a chat model that only publishes a spec for one can still be
+# asked for on the other's hardware by sending the other name. Consumed both
+# at deploy time (docker_utils.equivalent_mesh_device/claims_whole_board) and
+# by the catalog's compatibility check (vllm_mesh_fallback_fits).
+
+[[device_fallback]]
+device = "p150x4"
+serve_as = "p300x2"
+
+[[device_fallback]]
+device = "p300x2"
+serve_as = "p150x4"
+
+# ===========================================================================
+# Serve-time overrides
+# ===========================================================================
+# Flags docker_utils.run_container must force because the resolved spec's own
+# value is wrong or missing. Omit `device` to apply to every device for that
+# model (see Wan2.2-T2V-A14B-Diffusers below).
+#
+#   docker_image       -> override_docker_image
+#   trace_region_size  -> override_tt_config's trace_region_size (bytes)
+
+[[serve_override]]
+model = "Wan2.2-T2V-A14B-Diffusers"
+docker_image = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+details = """
+0.17.0 carries the MODEL_WEIGHTS_DIR fix (tt-inference-server#4107), so the \
+container reads the mounted host HF cache instead of re-downloading ~118GB. \
+Applies on every board."""
+
+[[serve_override]]
+model = "FLUX.1-dev"
+device = "p150x4"
+docker_image = "ghcr.io/tenstorrent/tt-media-inference-server:0.17.0-8c48a10"
+trace_region_size = 51_000_000
+details = """
+That spec resolves to image 0.10.0-555f240, whose API this backend can no \
+longer drive -- pin the newer image instead. The p150x4 spec also omits \
+trace_region_size and inherits 34.5MB; traced warmup needs 50,724,864 bytes, \
+matching this model's maintained P300X2 spec."""
+
+[[serve_override]]
+model = "FLUX.1-schnell"
+device = "p150x4"
+docker_image = "ghcr.io/tenstorrent/tt-media-inference-server:0.18.0-c49bb76"
+trace_region_size = 51_000_000
+details = """
+That spec resolves to image 0.10.0-555f240, whose API this backend can no \
+longer drive -- pin the newer image instead. The p150x4 spec also omits \
+trace_region_size and inherits 34.5MB; traced warmup needs 50,724,864 bytes, \
+matching this model's maintained P300X2 spec."""
+
+[[serve_override]]
+model = "Llama-3.3-70B-Instruct"
+device = "p150x4"
+trace_region_size = 402_653_184
+details = """
+p150x4 spec is stale at 0.10.x with 30000000; traced decode needs 56557568. \
+Value matches the maintained p300x2 spec for the same four-chip mesh."""
+
+# ===========================================================================
+# Chip tiers (TT-Studio-specific -- no tt-cli equivalent)
+# ===========================================================================
+# Models the source artifact only ever declares on a whole-board mesh (e.g.
+# P300x2), but which genuinely run on a single constituent chip or one card --
+# confirmed by hand-launching them with a custom runtime model spec. There is
+# no upstream ModelConfigs entry for (this model, single-chip/card device), so
+# run.py's own spec resolution hard-rejects the combination outright; the only
+# sanctioned bypass is --runtime-model-spec-json, which takes a spec file as-is
+# with no resolution/validation. Rather than hand-maintain a full duplicate
+# spec file per tier (drifts from the real upstream spec the moment
+# tt-inference-server bumps an image/commit/vllm arg),
+# apply_chip_tier_overrides() derives each tier from the real, current
+# upstream `base_device` spec at every sync. `tiers` maps a
+# device_configurations name to the DEVICE_IDS env var value (tt-media-server's
+# scheduler splits on "),(" and spawns one independent data-parallel worker per
+# group -- see tt-media-server/config/constants.py's DeviceIds; DEVICE_IDS_1/_2
+# there are the exact upstream values already used for single-card P150/P300
+# deploys). See issue: Qwen3-Embedding-0.6B/4B and bge-m3
+# single-chip/card-pair-on-P300x2 (run.py --tt-device p150/p300 works;
+# --tt-device p300x2 with --device-id N does not -- it wrongly pins the 4-chip
+# mesh init to fewer chips).
+
+[[chip_tier]]
+model = "Qwen3-Embedding-0.6B"
+base_device = "p300x2"
+tiers = { P150 = "(0)", P300 = "(0),(1)" }
+
+[[chip_tier]]
+model = "Qwen3-Embedding-4B"
+base_device = "p300x2"
+tiers = { P150 = "(0)", P300 = "(0),(1)" }
+
+[[chip_tier]]
+model = "bge-m3"
+base_device = "p300x2"
+tiers = { P150 = "(0)", P300 = "(0),(1)" }

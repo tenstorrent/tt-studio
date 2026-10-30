@@ -44,9 +44,11 @@ tooling for diagnosing a failed or unhealthy run.
 
 - **Bundle everything for a bug report.** `--report-bug` collects the host-side
   logs plus a non-secret system snapshot into
-  `logs/tt-studio-logs-ttbr-*.zip` and opens a pre-filled GitHub issue. The
-  bundle never includes your `.env`. If `python run.py` itself errors, it offers
-  this same flow from the "Next steps" panel.
+  `logs/tt-studio-logs-ttbr-*.zip` and writes a ready-to-send email to
+  support@tenstorrent.com with the ZIP already attached
+  (`logs/tt-studio-bug-report-ttbr-*.eml`) — open it in your mail client and
+  send. The bundle never includes your `.env`. If `python run.py` itself
+  errors, it offers this same flow from the "Next steps" panel.
 
   ```bash
   python run.py --report-bug
@@ -58,8 +60,9 @@ tooling for diagnosing a failed or unhealthy run.
 
 - **Port already in use.** The launcher checks its core ports (3000, 8000, 8080,
   8111) and automatically frees a non-Docker process holding one; ports held by a
-  running TT Studio container are left alone. The FastAPI (8001) and Docker
-  Control (8002) ports are checked separately as those services start. If a port
+  running TT Studio container are left alone. The FastAPI (8001) port is checked
+  separately as that service starts. Docker Control is internal to the Compose
+  network and has no host port. If a port
   can't be freed, run `python run.py --stop` and re-run, or free it manually.
 
 ---
@@ -124,6 +127,26 @@ docker network prune
 
 Then restart TT-Studio.
 
+### Slow model weight downloads (Hugging Face Xet)
+
+Model weight downloads run through Hugging Face's Xet transfer, which fetches
+each file as many parallel chunks. On a gigabit link Xet saturates the NIC at
+about 115 MB/s, while a plain HTTPS stream tops out around 20 MB/s, so a 47 GB
+checkpoint takes about 7 minutes instead of 40. If a download stalls or exits
+before the weights are complete, fall back to the old single-stream HTTPS path
+by setting in `.env`:
+
+```bash
+TT_STUDIO_DISABLE_HF_XET=true
+```
+
+then restart with `python run.py`. The launcher forwards the flag to the
+inference server, which adds `HF_HUB_DISABLE_XET=1` to the weight download it
+runs for each deploy (the tt-inference-server `run.py` / `hf download` path).
+Downloads will be slower but use a single connection per file. Media models
+that download inside their own container (for example whisper or TTS) do not
+go through this path and are unaffected by the flag.
+
 ### FastAPI Server Fails to Start
 
 Check the logs in `logs/model_run.log` for specific errors. Common causes include:
@@ -145,8 +168,8 @@ If the frontend app doesn't load despite running `docker compose up --build`, th
 3. Rebuild without cache:
 
 ```bash
-docker compose build --no-cache
-docker compose up
+docker compose --profile docker-control build --no-cache
+docker compose --profile docker-control up
 ```
 
 ### Module Not Found Error
@@ -168,8 +191,8 @@ This error often occurs due to missing or corrupted dependencies:
 
 3. Re-run app using Docker:
    ```bash
-   docker compose down
-   docker compose up --build
+   docker compose --profile docker-control down
+   docker compose --profile docker-control up --build
    ```
 
 ---

@@ -46,7 +46,7 @@ def test_deploy_mock_model():
     try:
         # 2. make valid API call to container
         container_id = status["container_id"]
-        service_port = impl.service_port
+        service_port = status["service_port"]
         service_route = status["service_route"]
         host = status["container_name"]
         api_url = f"http://{host}:{service_port}{service_route}"
@@ -79,7 +79,7 @@ def test_deploy_llama3_model():
     assert status["status"] == "success"
     # 2. make valid API call to container
     container_id = status["container_id"]
-    service_port = impl.service_port
+    service_port = status["service_port"]
     service_route = status["service_route"]
     host = status["container_name"]
     api_url = f"http://{host}:{service_port}{service_route}"

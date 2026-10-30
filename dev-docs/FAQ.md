@@ -18,7 +18,7 @@ No, TT-Studio can run without Tenstorrent hardware. Without TT hardware, you can
 ## Installation Questions
 
 ### What are the minimum system requirements?
-- Python 3.8 or higher
+- Python 3.12 or higher
 - Docker
 - Sufficient disk space for Docker images and model weights
 

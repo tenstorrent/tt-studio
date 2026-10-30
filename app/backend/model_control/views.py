@@ -46,7 +46,7 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from .log_classifier import classify_startup_phase
-from .image_dialects import resolve_dialect, split_route
+from .image_generation import ImageGenerationError, generate_image
 
 
 # Module-level latch: tracks the highest phase + cached state we've ever seen
@@ -106,6 +106,9 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         # Sticky once we've seen a real in-container download (docker-volume path).
         if prev.get("download_in_container") and not phase_dict.get("download_in_container"):
             phase_dict["download_in_container"] = True
+        # Sticky: the failure line scrolls out of the tail as /health polls pile up.
+        if prev.get("worker_init_failure") and not phase_dict.get("worker_init_failure"):
+            phase_dict["worker_init_failure"] = prev["worker_init_failure"]
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
@@ -115,6 +118,7 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
             "download_in_container": bool(
                 phase_dict.get("download_in_container") or prev.get("download_in_container")
             ),
+            "worker_init_failure": phase_dict.get("worker_init_failure"),
         }
     return phase_dict
 
@@ -137,6 +141,11 @@ from model_control.model_utils import (
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
+    embed_text,
+    find_deployed_embedding_model,
+    find_deployed_image_model,
+    find_deployed_speech_model,
+    find_deployed_tts_model,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
@@ -211,7 +220,21 @@ class InferenceView(View):
         # Route base/completion models to /v1/completions with a plain prompt
         service_route = deploy["model_impl"].service_route
         logger.info(f"service_route:= {service_route}")
-        if service_route == "/v1/completions":
+        if "prompt" in data:
+            # Raw completion mode: the client authored the exact prompt string
+            # (e.g. fine-tuned model template testing). Keyed on the presence of
+            # the "prompt" key (not its truthiness) so an intentional empty
+            # prompt still routes here instead of falling back to chat.
+            # Send it straight to the container's /v1/completions endpoint instead
+            # of chat-completions, bypassing any chat-template wrapping. The
+            # container's URL has the chat route baked in, so swap just the
+            # trailing path.
+            internal_url = internal_url.replace(
+                "/v1/chat/completions", "/v1/completions"
+            )
+            data.pop("messages", None)
+            data.pop("stream_options", None)
+        elif service_route == "/v1/completions":
             messages = data.pop("messages", [])
             data["prompt"] = messages_to_prompt(messages)
             data.pop("stream_options", None)
@@ -361,7 +384,7 @@ class ModelHealthView(APIView):
             model_impl = deploy.get("model_impl")
             if getattr(model_impl, "model_type", None) == ModelTypes.UNKNOWN:
                 return Response(
-                    {"message": "Unknown", "details": "This container's model was not identified, so its health cannot be probed."},
+                    {"message": "Unknown", "details": "No TT Studio page drives this model, so its health is not probed."},
                     status=status.HTTP_501_NOT_IMPLEMENTED,
                 )
             health_url = "http://" + deploy["health_url"]
@@ -378,6 +401,14 @@ class ModelHealthView(APIView):
                 # the container's stdout. Best-effort: if anything fails we still
                 # return the basic 202 so the badge logic is unaffected.
                 content["phase"] = _get_startup_phase(deploy_id)
+                failure = (content["phase"] or {}).get("worker_init_failure")
+                if failure:
+                    # The media server's worker died during startup and won't be
+                    # restarted, so this deploy will never become healthy.
+                    return Response(
+                        {"message": "Unavailable", "details": f"Model worker failed to start: {failure}"},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
                 # Anchor the frontend's warmup clock to the deploy start time so
                 # it survives page refreshes. Server-computed to avoid client
                 # clock skew; omitted if deployed_at is missing/unparseable.
@@ -462,7 +493,7 @@ def _refine_download_progress(phase_dict: dict, dl: dict) -> None:
 def _get_startup_phase(deploy_id: str) -> dict | None:
     """Tail the container's recent logs and run the phase classifier.
 
-    Picks the LLM or MEDIA phase template based on the deploy's model_type.
+    Picks the LLM, MEDIA or TRAINING phase template based on the deploy's model_type.
     When the classifier reports `downloading_weights`, also reads byte counts
     from the container via the docker-control-service dir-size endpoint and
     merges byte / speed / ETA fields into the response so the Preparing banner
@@ -554,6 +585,10 @@ class DeployedModelsView(APIView):
         )
 
         canonical = get_canonical_deployments()
+        context_windows = {
+            con_id: cached.get("max_model_len")
+            for con_id, cached in get_deploy_cache(canonical).items()
+        }
         deployed_data = {}
         for con_id, entry in canonical.items():
             if entry.get("source") != "managed":
@@ -563,6 +598,7 @@ class DeployedModelsView(APIView):
             if entry.get("model_impl") is None:
                 continue
             serialized = serialize_canonical_entry_for_http(entry)
+            serialized["max_model_len"] = context_windows.get(con_id)
             # Existing consumers don't expect these internal markers.
             serialized.pop("source", None)
             serialized.pop("is_pending", None)
@@ -682,132 +718,26 @@ class ObjectDetectionInferenceCloudView(APIView):
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
-# Upper bound on a single image-generation job. FLUX.2 at 1024x1024/50 steps is
-# minutes of work, so this is a stuck-job backstop, not a performance budget.
-IMAGE_JOB_TIMEOUT_SECONDS = 30 * 60
-
-
 class ImageGenerationInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
         serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.get("deploy_id")
-            prompt = data.get("prompt")  # we should only receive 1 prompt
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            try:
-                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
-
-                dialect = resolve_dialect(internal_url)
-                server_root, _ = split_route(internal_url)
-                logger.info(
-                    f"image generation via '{dialect.name}' dialect at {internal_url}"
-                )
-
-                if dialect.mode == "sync":
-                    # The image comes back on the submit call as base64 JSON.
-                    inference_data = requests.post(
-                        internal_url,
-                        json={"prompt": prompt},
-                        headers=headers,
-                        timeout=2000,
-                    )
-                    inference_data.raise_for_status()
-                    resp_json = inference_data.json()
-                    if "images" in resp_json:
-                        b64_image = resp_json["images"][0]
-                    else:
-                        b64_image = resp_json["data"][0]["b64_json"]
-                    image_bytes = base64.b64decode(b64_image)
-                    django_response = HttpResponse(
-                        image_bytes, content_type=dialect.default_content_type
-                    )
-                    django_response["Content-Disposition"] = (
-                        f"attachment; filename={dialect.default_filename}"
-                    )
-                    return django_response
-
-                # Job dialects: submit -> poll for a terminal state -> fetch bytes.
-                payload = {"prompt": prompt}
-                for req_field, server_field in dialect.extra_params.items():
-                    value = data.get(req_field)
-                    if value is not None:
-                        payload[server_field] = value
-
-                inference_data = requests.post(
-                    internal_url, json=payload, headers=headers, timeout=30
-                )
-                inference_data.raise_for_status()
-                job_id = inference_data.json().get(dialect.job_id_field)
-                if not job_id:
-                    logger.error(
-                        f"{dialect.name}: submit response carried no "
-                        f"'{dialect.job_id_field}'; cannot track the job"
-                    )
-                    return Response(status=status.HTTP_502_BAD_GATEWAY)
-
-                status_url = server_root + dialect.status_template.format(job_id=job_id)
-                image_url = server_root + dialect.image_template.format(job_id=job_id)
-
-                # Diffusion on accelerators runs for minutes, so this poll is bounded
-                # generously; it exists to stop a wedged job from hanging the request
-                # forever, not to second-guess a slow-but-healthy generation.
-                deadline = time.time() + IMAGE_JOB_TIMEOUT_SECONDS
-                while True:
-                    if time.time() > deadline:
-                        logger.error(
-                            f"{dialect.name}: job {job_id} did not finish within "
-                            f"{IMAGE_JOB_TIMEOUT_SECONDS}s"
-                        )
-                        return Response(status=status.HTTP_504_GATEWAY_TIMEOUT)
-
-                    poll = requests.get(status_url, headers=headers, timeout=30)
-                    # A job id can briefly 404 before the server registers it.
-                    if poll.status_code != status.HTTP_404_NOT_FOUND:
-                        poll.raise_for_status()
-                        job_state = str(poll.json().get("status", "")).lower()
-                        if job_state in dialect.done_states:
-                            break
-                        if job_state in dialect.error_states:
-                            detail = poll.json().get("error")
-                            logger.error(
-                                f"{dialect.name}: job {job_id} ended as "
-                                f"'{job_state}': {detail}"
-                            )
-                            return Response(
-                                {"error": detail or f"Generation {job_state}."},
-                                status=status.HTTP_502_BAD_GATEWAY,
-                            )
-                    time.sleep(1)
-
-                latest_image = requests.get(
-                    image_url, headers=headers, stream=True, timeout=120
-                )
-                latest_image.raise_for_status()
-                content_type = latest_image.headers.get(
-                    "Content-Type", dialect.default_content_type
-                )
-                django_response = HttpResponse(
-                    latest_image.content, content_type=content_type
-                )
-                django_response["Content-Disposition"] = (
-                    f"attachment; filename={dialect.default_filename}"
-                )
-                return django_response
-
-            except requests.exceptions.HTTPError as http_err:
-                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
-                    return Response(status=status.HTTP_401_UNAUTHORIZED)
-                elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
-                    return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
-                else:
-                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        else:
+        if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[data.get("deploy_id")]
+        try:
+            image, content_type = generate_image(deploy, data.get("prompt"), data)
+        except ImageGenerationError as e:
+            return Response(
+                {"error": e.message} if e.message else None, status=e.status_code
+            )
+        response = HttpResponse(image, content_type=content_type)
+        extension = "jpg" if content_type == "image/jpeg" else "png"
+        response["Content-Disposition"] = f"attachment; filename=image.{extension}"
+        return response
 
 
 class VideoGenerationInferenceView(APIView):
@@ -1224,6 +1154,24 @@ def speech_recognition_options(data):
     }
 
 
+def _ensure_multipart_content_length(request) -> None:
+    """Work around a Django/DRF gap with chunked-encoded multipart uploads.
+
+    A client streaming a file with `Transfer-Encoding: chunked` correctly
+    sends no Content-Length -- the body's length isn't known ahead of time --
+    and ASGI still buffers the whole body regardless. But DRF's
+    Request._load_stream reads META['CONTENT_LENGTH'] before ever looking at
+    that buffered body: missing/zero makes it set the parse stream to None,
+    so request.data silently comes back empty (no error) for every such
+    request. Reading .body forces the already-buffered bytes to be measured
+    and cached, so the real length lands in META before DRF's parser runs.
+    Companion apps (e.g. Open WebUI) stream audio chunks exactly this way.
+    """
+    django_request = getattr(request, "_request", request)
+    if not django_request.META.get("CONTENT_LENGTH"):
+        django_request.META["CONTENT_LENGTH"] = str(len(django_request.body))
+
+
 def post_audio_for_transcription(internal_url, file, headers, options, view_name):
     """Proxy audio to a model server, turning transport failures into real errors.
 
@@ -1386,9 +1334,50 @@ class TtsInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class OpenAIAudioSpeechView(APIView):
-    """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
+class EmbeddingInferenceView(APIView):
+    """Text embedding inference: proxies to tt-media-server's OpenAI-compatible /v1/embeddings."""
     def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy_id = data.get("deploy_id")
+        text = data.get("input") or data.get("text")
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = get_deploy_cache()[deploy_id]
+        dimensions = data.get("dimensions")
+
+        try:
+            result = embed_text(deploy, text, dimensions=dimensions)
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"Embedding HTTP error: {http_err}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Could not reach the embedding model: {exc}")
+            return Response(
+                {"error": f"Could not reach the embedding model: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class OpenAIAudioSpeechView(APIView):
+    """OpenAI-compatible POST /v1/audio/speech for companion apps (e.g.
+    AnythingLLM, Open WebUI) using a deployed TTS model.
+
+    Resolves the OpenAI `model` field to a running TTS deployment by name or
+    hf_model_id -- the same lookup OpenAIEmbeddingsView uses for embeddings.
+    """
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
         data = request.data
         model_name = data.get("model")
         text = data.get("input") or data.get("text")
@@ -1397,16 +1386,10 @@ class OpenAIAudioSpeechView(APIView):
         if not text:
             return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Find a running TTS deployment matching the requested model name
-        deploy = None
-        for entry in get_deploy_cache().values():
-            impl = entry.get("model_impl")
-            if impl and getattr(impl, "model_name", None) == model_name:
-                deploy = entry
-                break
+        deploy = find_deployed_tts_model(model_name)
         if deploy is None:
             return Response(
-                {"error": f"No running deployment found for model '{model_name}'"},
+                {"error": f"No running TTS model named '{model_name}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1414,22 +1397,22 @@ class OpenAIAudioSpeechView(APIView):
         try:
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
-            
+
             if inference_engine == "media":
                 headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                 payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
             else:
                 headers = auth_headers(deploy)
                 payload = {"model": model_name, "input": text, "voice": data.get("voice", "default")}
-            
+
             audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
-            
+
             # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
             if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
                 logger.info(f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech")
                 fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
                 audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
-            
+
             audio_resp.raise_for_status()
 
             content_type = audio_resp.headers.get("Content-Type", "audio/wav")
@@ -1440,6 +1423,55 @@ class OpenAIAudioSpeechView(APIView):
         except requests.exceptions.HTTPError as http_err:
             logger.error(f"OpenAI audio/speech HTTP error: {http_err}")
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"OpenAI audio/speech error: {exc}")
+            return Response(
+                {"error": {"message": f"Could not reach the TTS model: {exc}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+class OpenAIAudioTranscriptionsView(APIView):
+    """OpenAI-compatible POST /v1/audio/transcriptions for companion apps (e.g.
+    AnythingLLM, Open WebUI) using a deployed speech-recognition model.
+
+    Resolves the OpenAI `model` field to a running speech deployment and
+    proxies to it via post_audio_for_transcription, same lookup pattern
+    OpenAIEmbeddingsView uses but for audio.
+    """
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        _ensure_multipart_content_length(request)
+        data = request.data
+        model_name = data.get("model")
+        audio_file = data.get("file")
+        if not model_name:
+            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not audio_file:
+            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        deploy = find_deployed_speech_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": f"No running speech-recognition model named '{model_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        internal_url = "http://" + deploy["internal_url"]
+        model_impl = deploy.get("model_impl")
+        inference_engine = getattr(model_impl, "inference_engine", None)
+        if inference_engine == "media":
+            headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+        else:
+            headers = auth_headers(deploy)
+
+        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
+        return post_audio_for_transcription(
+            internal_url, file, headers, speech_recognition_options(data), self.__class__.__name__
+        )
 
 
 class ContainerLogsView(View):
@@ -1535,7 +1567,7 @@ class ContainerLogsView(View):
                         logger.error(f"docker-control-service unreachable: {str(e)}")
                         error_data = {
                             "type": "service_unavailable",
-                            "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
+                            "message": "Cannot reach the docker-control-service. Make sure the Docker Control container is healthy and retry.",
                             "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         }
                         loop.call_soon_threadsafe(
@@ -1742,6 +1774,7 @@ class ModelAPIInfoView(APIView):
             "object_detection": "/object-detection/",
             "speech_recognition": "/speech-recognition/",
             "tts": "/tts/",
+            "embedding": "/embedding/",
         }
         return endpoint_map.get(model_type)
 
@@ -1992,11 +2025,13 @@ class OpenAIChatCompletionsView(View):
 
         # Reasoning models are exposed as both "<name>" and "<name>-thinking";
         # both resolve to the same deployment but flip vLLM's enable_thinking flag.
-        base_model, enable_thinking = resolve_thinking_variant(data.get("model"))
-        deploy = await asyncio.to_thread(_resolve_deploy_by_model_name, base_model)
+        requested_model = data.get("model")
+        deploy, enable_thinking = await asyncio.to_thread(
+            resolve_thinking_variant, requested_model, _resolve_deploy_by_model_name
+        )
         if deploy is None:
             return JsonResponse(
-                {"error": {"message": f"No running model named '{base_model}'.",
+                {"error": {"message": f"No running model named '{requested_model}'.",
                            "type": "model_not_found"}},
                 status=404,
             )
@@ -2070,15 +2105,152 @@ class OpenAIModelsView(APIView):
         seen = set()
         data = []
         for _, entry in _running_coding_agent_deploys():
-            name = getattr(entry.get("model_impl"), "model_name", None)
-            if not name:
+            impl = entry.get("model_impl")
+            if not getattr(impl, "model_name", None):
                 continue
-            for exposed in get_gateway_model_names(name):
+            for exposed in get_gateway_model_names(impl):
                 if exposed in seen:
                     continue
                 seen.add(exposed)
                 data.append({"id": exposed, "object": "model", "owned_by": "tt-studio"})
         return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
+
+
+class OpenAIEmbeddingsView(APIView):
+    """OpenAI-compatible POST /v1/embeddings for companion apps (e.g. AnythingLLM,
+    Open WebUI).
+
+    Resolves the OpenAI `model` field to a running embedding deployment and
+    proxies to it via embed_text, same lookup EmbeddingInferenceView uses but
+    by model name instead of deploy_id -- the shape a generic OpenAI-compatible
+    client expects. The OpenAI API lets `input` be a batch (a list of strings),
+    which RAG apps use when embedding a document's chunks in one call, but the
+    TT inference server's /v1/embeddings takes one string per request -- so a
+    batch is fanned out into one call per item and stitched back together.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data
+        model_name = data.get("model")
+        raw_input = data.get("input")
+        if not model_name or not raw_input:
+            return Response(
+                {"error": {"message": "model and input are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inputs = raw_input if isinstance(raw_input, list) else [raw_input]
+        if not inputs or not all(isinstance(item, str) for item in inputs):
+            return Response(
+                {"error": {"message": "input must be a string or a list of strings",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deploy = find_deployed_embedding_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": {"message": f"No running embedding model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            embeddings = [
+                embed_text(deploy, item, dimensions=data.get("dimensions"))["data"][0]["embedding"]
+                for item in inputs
+            ]
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"OpenAIEmbeddingsView error: {exc}")
+            return Response(
+                {"error": {"message": f"Could not reach the embedding model: {exc}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": i, "embedding": embedding}
+                    for i, embedding in enumerate(embeddings)
+                ],
+                "model": model_name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# Each image is seconds to minutes of accelerator time, so a batch is kept small.
+MAX_IMAGES_PER_REQUEST = 4
+
+
+class OpenAIImagesGenerationsView(APIView):
+    """OpenAI-compatible POST /v1/images/generations for companion apps (Open WebUI).
+
+    Resolves the OpenAI `model` field to a running image deployment and generates
+    through the same dialect handling as the image page. `size` is ignored: a
+    diffusion server is warmed and traced for one resolution, and FLUX.2 rejects
+    any other, so honouring a client's default size would fail every request.
+    Images are always returned as `b64_json`; there is nowhere to host a `url`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not _check_upstream_auth(request):
+            return Response({"error": {"message": "Unauthorized"}},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        data = request.data
+        model_name = data.get("model")
+        prompt = data.get("prompt")
+        if not model_name or not prompt:
+            return Response(
+                {"error": {"message": "model and prompt are required",
+                           "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            count = int(data.get("n") or 1)
+        except (TypeError, ValueError):
+            count = 0
+        if not 1 <= count <= MAX_IMAGES_PER_REQUEST:
+            message = f"n must be between 1 and {MAX_IMAGES_PER_REQUEST}"
+            return Response(
+                {"error": {"message": message, "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deploy = find_deployed_image_model(model_name)
+        if deploy is None:
+            return Response(
+                {"error": {"message": f"No running image model named '{model_name}'.",
+                           "type": "model_not_found"}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        images = []
+        try:
+            for _ in range(count):
+                image, _content_type = generate_image(deploy, prompt)
+                images.append({"b64_json": base64.b64encode(image).decode()})
+        except ImageGenerationError as e:
+            return Response(
+                {"error": {"message": e.message or "Image generation failed."}},
+                status=e.status_code,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenAIImagesGenerationsView error: {e}")
+            return Response(
+                {"error": {"message": f"Could not reach the image model: {e}"}},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({"created": int(time.time()), "data": images},
+                        status=status.HTTP_200_OK)
 
 
 class CodingAgentsView(APIView):
@@ -2120,7 +2292,7 @@ class CodingAgentsView(APIView):
                 getattr(impl, "param_count", None)
             )
             max_tokens = max(1, context_window * 3 // 4)
-            for exposed in get_gateway_model_names(name):
+            for exposed in get_gateway_model_names(impl):
                 if exposed in seen:
                     continue
                 seen.add(exposed)
@@ -2228,6 +2400,26 @@ class MarketplaceLaunchView(APIView):
                 }
             )
 
+        # Apps that offer an embedding/STT/TTS/image picker (app.embedding_choice,
+        # app.stt_choice, app.tts_choice, app.image_choice) may be told which
+        # deployed model to wire up instead of the app's own native/cloud one.
+        payload = request.data or {}
+        embedding_model = payload.get("embedding_model") or None
+        stt_model = payload.get("stt_model") or None
+        tts_model = payload.get("tts_model") or None
+        image_model = payload.get("image_model") or None
+        for label, model, finder in (
+            ("embedding", embedding_model, find_deployed_embedding_model),
+            ("speech-recognition", stt_model, find_deployed_speech_model),
+            ("TTS", tts_model, find_deployed_tts_model),
+            ("image", image_model, find_deployed_image_model),
+        ):
+            if model and finder(model) is None:
+                return Response(
+                    {"error": f"No running {label} model named '{model}'."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         host_port = marketplace.claim_host_port(app, containers)
         if host_port is None:
             return Response(
@@ -2235,7 +2427,14 @@ class MarketplaceLaunchView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        marketplace.start_launch(app, host_port)
+        marketplace.start_launch(
+            app,
+            host_port,
+            embedding_model=embedding_model,
+            stt_model=stt_model,
+            tts_model=tts_model,
+            image_model=image_model,
+        )
         return Response(
             {"status": "starting", "host_port": host_port},
             status=status.HTTP_202_ACCEPTED,

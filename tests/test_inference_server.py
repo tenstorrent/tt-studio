@@ -62,5 +62,39 @@ class TestGetInferenceServerVersion(unittest.TestCase):
                 self.assertEqual(M.get_inference_server_version(), "v9.9.9")
 
 
+class TestSyncModelCatalog(unittest.TestCase):
+    def setUp(self):
+        from tt_setup.inference_server import _catalog
+        self.catalog = _catalog
+
+    def test_retries_without_the_spec_when_the_sync_fails(self):
+        with patch.object(self.catalog, "_run_sync", side_effect=[False, True]) as run:
+            self.assertTrue(M._sync_model_catalog())
+        self.assertEqual(run.call_args_list[-1].args, ("--no-model-support",))
+
+    def test_no_retry_when_the_sync_succeeds(self):
+        with patch.object(self.catalog, "_run_sync", return_value=True) as run:
+            self.assertTrue(M._sync_model_catalog())
+        run.assert_called_once_with()
+
+    def _matches(self, built_from, installed):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "catalog.json")
+            with open(path, "w") as f:
+                f.write('{"source": {"artifact_version": "%s"}}' % built_from)
+            with patch.object(self.catalog, "CATALOG_JSON", path), \
+                 patch.object(self.catalog, "_installed_version", return_value=installed):
+                return M.catalog_matches_artifact()
+
+    def test_catalog_matches_artifact(self):
+        self.assertTrue(self._matches("0.23.0", "0.23.0"))
+        self.assertTrue(self._matches("v0.23.0", "0.23.0"))
+        self.assertFalse(self._matches("0.22.0", "0.23.0"))
+
+    def test_unknown_versions_count_as_matching(self):
+        self.assertTrue(self._matches("0.22.0", None))
+        self.assertTrue(self._matches("", "0.23.0"))
+
+
 if __name__ == "__main__":
     unittest.main()

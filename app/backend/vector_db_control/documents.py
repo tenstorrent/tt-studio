@@ -161,7 +161,7 @@ def chunk_texts(
     chunk_overlap: int = None,
 ):
     """
-    Chunk a list of in-memory markdown strings (e.g. INTERNAL_KNOWLEDGE) into
+    Chunk a list of in-memory markdown strings into
     Documents ready for embedding. Without this, large documents are embedded
     whole and the embedding model silently truncates them, so only the first
     part is searchable.

@@ -9,6 +9,7 @@ from chromadb import HttpClient, Settings, ClientAPI
 from chromadb.utils import embedding_functions
 
 from shared_config.logger_config import get_logger
+from vector_db_control.tt_embedding_function import TT_EMBED_PREFIX, TTDeployedEmbeddingFunction
 
 logger = get_logger(__name__)
 
@@ -23,17 +24,28 @@ ONNX_EMBED_MODEL = embedding_functions.ONNXMiniLM_L6_V2.MODEL_NAME
 
 def get_embedding_function(model_name: str):
     """
-    Returns the singleton instance of the all-MiniLM-L6-v2 embedding model.
-    Ensures that the model is loaded only once in a thread-safe manner.
+    Returns the singleton embedding function for `model_name`, thread-safely
+    creating it on first use.
 
-    Uses ChromaDB's ONNX embedding function rather than sentence-transformers,
-    which requires torch and pulls in ~4.5 GB of CUDA wheels the backend never
-    uses. Both run the same all-MiniLM-L6-v2 weights and produce interchangeable
-    384-dimension vectors, so collections embedded either way stay queryable.
-
-    `model_name` is retained because callers store it as collection metadata,
-    but the ONNX function supports only all-MiniLM-L6-v2.
+    Two families:
+    - "tt-embed:<model_identifier>" -- a TT-hardware-deployed embedding model
+      (see vector_db_control.tt_embedding_function). The live deploy is
+      re-resolved by identity on every call, so nothing is cached beyond the
+      wrapper object itself.
+    - anything else -- ChromaDB's built-in ONNX all-MiniLM-L6-v2, the default
+      for every collection that doesn't opt into a TT-hardware model. Used
+      instead of sentence-transformers, which requires torch and pulls in
+      ~4.5 GB of CUDA wheels the backend never uses; both run the same weights
+      and produce interchangeable 384-dimension vectors.
     """
+    if model_name.startswith(TT_EMBED_PREFIX):
+        if model_name not in _instances:
+            with _lock:
+                if model_name not in _instances:
+                    _instances[model_name] = TTDeployedEmbeddingFunction(
+                        model_name[len(TT_EMBED_PREFIX):]
+                    )
+        return _instances[model_name]
 
     # Check if the model instance already exists
     if model_name not in _instances:

@@ -35,7 +35,7 @@ export interface WebcamPickerProps {
   setExternalControls?: (controls: React.ReactNode) => void;
   videoOnly?: boolean;
   hoveredIndex?: number | null;
-  videoRef?: React.RefObject<HTMLVideoElement>;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
 }
 export interface InferenceRequest {
   deploy_id: string | null;

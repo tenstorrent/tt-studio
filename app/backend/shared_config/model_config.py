@@ -104,6 +104,18 @@ class ModelImpl:
     # Only honoured for requires_dev_catalog models (see
     # docker_control.views._resolve_artifact_ref).
     inference_artifact_ref: Optional[Dict[str, str]] = None
+    # Hand-derived tt-inference-server ModelSpec JSON to pass as
+    # --runtime-model-spec-json when deploying on the given device, for a
+    # (model, device) pair the source artifact never declares -- e.g. a model
+    # that only ships a multi-chip mesh spec but genuinely runs on one chip or
+    # one card. Keyed by the tt-studio device name (e.g. "P150"); paths are
+    # relative to TT_STUDIO_ROOT. See sync_models_from_inference_server's
+    # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
+    # files and populate this, and docker_utils.run_container, which consumes it.
+    runtime_model_spec_overrides: Optional[Dict[str, str]] = None
+    # vLLM --tool-call-parser / --reasoning-parser, from the model support spec.
+    tool_call_parser: Optional[str] = None
+    reasoning_parser: Optional[str] = None
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -163,16 +175,6 @@ class ModelImpl:
         self.docker_config["environment"].update(env_dict)
 
     @property
-    def tool_call_parser(self) -> str:
-        """Infer the vLLM --tool-call-parser value from model name / HF ID."""
-        name = (self.model_name or self.hf_model_id or "").lower()
-        if "qwen" in name or "qwq" in name:
-            return "hermes"
-        if "mistral" in name:
-            return "mistral"
-        return "llama3_json"
-
-    @property
     def image_version(self) -> str:
         return f"{self.image_name}:{self.image_tag}"
 
@@ -184,6 +186,14 @@ class ModelImpl:
     @property
     def container_base_name(self) -> str:
         return self.image_name.split("/")[-1]
+
+    @property
+    def deployment_container_name(self) -> str:
+        # Mirrors get_default_model_id() so a training container doesn't fight a
+        # chat container of the same model_name for one Docker name.
+        if self.model_type == ModelTypes.TRAINING:
+            return f"{self.model_name}-training"
+        return self.model_name
 
     @property
     def host_path(self) -> Path:
@@ -224,6 +234,10 @@ class ModelImpl:
             logger.info(f"model_name:={self.model_name} does not have a hf_model_id set")
 
     def get_default_model_id(self):
+        # A training row can share model_name and version with a chat row
+        # (Llama-3.1-8B-Instruct), so it gets its own id.
+        if self.model_type == ModelTypes.TRAINING:
+            return f"id_{self.impl_id}-{self.model_name}-training-v{self.version}"
         return f"id_{self.impl_id}-{self.model_name}-v{self.version}"
         
     def get_model_env_file(self):
@@ -334,10 +348,16 @@ def load_model_implementations_from_json(json_path: Path) -> list:
         catalog = json.load(f)
     impls = []
     for entry in catalog["models"]:
-        # Training models are hidden for this release: the pinned inference-server
-        # artifact can't run the training-lora impl yet, so offering them only
-        # produces deploys that die at dispatch. Remove this once training ships.
-        if entry.get("model_type") == "TRAINING":
+        # Models the catalog marks unavailable are not offered for deploy. The
+        # row stays in the JSON (with the reason) rather than being deleted, so a
+        # catalog resync can't quietly reintroduce a model we already know is
+        # broken or has no UI yet. See STUDIO_UNAVAILABLE_MODELS in
+        # sync_models_from_inference_server.py. Absent field == available.
+        if entry.get("available_in_studio") is False:
+            logger.info(
+                f"Skipping {entry.get('model_name')}: "
+                f"{entry.get('unavailable_reason')} - {entry.get('unavailable_details')}"
+            )
             continue
         docker_image = entry.get("docker_image") or ""
         if ":" in docker_image:
@@ -383,6 +403,9 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             param_count=entry.get("param_count"),
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
+            runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
+            tool_call_parser=entry.get("tool_call_parser"),
+            reasoning_parser=entry.get("reasoning_parser"),
         )
         impls.append(impl)
     return impls
@@ -454,12 +477,45 @@ def validate_model_implemenation_config(impl):
 # Build final model_implmentations dict
 # ---------------------------------------------------------------------------
 
+# tt-inference-server names trainer runners `trainer-<variant>`; without a deployment
+# record, that's the only way to tell a trainer from a same-named chat model.
+TRAINER_MODEL_RUNNER_PREFIX = "trainer-"
+
+
+def pick_impl_for_container(candidates, env_vars):
+    """Pick TRAINING for a trainer runner, a non-training impl otherwise; fall back
+    to the first candidate when none has the wanted type."""
+    if not candidates:
+        return None
+    runner = str((env_vars or {}).get("MODEL_RUNNER") or "")
+    wants_training = runner.startswith(TRAINER_MODEL_RUNNER_PREFIX)
+    for impl in candidates:
+        if (impl.model_type == ModelTypes.TRAINING) == wants_training:
+            return impl
+    return candidates[0]
+
+
+def register_model_implementations(impls) -> dict:
+    registry = {}
+    for impl in impls:
+        validate_model_implemenation_config(impl)
+        # Only training ids are scoped, so same-name, same-version non-training rows
+        # on different engines still collide. Fail loudly instead of overwriting.
+        if impl.model_id in registry:
+            existing = registry[impl.model_id]
+            raise ValueError(
+                f"Duplicate model_id '{impl.model_id}': "
+                f"'{existing.model_name}' ({existing.inference_engine}) and "
+                f"'{impl.model_name}' ({impl.inference_engine}) collide. "
+                "Give them different versions or model_ids."
+            )
+        registry[impl.model_id] = impl
+    return registry
+
+
 _json_impls = load_model_implementations_from_json(CATALOG_JSON)
 
-model_implmentations = {}
-for impl in _json_impls + _hardcoded_impls:
-    validate_model_implemenation_config(impl)
-    model_implmentations[impl.model_id] = impl
+model_implmentations = register_model_implementations(_json_impls + _hardcoded_impls)
 
 
 # ---------------------------------------------------------------------------

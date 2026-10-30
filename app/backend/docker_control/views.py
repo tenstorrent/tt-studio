@@ -17,7 +17,6 @@ import subprocess
 import signal
 import os
 from pathlib import Path
-from typing import Optional
 
 import re
 import os
@@ -47,17 +46,39 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment, tool_call_parser_for, tool_calling_launch_flags, resolve_deploy_image
-from shared_config.coding_agent_config import get_reasoning_parser
+from .artifact_resolution import resolve_artifact_ref as _resolve_artifact_ref
+from .artifact_resolution import (
+    resolve_override_docker_image as _resolve_override_docker_image,
+)
+from .artifact_resolution import training_image_override as _training_image_override
+from .tt_inference_client import start_chat_deployment, tool_calling_launch_flags, resolve_deploy_image
 from .docker_control_client import (
     ContainerNotFound,
     get_docker_client,
     http_status_of,
     is_service_unreachable,
 )
+from docker_control.chip_allocator import (
+    INFRA_CONTAINER_PREFIXES,
+    _detect_device_ids_from_mounts,
+)
 from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct, request_pull_cancel
+from types import SimpleNamespace
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required, _impl_selector
+from shared_config.community_model_config import (
+    arch_for_board,
+    community_model_id,
+    is_community_model_id,
+    vllm_mesh_fallback,
+)
+from docker_control import launchers
+from docker_control.community_deploy import deploy_community_model
+from docker_control.deploy_guards import (
+    claim_service_port,
+    deploy_in_flight_refusal,
+    hugging_face_access_refusal,
+)
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
 from shared_config.logger_config import get_logger
@@ -105,89 +126,6 @@ try:
 except Exception:
     _compatibility_override_names = set()
 
-# Pin these Llama variants to the v0.14.0 release image for P300x2 compatibility (PR #815).
-# Sent as override_docker_image so the inference server uses the published -release- tag
-# even when dev_mode is on (e.g. tool calling), avoiding the -dev- variant which is not
-# published for this build.
-_LLAMA_V014_IMAGE = (
-    "ghcr.io/tenstorrent/tt-inference-server/"
-    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
-)
-_LLAMA_V014_MODELS = {
-    "Llama-3.1-8B",
-    "Llama-3.1-8B-Instruct",
-    "Llama-3.1-70B",
-    "Llama-3.1-70B-Instruct",
-    "Llama-3.3-70B-Instruct",
-}
-
-
-def _resolve_override_docker_image(impl) -> Optional[str]:
-    """Pin an explicit docker image where the inference server can't infer one.
-
-    Two independent reasons a model needs this:
-    - _LLAMA_V014_MODELS: the inference server's own model_spec default is an
-      older image that's rejected on P300x2 (PR #815) -- unrelated to catalog tier.
-    - requires_dev_catalog: "dev" tier catalog entries don't pin a docker_image
-      (unlike "prod"), so run.py refuses to guess one and requires
-      --override-docker-image whenever --dev-mode is combined with
-      --docker-server. The catalog's own image_version is exactly what's needed.
-    """
-    if impl.model_name in _LLAMA_V014_MODELS:
-        return _LLAMA_V014_IMAGE
-    if impl.requires_dev_catalog:
-        return impl.image_version
-    return None
-
-
-def _resolve_artifact_ref(impl, device, board_type) -> Optional[str]:
-    """Pick this entry's tt-inference-server build for the board being deployed to.
-
-    The catalog field is keyed by device because one entry usually covers several
-    boards (47 of 56 entries do) and only some may need a non-default build.
-
-    Returns None -- meaning "use the globally pinned artifact" -- for every case
-    except an explicit, matched, eligible pin. Callers need no other fallback.
-    """
-    ref_map = getattr(impl, "inference_artifact_ref", None)
-    if not ref_map:
-        return None
-
-    # Only dev-catalog deploys run run.py as a subprocess, which is the only path
-    # that can be pointed at a different artifact directory. The in-process path
-    # is bound to the artifact imported at inference-api boot, so honouring a ref
-    # there would silently deploy against the wrong build.
-    if not impl.requires_dev_catalog:
-        logger.warning(
-            f"{impl.model_name}: ignoring inference_artifact_ref -- it only applies to "
-            f"models with requires_dev_catalog=true. Using the globally pinned artifact."
-        )
-        return None
-
-    # Match the resolved runtime device first ("p150"), then the detected board
-    # type ("P300x2"). These differ on multi-chip boards: _BOARD_TO_SINGLE_CHIP_DEVICE
-    # maps P300x2 -> p150, so a P300x2 box actually deploys with --tt-device p150.
-    # Accept either spelling so a catalog author can key on what they see.
-    lookup = {str(k).strip().lower(): v for k, v in ref_map.items()}
-    for candidate in (device, board_type):
-        if not candidate:
-            continue
-        ref = lookup.get(str(candidate).strip().lower())
-        if ref:
-            logger.info(
-                f"{impl.model_name}: using tt-inference-server ref '{ref}' "
-                f"(matched '{candidate}')"
-            )
-            return ref
-
-    # A pin exists but nothing matched -- almost always a typo'd key. Say so
-    # rather than silently falling back to a build that lacks this model.
-    logger.warning(
-        f"{impl.model_name}: inference_artifact_ref has no entry for device "
-        f"'{device}' or board '{board_type}' (keys: {sorted(ref_map)}). "
-        f"Using the globally pinned artifact."
-    )
-    return None
 
 
 # Models whose tt-metal implementation ignores the HF_MODEL env var and instead
@@ -239,6 +177,29 @@ def _is_llama31_8b_model(model_name: str) -> bool:
     token = (model_name or "").lower().replace("_", "").replace(" ", "")
     return "llama-3.1-8b" in token or "llama3.18b" in token
 
+def _is_qwen3_embedding_06b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-0.6b" in token or "qwen3embedding0.6b" in token
+
+def _is_qwen3_embedding_4b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "qwen3-embedding-4b" in token or "qwen3embedding4b" in token
+
+def _is_bge_m3_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "bge-m3" in token or "bgem3" in token
+
+def _has_chip_tier_overrides(model_name: str) -> bool:
+    """True for models with a hand-authored P150/P300 override (see
+    shared_config.sync_models_from_inference_server.STUDIO_CHIP_TIER_MODELS)
+    alongside a genuine whole-board P300x2 spec -- these can opt into 4x
+    throughput via force_full_board, unlike single-chip-only models."""
+    return (
+        _is_qwen3_embedding_06b_model(model_name)
+        or _is_qwen3_embedding_4b_model(model_name)
+        or _is_bge_m3_model(model_name)
+    )
+
 def _lookup_deployment_device_ids(container_id):
     """Return the list of device slot ids associated with a deployment, or []."""
     try:
@@ -266,48 +227,140 @@ def _lookup_deployment_device_ids(container_id):
         logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
         return []
 
+
+def _card_groups():
+    """Chips grouped by the card they sit on, from tt-smi's board_id.
+
+    A P300 card carries two chips, so on a P300x2 this is [[0, 1], [2, 3]].
+    Single-chip cards come back as one-element groups; [] when tt-smi is
+    unavailable.
+    """
+    tt_smi = SystemResourceService.get_tt_smi_data() or {}
+    cards = {}
+    for index, dev in enumerate(tt_smi.get("device_info") or []):
+        board_id = (dev.get("board_info") or {}).get("board_id")
+        if board_id:
+            cards.setdefault(board_id, []).append(index)
+    return sorted(cards.values())
+
+
+def _chips_bound_by_containers():
+    """Chips bound by any running container other than TT-Studio's own.
+
+    Raises when Docker cannot be listed: callers must treat that as "unknown",
+    never as "free", before resetting anything.
+    """
+    from docker_control.docker_control_client import get_docker_client
+
+    response = get_docker_client().list_containers(all=False)
+    if isinstance(response, dict):
+        if response.get("status") == "error":
+            raise RuntimeError(response.get("message", "container listing failed"))
+        containers = response.get("containers", []) or []
+    else:
+        containers = response or []
+    bound = set()
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        name = (container.get("name") or "").lstrip("/").lower()
+        if any(name.startswith(prefix) for prefix in INFRA_CONTAINER_PREFIXES):
+            continue
+        chips = _detect_device_ids_from_mounts(container)
+        if chips == "whole":
+            return None  # holds every chip
+        bound.update(chips or [])
+    return bound
+
+
+def _card_reset_device_ids(device_ids, container_id):
+    """Widen a post-stop reset to whole cards whose other chips are free.
+
+    A P300 card carries two chips. Resetting them one at a time (chip 3 when its
+    model stops, chip 2 later) leaves the card unable to open a 2-chip mesh
+    ("Requested mesh shape [1, 2] requires 2 devices") until both are reset in a
+    single tt-smi call. So when no other model holds a chip on the same card,
+    reset the whole card; otherwise reset only the stopped model's chips.
+
+    A sibling only counts as free when both the deployment records and a fresh
+    container listing say so; if either cannot be read, nothing is widened.
+    """
+    ids = sorted(set(device_ids))
+    try:
+        cards = [card for card in _card_groups() if set(card) & set(ids)]
+        if not any(set(card) - set(ids) for card in cards):
+            return ids
+
+        from docker_control.chip_allocator import ChipSlotAllocator
+        from docker_control.models import ModelDeployment
+
+        stopped = ModelDeployment.objects.filter(container_id=container_id).first()
+        stopped_id = getattr(stopped, "id", None)
+        busy = {
+            slot["slot_id"]
+            for slot in ChipSlotAllocator().get_chip_status()["slots"]
+            if slot["status"] == "occupied"
+            and (stopped_id is None or slot.get("deployment_id") != stopped_id)
+        }
+        bound = _chips_bound_by_containers()
+        if bound is None:
+            return ids
+        busy |= bound
+
+        widened = set(ids)
+        for card in cards:
+            if not (set(card) - set(ids)) & busy:
+                widened |= set(card)
+        return sorted(widened)
+    except Exception as e:
+        logger.warning(f"Could not check card siblings for chips {ids}: {e}")
+        return ids
+
+
+# Board type -> the device configurations a model may declare to run on it. Module
+# level so the catalog and community compatibility checks share one table.
+_BOARD_TO_DEVICE_CONFIGS = {
+    # Wormhole single devices
+    'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+    'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'E150': [DeviceConfigurations.E150],
+    
+    # Wormhole multi-device
+    'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+    'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    
+    # Blackhole single devices
+    'P100': [DeviceConfigurations.P100],
+    'P150': [DeviceConfigurations.P150],
+    'P300': [DeviceConfigurations.P300],
+
+    # Blackhole multi-device
+    # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
+    # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
+    # models that only have the other mesh still show via vllm_mesh_fallback_fits.
+    'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
+    'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
+    # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
+    'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
+    'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
+    
+    # Galaxy systems
+    'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+    
+    'unknown': []  # Empty list for unknown board type
+}
+
+
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
         # Detect current board type using tt-smi command
         current_board = detect_board_type()
         logger.info(f"Detected board type: {current_board}")
         
-        # Map board types to their corresponding device configurations
-        board_to_device_map = {
-            # Wormhole single devices
-            'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'E150': [DeviceConfigurations.E150],
-            
-            # Wormhole multi-device
-            'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
-            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
-            # Blackhole single devices
-            'P100': [DeviceConfigurations.P100],
-            'P150': [DeviceConfigurations.P150],
-            'P300': [DeviceConfigurations.P300],
-
-            # Blackhole multi-device
-            # Do not list P300x2 here: four chips is not the same topology (4×P150 vs
-            # 2×P300), and media specs (FLUX, Wan) fail if we pretend they are. vLLM
-            # models that only have the other mesh still show via vllm_mesh_fallback_fits.
-            'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
-            'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
-            
-            # Galaxy systems
-            'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
-            
-            'unknown': []  # Empty list for unknown board type
-        }
-        
         # Get the device configurations for current board
-        current_board_devices = set(board_to_device_map.get(current_board, []))
+        current_board_devices = set(_BOARD_TO_DEVICE_CONFIGS.get(current_board, []))
         logger.info(f"Current board devices: {current_board_devices}")
         
         data = []
@@ -326,7 +379,7 @@ class ContainersView(APIView):
             
             # Get all boards this model can run on
             compatible_boards = []
-            for board, devices in board_to_device_map.items():
+            for board, devices in _BOARD_TO_DEVICE_CONFIGS.items():
                 if board == 'unknown':
                     continue
                 if bool(set(devices).intersection(impl.device_configurations)) or vllm_mesh_fallback_fits(impl, board):
@@ -357,9 +410,275 @@ class ContainersView(APIView):
                 "chips_required": chips_required,
                 # Lets the UI pre-flight the HF gate before attempting a deploy.
                 "hf_model_id": impl.hf_model_id,
+                "source": launchers.INFERENCE_SERVER,
             })
-        
+
+        data.extend(_community_model_entries(current_board))
         return Response(data, status=status.HTTP_200_OK)
+
+
+def _community_model_entries(current_board):
+    """Verified community bundles, in the same row shape ContainersView returns for
+    the catalog, so the deploy UI lists both as one.
+
+    Every row is described from its manifest, downloaded or not, because that is what
+    carries the mesh size and engine the UI needs: a row listed without them would
+    either hide a deployable model or offer chips the deploy cannot take.
+
+    Best-effort by design: tt-model-manager may not be installed and the Hub may be
+    unreachable, and neither must break the catalog model list.
+    """
+    from docker_control.tt_model_client import fetch_catalog
+    from shared_config.community_model_config import (
+        VERIFIED_COMMUNITY_STATUS,
+        build_community_model_impl,
+        devices_for_hardware,
+        no_page_reason,
+        unavailable_mark,
+    )
+
+    arch = arch_for_board(current_board)
+    try:
+        bundles = fetch_catalog(arch)
+    except Exception as e:
+        logger.warning(f"Could not list community models: {e}")
+        return []
+
+    # Used to rule out a mesh this board cannot hold, and as the reservation for a row
+    # whose mesh could not be read at all.
+    try:
+        from docker_control.chip_allocator import ChipSlotAllocator
+
+        board_slots = ChipSlotAllocator().total_slots
+    except Exception as e:
+        logger.warning(f"Could not read chip slot count: {e}")
+        board_slots = 1
+
+    entries = []
+    for row in bundles:
+        repo_id = row.get("repo_id")
+        if not repo_id:
+            continue
+        # The catalog row carries the manifest `run.py` stored, so a bundle that has
+        # never been pulled is described just as fully as an installed one.
+        detail = row
+        if detail.get("supported") is False:
+            # An engine tt-model-manager cannot launch. Refused at deploy time anyway,
+            # so listing it only wastes the user's click.
+            continue
+        mark = unavailable_mark(repo_id)
+        if mark:
+            logger.debug(f"Hiding community bundle {repo_id}: {mark[0]} - {mark[1]}")
+            continue
+        if not detail.get("profiles"):
+            entries.append(_unreadable_community_entry(row, current_board, board_slots))
+            continue
+        profiles = [
+            p
+            for p in detail["profiles"]
+            if not unavailable_mark(repo_id, p.get("name"))
+        ]
+        if not profiles:
+            continue
+        detail = {**detail, "profiles": profiles}
+
+        impl = build_community_model_impl(
+            detail, _preferred_community_profile(detail, current_board, board_slots)
+        )
+        profile_devices = [devices_for_hardware(p.get("hardware")) for p in profiles]
+        entries.append({
+            "id": impl.model_id,
+            "name": impl.model_name,
+            "is_compatible": _community_fit(
+                impl.device_configurations,
+                impl.chips_required,
+                current_board,
+                board_slots,
+                impl.kind,
+            ),
+            "compatible_boards": _community_boards(profile_devices, impl.kind),
+            "model_type": impl.model_type.value,
+            "display_model_type": impl.display_model_type,
+            "current_board": current_board,
+            "status": VERIFIED_COMMUNITY_STATUS,
+            # The mesh the bundle's default profile opens, which is exactly what the
+            # deploy reserves — tt-model-manager scopes the container to those chips.
+            "chips_required": impl.chips_required,
+            "hf_model_id": impl.hf_model_id,
+            "source": launchers.COMMUNITY,
+            "author": impl.author,
+            "profiles": _community_profiles(
+                impl.repo_id, detail, current_board, board_slots
+            ),
+            "profile": impl.profile,
+            # Why a bundle deployed as "unknown" gets no interaction page.
+            "no_page_reason": no_page_reason(impl.kind, detail.get("task")),
+        })
+    return entries
+
+
+def _community_profiles(repo_id, detail, current_board, board_slots):
+    """Each serve profile's deploy id, mesh and fit on this board, in manifest order.
+
+    The deploy UI offers one device tier per mesh that fits, then deploys the id of
+    the profile matching the devices chosen.
+    """
+    from shared_config.community_model_config import devices_for_hardware
+
+    return [
+        {
+            "name": p["name"],
+            "id": community_model_id(repo_id, p["name"]),
+            "chips_required": p.get("chips_required") or 1,
+            "is_compatible": _community_fit(
+                devices_for_hardware(p.get("hardware")),
+                p.get("chips_required"),
+                current_board,
+                board_slots,
+                detail.get("kind"),
+            ),
+        }
+        for p in detail.get("profiles") or []
+        if p.get("name")
+    ]
+
+
+def _preferred_community_profile(detail, current_board, board_slots):
+    """The profile to present for a bundle, given this board.
+
+    A bundle may declare several meshes, and the author's default need not be the one
+    that runs here — a p150x4 default alongside a p300x2 profile built for exactly this
+    box. Judging the row by the default alone marks the whole bundle incompatible and
+    hides a model that would have run. Prefer the default when it fits, else the largest
+    mesh that does: the closest runnable thing to what the author recommended.
+
+    A mesh of unknown compatibility counts as runnable, for the same reason the row-level
+    check reports None rather than False — an unrecognised board label is not a refusal.
+    Returns None when nothing fits, leaving the caller on the default so the row still
+    reports a mesh and still reads incompatible, which it is.
+    """
+    from shared_config.community_model_config import devices_for_hardware
+
+    profiles = detail.get("profiles") or []
+
+    def fits(profile):
+        return _community_fit(
+            devices_for_hardware(profile.get("hardware")),
+            profile.get("chips_required"),
+            current_board,
+            board_slots,
+            detail.get("kind"),
+        ) is not False
+
+    default_name = detail.get("default_profile")
+    default = next((p for p in profiles if p.get("name") == default_name), None)
+    if default is not None and fits(default):
+        return default_name
+    runnable = [p for p in profiles if fits(p)]
+    if not runnable:
+        return None
+    return max(runnable, key=lambda p: p.get("chips_required") or 1).get("name")
+
+
+def _unreadable_community_entry(row, current_board, board_slots):
+    """A catalog row whose manifest could not be read — listed, but nothing asserted.
+
+    Only reachable when the Hub refuses the manifest (gated, unpublished, offline).
+    The row still names the boards the bundle was verified on, which is enough to
+    rule out a mesh larger than this one; anything finer needs the manifest, so the
+    mesh falls back to the whole board. That is pessimistic in the device preview
+    but never wrong about placement, and the deploy re-reads the manifest before it
+    allocates anything. The mesh is offered as the row's one profile, so the deploy
+    UI places it like any other profiled model.
+    """
+    from shared_config.community_model_config import (
+        VERIFIED_COMMUNITY_STATUS,
+        community_model_type,
+        devices_for_hardware,
+        no_page_reason,
+    )
+
+    repo_id = row["repo_id"]
+    model_id = community_model_id(repo_id)
+    chips = row.get("chips_required") or board_slots
+    devices = devices_for_hardware(row.get("hardware"))
+    is_compatible = _community_fit(
+        devices, chips, current_board, board_slots, row.get("kind")
+    )
+    # With no manifest there is no Hub task, so a task-served engine reads as having
+    # no page until the deploy re-reads the manifest.
+    model_type = community_model_type(row.get("kind"), None)
+    return {
+        "id": model_id,
+        "name": repo_id,
+        "is_compatible": is_compatible,
+        "compatible_boards": _community_boards(
+            [devices_for_hardware(h) for h in row.get("validated_hardware") or []],
+            row.get("kind"),
+        ),
+        "model_type": model_type.value,
+        "display_model_type": "LLM" if model_type is ModelTypes.CHAT else "OTHER",
+        "no_page_reason": no_page_reason(row.get("kind"), None),
+        "current_board": current_board,
+        "status": VERIFIED_COMMUNITY_STATUS,
+        "chips_required": chips,
+        "hf_model_id": None,
+        "source": launchers.COMMUNITY,
+        "author": row.get("author"),
+        "profiles": [
+            {
+                "name": "default",
+                "id": model_id,
+                "chips_required": chips,
+                "is_compatible": is_compatible,
+            }
+        ],
+    }
+
+
+def _community_boards(profile_devices, kind):
+    """Boards any of a bundle's profiles runs on, by the same rule as _community_fit."""
+    return [
+        board
+        for board in _BOARD_TO_DEVICE_CONFIGS
+        if board != "unknown"
+        and any(_community_fit(devices, None, board, None, kind) for devices in profile_devices)
+    ]
+
+
+def _community_fit(
+    device_configurations, chips_required, current_board, board_slots, kind=None
+):
+    """Whether a bundle's mesh fits this board. None when it cannot be determined.
+
+    One rule for both listing paths, so an installed bundle and a catalog row are
+    judged the same way. Beyond the board-to-device map the catalog path uses, a mesh
+    with more chips than the board has is ruled out outright: that holds whatever the
+    bundle's hardware label maps to, and it is the case a label-only check misses
+    (a p150x8 bundle offered on a four-slot board).
+    """
+    if not current_board or current_board == "unknown":
+        return None
+    if chips_required and board_slots and chips_required > board_slots:
+        return False
+    if not device_configurations:
+        return None
+    board_devices = set(_BOARD_TO_DEVICE_CONFIGS.get(current_board, []))
+    if board_devices.intersection(device_configurations):
+        return True
+    # The same four-chip Blackhole mesh equivalence the catalog grants a vLLM model,
+    # where a p150x4 and a p300x2 mesh are interchangeable. A tt-dit app is built for
+    # its own mesh (FLUX.2 rejects a 1x4 line), so it gets no such fallback.
+    if kind is not None and not vllm_mesh_fallback(kind):
+        return False
+    return bool(
+        vllm_mesh_fallback_fits(
+            SimpleNamespace(
+                device_configurations=device_configurations, inference_engine="vllm"
+            ),
+            current_board,
+        )
+    )
 
 
 class StatusView(APIView):
@@ -442,6 +761,8 @@ class ChipStatusView(APIView):
 
             allocator = ChipSlotAllocator()
             status_info = allocator.get_chip_status()
+            # Which chips share a card, so the UI can preview a card-wide reset.
+            status_info["cards"] = _card_groups()
 
             return Response(status_info, status=status.HTTP_200_OK)
 
@@ -456,7 +777,6 @@ class ChipStatusView(APIView):
             )
 
 
-
 class DeployView(APIView):
     def post(self, request, *args, **kwargs):
         # Block new deployments while a board/device reset is in progress — deploying
@@ -466,6 +786,11 @@ class DeployView(APIView):
                 {"error": "A board reset is in progress. Wait for it to finish before deploying a model."},
                 status=status.HTTP_409_CONFLICT,
             )
+        # Community bundles are served by tt-model-manager, not tt-inference-server.
+        # Dispatched before validation because DeploymentSerializer resolves model_id
+        # against the tt-inference-server catalog, which never contains a bundle.
+        if is_community_model_id(request.data.get("model_id")):
+            return deploy_community_model(request)
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
             from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
@@ -474,6 +799,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
             force_full_board_requested = serializer.validated_data.get("force_full_board", False)
+            host_weights_dir = serializer.validated_data.get("host_weights_dir") or None
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -509,7 +835,29 @@ class DeployView(APIView):
                 and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
-            if force_full_board_requested and not should_force_full_board_llama:
+            # Qwen3-Embedding-0.6B and bge-m3 have chip-tier overrides (see
+            # shared_config.model_config.ModelImpl.runtime_model_spec_overrides) that
+            # make chips_required=1 their default, but both also have a genuine,
+            # already-working whole-board P300x2 mesh spec for 4x throughput. Opt-in
+            # only -- the default stays single-chip.
+            should_force_full_board_embedding = (
+                impl.model_type != ModelTypes.CHAT
+                and force_full_board_requested
+                and board_type == "P300x2"
+                and _has_chip_tier_overrides(impl.model_name)
+            )
+            # Training on P300x2 can also claim the whole board (all 4 chips) instead
+            # of a single P300 card, mirroring the flexible Llama card-pair choice.
+            should_force_full_board_training = (
+                impl.model_type == ModelTypes.TRAINING
+                and force_full_board_requested
+                and board_type == "P300x2"
+            )
+            if force_full_board_requested and not (
+                should_force_full_board_llama
+                or should_force_full_board_embedding
+                or should_force_full_board_training
+            ):
                 logger.info(
                     "Ignoring force_full_board for model=%s board=%s",
                     impl.model_name,
@@ -517,41 +865,9 @@ class DeployView(APIView):
                 )
 
             # Pre-check Hugging Face access before consuming a chip slot.
-            hf_repo = getattr(impl, "hf_model_id", None)
-            if hf_repo and "/" in hf_repo:
-                from shared_config.user_config import get_hf_token
-                token = get_hf_token()
-                from api.hf_access import _check_repo, _status_from_code
-                code = _check_repo(token or "", hf_repo)
-                # diffusers repos (FLUX/Wan) have no root config.json and 404;
-                # retry with model_index.json so a gated diffusers repo still
-                # surfaces denied/auth_failed instead of a false "error".
-                if code == 404:
-                    code = _check_repo(token or "", hf_repo, "model_index.json")
-                status_str = _status_from_code(code)
-                if status_str in ("denied", "auth_failed"):
-                    message = (
-                        f"Your Hugging Face token does not have access to {hf_repo}."
-                        if token
-                        else f"A Hugging Face token is required to access {hf_repo}. Please add a token in Settings."
-                    )
-                    return Response(
-                        {
-                            "error_code": "hf_access_denied",
-                            "message": message,
-                            "hf_url": f"https://huggingface.co/{hf_repo}",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                elif status_str == "not_found" or code == 404:
-                    return Response(
-                        {
-                            "error_code": "hf_model_not_found",
-                            "message": f"The Hugging Face model repository '{hf_repo}' could not be found or is unavailable.",
-                            "hf_url": f"https://huggingface.co/{hf_repo}",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            refusal = hugging_face_access_refusal(getattr(impl, "hf_model_id", None))
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
             # On Wormhole mesh boards a single-chip-capable model deploys across the whole
             # board by default; only an explicit slot selection ("1 Device") pins it to a
@@ -563,49 +879,32 @@ class DeployView(APIView):
                 and not requested_device_ids
                 and board_type in WHOLE_BOARD_DEFAULT_BOARDS
             )
+            # Any deploy that claims the entire board (reserve all slots, no device_id).
+            whole_board_deploy = (
+                should_force_full_board_llama
+                or should_force_full_board_embedding
+                or should_force_full_board_training
+                or use_whole_board_deploy
+                or mesh_whole_board
+            )
 
-            # Multiple concurrent instances of the same model are allowed when chip
-            # capacity is available: this guard blocks a second concurrent *start*, not
-            # a second running instance. A model still in 'starting' has a deploy in
-            # flight on the inference server, and firing another one achieves nothing —
-            # the inference server serialises /run behind a single process-wide lock, so
-            # the duplicate would either be rejected or sit invisibly queued and then
-            # start a second container on the same devices and port when the first
-            # finished. Deliberately independent of chip-slot accounting so it still
-            # holds if the slot bookkeeping is ever wrong about the board being free.
-            from docker_control.models import ModelDeployment as _ModelDeployment
-            in_flight = _ModelDeployment.objects.filter(
-                model_name=impl.model_name, status="starting"
-            ).first()
-            if in_flight is not None:
-                logger.info(
-                    f"Rejecting duplicate deploy of {impl.model_name}: job "
-                    f"{in_flight.container_id} is already starting"
-                )
-                return Response(
-                    {
-                        "status": "error",
-                        "error_type": "deploy_in_flight",
-                        "message": (
-                            f"{impl.model_name} is already deploying. Wait for it to "
-                            f"finish, or cancel it from the Deployed Models page before "
-                            f"starting another."
-                        ),
-                        "job_id": in_flight.container_id,
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
+            refusal = deploy_in_flight_refusal(impl.model_name)
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
-            # Allocate a chip slot for all model types so device_id and service_port
-            # are always set correctly (port = 7000 + device_id).
+            # Allocate a chip slot for all model types so device_id is always set correctly.
             try:
                 allocator = ChipSlotAllocator()
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                    # Whole-board deploy (forced QB2 Llama, a single-chip model on a
-                    # Wormhole mesh board, or a media model like FLUX with no single-chip
-                    # spec) takes over the entire board — reserve all slots.
+                # Card-pair training on P300x2 (device_id "0,1"/"2,3") and full-board
+                # training (force_full_board) are both driven by the frontend, exactly
+                # like the flexible Llama path — no server-side slot normalization needed.
+                if whole_board_deploy:
+                    # Whole-board deploy (forced QB2 Llama, training, embedding models,
+                    # a single-chip model on a Wormhole mesh board, or a media model
+                    # like FLUX with no single-chip spec) takes over the entire board —
+                    # reserve all slots.
                     full_board_validation = allocator._validate_manual_allocation(
-                        0, 4, impl.model_name
+                        0, allocator.total_slots, impl.model_name
                     )
                     if not full_board_validation["valid"]:
                         return Response(
@@ -660,7 +959,7 @@ class DeployView(APIView):
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
+                if whole_board_deploy:
                     # Whole-board deploy takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
@@ -693,11 +992,9 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            BASE_SERVICE_PORT = 7000
-            if should_force_full_board_llama or use_whole_board_deploy or mesh_whole_board:
-                service_port = BASE_SERVICE_PORT
-            else:
-                service_port = BASE_SERVICE_PORT + device_id
+            service_port, refusal = claim_service_port(impl.model_name)
+            if refusal:
+                return Response(refusal[0], status=refusal[1])
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
@@ -756,22 +1053,18 @@ class DeployView(APIView):
                     overrides["override_tt_config"] = tt_config
                 # Enable vLLM tool calling for chat-completions models so coding
                 # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
-                # Only for /v1/chat/completions models with a known parser — base
-                # (/v1/completions) models and unknown families are left untouched.
+                # Only for /v1/chat/completions models the catalog gives a parser —
+                # base (/v1/completions) models and the rest are left untouched.
                 vllm_override_args = None
                 tool_calling_supported = False
                 if impl.service_route == "/v1/chat/completions":
-                    tool_parser = tool_call_parser_for(
-                        impl.model_name, getattr(impl, "hf_model_id", "")
-                    )
-                    if tool_parser:
+                    if impl.tool_call_parser:
                         overrides["enable-auto-tool-choice"] = True
-                        overrides["tool-call-parser"] = tool_parser
+                        overrides["tool-call-parser"] = impl.tool_call_parser
                         tool_calling_supported = True
                     # Reasoning models: split thinking into reasoning_content.
-                    reasoning_parser = get_reasoning_parser(impl.model_name)
-                    if reasoning_parser:
-                        overrides["reasoning-parser"] = reasoning_parser
+                    if impl.reasoning_parser:
+                        overrides["reasoning-parser"] = impl.reasoning_parser
                     overrides.update(_local_weights_overrides(impl))
                 if overrides:
                     vllm_override_args = json.dumps(overrides)
@@ -787,6 +1080,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     override_docker_image=override_docker_image,
+                    host_weights_dir=host_weights_dir,
                     dev_mode=impl.requires_dev_catalog,
                     artifact_ref=artifact_ref,
                     # First-load weight remaps on experimental blackhole builds can
@@ -829,12 +1123,14 @@ class DeployView(APIView):
                             container_id=pull_id,
                             container_name=impl.model_name,
                             model_name=impl.model_name,
+                            model_id=impl.model_id,
                             device=device,
                             device_id=device_id,
                             device_ids=occupied_device_ids,
                             status="starting",
                             port=service_port,
                             tool_calling_enabled=tool_calling_supported,
+                            host_weights_dir=host_weights_dir,
                         )
                     except Exception as e:
                         logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
@@ -926,12 +1222,14 @@ class DeployView(APIView):
                         container_id=result.job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
+                        model_id=impl.model_id,
                         device=device,
                         device_id=device_id,
                         device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
                         tool_calling_enabled=tool_calling_supported,
+                        host_weights_dir=host_weights_dir,
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
@@ -951,6 +1249,7 @@ class DeployView(APIView):
                     "message": result.message or "Deployment started",
                     "api_response": result.api_response or {},
                     "allocated_device_id": device_id,
+                    "service_port": service_port,
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
@@ -958,7 +1257,7 @@ class DeployView(APIView):
                 host_port = serializer.validated_data.get("host_port")
 
                 # Pre-pull the media image first so the UI shows real progress.
-                media_device = infer_inference_server_device(impl)
+                media_device = infer_inference_server_device(impl, device_ids=device_ids_str)
                 # resolve-image declares `impl: Optional[str]` and matches on
                 # impl_name. See the matching guard in docker_utils.run_container.
                 inference_impl = _impl_selector(getattr(impl, "inference_impl", None))
@@ -967,7 +1266,8 @@ class DeployView(APIView):
                 # would show progress for layers the deploy never uses and then stall
                 # while run.py pulls the pinned one untracked.
                 deploy_image = (
-                    media_image_override(impl.model_name, media_device)
+                    _training_image_override(impl)
+                    or media_image_override(impl.model_name, media_device)
                     or resolve_deploy_image(impl.model_name, media_device, impl=inference_impl)
                     or impl.image_version
                 )
@@ -999,7 +1299,8 @@ class DeployView(APIView):
                     try:
                         ModelDeployment.objects.create(
                             container_id=pull_id,
-                            container_name=impl.model_name,
+                            container_name=impl.deployment_container_name,
+                            model_id=impl.model_id,
                             model_name=impl.model_name,
                             device=media_device,
                             device_id=device_id,
@@ -1030,7 +1331,7 @@ class DeployView(APIView):
                             logger.warning(f"Could not retire placeholder {_pull_id}: {e}")
 
                     def deploy_fn(_pull_id=pull_id, _host_port=host_port):
-                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding, host_weights_dir=host_weights_dir)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
                             # Free the slot: the deploy never started.
@@ -1046,6 +1347,15 @@ class DeployView(APIView):
                             pass
                         return job_id, None
 
+                    # Only Whisper/SpeechT5 (TTS, SPEECH_RECOGNITION) forcefully download their weights
+                    # inside the media server container -- the pull is the whole deploy for
+                    # those. Every other non-CHAT model on this path (embedding, image/
+                    # video generation, ...) fetches its weights from HF after the pull,
+                    # same as CHAT models.
+                    expects_weights = impl.model_type not in (
+                        ModelTypes.TTS,
+                        ModelTypes.SPEECH_RECOGNITION,
+                    )
                     start_prepull_and_deploy(
                         pull_id=pull_id,
                         image_name=image_name,
@@ -1053,9 +1363,7 @@ class DeployView(APIView):
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
                         heartbeat_fn=_refresh_media_placeholder,
-                        # The media server image ships Whisper/SpeechT5 weights, so
-                        # nothing downloads after the pull — the pull is the deploy.
-                        expects_weights=False,
+                        expects_weights=expects_weights,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
@@ -1063,7 +1371,7 @@ class DeployView(APIView):
                     )
 
                 # Image already cached → deploy inline (existing path, unchanged).
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, force_full_board=should_force_full_board_embedding, host_weights_dir=host_weights_dir)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -2495,7 +2803,7 @@ class DiscoverContainersView(APIView):
     """
 
     # Container name prefixes that belong to the TT Studio infrastructure itself
-    _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+    _INFRA_PREFIXES = INFRA_CONTAINER_PREFIXES
 
     def get(self, request, *args, **kwargs):
         try:
@@ -2550,6 +2858,9 @@ class DiscoverContainersView(APIView):
                 else:
                     detected_device_ids = None
 
+                # Only model servers are offered for registration.
+                if _model_server_signal(c, bound) is None:
+                    continue
                 results.append({
                     "id": cid,
                     "name": name,
@@ -2577,8 +2888,6 @@ _SERVICE_PORT_ARG = re.compile(r"^--?service[-_]?port$", re.IGNORECASE)
 # vLLM auto tool-choice, in the forms it can appear in a launch command.
 _TOOL_CHOICE_ARG = re.compile(r"^--?enable[-_]auto[-_]tool[-_]choice$", re.IGNORECASE)
 _TOOL_PARSER_ARG = re.compile(r"^--?tool[-_]call[-_]parser$", re.IGNORECASE)
-# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
-_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
 
 
 def _parse_device_ids_token(value) -> list:
@@ -2663,32 +2972,6 @@ def _container_env(container_info: dict) -> dict:
     return env
 
 
-def _detect_device_ids_from_mounts(container_info: dict):
-    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
-
-    This is the ground truth: the launcher binds exactly the chip nodes the model
-    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
-    works regardless of how or where the container was started. Returns a sorted
-    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
-    directory is bound (no per-chip granularity), or None if no TT device is bound.
-    """
-    hc = container_info.get("HostConfig") or {}
-    ids = []
-    whole = False
-    for d in (hc.get("Devices") or []):
-        if not isinstance(d, dict):
-            continue
-        path = (d.get("PathInContainer") or d.get("PathOnHost") or "").rstrip("/")
-        m = _TT_DEVICE_NODE.match(path)
-        if m:
-            ids.append(int(m.group(1)))
-        elif path == "/dev/tenstorrent":
-            whole = True
-    if ids:
-        return sorted(set(ids))
-    return "whole" if whole else None
-
-
 def _detect_device_ids_from_command(container_info: dict):
     """Return the explicit device-id list pinned in a container's launch command
     (e.g. `--device-id 0,1`), or None if the command pins no specific devices.
@@ -2722,6 +3005,32 @@ def _detect_device_board(container_info: dict):
         seg = cache.split("/")[-1]
         if seg:
             return seg
+    return None
+
+
+# Images of the servers TT Studio and tt-model-manager launch models with.
+_MODEL_SERVER_IMAGE = re.compile(
+    r"tt-inference-server|tt-media|tt-model|tt-metal|vllm", re.IGNORECASE
+)
+
+
+def _model_server_signal(container_info: dict, bound) -> "str | None":
+    """Why a container looks like a model server, or None when nothing says so.
+
+    A Tenstorrent model cannot run without the chips, so bound devices (or a
+    privileged container, which sees them unbound) are the main signal; TT launch
+    arguments and known server images catch the rest.
+    """
+    if bound is not None:
+        return "Tenstorrent devices bound"
+    if (container_info.get("HostConfig") or {}).get("Privileged"):
+        return "privileged container"
+    tokens = _cmd_tokens(container_info)
+    if _detect_device_board(container_info) or _find_arg_value(tokens, _DEVICE_ID_ARG):
+        return "Tenstorrent launch settings"
+    image = (container_info.get("Config") or {}).get("Image") or container_info.get("image") or ""
+    if _MODEL_SERVER_IMAGE.search(image):
+        return "model server image"
     return None
 
 
@@ -2772,9 +3081,9 @@ class RegisterExternalModelView(APIView):
             except (TypeError, ValueError):
                 chips_required = 1
             try:
-                service_port = int(data.get("service_port", 7000))
+                service_port = int(data.get("service_port", 20000))
             except (TypeError, ValueError):
-                service_port = 7000
+                service_port = 20000
 
             # --- Only the container is required; model identity is derived below ---
             if not container_id:
@@ -2887,29 +3196,49 @@ class RegisterExternalModelView(APIView):
                 try:
                     catalog_data = json.loads(_CATALOG_PATH.read_text())
                     for catalog_model in catalog_data.get("models", []):
-                        if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
-                            # Found a catalog match — adopt its authoritative type
-                            # and name (routing is derived from the catalog
-                            # model_impl at enrichment time, not stored here).
-                            catalog_type = catalog_model.get("model_type", "").lower()
+                        catalog_hf_id = catalog_model.get("hf_model_id") or ""
+                        catalog_model_name = catalog_model.get("model_name") or ""
+                        hf_id_match = catalog_hf_id.lower() == hf_model_id.lower()
+                        # A container that only ever advertises its bare catalog
+                        # name (tt-media-server's MODEL=<name> convention, e.g.
+                        # "Qwen3-Embedding-0.6B" rather than an org/repo id) won't
+                        # match above; matching on model_name recovers the same
+                        # entry so we can adopt its real HF id, which some
+                        # embedding runners require verbatim (see
+                        # model_control.model_utils.embed_text).
+                        name_match = (
+                            not hf_id_match
+                            and catalog_model_name.lower() == hf_model_id.lower()
+                        )
+                        if not (hf_id_match or name_match):
+                            continue
+                        if name_match and catalog_hf_id:
+                            corrections.append(
+                                f"Model id resolved to catalog's '{catalog_hf_id}' "
+                                f"(matched by short name '{hf_model_id}')"
+                            )
+                            hf_model_id = catalog_hf_id
 
-                            if catalog_type and catalog_type != model_type:
-                                if model_type:
-                                    corrections.append(
-                                        f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
-                                    )
-                                model_type = catalog_type
+                        # Found a catalog match — adopt its authoritative type and
+                        # name (routing is derived from the catalog model_impl at
+                        # enrichment time, not stored here).
+                        catalog_type = catalog_model.get("model_type", "").lower()
+                        if catalog_type and catalog_type != model_type:
+                            if model_type:
+                                corrections.append(
+                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                )
+                            model_type = catalog_type
 
-                            # Adopt the catalog's model name
-                            catalog_name = catalog_model.get("model_name")
-                            if catalog_name and catalog_name != model_name:
-                                if model_name:
-                                    corrections.append(
-                                        f"Model name set to catalog name '{catalog_name}'"
-                                    )
-                                model_name = catalog_name
+                        # Adopt the catalog's model name
+                        if catalog_model_name and catalog_model_name != model_name:
+                            if model_name:
+                                corrections.append(
+                                    f"Model name set to catalog name '{catalog_model_name}'"
+                                )
+                            model_name = catalog_model_name
 
-                            break
+                        break
                 except Exception as e:
                     logger.warning(f"Could not check HF model ID against catalog: {e}")
 
@@ -2968,11 +3297,14 @@ class RegisterExternalModelView(APIView):
                     "for monitoring only — no chat/TTS page will be offered."
                 )
 
-            # Record if the model was launched with tool-calling capability and
-            # warn when a tool-capable model was launched without tool-calling capability.
+            # Record whether the container was launched with tool-calling support.
+            # The container's own launch flags are authoritative: a model family we
+            # have no parser mapping for can still be served with tool calling if
+            # the user passed the flags themselves. Only warn (with the flags to
+            # add) when we know the right parser and the container lacks it.
             launch_flags = tool_calling_launch_flags(model_name, hf_model_id or "")
             container_has_tools = _container_has_tool_calling(container_info)
-            tool_calling_enabled = launch_flags is not None and container_has_tools
+            tool_calling_enabled = container_has_tools
             if launch_flags is not None and not container_has_tools:
                 corrections.append(
                     "This container was started without vLLM tool-calling support, so "
@@ -3041,7 +3373,7 @@ class RegisterExternalModelView(APIView):
                     rec.device_id = device_id
                     rec.device_ids = device_ids
                     rec.model_name = model_name
-                    rec.port = int(service_port) if service_port else 7000
+                    rec.port = int(service_port) if service_port else 20000
                     rec.tool_calling_enabled = tool_calling_enabled
                     rec.jwt_secret = jwt_secret
                     rec.model_type = model_type
@@ -3060,7 +3392,7 @@ class RegisterExternalModelView(APIView):
                         device_ids=device_ids,
                         status="running",
                         stopped_by_user=False,
-                        port=int(service_port) if service_port else 7000,
+                        port=int(service_port) if service_port else 20000,
                         tool_calling_enabled=tool_calling_enabled,
                         jwt_secret=jwt_secret,
                         model_type=model_type,
@@ -3213,31 +3545,122 @@ class _StopFailed(Exception):
     """Raised when a container cannot be stopped; the stream aborts with an error."""
 
 
+def _container_liveness(container_id, truncated):
+    """True if the container is running, False if confirmed gone, None if unobservable.
+
+    Only a confirmed death may be recorded as one: None means docker-control-service
+    could not be reached, not that the container is gone.
+    """
+    try:
+        info = get_docker_client().get_container(container_id)
+        return (info or {}).get("status") in ("running", "restarting")
+    except ContainerNotFound:
+        return False
+    except Exception as e:
+        if not is_service_unreachable(e):
+            logger.warning(f"Could not determine liveness of {truncated}: {e}")
+        return None
+
+
+def _community_deployment_for(container_id):
+    """The community deployment record for this container, or None."""
+    from docker_control.models import ModelDeployment
+
+    try:
+        deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+    except Exception as e:
+        logger.warning(f"Could not read deployment for {container_id[:12]}: {e}")
+        return None
+    if deployment is None or not getattr(deployment, "community_model_id", None):
+        return None
+    return deployment
+
+
+def _stop_community_deployment(deployment, truncated):
+    """Stop a community deployment via its launcher and record the outcome.
+
+    The record stays running until tt-model-manager confirms the stop, which can take
+    minutes, so a slow or failed stop never hides a live container or frees its chips.
+    Runs as one blocking call so the outcome is recorded even if the client disconnects.
+    Returns ``{"lines", "error"}``.
+    """
+    from django.utils import timezone
+    from docker_control.models import ModelDeployment
+
+    alive = _container_liveness(deployment.container_id, truncated)
+    was_stopped_by_user = deployment.stopped_by_user
+    # Set before stopping so the death mid-stop is not reported as unexpected.
+    deployment.stopped_by_user = True
+    deployment.save()
+
+    try:
+        result = launchers.get(launchers.COMMUNITY).stop(deployment)
+    except Exception as e:
+        logger.error(f"Community stop of {truncated} raised: {e}")
+        result = launchers.StopResult(status="error", message=str(e))
+
+    current = ModelDeployment.objects.filter(id=deployment.id).first()
+    if result.status != "success":
+        if current:
+            current.stopped_by_user = was_stopped_by_user
+            current.save()
+        message = result.message or f"Failed to stop {deployment.model_name}"
+        return {"lines": [f"Error: {message}"], "error": message}
+
+    if current:
+        if alive is not False:
+            current.status = "stopped"
+        elif current.status not in ("exited", "dead", "failed"):
+            current.status = "dead"
+        if not current.stopped_at:
+            current.stopped_at = timezone.now()
+        current.save()
+
+    lines = []
+    if result.mesh_reset:
+        lines.append("The server did not shut down cleanly, so the mesh was reset.")
+    lines.append(f"{deployment.model_name} stopped and removed successfully")
+    return {"lines": lines, "error": None}
+
+
 async def _astream_stop_remove_container(container_id, truncated):
     """Stop and remove a model's container, yielding progress lines.
 
     Raises _StopFailed if the container could not be stopped.
     """
+    from docker_control.models import ModelDeployment
+
+    # A community bundle must be stopped through its launcher: tt-model-manager
+    # SIGTERMs the server so it closes the mesh, and resets the mesh itself if docker
+    # had to SIGKILL. A plain docker stop skips both and leaves the chips unusable
+    # until the next board reset.
+    community = await asyncio.to_thread(_community_deployment_for, container_id)
+    if community is not None:
+        yield f"Stopping {community.model_name} via tt-model-manager (this can take a few minutes)…"
+        try:
+            outcome = await asyncio.to_thread(_stop_community_deployment, community, truncated)
+        except Exception as e:
+            raise _StopFailed(f"Failed to stop {community.model_name}: {e}")
+        for line in outcome["lines"]:
+            yield line
+        if outcome["error"]:
+            raise _StopFailed(
+                f"{outcome['error']}. The model is still running; try stopping it again."
+            )
+        try:
+            await asyncio.to_thread(update_deploy_cache)
+        except Exception:
+            pass
+        return
+
     def _mark_stopped():
-        from docker_control.models import ModelDeployment
         from django.utils import timezone
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
         # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
         # The only reliable signal is whether the container is actually alive right now.
-        # Tri-state: True = still running, False = confirmed gone, None = we
-        # could not find out (docker-control-service unreachable). Only a
-        # confirmed death may be recorded as one.
-        alive = None
-        try:
-            info = get_docker_client().get_container(container_id)
-            alive = (info or {}).get("status") in ("running", "restarting")
-        except ContainerNotFound:
-            alive = False  # the service answered 404 → it died unexpectedly
-        except Exception as e:
-            if not is_service_unreachable(e):
-                logger.warning(f"Could not determine liveness of {truncated}: {e}")
+        alive = _container_liveness(container_id, truncated)
 
         # The user pressed stop — that much is a fact regardless of what we can
         # observe, and it keeps a later death from being reported as unexpected.
@@ -3311,6 +3734,12 @@ async def _astream_stop_remove_container(container_id, truncated):
         pass
 
     yield f"Container {truncated} stopped and removed successfully"
+
+
+# Held around every tt-smi reset, and around a stop's choice of chips to reset,
+# so two stops on one card or a stop and a board reset never overlap. All reset
+# paths run on uvicorn's single event loop.
+_CHIP_RESET_LOCK = asyncio.Lock()
 
 
 async def _astream_tt_smi_reset(device_ids, *, force_refresh):
@@ -3432,18 +3861,41 @@ class StopStreamView(View):
                     yield _sse_event({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
                     return
 
-                label = ", ".join(str(d) for d in device_ids)
-                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting device(s) {label}…"})
-                async for event in _astream_reset_phase(
-                    device_ids,
-                    force_refresh=True,
-                    success_msg=f"Model deleted and device(s) {label} reset successfully",
-                    partial_msg=(
-                        f"Model deleted, but reset of device(s) {label} did not complete "
-                        "successfully. Manual intervention may be required."
-                    ),
-                ):
-                    yield event
+                if _CHIP_RESET_LOCK.locked():
+                    yield _sse_event({"type": "log", "step": "resetting", "message": "Waiting for another reset to finish…"})
+                async with _CHIP_RESET_LOCK:
+                    # Mark the board as resetting before choosing chips, so no new
+                    # deploy can claim a sibling between the check and the reset.
+                    await asyncio.to_thread(SystemResourceService.set_resetting_state)
+                    card_ids = await asyncio.to_thread(_card_reset_device_ids, device_ids, container_id)
+                    if card_ids != sorted(device_ids):
+                        yield _sse_event({
+                            "type": "log",
+                            "step": "resetting",
+                            "message": (
+                                f"Also resetting idle chip(s) {', '.join(str(d) for d in card_ids if d not in device_ids)} "
+                                "on the same card, so the card is reset as a whole"
+                            ),
+                        })
+                    device_ids = card_ids
+
+                    label = ", ".join(str(d) for d in device_ids)
+                    yield _sse_event({
+                        "type": "step",
+                        "step": "resetting",
+                        "message": f"Resetting device(s) {label}…",
+                        "device_ids": device_ids,
+                    })
+                    async for event in _astream_reset_phase(
+                        device_ids,
+                        force_refresh=True,
+                        success_msg=f"Model deleted and device(s) {label} reset successfully",
+                        partial_msg=(
+                            f"Model deleted, but reset of device(s) {label} did not complete "
+                            "successfully. Manual intervention may be required."
+                        ),
+                    ):
+                        yield event
             except Exception as e:
                 # Never let the stream die without a terminal event; the client
                 # treats an abrupt close as "Connection to stream lost".
@@ -3467,13 +3919,16 @@ class ResetStreamView(View):
             yield "retry: 1000\n\n"
             try:
                 yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-                async for event in _astream_reset_phase(
-                    device_ids,
-                    force_refresh=False,
-                    success_msg=f"Reset of {label} completed successfully",
-                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-                ):
-                    yield event
+                if _CHIP_RESET_LOCK.locked():
+                    yield _sse_event({"type": "log", "step": "resetting", "message": "Waiting for another reset to finish…"})
+                async with _CHIP_RESET_LOCK:
+                    async for event in _astream_reset_phase(
+                        device_ids,
+                        force_refresh=False,
+                        success_msg=f"Reset of {label} completed successfully",
+                        partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                    ):
+                        yield event
             except Exception as e:
                 # Always emit a terminal event so the client never sees an abrupt
                 # close ("Connection to stream lost") on an unexpected failure.
@@ -3581,11 +4036,12 @@ async def _run_reset_all_job():
         state["step"] = "resetting"
         _log("All models stopped — resetting board…")
         reset_ok = False
-        async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
-            if kind == "log":
-                _log(payload)
-            else:
-                reset_ok = bool(payload)
+        async with _CHIP_RESET_LOCK:
+            async for kind, payload in _astream_tt_smi_reset([], force_refresh=True):
+                if kind == "log":
+                    _log(payload)
+                else:
+                    reset_ok = bool(payload)
 
         state["step"] = "done"
         state["done"] = True
@@ -3763,6 +4219,14 @@ def _hf_from_container(container_info: dict):
         val = env.get(key)
         if val and "/" in val:  # looks like an org/name HF id, not a bare label
             return val
+    # No org/repo-shaped value anywhere -- fall back to a bare MODEL/MODEL_ID, the
+    # tt-media-server launch convention for forge/media models (e.g. MODEL=bge-m3,
+    # MODEL=Qwen3-Embedding-4B). Lower confidence than the slash-shaped pass above,
+    # but still a real identity from the container itself, not a guess.
+    for key in ("MODEL_ID", "MODEL"):
+        val = env.get(key)
+        if val:
+            return val
     return None
 
 
@@ -3812,6 +4276,7 @@ def _detect_served_api(host_port) -> dict:
         ("/v1/audio/speech", "tts"),
         ("/v1/videos/generations", "video_generation"),
         ("/objdetection_v2", "object_detection"),
+        ("/v1/embeddings", "embedding"),
     ):
         if route in paths:
             result["service_route"] = route
@@ -3845,13 +4310,17 @@ def _detect_model_info(docker_client, container_id, container_info=None) -> dict
         result["source"] = "container"
 
     # Live /v1/models is authoritative when reachable (unauth'd); fills/overrides.
+    # Exception: tt-media-server's non-LLM services (embedding, CNN, etc.) report
+    # settings.model_weights_path here instead of a clean id when SERVED_MODEL_NAME
+    # isn't set at launch -- an absolute path, never a real "org/repo" HF id. Don't
+    # let that clobber a real identity already found from the container itself.
     if host_port:
         try:
             api_resp = requests.get(
                 f"http://host.docker.internal:{host_port}/v1/models", timeout=2
             )
             model_id = api_resp.json().get("data", [{}])[0].get("id")
-            if model_id:
+            if model_id and not model_id.startswith("/"):
                 result["hf_model_id"] = model_id
                 result["source"] = "api"
         except Exception:

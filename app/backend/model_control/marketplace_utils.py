@@ -22,8 +22,10 @@ the app catalog itself is in `shared_config.marketplace_config`.
 import fcntl
 import json
 import os
+import re
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -280,10 +282,10 @@ def deployed_model_names() -> List[str]:
 
     names: List[str] = []
     for _, entry in _running_coding_agent_deploys():
-        model_name = getattr(entry.get("model_impl"), "model_name", None)
-        if not model_name:
+        impl = entry.get("model_impl")
+        if not getattr(impl, "model_name", None):
             continue
-        names.extend(n for n in get_gateway_model_names(model_name) if n not in names)
+        names.extend(n for n in get_gateway_model_names(impl) if n not in names)
     return names
 
 
@@ -321,6 +323,111 @@ def _model_env(app: MarketplaceApp) -> Dict[str, str]:
         )
         for key, template in app.gateway_env.items()
     }
+
+
+# Fraction of an embedding model's own configured max sequence length left as
+# the token budget for one RAG chunk. A chunk sized right at that boundary can
+# still overflow it once the runner retokenizes: apps size chunks with their
+# own text splitter (a raw character count, or a generic tokenizer like
+# tiktoken), neither of which matches the model's actual vocabulary, and the
+# runner also needs room for any special tokens it adds server-side.
+EMBEDDING_CHUNK_SAFETY_MARGIN = 0.75
+# ~4 English characters per token is the standard estimate (used the same way
+# in LangChain's and OpenAI's own docs) -- only for apps whose splitter counts
+# characters rather than tokens; see max_chunk_chars below.
+CHARS_PER_TOKEN_ESTIMATE = 4
+# Used when a deployed embedding model doesn't report its own max sequence length.
+DEFAULT_EMBEDDING_MAX_LENGTH = 512
+
+
+def _embedding_model_max_length(embedding_model: str) -> int:
+    """The deployed embedding model's own configured max sequence length, in
+    tokens (from its catalog env_vars), or a conservative default if unknown."""
+    from model_control.model_utils import find_deployed_embedding_model
+
+    deploy = find_deployed_embedding_model(embedding_model)
+    impl = deploy.get("model_impl") if deploy else None
+    raw_max_length = None
+    if impl is not None:
+        raw_max_length = impl.docker_config.get("environment", {}).get(
+            "VLLM__MAX_MODEL_LENGTH"
+        )
+    try:
+        return int(raw_max_length)
+    except (TypeError, ValueError):
+        return DEFAULT_EMBEDDING_MAX_LENGTH
+
+
+def embedding_model_env(app: MarketplaceApp, embedding_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's embedding-endpoint env vars, if the user picked a model.
+
+    `embedding_model` is the identifier the frontend's embedding picker sent
+    (whatever find_deployed_embedding_model matches on). None means the app
+    keeps using its own native embedder, so no override is rendered and the
+    app's static `env` defaults apply. Always points directly at TT-Studio's
+    backend, bypassing the LiteLLM gateway used for chat -- embeddings aren't
+    part of its OpenAI surface.
+
+    Templates also get `max_chunk_tokens` and `max_chunk_chars` (`chunk_overlap_tokens`
+    too) -- the picked model's own max sequence length with a safety margin,
+    not a fixed guess, so an app's RAG chunking never sends the model more
+    than it actually accepts. Use `max_chunk_tokens` for a token-counting text
+    splitter (e.g. Open WebUI's), `max_chunk_chars` for a character-counting
+    one (e.g. AnythingLLM's).
+    """
+    if not embedding_model or not app.embedding_gateway_env:
+        return {}
+    max_length = _embedding_model_max_length(embedding_model)
+    max_chunk_tokens = max(1, int(max_length * EMBEDDING_CHUNK_SAFETY_MARGIN))
+    max_chunk_chars = max_chunk_tokens * CHARS_PER_TOKEN_ESTIMATE
+    chunk_overlap_tokens = max_chunk_tokens // 10 if max_chunk_tokens > 1 else 0
+    return _companion_model_env(
+        app.embedding_gateway_env,
+        embedding_model,
+        max_chunk_tokens=max_chunk_tokens,
+        max_chunk_chars=max_chunk_chars,
+        chunk_overlap_tokens=chunk_overlap_tokens,
+    )
+
+
+def _companion_model_env(
+    template_env: Dict[str, str], model_identifier: Optional[str], **extra: object
+) -> Dict[str, str]:
+    """Shared template renderer behind embedding_model_env/stt_model_env/tts_model_env.
+
+    None (no model picked) or an app with no template for this endpoint both
+    mean "render nothing", so the app's own static `env` defaults (its native
+    embedder/STT/TTS) apply untouched.
+    """
+    if not model_identifier or not template_env:
+        return {}
+    return {
+        key: template.format(
+            base_url=BACKEND_OPENAI_URL,
+            api_key=LITELLM_UPSTREAM_KEY,
+            model=model_identifier,
+            **extra,
+        )
+        for key, template in template_env.items()
+    }
+
+
+def stt_model_env(app: MarketplaceApp, stt_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's speech-to-text env vars, if the user picked a deployed
+    speech-recognition model instead of the app's own native/cloud STT."""
+    return _companion_model_env(app.stt_gateway_env, stt_model)
+
+
+def tts_model_env(app: MarketplaceApp, tts_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's text-to-speech env vars, if the user picked a deployed
+    TTS model instead of the app's own native/cloud TTS."""
+    return _companion_model_env(app.tts_gateway_env, tts_model)
+
+
+def image_model_env(app: MarketplaceApp, image_model: Optional[str]) -> Dict[str, str]:
+    """Render the app's image-generation env vars, if the user picked a deployed
+    image model. Without one the app keeps its own default (usually disabled)."""
+    return _companion_model_env(app.image_gateway_env, image_model)
 
 
 # --- Serialization ----------------------------------------------------------
@@ -371,6 +478,11 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
         "kind": app.kind.value,
         "docs_url": app.docs_url,
         "first_run_note": app.first_run_note,
+        # Lets the UI offer a "native vs. deployed model" picker before launch.
+        "embedding_choice": bool(app.embedding_gateway_env),
+        "stt_choice": bool(app.stt_gateway_env),
+        "tts_choice": bool(app.tts_gateway_env),
+        "image_choice": bool(app.image_gateway_env),
     }
 
     # Apps configured through their own UI need the endpoint as reachable from
@@ -406,6 +518,8 @@ def serialize_app(app: MarketplaceApp, containers: List[dict]) -> dict:
             host_port=published_host_port(container, app.container_port),
             open_path=app.open_path,
         )
+        if "WEBUI_AUTH=True" in (container.get("environment") or []):
+            payload["first_run_note"] = OPEN_WEBUI_SIGN_IN_NOTE
     elif job and job.get("state") == "error":
         # Kept after the launch failed so the card can explain why.
         payload.update(status="error", message=job["message"])
@@ -492,6 +606,90 @@ def _run_post_ready_hook(app: MarketplaceApp) -> None:
         logger.warning(f"marketplace: could not configure {app.id}: {e}. Please configure the app manually.")
 
 
+# --- Pre-launch checks ------------------------------------------------------
+#
+# Hooks keyed by app id that run before the container starts and return extra
+# env vars for it. A failure is logged and the app starts with its defaults.
+
+# Open WebUI is launched with WEBUI_AUTH=False so it opens straight into a chat,
+# signing everyone in as admin@localhost. It refuses that when its data volume
+# already holds accounts but not that one (e.g. created before auth was turned
+# off), and the page then spins on "Signing in" forever. Reading the user table
+# first lets such a volume start with auth on instead.
+_OPEN_WEBUI_USERS_SCRIPT = """
+import os, sqlite3
+db = "/app/backend/data/webui.db"
+users = admin = 0
+if os.path.exists(db):
+    conn = sqlite3.connect("file:" + db + "?mode=ro", uri=True)
+    users = conn.execute("select count(*) from user").fetchone()[0]
+    admin = conn.execute(
+        "select count(*) from user where lower(email) = ?", ("admin@localhost",)
+    ).fetchone()[0]
+print("users=%d admin=%d" % (users, admin))
+"""
+
+OPEN_WEBUI_SIGN_IN_NOTE = (
+    "This Open WebUI already has accounts from an earlier launch, so it asks you "
+    "to sign in with one of them. To start over without accounts (this deletes "
+    "its chats), stop Open WebUI and run: docker volume rm tt_studio_open_webui_data"
+)
+
+PROBE_TIMEOUT_S = 60
+
+
+def _open_webui_env(app: MarketplaceApp, client) -> Dict[str, str]:
+    """Turn auth back on when the volume's accounts would block the auto sign-in."""
+    # A name of its own per check, so overlapping launches never touch each
+    # other's probe; only this probe is ever removed below.
+    probe = f"{app.container_name}_probe_{uuid.uuid4().hex[:8]}"
+    client.run_container(
+        image=app.image,
+        name=probe,
+        command="python3 -c \"import os; exec(os.environ['PROBE'])\"",
+        environment={"PROBE": _OPEN_WEBUI_USERS_SCRIPT},
+        volumes=dict(app.volumes),
+    )
+    try:
+        deadline = time.monotonic() + PROBE_TIMEOUT_S
+        while _container_state(client, probe) not in ("exited", "dead"):
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"user check did not finish in {PROBE_TIMEOUT_S}s")
+            threading.Event().wait(1)
+        output = " ".join(client.tail_logs(probe, tail=20))
+    finally:
+        remove_container_if_present(client, probe)
+
+    counts = re.search(r"users=(\d+) admin=(\d+)", output)
+    if not counts:
+        raise RuntimeError(f"unexpected user check output: {output[-200:]!r}")
+    users, admin = (int(n) for n in counts.groups())
+    if users and not admin:
+        logger.info(
+            f"marketplace: {app.id} volume has {users} account(s) and no "
+            "admin@localhost; launching with sign-in"
+        )
+        return {"WEBUI_AUTH": "True"}
+    return {}
+
+
+PRE_LAUNCH_ENV_HOOKS = {"open-webui": _open_webui_env}
+
+
+def _pre_launch_env(app: MarketplaceApp, client) -> Dict[str, str]:
+    hook = PRE_LAUNCH_ENV_HOOKS.get(app.id)
+    if hook is None:
+        return {}
+    try:
+        return hook(app, client)
+    except Exception as e:
+        logger.warning(
+            f"marketplace: pre-launch check for {app.id} failed: {e}; "
+            "launching with its defaults"
+        )
+        return {}
+
+
 # --- Launching and stopping -------------------------------------------------
 
 
@@ -532,10 +730,20 @@ def remove_container_if_present(client, name: str) -> None:
             raise
 
 
-def start_launch(app: MarketplaceApp, host_port: int) -> None:
+def start_launch(
+    app: MarketplaceApp,
+    host_port: int,
+    embedding_model: Optional[str] = None,
+    stt_model: Optional[str] = None,
+    tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
+) -> None:
     """Pull and start an app in the background. Poll get_job / serialize_app."""
     threading.Thread(
-        target=_launch, args=(app, host_port), daemon=True, name=f"launch-{app.id}"
+        target=_launch,
+        args=(app, host_port, embedding_model, stt_model, tts_model, image_model),
+        daemon=True,
+        name=f"launch-{app.id}",
     ).start()
 
 
@@ -547,7 +755,14 @@ def stop_app(app: MarketplaceApp) -> None:
     clear_job(app.id)
 
 
-def _launch(app: MarketplaceApp, host_port: int) -> None:
+def _launch(
+    app: MarketplaceApp,
+    host_port: int,
+    embedding_model: Optional[str] = None,
+    stt_model: Optional[str] = None,
+    tts_model: Optional[str] = None,
+    image_model: Optional[str] = None,
+) -> None:
     """Pull the image if needed, then run the container. Runs in a worker thread."""
     client = get_docker_client()
     image_name, image_tag = split_image_ref(app.image)
@@ -576,7 +791,15 @@ def _launch(app: MarketplaceApp, host_port: int) -> None:
                 name=app.container_name,
                 hostname=app.container_name,
                 ports={f"{app.container_port}/tcp": host_port},
-                environment={**app.env, **_model_env(app)},
+                environment={
+                    **app.env,
+                    **_pre_launch_env(app, client),
+                    **_model_env(app),
+                    **embedding_model_env(app, embedding_model),
+                    **stt_model_env(app, stt_model),
+                    **tts_model_env(app, tts_model),
+                    **image_model_env(app, image_model),
+                },
                 volumes=dict(app.volumes),
                 network=backend_config.docker_bridge_network_name,
                 cap_add=list(app.cap_add),

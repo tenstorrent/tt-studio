@@ -51,24 +51,24 @@ example JSON response:
 ```json
 {
     "1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1": {
-        "name": "dummy_echo_model_p8013",
+        "name": "dummy_echo_model_p21003",
         "status": "running",
         "health": "starting",
         "create": "2024-05-17T16:52:42.179909055Z",
         "image_id": "sha256:9258b9f0ae0d5f597152bb3d57fa15bfac102170206418903d974480f1a74352",
         "image_name": "dummy_echo_model:v0.0.1",
         "port_bindings": {
-            "7000/tcp": [
+            "20000/tcp": [
                 {
                     "HostIp": "0.0.0.0",
-                    "HostPort": "8013"
+                    "HostPort": "21003"
                 }
             ]
         },
         "networks": {
             "tt_studio_network": {
                 "DNSNames": [
-                    "dummy_echo_model_p8013",
+                    "dummy_echo_model_p21003",
                     "1d1a274a7126"
                 ]
             }
@@ -94,10 +94,10 @@ format: JSON
 {
     "status": "success",
     "container_id": "1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1",
-    "container_name": "dummy_echo_model_p8013",
+    "container_name": "dummy_echo_model_p21003",
     "service_route": "/inference/dummy_echo",
     "port_bindings": {
-        "7000/tcp": 8013
+        "20000/tcp": 21003
     }
 }
 ```

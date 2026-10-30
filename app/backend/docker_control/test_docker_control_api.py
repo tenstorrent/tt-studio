@@ -53,7 +53,19 @@ def deploy_model(backend_host, model_id):
 
 def get_service_details(deployment_data, impl, on_bridge_network):
     port_bindings = deployment_data["port_bindings"]
-    service_port = port_bindings["7000/tcp"] if on_bridge_network else impl.service_port
+    if on_bridge_network:
+        # The container's internal port is now the dynamically-assigned
+        # service_port for vLLM models (previously always 7000), so read
+        # whichever single port mapping is actually present instead of a
+        # hardcoded key.
+        ((_, host_port_value),) = port_bindings.items()
+        service_port = (
+            host_port_value[0]["HostPort"]
+            if isinstance(host_port_value, list)
+            else host_port_value
+        )
+    else:
+        service_port = impl.service_port
     return {
         "host": deployment_data["container_name"],
         "port": service_port,

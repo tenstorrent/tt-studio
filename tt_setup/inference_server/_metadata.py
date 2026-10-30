@@ -46,7 +46,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
 
             # Instructions for changing
             f.write("  💡 To switch to a different artifact:\n")
-            f.write("     • Run: python run.py --reconfigure-inference-server\n")
+            f.write(f"     • Run: {LAUNCH_CMD} --reconfigure-inference-server\n")
             f.write("     • Or manually edit: .env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
             f.write("\n" + "-" * 80 + "\n\n")
 

@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 
 from tt_setup.console import ask, console, is_verbose, notice_panel
-from tt_setup.constants import _PURGE_MODEL_PICKER
+from tt_setup.constants import LAUNCH_CMD, _PURGE_MODEL_PICKER
 from tt_setup.env_config import get_env_var
 
 
@@ -180,7 +180,7 @@ def stop_models(args, base=None, fetch=fetch_deployed, stream=stream_stop):
         console.print()
         console.print(notice_panel("TT Studio isn't reachable", [
             str(e), "",
-            "Start it with python run.py, then run --stop-model again.",
+            f"Start it with {LAUNCH_CMD}, then run --stop-model again.",
         ], border_style="error"))
         return 1
 
@@ -192,7 +192,7 @@ def stop_models(args, base=None, fetch=fetch_deployed, stream=stream_stop):
         if not sys.stdin.isatty():
             console.print()
             console.print(notice_panel("--stop-model needs a terminal for its picker", [
-                "Pass the model name instead: python run.py --stop-model <name>",
+                f"Pass the model name instead: {LAUNCH_CMD} --stop-model <name>",
                 "Deployed now: " + ", ".join(r["name"] for r in rows),
             ], border_style="error"))
             return 1

@@ -148,10 +148,23 @@ jobs:
 
           # SPA fallback must serve index.html for client-side routes
           curl -fsS http://localhost:18080/chat | grep -qi '<div id="root"'
-          # API locations must proxy through to the backend upstream
-          # (a 200 here comes from the stub; a dead proxy would be a 502)
-          code=$(curl -fsS -o /dev/null -w "%{http_code}" http://localhost:18080/models-api/)
-          [ "$code" = "200" ] || { echo "/models-api/ proxy returned $code" >&2; exit 1; }
+
+          # API locations must proxy through to the backend upstream. A 200
+          # comes from the stub; a dead proxy would be a 502. The stub is
+          # still pulling its image and starting python while nginx is
+          # already up, so poll instead of asserting on the first request.
+          code=""
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:18080/models-api/ || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          if [ "$code" != "200" ]; then
+            echo "/models-api/ proxy returned $code" >&2
+            docker logs backend-stub >&2
+            docker logs frontend >&2
+            exit 1
+          fi
       - name: Clean up containers
         if: always()
         working-directory: .

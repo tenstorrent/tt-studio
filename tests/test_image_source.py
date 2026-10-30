@@ -57,6 +57,24 @@ class TestFrontendConfigIsStock(unittest.TestCase):
                         VITE_ENABLE_RAG_ADMIN="false")
         self.assertTrue(M.frontend_config_is_stock(env))
 
+    def test_stock_constant_is_stock(self):
+        from tt_setup.constants import STOCK_APP_TITLE
+        env = self._env(VITE_APP_TITLE=STOCK_APP_TITLE)
+        self.assertTrue(M.frontend_config_is_stock(env))
+        self.assertEqual(M.frontend_config_drift(env), [])
+
+    def test_actual_env_default_template_has_no_drift(self):
+        """Guarantees that the repo's .env.default produces zero drift on fresh clones."""
+        import os
+        from dotenv import dotenv_values
+        from tt_setup.constants import ENV_FILE_DEFAULT
+
+        self.assertTrue(os.path.exists(ENV_FILE_DEFAULT), f"{ENV_FILE_DEFAULT} missing")
+        default_vars = dotenv_values(ENV_FILE_DEFAULT, interpolate=False)
+        env = lambda name, default="": default_vars.get(name, default)
+        self.assertEqual(M.frontend_config_drift(env), [])
+        self.assertTrue(M.frontend_config_is_stock(env))
+
     def test_custom_title_is_not_stock(self):
         self.assertFalse(M.frontend_config_is_stock(self._env(VITE_APP_TITLE="My Lab")))
 
@@ -105,12 +123,18 @@ class TestRequiredImageRefs(unittest.TestCase):
             "ghcr.io/tenstorrent/tt-studio/backend:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/agent:v2.9.0",
             "ghcr.io/tenstorrent/tt-studio/frontend:v2.9.0",
+            "ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0",
         ])
 
     def test_dev_uses_frontend_dev(self):
         refs = M.required_image_refs(True, "localhost:5000/tt-studio", "sha-abc123def456")
         self.assertIn("localhost:5000/tt-studio/frontend-dev:sha-abc123def456", refs)
         self.assertNotIn("localhost:5000/tt-studio/frontend:sha-abc123def456", refs)
+        self.assertIn("localhost:5000/tt-studio/docker-control:sha-abc123def456", refs)
+
+    def test_skip_docker_control_omits_docker_control_ref(self):
+        refs = M.required_image_refs(False, "ghcr.io/tenstorrent/tt-studio", "v2.9.0", include_docker_control=False)
+        self.assertNotIn("ghcr.io/tenstorrent/tt-studio/docker-control:v2.9.0", refs)
 
 
 class TestIsWorktreeDirty(unittest.TestCase):
@@ -139,6 +163,16 @@ class TestIsWorktreeDirty(unittest.TestCase):
 
     def test_git_exception_counts_as_dirty(self):
         with patch.object(M.subprocess, "run", side_effect=OSError("no git")):
+            self.assertTrue(M.is_worktree_dirty())
+
+    def test_catalog_only_change_is_clean(self):
+        status = self._result(0, f" M {M.CATALOG_PATH}\n")
+        with patch.object(M.subprocess, "run", return_value=status):
+            self.assertFalse(M.is_worktree_dirty())
+
+    def test_catalog_plus_other_change_is_dirty(self):
+        status = self._result(0, f" M {M.CATALOG_PATH}\n M app/backend/urls.py\n")
+        with patch.object(M.subprocess, "run", return_value=status):
             self.assertTrue(M.is_worktree_dirty())
 
 

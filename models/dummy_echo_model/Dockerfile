@@ -59,6 +59,6 @@ RUN /bin/bash -c "source ${HOME_DIR}/python_env/bin/activate && pip install --de
 WORKDIR "${HOME_DIR}/${APP_DIR}/src"
 CMD ["/bin/bash", "-c", "source /home/user/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
 
-# default port is 7000
-ENV SERVICE_PORT=7000
+# default port is 20000
+ENV SERVICE_PORT=20000
 HEALTHCHECK --retries=5 --start-period=1s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1

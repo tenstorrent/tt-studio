@@ -1,0 +1,146 @@
+name: Publish PyPI package
+
+# Builds the `tt-studio` package — the launcher plus the whole app tree it
+# drives (see hatch_build.py) — and publishes it with PyPI trusted publishing
+# (OIDC; no API token is stored anywhere).
+#
+#   vX.Y.Z tag push       -> PyPI
+#   vX.Y.Z-rcN tag push   -> TestPyPI (pre-release rehearsal)
+#   workflow_dispatch     -> build + smoke test; target=testpypi also uploads a
+#                            .devN build to TestPyPI
+#   pull_request          -> build + smoke test only (packaging changes)
+#
+# The version comes from the git tag (hatch-vcs), and the build job refuses to
+# publish when the wheel version doesn't match the tag. Untagged commits build
+# as X.Y.Z.devN+g<sha>, a local version PyPI won't accept.
+#
+# Caveat (same as publish-images.yml): a tag pushed by another workflow with the
+# default GITHUB_TOKEN does not trigger this one. The release CLI
+# (`python run.py --merge-rc-branch`) pushes the tag from a maintainer machine,
+# so it fires.
+#
+# One-time admin setup before the first publish: dev-docs/pip-package.md,
+# "Going live".
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc*"
+  pull_request:
+    branches:
+      - "main"
+      - "dev"
+    paths:
+      - "pyproject.toml"
+      - "hatch_build.py"
+      - "tt_setup/install_mode.py"
+      - "packaging/pypi/**"
+      - "dev-tools/check_pypi_dist.py"
+      - ".github/workflows/publish-pypi.yml"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Upload target (none = build and smoke-test only)"
+        type: choice
+        options: ["none", "testpypi"]
+        default: "none"
+
+concurrency:
+  group: publish-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      channel: ${{ steps.check.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade build twine hatchling "setuptools-scm>=8"
+
+      - name: Drop the local version segment for a TestPyPI rehearsal
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+        run: |
+          # TestPyPI, like PyPI, rejects local versions (+g<sha>); X.Y.Z.devN is fine.
+          v="$(python -m setuptools_scm)"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${v%%+*}" >> "$GITHUB_ENV"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m build
+          twine check --strict dist/*
+
+      - name: Check bundle contents and version
+        id: check
+        env:
+          PUBLISH_TARGET: ${{ inputs.target }}
+        run: python dev-tools/check_pypi_dist.py dist/
+
+      - name: Smoke-test the wheel in a clean venv
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install dist/*.whl
+          export TT_STUDIO_HOME="$RUNNER_TEMP/tt-studio-home"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/tt-studio" --version
+          "$RUNNER_TEMP/venv/bin/tt-studio" --help > /dev/null
+          test -f "$TT_STUDIO_HOME/app/docker-compose.yml"
+          test -f "$TT_STUDIO_HOME/inference-api/requirements.txt"
+          test -f "$TT_STUDIO_HOME/.tt-studio-install.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'push' && needs.build.outputs.channel == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tt-studio/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: needs.build.outputs.channel == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/tt-studio/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true

@@ -27,9 +27,9 @@ _TYPE_ROUTING = {
     ModelTypes.MOCK: ("/v1/chat/completions", "vllm"),
     ModelTypes.VLM: ("/v1/chat/completions", "vllm"),
     ModelTypes.CNN: ("/v1/chat/completions", "forge"),
-    # Embedding models on the media server take /enqueue, not a chat route.
-    # TT Studio has no embedding UI, so this is for identification/parity only.
-    ModelTypes.EMBEDDING: ("/enqueue", "media"),
+    # tt-media-server mounts embedding.router at /v1 for both the media and forge
+    # runners (see tt-media-server/open_ai_api/__init__.py), so this is engine-independent.
+    ModelTypes.EMBEDDING: ("/v1/embeddings", "media"),
     ModelTypes.TTS: ("/v1/audio/speech", "media"),
     ModelTypes.SPEECH_RECOGNITION: ("/v1/audio/transcriptions", "media"),
     ModelTypes.IMAGE_GENERATION: ("/v1/images/generations", "media"),

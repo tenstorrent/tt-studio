@@ -13,6 +13,7 @@ import {
   Globe,
   Rocket,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 interface ChatExamplesProps {
   logo: string;
@@ -20,44 +21,48 @@ interface ChatExamplesProps {
   isMobileView?: boolean;
 }
 
-const allExamples = [
+const allExamples: Array<{
+  icon: LucideIcon;
+  text: string;
+  color: string;
+}> = [
   {
-    icon: <MessageCircle className="h-6 w-6" />,
+    icon: MessageCircle,
     text: "Hello, how are you today?",
     color: "text-blue-500 dark:text-blue-400",
   },
   {
-    icon: <Smile className="h-6 w-6" />,
+    icon: Smile,
     text: "Can you tell me a joke?",
     color: "text-red-500 dark:text-red-400",
   },
   {
-    icon: <Feather className="h-6 w-6" />,
+    icon: Feather,
     text: "Write me a poem.",
     color: "text-yellow-500 dark:text-yellow-400",
   },
   {
-    icon: <Lightbulb className="h-6 w-6" />,
+    icon: Lightbulb,
     text: "Tell me a fun fact.",
     color: "text-green-500 dark:text-green-400",
   },
   {
-    icon: <Code className="h-6 w-6" />,
+    icon: Code,
     text: "Explain a coding concept.",
     color: "text-purple-500 dark:text-purple-400",
   },
   {
-    icon: <Book className="h-6 w-6" />,
+    icon: Book,
     text: "Recommend a book to read.",
     color: "text-pink-500 dark:text-pink-400",
   },
   {
-    icon: <Globe className="h-6 w-6" />,
+    icon: Globe,
     text: "Describe a random country.",
     color: "text-teal-500 dark:text-teal-400",
   },
   {
-    icon: <Rocket className="h-6 w-6" />,
+    icon: Rocket,
     text: "Share a space exploration fact.",
     color: "text-orange-500 dark:text-orange-400",
   },
@@ -112,36 +117,38 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
       <div
         className={`grid ${isMobileView ? "grid-cols-1 gap-3" : "grid-cols-1 sm:grid-cols-2 gap-4"} w-full max-w-4xl`}
       >
-        {displayedExamples.map((example, index) => (
-          <Button
-            key={index}
-            variant="outline"
-            className={`h-auto ${isMobileView ? "py-3 px-4" : "py-4 px-6"} flex flex-col items-center justify-center text-center space-y-2
+        {displayedExamples.map((example, index) => {
+          const ExampleIcon = example.icon;
+
+          return (
+            <Button
+              key={index}
+              variant="outline"
+              className={`h-auto ${isMobileView ? "py-3 px-4" : "py-4 px-6"} flex flex-col items-center justify-center text-center space-y-2
                      bg-white dark:bg-[#2A2A2A] hover:bg-gray-50 dark:hover:bg-[#333333] 
                      border border-gray-200 dark:border-[#7C68FA]/20 hover:border-gray-300 dark:hover:border-[#7C68FA]/40
                      text-gray-800 dark:text-white group transition-all duration-300 shadow-sm hover:shadow-lg hover:shadow-[#7C68FA]/10
                      rounded-xl hover:rounded-2xl transform hover:scale-[1.03] active:scale-[0.97] hover:-translate-y-1
                      animate-in fade-in-0 slide-in-from-bottom-4 duration-700 backdrop-blur-sm hover:backdrop-blur-md`}
-            style={{
-              animationDelay: `${400 + index * 100}ms`,
-              animationFillMode: "both",
-            }}
-            onClick={() => setTextInput(example.text)}
-          >
-            <span
-              className={`${example.color} transition-all duration-300 transform group-hover:scale-125 group-hover:rotate-[-12deg] filter group-hover:drop-shadow-lg`}
+              style={{
+                animationDelay: `${400 + index * 100}ms`,
+                animationFillMode: "both",
+              }}
+              onClick={() => setTextInput(example.text)}
             >
-              {React.cloneElement(example.icon as React.ReactElement, {
-                className: isMobileView ? "h-5 w-5" : "h-6 w-6",
-              })}
-            </span>
-            <span
-              className={`${isMobileView ? "text-xs" : "text-sm"} font-medium transition-all duration-300 group-hover:text-gray-900 dark:group-hover:text-white group-hover:font-semibold`}
-            >
-              {example.text}
-            </span>
-          </Button>
-        ))}
+              <span
+                className={`${example.color} transition-all duration-300 transform group-hover:scale-125 group-hover:rotate-[-12deg] filter group-hover:drop-shadow-lg`}
+              >
+                <ExampleIcon className={isMobileView ? "h-5 w-5" : "h-6 w-6"} />
+              </span>
+              <span
+                className={`${isMobileView ? "text-xs" : "text-sm"} font-medium transition-all duration-300 group-hover:text-gray-900 dark:group-hover:text-white group-hover:font-semibold`}
+              >
+                {example.text}
+              </span>
+            </Button>
+          );
+        })}
       </div>
     </div>
   );

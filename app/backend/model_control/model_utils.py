@@ -7,6 +7,7 @@ import os
 import pickle
 import time
 import traceback
+from typing import Optional
 
 import httpx
 import requests
@@ -17,6 +18,8 @@ from django.core.cache import caches
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
+from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tts_api_key
 from docker_control.docker_utils import update_deploy_cache
 from model_control.metrics_tracker import InferenceMetricsTracker
 
@@ -50,6 +53,80 @@ def auth_headers(deploy: dict = None) -> dict:
     default token (normal deploys share the backend secret)."""
     secret = deploy.get("jwt_secret") if isinstance(deploy, dict) else None
     return {"Authorization": f"Bearer {token_for(secret)}"}
+
+
+def find_deployed_model_by_type(model_identifier: str, model_type: ModelTypes) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running model of the given
+    type whose hf_model_id or model_name matches `model_identifier`, or None if
+    it isn't deployed.
+
+    Deploy/container ids are ephemeral across redeploys, so anything that needs to
+    keep working across them (a Chroma collection's stored embedding function, a
+    companion app's chosen speech model) has to key on the model's own identity
+    instead and re-resolve the live deploy here on every call.
+    """
+    for deploy in get_deploy_cache().values():
+        impl = deploy.get("model_impl")
+        if not impl or getattr(impl, "model_type", None) != model_type:
+            continue
+        if model_identifier in (getattr(impl, "hf_model_id", None), getattr(impl, "model_name", None)):
+            return deploy
+    return None
+
+
+def find_deployed_embedding_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running EMBEDDING model whose
+    hf_model_id or model_name matches `model_identifier`, or None if it isn't deployed.
+    """
+    return find_deployed_model_by_type(model_identifier, ModelTypes.EMBEDDING)
+
+
+def find_deployed_speech_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running SPEECH_RECOGNITION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.SPEECH_RECOGNITION)
+
+
+def find_deployed_tts_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running TTS model whose
+    hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.TTS)
+
+
+def find_deployed_image_model(model_identifier: str) -> Optional[dict]:
+    """Return the deploy-cache entry for a currently-running IMAGE_GENERATION
+    model whose hf_model_id or model_name matches `model_identifier`, or None."""
+    return find_deployed_model_by_type(model_identifier, ModelTypes.IMAGE_GENERATION)
+
+
+def embed_text(deploy: dict, text: str, dimensions: int = None) -> dict:
+    """POST one text to a deployed embedding model's /v1/embeddings route and
+    return the raw OpenAI-shaped response ({"data": [{"embedding": [...]}], ...}).
+    Shared by EmbeddingInferenceView and the Chroma-backed embedding function
+    (vector_db_control.tt_embedding_function) so both build the identical
+    request/auth -- see EmbeddingInferenceView for why hf_model_id (not
+    model_name) is required in the payload, and why media/forge use a static key.
+    Raises requests.exceptions.RequestException on failure; caller decides how to
+    surface it.
+    """
+    internal_url = "http://" + deploy["internal_url"]
+    model_impl = deploy.get("model_impl")
+    hf_model_id = getattr(model_impl, "hf_model_id", None) if model_impl else None
+    model_name = hf_model_id or (getattr(model_impl, "model_name", None) if model_impl else None)
+    inference_engine = getattr(model_impl, "inference_engine", None)
+
+    if inference_engine in ("media", "forge"):
+        headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
+    else:
+        headers = auth_headers(deploy)
+
+    payload = {"model": model_name, "input": text}
+    if dimensions:
+        payload["dimensions"] = dimensions
+
+    resp = requests.post(internal_url, json=payload, headers=headers, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(
@@ -143,7 +220,12 @@ _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
 
-def get_deploy_cache():
+def get_deploy_cache(canonical=None):
+    """Running deployments keyed by container id.
+
+    Pass ``canonical`` when the caller already holds get_canonical_deployments()
+    so the cache is refreshed from it instead of querying Docker again.
+    """
     # the cache is initialized when by docker_control is imported
     def get_all_records():
         # need to strip out the key version tag
@@ -154,8 +236,8 @@ def get_deploy_cache():
 
     global _last_deploy_cache_update
     now = time.monotonic()
-    if now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
-        update_deploy_cache()
+    if canonical is not None or now - _last_deploy_cache_update > _DEPLOY_CACHE_TTL:
+        update_deploy_cache(canonical)
         _last_deploy_cache_update = now
     data = get_all_records()
 
@@ -181,6 +263,17 @@ def get_deploy_cache():
     return data
 
 
+_NOT_READY_STATUSES = frozenset({"loading", "initializing", "starting"})
+
+
+def _reports_not_ready(content) -> bool:
+    """True for a health body declaring the server up but not yet serving."""
+    if not isinstance(content, dict):
+        return False
+    status_text = str(content.get("status", "")).lower()
+    return content.get("ready") is False or status_text in _NOT_READY_STATUSES
+
+
 def health_check(url, json_data, timeout=5, auth_token: str = None):
     logger.info(f"calling health_url:= {url}")
     try:
@@ -195,11 +288,15 @@ def health_check(url, json_data, timeout=5, auth_token: str = None):
         return False, str(e)
 
     if response.status_code == 200:
-        logger.info(f"Health check passed: {response.status_code}")
         try:
             content = response.json() if response.content else {}
         except Exception:
             content = {}
+        if _reports_not_ready(content):
+            # tt-dit apps answer 200 while their pipeline is still warming up.
+            logger.info(f"Health check: up but not ready yet: {content}")
+            return None, content
+        logger.info(f"Health check passed: {response.status_code}")
         return True, content
 
     # Detect transient "still warming up" responses. The media-server stack
@@ -245,6 +342,10 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
         "thread_id": json_data["thread_id"],
         "message": json_data["messages"][-1]["content"],
     }
+    # Per-request template flags (the Voice Agent turns thinking off) for the
+    # agent to forward to its LLM call.
+    if json_data.get("chat_template_kwargs"):
+        new_json_data["chat_template_kwargs"] = json_data["chat_template_kwargs"]
     logger.info(f"POST {url} data:={new_json_data}")
     try:
         async with _vllm_client.stream("POST", url, json=new_json_data) as response:

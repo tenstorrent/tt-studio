@@ -20,12 +20,12 @@ export interface CatalogEntry {
 export interface TrainingJob {
   id: string;
   status:
-    | "queued"
-    | "in_progress"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "cancelling";
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "cancelling";
   model: string;
   // The dataset is not a top-level field on the container's job object; it lives
   // inside `request_parameters.dataset_loader`. Use `getJobDataset()` to read it.
@@ -76,10 +76,17 @@ export interface TrainingCheckpoint {
 export interface CreateTrainingJobParams {
   dataset_loader: string;
   device_type: string;
+  // Custom-dataset fields, sent only when `dataset_loader` is "Custom".
+  custom_dataset?: string;
+  // Optional evaluation/validation dataset name (staged into val_dataset_path).
+  custom_eval_dataset?: string;
+  file_type?: string;
+  template?: string;
+  column_mapping?: Record<string, string>;
   learning_rate?: number;
   batch_size?: number;
   num_epochs?: number;
-  max_length?: number;
+  dataset_max_sequence_length?: number;
   max_steps?: number;
   lora_r?: number;
   lora_alpha?: number;
@@ -87,8 +94,11 @@ export interface CreateTrainingJobParams {
   steps_freq?: number;
   val_steps_freq?: number;
   save_interval?: number;
+  seed?: number;
   [key: string]: unknown;
 }
+
+export const MAX_TRAINING_SEED = 2 ** 32;
 
 // ---------------------------------------------------------------------------
 // API functions
@@ -128,6 +138,70 @@ export async function fetchTrainingCatalog(): Promise<CatalogEntry[]> {
   return extractModels(data);
 }
 
+// ---------------------------------------------------------------------------
+// Custom (user-uploaded) datasets
+// ---------------------------------------------------------------------------
+
+export interface CustomDataset {
+  id: string;
+  name: string;
+  size_bytes?: number;
+  modified_at?: number | null;
+}
+
+// `dataset_loader` value telling the server to use a user-supplied dataset
+// instead of a built-in recipe. Not one of the /v1/catalog loader ids.
+export const CUSTOM_DATASET_LOADER = "Custom";
+
+export async function fetchCustomDatasets(): Promise<CustomDataset[]> {
+  const { data } = await axios.get(`${TRAINING_API}/datasets/custom/`);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.datasets)) return data.datasets;
+  return [];
+}
+
+export interface CustomDatasetContent {
+  text: string;
+  // True when the server returned only a leading slice (file too large).
+  sampled: boolean;
+}
+
+// Fetch a stored dataset's raw contents for client-side preview. The passthrough
+// transform keeps axios from parsing the JSON so the shared parser sees it
+// verbatim. Large files come back as a truncated slice with `sampled: true`.
+export async function fetchCustomDatasetContent(
+  id: string,
+): Promise<CustomDatasetContent> {
+  const { data, headers } = await axios.get<string>(
+    `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
+    { responseType: "text", transformResponse: [(value) => value] },
+  );
+  const sampled =
+    String(headers?.["x-dataset-sampled"] ?? "").toLowerCase() === "true";
+  return { text: typeof data === "string" ? data : JSON.stringify(data), sampled };
+}
+
+export async function uploadCustomDataset(
+  file: File,
+): Promise<CustomDataset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await axios.post(
+    `${TRAINING_API}/datasets/custom/`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
+// Delete a previously uploaded custom dataset, removing the file from the shared
+// training volume.
+export async function deleteCustomDataset(id: string): Promise<void> {
+  await axios.delete(
+    `${TRAINING_API}/datasets/custom/${encodeURIComponent(id)}/`,
+  );
+}
+
 export interface TrainingCatalog {
   models: CatalogEntry[];
   datasets: CatalogEntry[];
@@ -154,35 +228,44 @@ export async function fetchTrainingCatalogFull(): Promise<TrainingCatalog> {
 // The training container returns timestamps as epoch *seconds* (int), but other
 // fields elsewhere may be ISO strings or epoch milliseconds. `new Date(seconds)`
 // would interpret the value as milliseconds and render a 1970 date, so normalize
-// here before formatting.
+// here before formatting. Returns null when the value can't be parsed.
+export function trainingTimestampToMs(
+  value: number | string | null | undefined,
+): number | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number") {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  const asNumber = Number(value);
+  if (value.trim() !== "" && !Number.isNaN(asNumber)) {
+    return asNumber < 1e12 ? asNumber * 1000 : asNumber;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 export function formatTrainingTimestamp(
   value: number | string | null | undefined,
 ): string {
-  if (value === null || value === undefined || value === "") return "-";
-
-  let ms: number;
-  if (typeof value === "number") {
-    ms = value < 1e12 ? value * 1000 : value;
-  } else {
-    const asNumber = Number(value);
-    if (value.trim() !== "" && !Number.isNaN(asNumber)) {
-      ms = asNumber < 1e12 ? asNumber * 1000 : asNumber;
-    } else {
-      const parsed = Date.parse(value);
-      if (Number.isNaN(parsed)) return "-";
-      ms = parsed;
-    }
-  }
-
+  const ms = trainingTimestampToMs(value);
+  if (ms === null) return "-";
   const date = new Date(ms);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
 // The dataset is stored inside the job's `request_parameters.dataset_loader`,
 // not as a top-level field, so read it from there with a sensible fallback.
+// Custom jobs only carry the loader name "Custom"; their staged
+// `train_dataset_path` keeps the uploaded file name, so show that instead.
 export function getJobDataset(job: TrainingJob): string {
   if (job.dataset) return job.dataset;
-  const loader = job.request_parameters?.dataset_loader;
+  const params = job.request_parameters;
+  const trainPath = params?.train_dataset_path;
+  if (typeof trainPath === "string" && trainPath) {
+    return trainPath.split("/").pop() || trainPath;
+  }
+  const loader = params?.dataset_loader;
   return typeof loader === "string" && loader ? loader : "-";
 }
 
@@ -289,9 +372,78 @@ export async function cancelTrainingJob(
   return data;
 }
 
+// Permanently delete a finished job and its results. Deleting a training job
+// also deletes every adapter merge (promoted model) made from it.
+export async function deleteTrainingJob(jobId: string): Promise<void> {
+  await axios.delete(`${TRAINING_API}/jobs/${jobId}/`);
+}
+
+// A merged model is the result of an adapter merge job, deleted like any job.
+export const deleteMergedModel = (mergeId: string) => deleteTrainingJob(mergeId);
+
+// The server's reason for a failed request (e.g. job still running or deployed).
+export function getApiErrorMessage(err: unknown, fallback: string): string {
+  const message = (err as { response?: { data?: { error?: unknown } } })
+    ?.response?.data?.error;
+  return typeof message === "string" && message ? message : fallback;
+}
+
 export function getCheckpointDownloadUrl(
   jobId: string,
   ckptId: string,
 ): string {
   return `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/`;
+}
+
+// ---------------------------------------------------------------------------
+// Adapter merge / merged checkpoints
+// ---------------------------------------------------------------------------
+
+// A LoRA adapter checkpoint merged into its base model, discovered on disk from
+// its merge_info.json sidecar. `path` is a host path passed to a later inference
+// deploy as `host_weights_dir`.
+export interface MergedCheckpoint {
+  merge_id: string;
+  model: string | null;
+  source_job_id?: string | null;
+  checkpoint_id?: string | null;
+  created_at?: number | null;
+  path: string;
+  valid: boolean;
+  // Set when the checkpoint exists but is unreadable; `valid` is false then.
+  reason?: string | null;
+}
+
+// Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint the
+// inference container can serve. Returns the created merge job.
+export async function promoteCheckpoint(
+  jobId: string,
+  ckptId: string,
+): Promise<{ id?: string; status?: string;[key: string]: unknown }> {
+  const { data } = await axios.post(
+    `${TRAINING_API}/jobs/${jobId}/checkpoints/${ckptId}/merge/`,
+  );
+  return data;
+}
+
+// Ask the backend (root) to fix the merged checkpoint's 0600 perms so the host
+// inference server can read it. Best-effort; call once after a merge completes.
+export async function normalizeMergedCheckpoint(mergeId: string): Promise<void> {
+  await axios.post(`${TRAINING_API}/merged-checkpoints/${mergeId}/normalize/`);
+}
+
+// Discover merged checkpoints available for deploying a given model. When
+// `modelId` is given, only checkpoints merged from that model's base weights are
+// returned (matched server-side on hf_model_id). Omit it to scan the whole
+// training host volume — used to tell which checkpoints of a job are already
+// promoted, regardless of base model.
+export async function fetchMergedCheckpoints(
+  modelId?: string,
+): Promise<MergedCheckpoint[]> {
+  const { data } = await axios.get(`${TRAINING_API}/merged-checkpoints/`, {
+    params: modelId ? { model_id: modelId } : undefined,
+  });
+  if (Array.isArray(data)) return data;
+  if (data?.merged_checkpoints) return data.merged_checkpoints;
+  return [];
 }

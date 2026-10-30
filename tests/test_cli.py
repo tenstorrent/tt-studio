@@ -352,6 +352,56 @@ class TestCli(unittest.TestCase):
         for argv, expected in cases:
             self.assertEqual(_normalize_purge_model_argv(argv), expected, argv)
 
+    def test_release_flags_listed_in_their_own_help_panel(self):
+        result = runner.invoke(M.app, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        output_without_ansi = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        self.assertIn("Release (maintainers)", output_without_ansi)
+        for flag in ("--make-rc-branch", "--update-rc-branch", "--merge-rc-branch"):
+            self.assertIn(flag, output_without_ansi)
+
+    def test_make_rc_branch_dispatches_with_value(self):
+        with patch.object(_cli_run, "make_rc_branch", return_value=0) as make:
+            result = runner.invoke(M.app, ["--make-rc-branch", "minor"])
+        self.assertEqual(result.exit_code, 0)
+        make.assert_called_once_with("minor")
+
+    def test_make_rc_branch_picker_sentinel_reaches_dispatch(self):
+        # main() (not click) supplies the sentinel for a bare --make-rc-branch;
+        # here we inject it the way _normalize_argv would.
+        from tt_setup.constants import _RC_BUMP_PICKER
+        with patch.object(_cli_run, "make_rc_branch", return_value=0) as make:
+            result = runner.invoke(M.app, ["--make-rc-branch", _RC_BUMP_PICKER])
+        self.assertEqual(result.exit_code, 0)
+        make.assert_called_once_with(_RC_BUMP_PICKER)
+
+    def test_update_rc_branch_dispatches(self):
+        with patch.object(_cli_run, "update_rc_branch", return_value=0) as update:
+            result = runner.invoke(M.app, ["--update-rc-branch"])
+        self.assertEqual(result.exit_code, 0)
+        update.assert_called_once_with()
+
+    def test_merge_rc_branch_nonzero_exit_propagates(self):
+        with patch.object(_cli_run, "merge_rc_branch", return_value=1) as merge:
+            result = runner.invoke(M.app, ["--merge-rc-branch"])
+        self.assertEqual(result.exit_code, 1)
+        merge.assert_called_once_with()
+
+    def test_normalize_argv_handles_bare_optional_value_flags(self):
+        from tt_setup.cli._args import _normalize_argv
+        from tt_setup.constants import _PURGE_MODEL_PICKER as P, _RC_BUMP_PICKER as R
+        cases = [
+            (["--make-rc-branch"], ["--make-rc-branch", R]),
+            (["--make-rc-branch", "-v"], ["--make-rc-branch", R, "-v"]),
+            (["--make-rc-branch", "minor"], ["--make-rc-branch", "minor"]),
+            (["--make-rc-branch=minor"], ["--make-rc-branch=minor"]),
+            # Both optional-value flags normalize independently.
+            (["--purge-model", "--make-rc-branch"],
+             ["--purge-model", P, "--make-rc-branch", R]),
+        ]
+        for argv, expected in cases:
+            self.assertEqual(_normalize_argv(argv), expected, argv)
+
     def test_no_clear_flag_sets_globals_and_implies_verbose(self):
         # --no-clear preserves the terminal's contents AND streams full detail, so
         # it flips both the no_clear and verbose rendering globals. _run is patched
@@ -904,6 +954,50 @@ class TestRunHeadlessDeployEndToEnd(unittest.TestCase):
         self.assertFalse(ok)
         printed = _printed_text(con)
         self.assertIn("is starting", printed)
+
+
+class TestUnverifiedCommunityDeploy(unittest.TestCase):
+    """A Hub repo the catalog lacks deploys as a community bundle, after a y/n when unverified."""
+
+    def _deploy(self, answer):
+        bodies = []
+
+        def miss(client, name, explicit):
+            raise _FakeSmokeTestError("no catalog model matches")
+
+        dh = _fake_driver(bodies, resolve_fn=miss)
+
+        class UnverifiedClient(dh.Client):
+            def post(self, key, body, timeout=60):
+                bodies.append(dict(body))
+                if not body.get("allow_unverified"):
+                    return 400, {"status": "error", "error_type": "unverified_community_model",
+                                 "message": "ns/model is not in the verified community catalog."}
+                return 200, {"status": "success", "job_id": "job-1"}
+        dh.Client = UnverifiedClient
+        args = _cli_args._build_args(auto_deploy="ns/model")
+        with patch.object(_cli_deploy, "confirm", return_value=answer) as ask, \
+             patch.object(_cli_deploy.sys.stdin, "isatty", return_value=True), \
+             patch.object(_cli_deploy, "watch_progress"), \
+             patch.object(_cli_deploy, "find_deployed_entry", return_value=(None, None)), \
+             patch.object(_cli_deploy, "console"):
+            _cli_deploy.run_headless_deploy(dh, args)
+        return bodies, ask
+
+    def test_confirmed_deploy_is_sent_with_allow_unverified(self):
+        bodies, ask = self._deploy(True)
+        ask.assert_called_once()
+        self.assertEqual([b["model_id"] for b in bodies], ["id_community-ns/model"] * 2)
+        self.assertNotIn("allow_unverified", bodies[0])
+        self.assertIs(bodies[1]["allow_unverified"], True)
+
+    def test_declined_deploy_is_not_sent_again(self):
+        bodies, _ = self._deploy(False)
+        self.assertEqual(len(bodies), 1)
+
+    def test_hub_repo_ids_skip_the_catalog_name_check(self):
+        with patch.object(_cli_args, "_catalog_model_names", return_value=["Qwen3-32B"]):
+            _cli_args._validate_model_name("ns/model")  # must not exit
 
 
 class TestStopModelDispatch(unittest.TestCase):

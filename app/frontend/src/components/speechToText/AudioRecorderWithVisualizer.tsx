@@ -20,6 +20,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { customToast } from "../CustomToaster";
+import {
+  isAudioRecordingSupported,
+  INSECURE_CONTEXT_STT_MESSAGE,
+  INSECURE_CONTEXT_TOOLTIP_MESSAGE,
+  getMicrophoneErrorMessage,
+} from "../../lib/mediaUtils";
 
 type Props = {
   className?: string;
@@ -50,6 +57,7 @@ export const AudioRecorderWithVisualizer = ({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [hasRecordedBefore, setHasRecordedBefore] = useState<boolean>(false);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const isMicSupported = useMemo(() => isAudioRecordingSupported(), []);
 
   // Calculate the hours, minutes, and seconds from the timer
   // const hours = Math.floor(timer / 3600);
@@ -128,6 +136,11 @@ export const AudioRecorderWithVisualizer = ({
   }
 
   function startRecording() {
+    if (!isAudioRecordingSupported()) {
+      customToast.warning(INSECURE_CONTEXT_STT_MESSAGE);
+      return;
+    }
+
     if (mediaRecorderRef.current.stream) {
       mediaRecorderRef.current.stream
         .getTracks()
@@ -194,8 +207,8 @@ export const AudioRecorderWithVisualizer = ({
           };
         })
         .catch((error) => {
-          alert("Microphone access error: " + error.message);
           console.error("Microphone access error:", error);
+          customToast.error(getMicrophoneErrorMessage(error));
         });
     }
   }
@@ -681,28 +694,55 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <div
                     onClick={startRecording}
-                    className="h-14 w-14 sm:h-16 sm:w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-TT-purple-accent cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-TT-purple-accent/30 dark:hover:shadow-TT-purple/30 hover:border-TT-purple dark:hover:border-TT-purple-tint1"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        startRecording();
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={!isMicSupported}
+                    className={cn(
+                      "h-14 w-14 sm:h-16 sm:w-16 rounded-full relative flex items-center justify-center border-2 shadow-lg transition-all duration-200",
+                      isMicSupported
+                        ? "bg-white dark:bg-[#222222] border-TT-purple-accent cursor-pointer hover:scale-105 active:scale-95 hover:shadow-TT-purple-accent/30 dark:hover:shadow-TT-purple/30 hover:border-TT-purple dark:hover:border-TT-purple-tint1"
+                        : "bg-gray-100 dark:bg-[#1f1f1f] border-gray-400/40 cursor-not-allowed opacity-60"
+                    )}
                     style={{
-                      boxShadow: "0 0 0 2px rgba(124, 104, 250, 0.3)", // TT-purple-accent with opacity
+                      boxShadow: isMicSupported
+                        ? "0 0 0 2px rgba(124, 104, 250, 0.3)"
+                        : "none",
                       transform: "translateY(0)",
                       transition:
                         "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
                     }}
                   >
-                    <Mic className="h-6 w-6 sm:h-7 sm:w-7 text-TT-purple-accent dark:text-TT-purple-tint1 transition-colors duration-200" />
+                    <Mic
+                      className={cn(
+                        "h-6 w-6 sm:h-7 sm:w-7 transition-colors duration-200",
+                        isMicSupported
+                          ? "text-TT-purple-accent dark:text-TT-purple-tint1"
+                          : "text-gray-400 dark:text-gray-500"
+                      )}
+                    />
                     {hasRecordedBefore && (
                       <span className="absolute -top-1 -right-1 h-3 w-3 bg-TT-red rounded-full"></span>
                     )}
                     <span className="sr-only">Start recording</span>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  <div className="flex items-center gap-2">
-                    <Mic className="h-4 w-4 text-TT-purple-accent" />
-                    {hasRecordedBefore
-                      ? "Click to record again"
-                      : "Click to start recording"}
-                  </div>
+                <TooltipContent side="top" className="max-w-xs text-center">
+                  {isMicSupported ? (
+                    <div className="flex items-center gap-2">
+                      <Mic className="h-4 w-4 text-TT-purple-accent" />
+                      {hasRecordedBefore
+                        ? "Click to record again"
+                        : "Click to start recording"}
+                    </div>
+                  ) : (
+                    <span>{INSECURE_CONTEXT_TOOLTIP_MESSAGE}</span>
+                  )}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

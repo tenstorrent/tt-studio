@@ -4,6 +4,9 @@
 
 import threading
 import time
+from collections import deque
+from typing import Optional
+
 from django.utils import timezone
 from shared_config.logger_config import get_logger
 from docker_control.models import ModelDeployment
@@ -15,6 +18,89 @@ from docker_control.docker_control_client import (
 )
 
 logger = get_logger(__name__)
+
+# Log lines kept as a dead model's failure message: enough to include the fatal error,
+# which a backtrace usually follows rather than being the very last line.
+_DEATH_LOG_LINES = 15
+
+
+def _log_tail(path: Optional[str], lines: int = _DEATH_LOG_LINES) -> Optional[str]:
+    """The last non-blank lines of a deployment's container log, or None."""
+    if not path:
+        return None
+    try:
+        with open(path, "r", errors="replace") as handle:
+            recent = [line.rstrip() for line in deque(handle, maxlen=lines * 4) if line.strip()]
+    except OSError:
+        return None
+    return "\n".join(recent[-lines:]) or None
+
+
+def _record_unexpected_death(deployment, status: str, exit_code: Optional[int] = None) -> None:
+    """Mark a deployment dead, with its container's last output as the reason.
+
+    The same for every backend: both record the container's output at
+    ``workflow_log_path`` (tt-inference-server's docker log file, or the community
+    deploy log), which outlives the container. The exit code is kept too, since the
+    container itself is removed.
+    """
+    from docker_control.deployment_sync import _classify_failure
+
+    deployment.status = status
+    deployment.stopped_at = timezone.now()
+    if deployment.failure_reason is None:
+        reason, message = _classify_failure(_log_tail(deployment.workflow_log_path))
+        if exit_code is not None:
+            reason = reason or "unknown"
+            message = f"Container exited with code {exit_code}." + (f"\n{message}" if message else "")
+        deployment.failure_reason = reason
+        deployment.failure_message = message
+    deployment.save()
+
+
+# Docker states that mean the container is finished. Only these clear it away: any
+# other non-running state (paused, created, ...) is still a container someone may want.
+_FINISHED_STATES = ("exited", "dead")
+
+
+def _exit_code(container_info) -> Optional[int]:
+    code = ((container_info or {}).get("attrs") or {}).get("State", {}).get("ExitCode")
+    return code if isinstance(code, int) else None
+
+
+def _remove_dead_container_in_background(deployment) -> None:
+    """Clear a dead model's container without holding up the health poll.
+
+    The community path goes through tt-model-manager, which is not bounded tightly
+    enough to run inline: a slow stop would delay crash detection for every model.
+    """
+    threading.Thread(
+        target=_remove_dead_container,
+        args=(deployment,),
+        name=f"remove-dead-{deployment.container_id[:12]}",
+        daemon=True,
+    ).start()
+
+
+def _remove_dead_container(deployment) -> None:
+    """Clear a dead model's container through the backend that started it.
+
+    A community container is removed by tt-model-manager, which also resets its chips
+    if the server was killed. Inference-server containers run with --rm and are
+    usually gone already; anything left is removed directly.
+    """
+    from docker_control import launchers
+
+    try:
+        launchers.for_model_id(deployment.community_model_id).stop(deployment)
+    except Exception as e:
+        logger.warning(f"Could not stop dead container {deployment.container_name}: {e}")
+    try:
+        get_docker_client().remove_container(deployment.container_id, force=True)
+    except Exception as e:
+        if not (isinstance(e, ContainerNotFound) or http_status_of(e) == 404):
+            logger.warning(f"Could not remove dead container {deployment.container_name}: {e}")
+
 
 # Global variable to track if monitoring is running
 _monitoring_thread = None
@@ -188,9 +274,11 @@ def check_container_health():
                     # Container died unexpectedly!
                     logger.warning(f"Container {deployment.container_name} died unexpectedly. Status: {actual_status}")
 
-                    deployment.status = actual_status  # exited, dead, etc.
-                    deployment.stopped_at = timezone.now()
-                    deployment.save()
+                    _record_unexpected_death(  # exited, dead, etc.
+                        deployment, actual_status, _exit_code(container_info)
+                    )
+                    if actual_status in _FINISHED_STATES:
+                        _remove_dead_container_in_background(deployment)
 
                     # TODO: Emit event for frontend notification
                     logger.info(f"Updated deployment record for unexpected death: {deployment.container_name}")
@@ -205,9 +293,7 @@ def check_container_health():
                     _note_service_reachable()
                     if not deployment.stopped_by_user:
                         logger.warning(f"Container {deployment.container_name} not found - marking as dead")
-                        deployment.status = "dead"
-                        deployment.stopped_at = timezone.now()
-                        deployment.save()
+                        _record_unexpected_death(deployment, "dead")
 
                         # TODO: Emit event for frontend notification
                         logger.info(f"Updated deployment record for missing container: {deployment.container_name}")

@@ -101,7 +101,7 @@ def render_hf_access(status, results):
         console.print("[warning]Request access for these gated models, then re-run TT Studio:[/warning]")
         for label, repo_id in blocked:
             console.print(f"  [muted]{label}[/muted]  →  https://huggingface.co/{repo_id}")
-        console.print("  [muted]Open each link, click “Agree and access repository” (sign in first), then run: python run.py[/muted]")
+        console.print(f"  [muted]Open each link, click “Agree and access repository” (sign in first), then run: {LAUNCH_CMD}[/muted]")
         if token_problem:
             console.print("  [muted]If your token is invalid/expired, create a new one: https://huggingface.co/settings/tokens[/muted]")
 

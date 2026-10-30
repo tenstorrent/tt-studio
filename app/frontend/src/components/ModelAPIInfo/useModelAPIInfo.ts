@@ -117,7 +117,7 @@ export const useModelAPIInfo = (modelId: string, modelName: string) => {
           max_tokens: 100,
           stream: false,
         },
-        chat_curl_example: `curl -X POST "http://localhost:7000/v1/chat/completions" \\
+        chat_curl_example: `curl -X POST "http://localhost:20000/v1/chat/completions" \\
   -H "Authorization: Bearer ${fallbackJwtToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -132,7 +132,7 @@ export const useModelAPIInfo = (modelId: string, modelName: string) => {
     "max_tokens": 100,
     "stream": false
   }'`,
-        completions_curl_example: `curl -X POST "http://localhost:7000/v1/completions" \\
+        completions_curl_example: `curl -X POST "http://localhost:20000/v1/completions" \\
   -H "Authorization: Bearer ${fallbackJwtToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -145,12 +145,12 @@ export const useModelAPIInfo = (modelId: string, modelName: string) => {
     "stream": false,
     "stop": ["<|eot_id|>"]
   }'`,
-        internal_url: "localhost:7000/v1/chat/completions",
-        health_url: "localhost:7000/health",
+        internal_url: "localhost:20000/v1/chat/completions",
+        health_url: "localhost:20000/health",
         endpoints: {
-          chat_completions: "http://localhost:7000/v1/chat/completions",
-          completions: "http://localhost:7000/v1/completions",
-          health: "http://localhost:7000/health",
+          chat_completions: "http://localhost:20000/v1/chat/completions",
+          completions: "http://localhost:20000/v1/completions",
+          health: "http://localhost:20000/health",
           tt_studio_backend: `${window.location.origin}/models-api/inference/`,
         },
         deploy_info: {

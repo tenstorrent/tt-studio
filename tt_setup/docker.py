@@ -10,6 +10,7 @@ import shutil
 import getpass
 from tt_setup.constants import *
 from tt_setup.console import console, step, notice_panel
+from tt_setup.env_config import get_env_var
 
 
 # Official docs we point users to — we link rather than try to fix Docker for
@@ -18,6 +19,83 @@ DOCKER_INSTALL_URL = "https://docs.docker.com/get-docker/"
 DOCKER_COMPOSE_URL = "https://docs.docker.com/compose/install/"
 DOCKER_DESKTOP_URL = "https://docs.docker.com/desktop/"
 DOCKER_DAEMON_URL = "https://docs.docker.com/config/daemon/start/"
+
+
+def _socket_path_from_docker_host(docker_host):
+    """Return a filesystem socket path from a unix ``DOCKER_HOST`` URI."""
+    value = (docker_host or "").strip()
+    if not value.startswith("unix://"):
+        return ""
+    path = value[len("unix://"):]
+    return path if os.path.isabs(path) else ""
+
+
+def resolve_docker_socket_path():
+    """Find the host Docker socket used for the Docker Control bind mount.
+
+    Rootless Docker commonly exposes a per-user unix socket through
+    ``DOCKER_HOST`` or the active Docker context. Compose mounts that source at
+    its conventional in-container path, so Docker SDK clients need no special
+    configuration.
+    """
+    configured_path = get_env_var("DOCKER_SOCKET_PATH", "").strip()
+    if configured_path:
+        return configured_path
+
+    socket_path = _socket_path_from_docker_host(os.getenv("DOCKER_HOST"))
+    if socket_path:
+        return socket_path
+
+    try:
+        result = subprocess.run(
+            ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            socket_path = _socket_path_from_docker_host(result.stdout)
+            if socket_path:
+                return socket_path
+    except OSError:
+        pass
+
+    rootless_default = f"/run/user/{os.getuid()}/docker.sock"
+    if os.path.exists(rootless_default):
+        return rootless_default
+    return "/var/run/docker.sock"
+
+
+def prepare_docker_socket_path():
+    """Expose the resolved socket path to Compose interpolation for this run."""
+    socket_path = resolve_docker_socket_path()
+    os.environ["DOCKER_SOCKET_PATH"] = socket_path
+    return socket_path
+
+
+def prepare_container_user():
+    """Expose the invoking user's uid:gid to Compose interpolation for this run.
+
+    Non-root services read host files (e.g. the LiteLLM config), so they run as
+    the caller instead of a hard-coded 1000 and can read them as owner even at
+    the 0660 a umask-0007 clone leaves. Root runs (e.g. sudo) use the
+    checkout's owner instead. Root-owned checkouts are rejected because
+    containers never run as root and would not be able to read restrictive
+    checkout files.
+    """
+    uid, gid = os.getuid(), os.getgid()
+    if uid == 0:
+        st = os.stat(TT_STUDIO_ROOT)
+        if st.st_uid == 0:
+            console.print("[error]⛔ Cannot run TT Studio from a root-owned checkout.[/error]")
+            console.print(
+                "[warning]   Run it as the checkout owner, or change the checkout "
+                "ownership before retrying.[/warning]"
+            )
+            raise SystemExit(1)
+        uid, gid = st.st_uid, st.st_gid
+    os.environ["TT_STUDIO_UID"] = str(uid)
+    os.environ["TT_STUDIO_GID"] = str(gid)
 
 
 def _docker_compose_v2_available():
@@ -203,6 +281,23 @@ def run_docker_command(command, use_sudo=False, capture_output=False, check=Fals
         return _run_sudo(command)
 
 
+def remove_docker_control_container(dev_mode=False, use_sudo=False):
+    """Remove the Compose-managed Docker Control container, if it exists.
+
+    This is used by the explicit ``--skip-docker-control`` path so a container
+    left by a previous normal startup cannot keep providing Docker access.
+    """
+    command = build_docker_compose_command(
+        dev_mode=dev_mode,
+        show_hardware_info=False,
+        quiet=True,
+        include_docker_control=True,
+    )
+    command.extend(["rm", "--force", "--stop", DOCKER_CONTROL_CONTAINER_NAME])
+    result = run_docker_command(command, use_sudo=use_sudo, capture_output=True)
+    return result.returncode == 0
+
+
 def ensure_docker_group_membership():
     """
     Check if user is in Docker group and provide guidance if not.
@@ -244,7 +339,67 @@ def detect_tt_hardware():
     return os.path.exists("/dev/tenstorrent") or os.path.isdir("/dev/tenstorrent")
 
 
-def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=False):
+def detect_foreign_tt_studio_stacks():
+    """Compose working dirs of TT Studio stacks running from OTHER checkouts.
+
+    Every running TT Studio backend container carries compose labels naming
+    the app/ directory it was started from. Any of those that isn't this
+    checkout's app/ means another TT Studio is already booted — only one can
+    run per machine (the containers share names, host ports, and the Docker
+    network). Returns the raw label values (deduped, sorted); empty when none
+    are running or Docker can't be queried.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps",
+             "--filter", "label=com.docker.compose.service=tt_studio_backend",
+             "--format", '{{.Label "com.docker.compose.project.working_dir"}}'],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except Exception:
+        return []
+    if result.returncode != 0:
+        return []
+    our_app_dir = os.path.realpath(os.path.dirname(DOCKER_COMPOSE_FILE))
+    foreign = set()
+    for line in (result.stdout or "").splitlines():
+        working_dir = line.strip()
+        if working_dir and os.path.realpath(working_dir) != our_app_dir:
+            foreign.add(working_dir)
+    return sorted(foreign)
+
+
+def stop_tt_studio_stack(app_working_dir):
+    """Stop and remove the running containers of the TT Studio stack that was
+    started from `app_working_dir` (a value from
+    detect_foreign_tt_studio_stacks). Returns True when nothing from that
+    stack is left running."""
+    ps_cmd = ["docker", "ps", "-q", "--filter",
+              f"label=com.docker.compose.project.working_dir={app_working_dir}"]
+    try:
+        ids = [c for c in (subprocess.run(
+            ps_cmd, capture_output=True, text=True, check=False, timeout=10,
+        ).stdout or "").split() if c]
+        if not ids:
+            return True
+        subprocess.run(["docker", "stop", *ids],
+                       capture_output=True, text=True, check=False, timeout=180)
+        subprocess.run(["docker", "rm", "-f", *ids],
+                       capture_output=True, text=True, check=False, timeout=60)
+        remaining = subprocess.run(
+            ps_cmd, capture_output=True, text=True, check=False, timeout=10,
+        ).stdout or ""
+        return not remaining.strip()
+    except Exception:
+        return False
+
+
+def build_docker_compose_command(
+    dev_mode=False,
+    show_hardware_info=True,
+    quiet=False,
+    include_docker_control=True,
+):
     """
     Build the Docker Compose command with appropriate override files.
 
@@ -252,10 +407,13 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
         dev_mode (bool): Whether to enable development mode
         show_hardware_info (bool): Whether to show hardware detection messages
         quiet (bool): If True, suppress all output (for startup where output is transient)
+        include_docker_control (bool): Enable the internal Docker Control
+            Compose profile. Set False for ``--skip-docker-control``.
 
     Returns:
         list: Docker Compose command with appropriate files
     """
+    prepare_container_user()
     compose_files = ["docker", "compose"]
     # The canonical env file now lives at the repo root, so point compose at it
     # explicitly. --env-file only changes variable resolution; the compose project
@@ -287,6 +445,16 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     else:
         if show_hardware_info and not quiet:
             console.print("[warning]⚠️  No Tenstorrent hardware detected[/warning]")
+
+    # Docker Control is normally required. The explicit legacy opt-out adds a
+    # narrow override that makes this dependency optional; leaving out a profile
+    # in a third-party Compose command remains a fail-fast configuration error.
+    # Keep this global Compose option before the subcommand; callers append
+    # ``up``, ``down`` or ``logs`` afterwards.
+    if include_docker_control:
+        compose_files += ["--profile", "docker-control"]
+    else:
+        compose_files += ["-f", DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE]
 
     return compose_files
 
@@ -413,7 +581,7 @@ def fix_docker_issues():
         "[bold success]🎉 Docker fix completed successfully![/bold success]",
         [
             "[success]✅ Docker is working correctly![/success]",
-            "[info]You can now run: [bold]python run.py[/bold][/info]",
+            f"[info]You can now run: [bold]{LAUNCH_CMD}[/bold][/info]",
         ],
         border_style="success",
     ))

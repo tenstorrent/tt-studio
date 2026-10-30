@@ -14,37 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { runTTSInference } from "../../api/modelsDeployedApis";
+import {
+  runTTSInference,
+  fetchHealthyModelsByType,
+  type DeployedModelSummary,
+} from "../../api/modelsDeployedApis";
 import { customToast } from "../CustomToaster";
 
-interface DeployedModelInfo {
-  id: string;
-  modelName: string;
-  model_type?: string;
-}
-
-async function fetchTTSModels(): Promise<DeployedModelInfo[]> {
-  try {
-    const res = await fetch("/models-api/deployed/");
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Object.entries(data)
-      .map(([id, info]: [string, any]) => ({
-        id,
-        modelName:
-          info.model_impl?.model_name ||
-          info.model_impl?.hf_model_id ||
-          "Unknown",
-        model_type: info.model_impl?.model_type,
-      }))
-      .filter((m) => m.model_type === "tts");
-  } catch {
-    return [];
-  }
-}
-
 export default function TTSDemo() {
-  const [ttsModels, setTtsModels] = useState<DeployedModelInfo[]>([]);
+  const [ttsModels, setTtsModels] = useState<DeployedModelSummary[]>([]);
   const [selectedDeployId, setSelectedDeployId] = useState("");
   const [text, setText] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -64,7 +42,7 @@ export default function TTSDemo() {
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   useEffect(() => {
-    fetchTTSModels().then((models) => {
+    fetchHealthyModelsByType("tts").then((models) => {
       setTtsModels(models);
       if (models.length > 0) setSelectedDeployId(models[0].id);
     });
@@ -374,7 +352,12 @@ export default function TTSDemo() {
   };
 
   return (
-    <Card className="flex flex-col w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 rounded-2xl">
+    // Fixed height, not max-height: the outer page wrapper vertically centers
+    // this card (items-center in a h-screen flex). A card that grows with its
+    // content would grow symmetrically around that centered point, pushing its
+    // top edge upward until it goes behind the navbar. A constant footprint
+    // keeps the card's position stable; content beyond it scrolls internally.
+    <Card className="flex flex-col w-full max-w-3xl h-[85vh] overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 rounded-2xl">
       {/* Always-mounted audio element (no native controls) */}
       <audio
         ref={audioRef}
@@ -387,7 +370,11 @@ export default function TTSDemo() {
         className="hidden"
       />
 
-      <div className="flex-1 overflow-auto flex items-center justify-center">
+      {/* items-start (not center): centering a flex item taller than its
+          container defaults the scroll position to the middle, hiding the
+          header above the visible area once content grows past the
+          viewport. Top-anchoring keeps it reachable by scrolling down. */}
+      <div className="flex-1 overflow-auto flex items-start justify-center">
         <div className="w-full max-w-3xl px-6 py-8 flex flex-col gap-6">
           {/* Header */}
           <motion.div

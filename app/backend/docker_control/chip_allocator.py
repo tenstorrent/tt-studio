@@ -67,6 +67,41 @@ MULTI_CHIP_BOARD_SLOTS = {
 STARTING_DEPLOYMENT_GRACE_PERIOD = timedelta(minutes=3)
 
 
+# Container name prefixes that belong to the TT-Studio infrastructure itself. These
+# containers may bind /dev/tenstorrent (the backend does, for tt-smi) without
+# running a model on it.
+INFRA_CONTAINER_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+
+# A specific Tenstorrent chip node bound into a container, e.g. /dev/tenstorrent/2
+_TT_DEVICE_NODE = re.compile(r"^/dev/tenstorrent/(\d+)$")
+
+
+def _detect_device_ids_from_mounts(container_info: dict):
+    """Derive the chips a container occupies from its bound /dev/tenstorrent nodes.
+
+    This is the ground truth: the launcher binds exactly the chip nodes the model
+    was granted (e.g. /dev/tenstorrent/2 + /dev/tenstorrent/3 → chips 2,3), so it
+    works regardless of how or where the container was started. Returns a sorted
+    int list of specific chips, the string "whole" if the entire /dev/tenstorrent
+    directory is bound (no per-chip granularity), or None if no TT device is bound.
+    """
+    hc = container_info.get("HostConfig") or {}
+    ids = []
+    whole = False
+    for d in (hc.get("Devices") or []):
+        if not isinstance(d, dict):
+            continue
+        path = (d.get("PathOnHost") or d.get("PathInContainer") or "").rstrip("/")
+        m = _TT_DEVICE_NODE.match(path)
+        if m:
+            ids.append(int(m.group(1)))
+        elif path == "/dev/tenstorrent":
+            whole = True
+    if ids:
+        return sorted(set(ids))
+    return "whole" if whole else None
+
+
 class ChipSlotAllocator:
     """
     Manages automatic chip slot allocation.
@@ -161,6 +196,11 @@ class ChipSlotAllocator:
                         "port": deployment.port,
                     }
 
+        # Chips held by containers TT-Studio did not deploy (another launcher, a
+        # manual docker run, ...). A TT-Studio record wins when both claim a slot.
+        for slot_id, info in self._get_external_occupancy(active_deployments).items():
+            occupied_map.setdefault(slot_id, info)
+
         # Build slot status list
         for slot_id in range(self.total_slots):
             if slot_id in occupied_map:
@@ -181,13 +221,21 @@ class ChipSlotAllocator:
             "slots": slots_info
         }
 
-    def allocate_chip_slot(self, model_name: str, manual_override: Optional[int] = None) -> int:
+    def allocate_chip_slot(
+        self,
+        model_name: str,
+        manual_override: Optional[int] = None,
+        chips_required: Optional[int] = None,
+    ) -> int:
         """
         Auto-allocate chip slot or use manual override.
 
         Args:
             model_name: Name of the model being deployed
             manual_override: Optional manual device_id for advanced mode
+            chips_required: Chip count to allocate for, when the caller already knows
+                it. Community bundles carry their own count in the manifest and are
+                absent from model_implmentations, so the name lookup cannot find them.
 
         Returns:
             Allocated device_id (0-based slot number)
@@ -197,7 +245,12 @@ class ChipSlotAllocator:
             MultiChipConflictError: If multi-chip model conflicts with existing deployments
         """
         with self._lock:
-            chips_required = self._get_chips_required(model_name)
+            if chips_required is None:
+                chips_required = self._get_chips_required(model_name)
+                # The catalog's 4 means "whole board" (infer_chips_required only
+                # returns 1 or 4); an explicit count is a real mesh size.
+                if chips_required >= 4:
+                    chips_required = self.total_slots
 
             # Advanced mode: manual override
             if manual_override is not None:
@@ -208,13 +261,48 @@ class ChipSlotAllocator:
                 return manual_override
 
             # Auto-allocation
-            if chips_required == 4:
+            if chips_required >= self.total_slots:
                 device_id = self._allocate_multi_chip(model_name)
+            elif chips_required > 1:
+                device_id = self._allocate_chip_group(model_name, chips_required)
             else:
                 device_id = self._allocate_single_chip(model_name)
 
             logger.info(f"Auto-allocated: device_id={device_id} for {model_name} ({chips_required} chips)")
             return device_id
+
+    def slot_group(self, device_id: int, chips_required: int) -> List[int]:
+        """Every slot a deployment of ``chips_required`` chips based at ``device_id`` holds."""
+        if chips_required >= self.total_slots:
+            return list(range(self.total_slots))
+        return list(range(device_id, min(device_id + chips_required, self.total_slots)))
+
+    def _allocate_chip_group(self, model_name: str, chips_required: int) -> int:
+        """
+        Find the lowest free group of `chips_required` contiguous slots.
+
+        Groups are aligned to a multiple of `chips_required` because the slots of a
+        multi-chip card are adjacent: a 2-chip mesh on a P300x2 must land on one card
+        ([0,1] or [2,3]), never straddle two ([1,2]).
+
+        Returns:
+            Base device ID of the free group
+
+        Raises:
+            AllocationError: If no aligned group is fully free
+        """
+        occupied_slots = self._get_occupied_slots()
+
+        for base in range(0, self.total_slots, chips_required):
+            group = list(range(base, base + chips_required))
+            if group[-1] < self.total_slots and not any(s in occupied_slots for s in group):
+                return base
+
+        raise AllocationError(
+            f"{model_name} needs {chips_required} adjacent chip slots on one card, "
+            f"and no such group is free ({len(occupied_slots)} of {self.total_slots} "
+            f"slot(s) in use). Stop a running model to free a card."
+        )
 
     def _allocate_single_chip(self, model_name: str) -> int:
         """
@@ -269,8 +357,21 @@ class ChipSlotAllocator:
                     "chips": model_chips
                 })
 
+            seen_external = set()
+            for slot_id, info in sorted(self._get_external_occupancy().items()):
+                if info["model_name"] in seen_external:
+                    continue
+                seen_external.add(info["model_name"])
+                conflicts.append({
+                    "model": info["model_name"],
+                    "deployment_id": None,
+                    "slot": slot_id,
+                    "chips": 4 if info["is_multi_chip"] else 1,
+                    "source": "external",
+                })
+
             raise MultiChipConflictError(
-                f"{model_name} requires all 4 chip slots. "
+                f"{model_name} requires all {self.total_slots} chip slots. "
                 f"Currently occupied: {len(occupied_slots)} slot(s). "
                 f"Stop all running models first.",
                 conflicts=conflicts
@@ -299,12 +400,41 @@ class ChipSlotAllocator:
 
         occupied_slots = self._get_occupied_slots()
 
-        if chips_required == 4:
+        if chips_required >= self.total_slots:
             # Multi-chip: ensure all slots are free
             if occupied_slots:
                 return {
                     "valid": False,
-                    "message": f"{model_name} requires all 4 chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                    "message": f"{model_name} requires all {self.total_slots} chip slots. Currently occupied: {len(occupied_slots)} slot(s)."
+                }
+        elif chips_required > 1:
+            # A real mesh size from a manifest: the pinned slot is the base of a group
+            # that must sit on one card, so validate the whole group, not just the base.
+            if device_id % chips_required != 0:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"{model_name} needs {chips_required} chips on one card, so "
+                        f"device_id must be a multiple of {chips_required}, not {device_id}."
+                    )
+                }
+            group = list(range(device_id, device_id + chips_required))
+            if group[-1] >= self.total_slots:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"{model_name} needs {chips_required} chips starting at slot "
+                        f"{device_id}, which runs past this board's {self.total_slots} slots."
+                    )
+                }
+            busy = [s for s in group if s in occupied_slots]
+            if busy:
+                return {
+                    "valid": False,
+                    "message": (
+                        f"Chip slot(s) {', '.join(map(str, busy))} are occupied, so "
+                        f"{model_name} cannot take slots {group[0]}-{group[-1]}."
+                    )
                 }
         else:
             # Single-chip: ensure selected slot is free
@@ -321,6 +451,11 @@ class ChipSlotAllocator:
                     if model_chips == 4:
                         occupying_model = f"{deployment.model_name} (multi-chip)"
                         break
+
+                if occupying_model is None:
+                    external = self._get_external_occupancy().get(device_id)
+                    if external:
+                        occupying_model = f"{external['model_name']} (container not deployed by TT-Studio)"
 
                 return {
                     "valid": False,
@@ -440,7 +575,92 @@ class ChipSlotAllocator:
                     if deployment_slot < self.total_slots:
                         occupied.add(deployment_slot)
 
+        occupied.update(self._get_external_occupancy(active).keys())
         return occupied
+
+    def _get_external_occupancy(self, active_deployments: Optional[List[ModelDeployment]] = None) -> Dict[int, Dict]:
+        """
+        Chips held by running containers that TT-Studio did not deploy.
+
+        Any running container that binds a /dev/tenstorrent node holds that chip,
+        no matter which tool started it (tt-model CLI, tt-inference-server run.py,
+        a manual docker run). The deployment table alone misses those, so the UI
+        showed the chips as free and deploys blocked on the driver's chip lock.
+
+        Skips TT-Studio's own infrastructure containers (the backend binds the whole
+        device directory for tt-smi) and containers already tracked as active
+        deployments, which are counted from their records.
+
+        Returns:
+            {slot_id: {"model_name", "deployment_id", "is_multi_chip", "port", "source"}}
+            Empty when Docker cannot be queried, so status and deploys still work.
+        """
+        try:
+            from docker_control.docker_control_client import get_docker_client
+            response = get_docker_client().list_containers(all=False)
+        except Exception as e:
+            logger.warning(f"Could not list containers for external chip occupancy: {e}")
+            return {}
+
+        if isinstance(response, dict):
+            if response.get("status") == "error":
+                logger.warning(
+                    "Docker control returned an error while listing containers: %s",
+                    response.get("message", "unknown error"),
+                )
+                return {}
+            containers = response.get("containers", []) or []
+        else:
+            containers = response or []
+
+        tracked_ids: Set[str] = set()
+        deployments = (
+            active_deployments
+            if active_deployments is not None
+            else self._get_active_deployments()
+        )
+        for deployment in deployments:
+            container_id = getattr(deployment, "container_id", None) or ""
+            if container_id:
+                tracked_ids.update({container_id, container_id[:12]})
+
+        occupancy: Dict[int, Dict] = {}
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            name = (container.get("name") or "").lstrip("/")
+            container_id = container.get("id") or ""
+            if any(name.lower().startswith(prefix) for prefix in INFRA_CONTAINER_PREFIXES):
+                continue
+            if container_id in tracked_ids or container_id[:12] in tracked_ids:
+                continue
+
+            bound = _detect_device_ids_from_mounts(container)
+            if bound is None:
+                continue
+            if bound == "whole":
+                slots = list(range(self.total_slots))
+            else:
+                slots = [slot for slot in bound if 0 <= slot < self.total_slots]
+            if not slots:
+                continue
+
+            info = {
+                "model_name": name or container_id[:12],
+                "deployment_id": None,
+                "is_multi_chip": len(slots) > 1,
+                "port": None,
+                "source": "external",
+            }
+            for slot in slots:
+                occupancy.setdefault(slot, info)
+
+        if occupancy:
+            logger.debug(
+                "Chips held by containers not deployed by TT-Studio: "
+                + ", ".join(f"{slot}={info['model_name']}" for slot, info in sorted(occupancy.items()))
+            )
+        return occupancy
 
     def _get_deployment_device_ids(self, deployment: ModelDeployment) -> List[int]:
         """Return normalized slot IDs occupied by a deployment."""

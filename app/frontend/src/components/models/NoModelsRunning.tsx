@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import type { JSX } from "react";
+import type { ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../ui/button";
 
@@ -9,7 +9,7 @@ interface NoModelsRunningProps {
   userStopped?: boolean;
 }
 
-export default function NoModelsRunning({ userStopped = false }: NoModelsRunningProps): JSX.Element {
+export default function NoModelsRunning({ userStopped = false }: NoModelsRunningProps): ReactElement {
   const navigate = useNavigate();
   const hasEverDeployed = localStorage.getItem("hasEverDeployed") === "true";
 

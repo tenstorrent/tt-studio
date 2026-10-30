@@ -9,21 +9,67 @@ import sys
 import subprocess
 import time
 from datetime import datetime
+from tt_setup import install_mode
 from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.console import _fmt_duration, add_note, begin_phase, build_note, confirm, console, end_phase, end_run, events, get_notes, is_verbose, notice_panel, ready_panel, register_setup_phases, rename_phase, show_detail, step, steps_panel, stop_active_phase
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import check_tt_smi, display_welcome_banner, resolve_hardware_label, run_preflight_checks
 from tt_setup.docker_diag import classify_pull_failure, handle_docker_compose_result, run_docker_compose_with_progress, suggest_pip_fixes
-from tt_setup.docker import build_docker_compose_command, check_docker_access, check_docker_installation, detect_tt_hardware, fix_docker_issues
-from tt_setup.env_config import configure_environment_sequentially, get_env_var, parse_boolean_env, save_setup_config, set_app_version_env
+from tt_setup.docker import (
+    build_docker_compose_command,
+    check_docker_access,
+    check_docker_installation,
+    detect_foreign_tt_studio_stacks,
+    detect_tt_hardware,
+    fix_docker_issues,
+    prepare_docker_socket_path,
+    remove_docker_control_container,
+    stop_tt_studio_stack,
+)
+from tt_setup.env_config import (
+    configure_environment_sequentially,
+    get_env_var,
+    parse_boolean_env,
+    save_setup_config,
+    set_app_version_env,
+    write_env_var,
+)
 from tt_setup.image_source import BUILD_REASON_FRONTEND, DEFAULT_IMAGE_REGISTRY, decide_image_source, describe_pull_fallback, frontend_config_drift, images_present_locally, is_worktree_dirty, required_image_refs
 from tt_setup.bug_report import report_bug
 from tt_setup.shortcut import install_shortcut, maybe_offer_shortcut, maybe_repair_shortcut, uninstall_shortcut
 from tt_setup.switch import switch_checkout
+from tt_setup.release import make_rc_branch, merge_rc_branch, update_rc_branch
 from tt_setup.cleanup import cleanup_resources, purge_models
-from tt_setup.services import check_and_free_ports, ensure_frontend_dependencies, get_frontend_config, report_service_failure, setup_fastapi_environment, snapshot_health, start_docker_control_service, start_fastapi_server, wait_for_all_services, wait_for_frontend_and_open_browser
-from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_server
+from tt_setup.services import (
+    check_and_free_ports,
+    cleanup_docker_control_service,
+    ensure_frontend_dependencies,
+    get_backend_port,
+    get_frontend_config,
+    report_service_failure,
+    resolve_backend_port,
+    setup_fastapi_environment,
+    snapshot_health,
+    start_fastapi_server,
+    wait_for_all_services,
+    wait_for_frontend_and_open_browser,
+)
+from tt_setup.inference_server import (
+    _sync_model_catalog,
+    catalog_matches_artifact,
+    setup_artifact_with_fallback,
+)
+from tt_setup.model_manager import setup_tt_model_manager
+from tt_setup.model_support import (
+    default_artifact_version,
+    describe_community_source,
+    describe_list_source,
+    enrich_community_catalog,
+    fetch_model_support,
+    refresh_community_catalog,
+    save_model_support,
+)
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
@@ -51,7 +97,9 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED", "false"))
 
     fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
-    docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
+    # Docker Control is a Compose-managed internal service; it no longer has a
+    # host PID file or public URL.
+    docker_control_enabled = not args.skip_docker_control
 
     # Hardware — reuse the Phase-1 label when given, else probe tt-smi now (--info).
     if hardware_label is None:
@@ -70,8 +118,6 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     endpoints = [("URL", "http://localhost:3000", "http://localhost:3000/")]
     if is_verbose() and fastapi_enabled:
         endpoints.append(("FastAPI", "http://localhost:8001", "http://localhost:8001/"))
-    if is_verbose() and docker_control_enabled:
-        endpoints.append(("Docker Control", "http://localhost:8002", "http://localhost:8002/api/v1/health"))
 
     health = snapshot_health([health_url for _, _, health_url in endpoints])
     rows = [(label, url, "up" if health.get(health_url) else "starting")
@@ -95,15 +141,15 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
     footer = []
     if run_start is not None:
         footer.append(f"[muted]Ready in {_fmt_duration(time.monotonic() - run_start)} · 5 phases[/muted]")
-    footer.append("[muted]Stop · python run.py --stop[/muted]")
-    footer.append("[muted]Logs · python run.py --logs[/muted]")
+    footer.append(f"[muted]Stop · {LAUNCH_CMD} --stop[/muted]")
+    footer.append(f"[muted]Logs · {LAUNCH_CMD} --logs[/muted]")
     if is_verbose():
         if fastapi_enabled:
             footer.append(f"[muted]     · tail -f {MODEL_RUN_LOG_FILE}[/muted]")
         if docker_control_enabled:
             footer.append(f"[muted]     · tail -f {DOCKER_CONTROL_LOG_FILE}[/muted]")
-    footer.append("[muted]Info · python run.py --info[/muted]")
-    footer.append("[muted]Help · python run.py --help[/muted]")
+    footer.append(f"[muted]Info · {LAUNCH_CMD} --info[/muted]")
+    footer.append(f"[muted]Help · {LAUNCH_CMD} --help[/muted]")
 
     console.print()
     console.print(ready_panel("TT Studio is ready", rows, footer))
@@ -166,7 +212,7 @@ def _preflight_device_availability(args):
 
     lines = [f"Requested --device-id {device_id}, but:"] + busy
     lines.append("")
-    lines.append("Free the chips (stop that model in the UI, or python run.py --stop) or")
+    lines.append(f"Free the chips (stop that model in the UI, or {LAUNCH_CMD} --stop) or")
     lines.append("pick different slots, then re-run.")
     console.print(notice_panel("Requested chips are busy", lines, border_style="error"))
     sys.exit(1)
@@ -205,10 +251,68 @@ def _headless_deploy(args):
     return run_headless_deploy(dh, args, frontend=(fe_host, fe_port))
 
 
+def _checkout_only_flag(args):
+    """The first requested flag that needs a git checkout of tt-studio, or None."""
+    checks = (
+        ("--dev", args.dev),
+        ("--switch", getattr(args, "switch", None)),
+        ("--make-rc-branch", getattr(args, "make_rc_branch", None)),
+        ("--update-rc-branch", getattr(args, "update_rc_branch", False)),
+        ("--merge-rc-branch", getattr(args, "merge_rc_branch", False)),
+        ("--check-headers", getattr(args, "check_headers", False)),
+        ("--add-headers", getattr(args, "add_headers", False)),
+    )
+    return next((flag for flag, requested in checks if requested), None)
+
+
+def _refuse_checkout_only_flag(flag):
+    """Explain why `flag` doesn't apply to a pip install. Returns exit code 1."""
+    if flag == "--switch":
+        lines = [
+            "[muted]This TT Studio was installed with pip, so pip manages its version:[/muted]",
+            "[info]pipx install tt-studio==X.Y.Z --force[/info]   [muted](or: pip install tt-studio==X.Y.Z)[/muted]",
+        ]
+    else:
+        lines = [
+            f"[muted]{flag} works on TT Studio's source code, which needs a git clone:[/muted]",
+            "[info]git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio[/info]",
+            f"[info]python run.py {flag}[/info]",
+        ]
+    console.print(notice_panel(
+        f"[bold]⛔ {flag} isn't available in a pip install[/bold]", lines, border_style="error",
+    ))
+    return 1
+
+
+def _finish_pip_uninstall():
+    """--uninstall in a pip install, after the purge: delete the install folder
+    (only when it carries tt-studio's install marker) and say how to remove the
+    package itself."""
+    root = TT_STUDIO_ROOT
+    if install_mode.read_marker(root) is not None:
+        os.chdir(os.path.dirname(root))  # don't sit inside the folder being deleted
+        shutil.rmtree(root, ignore_errors=True)
+        if os.path.exists(root):
+            console.print(f"[warning]⚠  Some files in {root} couldn't be removed (a container may have "
+                          f"created them as root). Remove them with: sudo rm -rf {root}[/warning]")
+        else:
+            console.print(f"[success]✓[/success] Removed {root}")
+    console.print(notice_panel(
+        "[bold]Last step — remove the tt-studio package[/bold]",
+        ["[info]pipx uninstall tt-studio[/info]   [muted](or: pip uninstall tt-studio)[/muted]"],
+        border_style="accent",
+    ))
+
+
 def _run(args):
     """Orchestrate setup for the parsed arguments."""
     try:
-        
+        # A pip install has no git checkout to develop in, switch, or release from.
+        if install_mode.is_pip_install():
+            flag = _checkout_only_flag(args)
+            if flag:
+                sys.exit(_refuse_checkout_only_flag(flag))
+
         if args.help_env:
             print(f"""
 {C_TT_PURPLE}{C_BOLD}TT Studio Environment Variables Help{C_RESET}
@@ -229,6 +333,9 @@ def _run(args):
 {C_YELLOW}{C_BOLD}Optional Services:{C_RESET}
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
+  {C_YELLOW}TT_STUDIO_DISABLE_HF_XET{C_RESET}            Set true to disable Hugging Face Xet
+                                      transfer for weight downloads and use
+                                      plain HTTPS instead (slower; default off)
 
 {C_ORANGE}{C_BOLD}Hardware:{C_RESET}
 {'=' * 80}
@@ -240,12 +347,17 @@ def _run(args):
 
 {C_ORANGE}{C_BOLD}Inference Server Artifact (which tt-inference-server build to use):{C_RESET}
 {'=' * 80}
-  {C_YELLOW}TT_INFERENCE_ARTIFACT_VERSION{C_RESET}       Pinned release to download (e.g. v0.17.0)
+  {C_YELLOW}TT_MODEL_SUPPORT_URL{C_RESET}                Model support spec (tt-cli model_support.json)
+                                      the catalog syncs from; URL or local path.
+                                      Its release_version is the default build
+  {C_YELLOW}TT_INFERENCE_ARTIFACT_VERSION{C_RESET}       Pin a release instead (e.g. v0.17.0)
   {C_YELLOW}TT_INFERENCE_ARTIFACT_BRANCH{C_RESET}        Dev override: fetch a branch/SHA instead
                                       of a release
   {C_YELLOW}TT_QB2_LAUNCH_BRANCH{C_RESET}                Artifact branch for the QB2 launch
                                       (branch selection only — hardware is
                                       governed by IS_QB2, not this)
+  {C_YELLOW}TT_COMMUNITY_CATALOG_URL{C_RESET}            Verified community bundles (tt-cli
+                                      community_catalog.json); URL or local path
 
 {C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
 {'=' * 80}
@@ -288,24 +400,27 @@ def _run(args):
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
-  {C_CYAN}python run.py{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
-  {C_CYAN}python run.py --configure-env{C_RESET}        Interactively configure all environment variables
-  {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
-  {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
-  {C_CYAN}python run.py --stop{C_RESET}                 Stop containers only (keeps your data)
-  {C_CYAN}python run.py --purge-all{C_RESET}            Full teardown (wipe data + config)
-  {C_CYAN}python run.py --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
-  {C_CYAN}python run.py --info{C_RESET}                 Re-show the "TT Studio is ready" summary
-  {C_CYAN}python run.py --logs{C_RESET}                 Stream all container logs (compose logs -f)
-  {C_CYAN}python run.py --status{C_RESET}               Open the live monitor TUI
-  {C_CYAN}python run.py --report-bug{C_RESET}           Bundle logs + open a pre-filled GitHub issue
-  {C_CYAN}python run.py --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
-  {C_CYAN}python run.py --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
-  {C_CYAN}python run.py --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
-  {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
-  {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
-  {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}{LAUNCH_CMD}{C_RESET}                        Default setup - minimal prompts, only HF_TOKEN required
+  {C_CYAN}{LAUNCH_CMD} --configure-env{C_RESET}        Interactively configure all environment variables
+  {C_CYAN}{LAUNCH_CMD} --dev{C_RESET}                  Development mode with defaults
+  {C_CYAN}{LAUNCH_CMD} --reconfigure{C_RESET}          Reset preferences and reconfigure
+  {C_CYAN}{LAUNCH_CMD} --stop{C_RESET}                 Stop containers only (keeps your data)
+  {C_CYAN}{LAUNCH_CMD} --purge-all{C_RESET}            Full teardown (wipe data + config)
+  {C_CYAN}{LAUNCH_CMD} --purge-model MODEL{C_RESET}    Uninstall one model (bare flag opens a picker)
+  {C_CYAN}{LAUNCH_CMD} --info{C_RESET}                 Re-show the "TT Studio is ready" summary
+  {C_CYAN}{LAUNCH_CMD} --logs{C_RESET}                 Stream all container logs (compose logs -f)
+  {C_CYAN}{LAUNCH_CMD} --status{C_RESET}               Open the live monitor TUI
+  {C_CYAN}{LAUNCH_CMD} --report-bug{C_RESET}           Bundle logs + draft a support email
+  {C_CYAN}{LAUNCH_CMD} --install-shortcut{C_RESET}     Add a `tt-studio` shell shortcut
+  {C_CYAN}{LAUNCH_CMD} --switch REF{C_RESET}           Switch this checkout to a branch/tag (e.g. an RC), then re-run
+  {C_CYAN}{LAUNCH_CMD} --uninstall{C_RESET}            Full teardown + remove the `tt-studio` shell shortcut
+  {C_CYAN}{LAUNCH_CMD} --skip-fastapi{C_RESET}         Skip FastAPI server setup
+  {C_CYAN}{LAUNCH_CMD} --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
+  {C_CYAN}{LAUNCH_CMD} --check-headers{C_RESET}        Check for missing SPDX license headers
+  {C_CYAN}{LAUNCH_CMD} --add-headers{C_RESET}          Add missing SPDX license headers
+  {C_CYAN}{LAUNCH_CMD} --make-rc-branch{C_RESET}       Cut a new rc-vX.Y.Z branch from main + open the RC PR (maintainers)
+  {C_CYAN}{LAUNCH_CMD} --update-rc-branch{C_RESET}     Cherry-pick new dev commits into the current RC branch (maintainers)
+  {C_CYAN}{LAUNCH_CMD} --merge-rc-branch{C_RESET}      Merge the approved RC PR, tag, and publish the release (maintainers)
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -330,7 +445,12 @@ def _run(args):
             # invocation carries --env-file <root>/.env + the -f files — a bare
             # `docker compose logs -f` would emit a wall of "variable is not set"
             # warnings (the vars reach compose only via --env-file, never the shell).
-            cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False, quiet=True)
+            cmd = build_docker_compose_command(
+                dev_mode=args.dev,
+                show_hardware_info=False,
+                quiet=True,
+                include_docker_control=not args.skip_docker_control,
+            )
             cmd += ["logs", "-f"]
             try:
                 sys.exit(subprocess.run(cmd, cwd=TT_STUDIO_ROOT).returncode)
@@ -348,6 +468,15 @@ def _run(args):
         if getattr(args, "switch", None):
             sys.exit(switch_checkout(args.switch))
 
+        if getattr(args, "make_rc_branch", None):
+            sys.exit(make_rc_branch(args.make_rc_branch))
+
+        if getattr(args, "update_rc_branch", False):
+            sys.exit(update_rc_branch())
+
+        if getattr(args, "merge_rc_branch", False):
+            sys.exit(merge_rc_branch())
+
         # Stopping one model (and resetting its chips) must never fall through
         # to the full-stack teardown either.
         if getattr(args, "stop_model", None):
@@ -364,7 +493,10 @@ def _run(args):
         # shell shortcut too.
         if getattr(args, "uninstall", False):
             if cleanup_resources(args):
-                uninstall_shortcut()
+                if install_mode.is_pip_install():
+                    _finish_pip_uninstall()
+                else:
+                    uninstall_shortcut()
             return
 
         if args.cleanup or args.cleanup_all:
@@ -413,15 +545,18 @@ def _run(args):
         # shell shortcut at this checkout. Silent no-op otherwise.
         maybe_repair_shortcut()
 
-        # Get git hash for startup log
-        try:
-            _git_hash = subprocess.run(
-                ["git", "-C", TT_STUDIO_ROOT, "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, check=False,
-            ).stdout.strip() or "unknown"
-        except Exception:
-            _git_hash = "unknown"
-        startup_log.header(f"git:{_git_hash}")
+        # Build identity for the startup log: git hash, or the pip package version.
+        if install_mode.is_pip_install():
+            startup_log.header(f"pip:{install_mode.package_version()}")
+        else:
+            try:
+                _git_hash = subprocess.run(
+                    ["git", "-C", TT_STUDIO_ROOT, "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                ).stdout.strip() or "unknown"
+            except Exception:
+                _git_hash = "unknown"
+            startup_log.header(f"git:{_git_hash}")
 
         # ── Phase 1 · Checks ─────────────────────────────────────────────────
         ph = begin_phase(1, 5, "Checks")
@@ -485,7 +620,7 @@ def _run(args):
                 [f"tt-smi is installed but did not report a working Tenstorrent device ({reason}).",
                  "Your Tenstorrent tooling or board may need attention.",
                  "",
-                 "Fix your TT tooling and re-run [accent]python run.py[/accent],",
+                 f"Fix your TT tooling and re-run [accent]{LAUNCH_CMD}[/accent],",
                  "or set [accent]IS_QB2=false[/accent] in .env if this isn't a QB2 "
                  "(dev laptop, cloud mode, or a different board).",
                  "Support: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/support-bh-2.html"],
@@ -548,7 +683,7 @@ def _run(args):
                 "hf_token_provided": True,
                 "tt_studio_mode": True,
                 "ai_playground_mode": False,
-                "vite_app_title": "Tenstorrent | TT Studio",
+                "vite_app_title": STOCK_APP_TITLE,
                 "vite_enable_deployed": "false",
                 "vite_enable_rag_admin": "false"
             }
@@ -638,12 +773,61 @@ def _run(args):
         ph.set("ports & permissions")
         # (spinner stays suspended from the frontend-deps step above)
 
+        # Only one TT Studio can be booted per machine — the containers share
+        # names, host ports, and the Docker network — so a stack started from a
+        # different checkout must be stopped explicitly rather than letting
+        # compose silently recreate or collide with its containers. Runs before
+        # the backend-port resolution below, so any TT Studio backend still
+        # holding a port after this point is our own (a normal restart).
+        foreign_stacks = detect_foreign_tt_studio_stacks()
+        if foreign_stacks:
+            checkouts = [os.path.dirname(wd) or wd for wd in foreign_stacks]
+            console.print(notice_panel(
+                "[warning]Another TT Studio is already running[/warning]",
+                ["It was started from:"]
+                + [f"  [bold]{c}[/bold]" for c in checkouts]
+                + ["",
+                   "Only one TT Studio can run on a machine at a time — the",
+                   "containers share names, host ports, and the Docker network."],
+                border_style="warning",
+            ))
+            if sys.stdin.isatty() and confirm(
+                    "Stop that TT Studio and start this one instead?", default=False):
+                for wd in foreign_stacks:
+                    if not stop_tt_studio_stack(wd):
+                        console.print(
+                            f"[error]⛔ Could not stop the TT Studio running from "
+                            f"{os.path.dirname(wd) or wd}. Stop it there with "
+                            f"[bold]{LAUNCH_CMD} --stop[/bold], then re-run.[/error]")
+                        sys.exit(1)
+                console.print("[success]✓ Stopped the other TT Studio[/success]")
+            else:
+                console.print(
+                    f"[info]Stop it with [bold]{LAUNCH_CMD} --stop[/bold] in that "
+                    "checkout (or use TT Studio from there), then re-run.[/info]")
+                sys.exit(1)
+
         # Check if all required ports are available
+
+        # Backend host port: keep the configured port (default 8000) when it is
+        # free or held by our own backend container; when another process holds
+        # it, bump to the next free port instead of failing startup. The chosen
+        # port is persisted to .env so every later compose invocation (--stop,
+        # --logs, restarts) resolves the same mapping.
+        configured_backend_port = get_backend_port()
+        backend_port, backend_port_changed = resolve_backend_port(configured_backend_port)
+        if backend_port_changed:
+            write_env_var("BACKEND_PORT", str(backend_port))
+            os.environ["BACKEND_PORT"] = str(backend_port)
+            console.print(
+                f"[warning]⚠️  Port {configured_backend_port} (Backend API) is in use — "
+                f"the backend will be published on port {backend_port} instead.[/warning]"
+            )
 
         # Define ports based on mode
         required_ports = [
             (3000, "Frontend"),
-            (8000, "Backend API"),
+            (backend_port, "Backend API"),
             (8080, "Agent Service"),
             (8111, "ChromaDB"),
         ]
@@ -667,7 +851,7 @@ def _run(args):
             print(f"     {C_WHITE}kill -9 <PID>{C_RESET}")
             print()
             print(f"  3. Or run with sudo to automatically free ports:")
-            print(f"     {C_WHITE}python run.py{C_RESET} (without --no-sudo)")
+            print(f"     {C_WHITE}{LAUNCH_CMD}{C_RESET} (without --no-sudo)")
             print()
             sys.exit(1)
 
@@ -744,23 +928,22 @@ def _run(args):
         # not captured, so they still show.)
         ph = begin_phase(3, 5, "Services")
 
-        # Start Docker Control Service BEFORE starting Docker containers so the
-        # backend can connect to it when it starts.
-        startup_log.step("docker_control_service", "START")
+        # Docker Control is started by the Compose profile during Phase 4.
+        # Remove a host-side service left by older releases before Compose
+        # brings up its private, non-published replacement.
         if not args.skip_docker_control:
-            with step("Docker Control service", spinner=True) as s:
-                dc_ok = start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev)
-                if not dc_ok:
-                    s.fail()
-            if dc_ok:
-                startup_log.step("docker_control_service", "OK")
-            else:
-                startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
-                report_service_failure(
-                    "Docker Control service", DOCKER_CONTROL_LOG_FILE, port=8002,
-                    consequence="Startup continues — the backend falls back to the Docker SDK, "
-                                "so model containers still deploy.",
-                )
+            cleanup_docker_control_service(no_sudo=args.no_sudo)
+
+        # Pre-create its mounted log so the container can append without
+        # leaving a root-owned file behind on the host.
+        if not args.skip_docker_control:
+            try:
+                os.makedirs(os.path.dirname(DOCKER_CONTROL_LOG_FILE), exist_ok=True)
+                with open(DOCKER_CONTROL_LOG_FILE, "a"):
+                    pass
+            except OSError as exc:
+                console.print(f"[warning]Could not prepare Docker Control log: {exc}[/warning]")
+            startup_log.step("docker_control_service", "COMPOSE")
         else:
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             console.print("[warning]⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used)[/warning]")
@@ -775,26 +958,45 @@ def _run(args):
             original_dir = os.getcwd()
             try:
                 ph.set("TT Inference Server")
-                if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                # The fetched spec is only cached once its artifact is installed, so the
+                # model list and the artifact version always match.
+                spec = fetch_model_support()
+                target_version = default_artifact_version(spec)
+                target_installed = setup_artifact_with_fallback(target_version, pull_branch=args.pull_branch)
+                if spec and target_installed:
+                    save_model_support(spec)
+                if show_detail():
+                    console.print(f"[muted]{describe_list_source()}[/muted]")
+                if target_installed is None:
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     console.print("[error]⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.[/error]")
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
 
-                # Sync model catalog from artifact
-                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                should_sync = (
-                    args.resync or
-                    args.reconfigure_inference_server or
-                    args.pull_branch or
-                    not os.path.exists(models_json_path)
-                )
-                if should_sync:
-                    with step("Syncing model catalog", spinner=True):
-                        _sync_model_catalog()
-                elif show_detail():
-                    console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
+                # Rebuilt every run; unchanged content isn't rewritten.
+                with step("Syncing model catalog", spinner=True):
+                    synced = _sync_model_catalog()
+                if not synced and not catalog_matches_artifact():
+                    startup_log.step("fastapi_server", "FAIL", "model catalog sync failed")
+                    console.print(
+                        "[error]⛔ Cannot start TT Studio: the model catalog couldn't be synced with the "
+                        "installed TT Inference Server. Re-run with -v for details.[/error]"
+                    )
+                    startup_log.summary(exit_code=1)
+                    startup_log.close()
+                    sys.exit(1)
+
+                # Community-model path. Non-fatal by design: without it the backend
+                # simply doesn't offer community models, and inference-server
+                # deploys are unaffected.
+                with step("tt-model-manager artifact", spinner=True) as handle:
+                    if not setup_tt_model_manager():
+                        handle.fail()
+                refresh_community_catalog()
+                enrich_community_catalog()
+                if show_detail():
+                    console.print(f"[muted]{describe_community_source()}[/muted]")
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
@@ -860,17 +1062,38 @@ def _run(args):
         # Check Docker access to determine if sudo is needed
         has_docker_access = check_docker_access()
         use_sudo = not has_docker_access
+        prepare_docker_socket_path()
+
+        # An explicit skip must also remove a Docker Control container left by
+        # an earlier normal launch. Otherwise the skipped stack would still
+        # retain Docker-management capability through that old container.
+        if args.skip_docker_control:
+            with step("Removing Docker Control", spinner=False) as s:
+                if remove_docker_control_container(dev_mode=args.dev, use_sudo=use_sudo):
+                    s.detail("removed")
+                else:
+                    s.skip("not running")
 
         # Set up the Docker Compose command (quiet — build progress folds into
         # the checklist's Build row, not a separate display).
-        docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, quiet=True)
+        docker_compose_cmd = build_docker_compose_command(
+            dev_mode=args.dev,
+            quiet=True,
+            include_docker_control=not args.skip_docker_control,
+        )
         app_dir = os.path.join(TT_STUDIO_ROOT, "app")
         use_pulled = False
         if image_src == "pull":
             ph.set(f"pulling prebuilt images ({image_tag})")
             startup_log.step("image_pull", "START", image_tag)
             pull_cmd = docker_compose_cmd + ["pull"]
-            pull_cmd = (["sudo"] + pull_cmd) if use_sudo else pull_cmd
+            if use_sudo:
+                pull_cmd = [
+                    "sudo", "env",
+                    f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                    f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                    *pull_cmd,
+                ]
             pull_rc, _pull_output = run_docker_compose_with_progress(
                 pull_cmd, cwd=app_dir, dev_mode=args.dev,
             )
@@ -883,7 +1106,13 @@ def _run(args):
                 # with whatever is already here, or a local build.
                 fail_kind = classify_pull_failure(_pull_output)
                 use_pulled = images_present_locally(
-                    required_image_refs(args.dev, image_registry, image_tag), use_sudo=use_sudo
+                    required_image_refs(
+                        args.dev,
+                        image_registry,
+                        image_tag,
+                        include_docker_control=not args.skip_docker_control,
+                    ),
+                    use_sudo=use_sudo,
                 )
                 startup_log.step("image_pull", "CACHED" if use_pulled else "FALLBACK",
                                  f"{fail_kind} exit={pull_rc}")
@@ -908,7 +1137,15 @@ def _run(args):
         )
 
         # Stream the build; per-service events fold into the active Build row.
-        compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
+        if use_sudo:
+            compose_cmd = [
+                "sudo", "env",
+                f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                *docker_compose_cmd,
+            ]
+        else:
+            compose_cmd = docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
             cwd=app_dir,
@@ -1010,7 +1247,7 @@ def _run(args):
                     s.fail()
             if s.failed:
                 print(f"\n{C_RED}⛔ Not all services became healthy{C_RESET}")
-                print(f"{C_CYAN}   Review logs above. Try: python run.py --stop && python run.py{C_RESET}")
+                print(f"{C_CYAN}   Review logs above. Try: {LAUNCH_CMD} --stop && {LAUNCH_CMD}{C_RESET}")
                 sys.exit(1)
         
         
@@ -1031,7 +1268,7 @@ def _run(args):
             browser_model = args.auto_deploy if browser_deploy else None
             if not wait_for_frontend_and_open_browser(host, port, timeout, browser_model, device_id=device_id_val):
                 print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{C_RESET}")
-                print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --stop && python run.py{C_RESET}")
+                print(f"{C_CYAN}💡 Run: {C_WHITE}{LAUNCH_CMD} --stop && {LAUNCH_CMD}{C_RESET}")
         elif not headless_deploy:
             auto_deploy_param = _auto_deploy_query(args.auto_deploy, device_id_val) if browser_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
@@ -1046,7 +1283,10 @@ def _run(args):
             print(f"\n{C_YELLOW}📜 Tailing logs in development mode. Press Ctrl+C to stop.{C_RESET}")
             
             # Build the same Docker Compose command for logs
-            docker_logs_cmd = build_docker_compose_command(dev_mode=args.dev)
+            docker_logs_cmd = build_docker_compose_command(
+                dev_mode=args.dev,
+                include_docker_control=not args.skip_docker_control,
+            )
             docker_logs_cmd.extend(["logs", "-f"])
             
             # Start Docker Compose logs in background
@@ -1085,7 +1325,7 @@ def _run(args):
         startup_log.close()
 
         # Build the original command with flags for the resume hint.
-        original_cmd = "python run.py"
+        original_cmd = LAUNCH_CMD
         if 'args' in locals():
             if args.dev:
                 original_cmd += " --dev"
@@ -1093,15 +1333,13 @@ def _run(args):
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
-            if args.resync:
-                original_cmd += " --resync"
 
         console.print(notice_panel(
             "[bold]🛑 Setup interrupted (Ctrl+C)[/bold]",
             [
                 f"[muted]Resume     →[/muted]  {original_cmd}",
-                "[muted]Clean up   →[/muted]  python run.py --stop",
-                "[muted]Help       →[/muted]  python run.py --help",
+                f"[muted]Clean up   →[/muted]  {LAUNCH_CMD} --stop",
+                f"[muted]Help       →[/muted]  {LAUNCH_CMD} --help",
             ],
             border_style="warning",
         ))
@@ -1124,16 +1362,16 @@ def _run(args):
             [
                 "[muted]Check the error details above[/muted]",
                 f"[muted]Startup log →[/muted]  {STARTUP_LOG_FILE}",
-                "[muted]Help        →[/muted]  python run.py --help",
-                "[muted]Clean up    →[/muted]  python run.py --stop",
-                "[muted]Report bug  →[/muted]  python run.py --report-bug",
+                f"[muted]Help        →[/muted]  {LAUNCH_CMD} --help",
+                f"[muted]Clean up    →[/muted]  {LAUNCH_CMD} --stop",
+                f"[muted]Report bug  →[/muted]  {LAUNCH_CMD} --report-bug",
             ],
             border_style="error",
         ))
 
-        # Offer to package logs + a pre-filled GitHub issue right now, mirroring
-        # the web UI's Report Bug button. Guard the prompt: a Ctrl+C here should
-        # exit cleanly rather than surface a second traceback.
+        # Offer to package logs + a pre-filled support-email draft right now,
+        # mirroring the web UI's Report Bug button. Guard the prompt: a Ctrl+C
+        # here should exit cleanly rather than surface a second traceback.
         try:
             if confirm("Generate a diagnostics bundle to report this bug now?", default=False):
                 report_bug(exc=e, args=args, open_browser=not args.no_browser)
@@ -1141,4 +1379,3 @@ def _run(args):
             pass
 
         sys.exit(1)
-

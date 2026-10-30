@@ -12,7 +12,10 @@ import {
   AlertTriangle,
   Clock,
   Ban,
+  Info,
   RefreshCw,
+  Rocket,
+  Trash2,
 } from "lucide-react";
 import {
   LineChart,
@@ -38,9 +41,15 @@ import {
   fetchTrainingJobMetrics,
   fetchTrainingJobLogs,
   fetchTrainingJobCheckpoints,
+  fetchMergedCheckpoints,
   cancelTrainingJob,
+  deleteTrainingJob,
+  deleteMergedModel,
+  promoteCheckpoint,
+  normalizeMergedCheckpoint,
   getCheckpointDownloadUrl,
   formatTrainingTimestamp,
+  getApiErrorMessage,
   getJobDataset,
   getJobErrorMessage,
   type TrainingJob,
@@ -49,6 +58,7 @@ import {
   type TrainingCheckpoint,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
 // Status Badge (shared with TrainingPage)
@@ -166,6 +176,21 @@ export default function TrainingJobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  // Checkpoint id currently being promoted (merged) into a full base-model checkpoint.
+  const [promotingCkptId, setPromotingCkptId] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+  // Checkpoint whose promoted (merged) models are being deleted.
+  const [deletingCkptId, setDeletingCkptId] = useState<string | null>(null);
+  // Per-checkpoint merge outcome, surfaced inline next to the Promote button.
+  const [mergeStatus, setMergeStatus] = useState<
+    Record<string, { status: string; message?: string }>
+  >({});
+  // Merge job ids per promoted checkpoint (several after a re-promote), read from
+  // the on-disk merge_info.json sidecars so they persist across refreshes.
+  const [mergeIdsByCkpt, setMergeIdsByCkpt] = useState<
+    Record<string, string[]>
+  >({});
+  const promotedCount = Object.values(mergeIdsByCkpt).flat().length;
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -192,16 +217,30 @@ export default function TrainingJobDetailPage() {
       setLogs(l);
       setCheckpoints(c);
       setConnectionError(null);
+      // Determine which checkpoints are already promoted to inference by scanning
+      // merged checkpoints on disk and matching this job. Best-effort: a failure
+      // here (e.g. inference server unreachable) must not break the page.
+      try {
+        const merged = await fetchMergedCheckpoints();
+        const byCkpt: Record<string, string[]> = {};
+        for (const mc of merged) {
+          if (mc.source_job_id !== jobId || !mc.checkpoint_id) continue;
+          (byCkpt[mc.checkpoint_id] ??= []).push(mc.merge_id);
+        }
+        setMergeIdsByCkpt(byCkpt);
+      } catch {
+        // Leave the previously known promotion state untouched on failure.
+      }
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data?.error;
       if (status === 502 || status === 504) {
         setConnectionError(
-          "Training container is not reachable. It may have stopped or restarted.",
+          "Fine-tuning container is not reachable. It may have stopped or restarted.",
         );
-      } else if (status === 404 && msg?.includes("No running training container")) {
+      } else if (status === 404 && msg?.includes("No running fine-tuning container")) {
         setConnectionError(
-          "Training container is no longer running. The job data is unavailable.",
+          "Fine-tuning container is no longer running. The job data is unavailable.",
         );
       } else if (!job) {
         console.error("Failed to load job details:", err);
@@ -248,11 +287,134 @@ export default function TrainingJobDetailPage() {
       if (result?.status) {
         setJob((prev) => (prev ? { ...prev, status: result.status as TrainingJob["status"] } : prev));
       }
-      customToast.success("Cancellation requested");
+      customToast.success(
+        "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
+      );
       loadAll();
     } catch {
       setCancelRequested(false);
       customToast.error("Failed to cancel job");
+    }
+  };
+
+  // Promote (merge) a LoRA adapter checkpoint into a full base-model checkpoint
+  // that can be served for inference. The merge runs as a job on the training
+  // container; we poll that job so its real outcome (completed / failed + error)
+  // is surfaced inline instead of a fire-and-forget toast. The result is then
+  // discovered by the deploy-step picker.
+  const handlePromote = async (ckptId: string) => {
+    if (!jobId) return;
+    setPromotingCkptId(ckptId);
+    setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "in_progress" } }));
+    try {
+      const mergeJob = await promoteCheckpoint(jobId, ckptId);
+      const mergeJobId = typeof mergeJob?.id === "string" ? mergeJob.id : undefined;
+      if (!mergeJobId) {
+        customToast.info("Promotion started.");
+        return;
+      }
+      customToast.info(
+        "Promoting checkpoint — merging adapter into base model (this can take a few minutes)…",
+      );
+
+      // Merging loads the full base model on CPU, so poll for a while. The
+      // training container serializes merges, so only one runs at a time.
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let finalStatus: string | null = null;
+      let finalMessage: string | undefined;
+      while (Date.now() < deadline) {
+        await sleep(4000);
+        let mj: TrainingJob;
+        try {
+          mj = await fetchTrainingJob(mergeJobId);
+        } catch {
+          continue; // transient; keep polling
+        }
+        if (["completed", "failed", "cancelled"].includes(mj.status)) {
+          finalStatus = mj.status;
+          finalMessage = getJobErrorMessage(mj.error);
+          break;
+        }
+      }
+
+      if (finalStatus === "completed") {
+        // Merge writes weights 0600; ask the backend to make them host-readable.
+        // Best-effort: don't fail the promote if it errors.
+        try {
+          await normalizeMergedCheckpoint(mergeJobId);
+        } catch (err) {
+          console.error("Failed to normalize merged checkpoint perms:", err);
+        }
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "completed" } }));
+        setMergeIdsByCkpt((prev) => ({
+          ...prev,
+          [ckptId]: [...(prev[ckptId] ?? []), mergeJobId],
+        }));
+        customToast.success(
+          "Checkpoint promoted — it will appear in the deploy step for this model.",
+        );
+      } else if (finalStatus === "failed") {
+        setMergeStatus((prev) => ({
+          ...prev,
+          [ckptId]: { status: "failed", message: finalMessage },
+        }));
+        customToast.error(`Promotion failed: ${finalMessage || "unknown error"}`);
+      } else if (finalStatus === "cancelled") {
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "cancelled" } }));
+        customToast.error("Promotion was cancelled.");
+      } else {
+        // Timed out waiting — the merge may still finish in the background.
+        setMergeStatus((prev) => ({ ...prev, [ckptId]: { status: "pending" } }));
+        customToast.info(
+          "Promotion is still running — check the deploy step again shortly.",
+        );
+      }
+    } catch {
+      setMergeStatus((prev) => ({
+        ...prev,
+        [ckptId]: { status: "failed", message: "Failed to start promotion" },
+      }));
+      customToast.error("Failed to start checkpoint promotion");
+    } finally {
+      setPromotingCkptId(null);
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!jobId) return;
+    setDeletingJob(true);
+    try {
+      await deleteTrainingJob(jobId);
+      customToast.success("Fine-tuning job deleted");
+      navigate("/training");
+    } catch (err) {
+      setDeletingJob(false);
+      customToast.error(getApiErrorMessage(err, "Failed to delete job"));
+    }
+  };
+
+  // Removes every merge of the checkpoint, so it can be promoted again from scratch.
+  const handleDeleteMerged = async (ckptId: string) => {
+    setDeletingCkptId(ckptId);
+    try {
+      for (const mergeId of mergeIdsByCkpt[ckptId] ?? []) {
+        await deleteMergedModel(mergeId);
+      }
+      setMergeStatus((prev) => {
+        const next = { ...prev };
+        delete next[ckptId];
+        return next;
+      });
+      customToast.success("Promoted model deleted");
+    } catch (err) {
+      customToast.error(
+        getApiErrorMessage(err, "Failed to delete promoted model"),
+      );
+    } finally {
+      // Keep the spinner until the refresh drops the deleted model's button.
+      await loadAll();
+      setDeletingCkptId(null);
     }
   };
 
@@ -305,8 +467,43 @@ export default function TrainingJobDetailPage() {
                 {cancelRequested ? "Cancelling..." : "Cancel Job"}
               </Button>
             )}
+            {isTerminal && (
+              <ConfirmDialog
+                dialogTitle="Delete fine-tuning job?"
+                dialogDescription={`This permanently deletes the job and its checkpoints${
+                  promotedCount > 0
+                    ? `, plus ${promotedCount} promoted model${promotedCount > 1 ? "s" : ""} made from it`
+                    : ""
+                }.`}
+                confirmText="Delete"
+                onConfirm={handleDeleteJob}
+                alertTrigger={
+                  <Button variant="destructive" size="sm" disabled={deletingJob}>
+                    {deletingJob ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {deletingJob ? "Deleting..." : "Delete Job"}
+                  </Button>
+                }
+              />
+            )}
           </div>
         </div>
+
+        {/* A cancel issued mid-compile only lands once compilation finishes;
+            surface this so the wait doesn't look like a broken cancel. */}
+        {displayStatus === "cancelling" && (
+          <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 p-4 dark:border-orange-700 dark:bg-orange-900/20">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
+            <p className="text-sm text-orange-800 dark:text-orange-200">
+              Cancellation requested. If the job is still compiling, it won't
+              stop until compilation finishes — this can take a few minutes. The
+              status will update to "Cancelled" once it takes effect.
+            </p>
+          </div>
+        )}
 
         {/* Connection error banner */}
         {connectionError && (
@@ -386,10 +583,24 @@ export default function TrainingJobDetailPage() {
             {(() => {
               const config = job.config ?? job.request_parameters;
               if (!config || Object.keys(config).length === 0) return null;
-              const HIDDEN_CONFIG_KEYS = ["lora_task_type", "ignored_index"];
-              const visibleEntries = Object.entries(config).filter(
-                ([k]) => !HIDDEN_CONFIG_KEYS.includes(k),
-              );
+              const HIDDEN_CONFIG_KEYS = [
+                "lora_task_type",
+                "ignored_index",
+                "column_mapping",
+              ];
+              // Staged paths are container-internal; only the file name means
+              // anything to the user.
+              const DATASET_PATH_LABELS: Record<string, string> = {
+                train_dataset_path: "train dataset",
+                val_dataset_path: "eval dataset",
+              };
+              const visibleEntries = Object.entries(config)
+                .filter(([k]) => !HIDDEN_CONFIG_KEYS.includes(k))
+                .flatMap(([k, v]): [string, unknown][] => {
+                  if (!(k in DATASET_PATH_LABELS)) return [[k, v]];
+                  if (typeof v !== "string" || !v) return [];
+                  return [[DATASET_PATH_LABELS[k], v.split("/").pop() || v]];
+                });
               if (visibleEntries.length === 0) return null;
               return (
                 <div className="mt-4 border-t pt-4 dark:border-gray-700">
@@ -662,22 +873,120 @@ export default function TrainingJobDetailPage() {
                               {formatTrainingTimestamp(ckpt.created_at)}
                             </td>
                             <td className="py-3 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                asChild
-                              >
-                                <a
-                                  href={getCheckpointDownloadUrl(
-                                    jobId!,
-                                    ckpt.id,
-                                  )}
-                                  download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                              <div className="flex items-center justify-end gap-2">
+                                {(() => {
+                                  const ms = mergeStatus[ckpt.id];
+                                  const isPromoted = ckpt.id in mergeIdsByCkpt;
+                                  // No live merge activity this session: fall back
+                                  // to the persistent on-disk promotion state.
+                                  if (!ms) {
+                                    return isPromoted ? (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    ) : null;
+                                  }
+                                  if (
+                                    ms.status === "in_progress" ||
+                                    ms.status === "pending"
+                                  ) {
+                                    return (
+                                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                                        {ms.status === "pending"
+                                          ? "Still merging…"
+                                          : "Merging…"}
+                                      </span>
+                                    );
+                                  }
+                                  if (ms.status === "completed") {
+                                    return (
+                                      <span className="flex items-center text-xs text-green-600 dark:text-green-400">
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                        Promoted
+                                      </span>
+                                    );
+                                  }
+                                  if (
+                                    ms.status === "failed" ||
+                                    ms.status === "cancelled"
+                                  ) {
+                                    return (
+                                      <span
+                                        className="flex items-center text-xs text-red-600 dark:text-red-400"
+                                        title={ms.message}
+                                      >
+                                        <AlertTriangle className="mr-1 h-3 w-3" />
+                                        {ms.status === "cancelled"
+                                          ? "Cancelled"
+                                          : "Merge failed"}
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                {ckpt.id in mergeIdsByCkpt && (
+                                  <ConfirmDialog
+                                    dialogTitle="Delete promoted model?"
+                                    dialogDescription="This permanently deletes the merged model made from this checkpoint. The checkpoint itself is kept and can be promoted again."
+                                    confirmText="Delete"
+                                    onConfirm={() => handleDeleteMerged(ckpt.id)}
+                                    alertTrigger={
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={
+                                          promotingCkptId !== null ||
+                                          deletingCkptId !== null
+                                        }
+                                        title="Delete promoted model"
+                                      >
+                                        {deletingCkptId === ckpt.id ? (
+                                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3 w-3" />
+                                        )}
+                                        {deletingCkptId === ckpt.id && "Deleting…"}
+                                      </Button>
+                                    }
+                                  />
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handlePromote(ckpt.id)}
+                                  disabled={
+                                    promotingCkptId !== null ||
+                                    deletingCkptId === ckpt.id
+                                  }
+                                  title="Merge this adapter into its base model so it can be deployed for inference"
                                 >
-                                  <Download className="mr-1 h-3 w-3" />
-                                  Download
-                                </a>
-                              </Button>
+                                  {promotingCkptId === ckpt.id ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Rocket className="mr-1 h-3 w-3" />
+                                  )}
+                                  {ckpt.id in mergeIdsByCkpt
+                                    ? "Re-promote"
+                                    : "Promote for inference"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                >
+                                  <a
+                                    href={getCheckpointDownloadUrl(
+                                      jobId!,
+                                      ckpt.id,
+                                    )}
+                                    download={`training_job_${jobId!.slice(0, 6)}_${ckpt.id}.zip`}
+                                  >
+                                    <Download className="mr-1 h-3 w-3" />
+                                    Download
+                                  </a>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}

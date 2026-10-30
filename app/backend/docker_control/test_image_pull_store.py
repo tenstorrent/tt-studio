@@ -12,6 +12,7 @@ implementation too, so the cross-process cases here spawn real subprocesses.
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -198,7 +199,7 @@ for pct in range({lo}, {hi}):
         make every pull look orphaned (which would be worse than the bug)."""
         ro = Path(self._tmp.name) / "readonly"
         ro.mkdir()
-        os.chmod(ro, 0o500)
+        os.chmod(ro, stat.S_IRUSR | stat.S_IXUSR)
         store._STORE_DIR = ro / "image_pulls"
         try:
             store.create_entry("imgpull_ro", self._entry(downloaded_bytes=7))
@@ -210,7 +211,7 @@ for pct in range({lo}, {hi}):
             self.assertEqual(store.get_entry("imgpull_ro")["downloaded_bytes"], 8)
             self.assertEqual(store.bump_peak_progress("imgpull_ro", 33), 33)
         finally:
-            os.chmod(ro, 0o700)
+            os.chmod(ro, stat.S_IRWXU)
 
 
 if __name__ == "__main__":

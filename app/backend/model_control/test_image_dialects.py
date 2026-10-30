@@ -13,10 +13,12 @@ and ``JobStatus`` enum were read off a running FLUX.2-dev container.
 from model_control.image_dialects import (
     MEDIA,
     OPENAI,
+    PREDICT,
     TT_DIT,
     dialect_from_openapi,
     resolve_dialect,
     split_route,
+    submit_url,
 )
 
 # The paths object served by a real FLUX.2-dev tt-dit container.
@@ -28,6 +30,11 @@ FLUX2_PATHS = [
     "/jobs/{job_id}/image",
     "/jobs/{job_id}/cancel",
 ]
+
+
+# The paths object of changh95/qwen-image-2.1-p150's server
+# (models/experimental/qwen_image_2_1/server/app.py).
+QWEN_IMAGE_PATHS = ["/health", "/info", "/v1/models", "/predict"]
 
 
 class TestResolveDialect:
@@ -98,3 +105,34 @@ class TestJobStateVocabulary:
         assert "num_inference_steps" in TT_DIT.extra_params
         assert not MEDIA.extra_params
         assert not OPENAI.extra_params
+
+
+class TestServedRouteResolution:
+    """A community tt-dit bundle registers no route; its OpenAPI names the contract."""
+
+    def test_a_routeless_deployment_asks_the_container(self):
+        assert resolve_dialect("http://qwen:7000", lambda: QWEN_IMAGE_PATHS) is PREDICT
+        assert resolve_dialect("http://flux2:7000", lambda: FLUX2_PATHS) is TT_DIT
+
+    def test_a_registered_route_needs_no_probe(self):
+        def probe():
+            raise AssertionError("probed despite a known route")
+
+        assert resolve_dialect("http://flux2:7010/generate", probe) is TT_DIT
+
+    def test_nothing_recognised_still_falls_back_to_media(self):
+        assert resolve_dialect("http://thing:7000", lambda: {}) is MEDIA
+
+    def test_predict_alone_does_not_identify_an_image_model(self):
+        # Too generic a route: a detection server could serve it too.
+        assert dialect_from_openapi(QWEN_IMAGE_PATHS) is None
+        assert dialect_from_openapi(QWEN_IMAGE_PATHS, image_model=True) is PREDICT
+
+
+class TestSubmitUrl:
+    def test_a_registered_route_is_kept(self):
+        url = "http://media:7000/api/enqueue"
+        assert submit_url(url, MEDIA) == url
+
+    def test_a_routeless_deployment_gets_the_dialect_route(self):
+        assert submit_url("http://qwen:7000", PREDICT) == "http://qwen:7000/predict"

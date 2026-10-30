@@ -10,12 +10,28 @@ import json
 import pytest
 from sync_models_from_inference_server import (
     HAND_OWNED_KEYS,
+    PARSER_OVERRIDES,
+    STUDIO_UNAVAILABLE_DEVICES,
+    STUDIO_UNAVAILABLE_MODELS,
+    STUDIO_UNAVAILABLE_REASONS,
+    UNSUPPORTED_STUDIO_MODEL_TYPES,
+    _entry_identity,
     _impl_selector,
     _iter_v1_entries,
+    apply_device_availability,
+    apply_model_support,
+    apply_parser_overrides,
+    resolve_artifact_version,
+    spec_matches,
+    table_marks_beyond_spec,
+    apply_studio_availability,
+    artifact_parsers,
     load_existing_catalog,
+    load_model_support,
     map_service_route,
     merge_hand_owned,
     normalize,
+    write_catalog,
 )
 
 
@@ -44,9 +60,14 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
 
     def test_non_image_media_models_use_enqueue(self):
-        """Non-image/non-audio/non-video media models should use /enqueue."""
+        """Non-image/non-audio/non-video/non-embedding media models should use /enqueue."""
         assert map_service_route("media", "", "CNN") == "/enqueue"
-        assert map_service_route("media", "", "EMBEDDING") == "/enqueue"
+
+    def test_embedding_models_use_v1_embeddings_regardless_of_engine(self):
+        """Embedding models mount tt-media-server's embedding.router at /v1 on both
+        the media and forge runners, so the route must not depend on inference_engine."""
+        assert map_service_route("media", "", "EMBEDDING") == "/v1/embeddings"
+        assert map_service_route("forge", "", "EMBEDDING") == "/v1/embeddings"
 
     def test_video_gen_media_models_use_v1_videos_generations(self):
         """T2V video generation media models should use /v1/videos/generations."""
@@ -133,23 +154,25 @@ class TestHandOwnedFieldPreservation:
 
 
 class TestHandOwnedCollision:
-    """A hand-added entry whose model_name collides with a synced one must win.
+    """A hand-added row may share a model_name with a synced one as long as they
+    use different engines -- the axis the inference server disambiguates on.
 
-    The source JSON carries a vLLM CHAT "Llama-3.1-8B"; the catalog carries a
-    hand-added forge TRAINING row of the same name. Name-keyed merging replaced
-    the training row on every resync, taking fine-tuning offline (training_control
-    filters on model_type == TRAINING) while leaving the entry-name set unchanged,
-    so a count or name-set check could not see it."""
+    The source JSON carries a vLLM CHAT "Llama-3.1-8B-Instruct"; the catalog also
+    carries a hand-added forge TRAINING row of the same name. Keyed on
+    (model_name, inference_engine) they are distinct identities, so both must
+    survive a resync: drop the forge row and fine-tuning goes offline
+    (training_control filters on model_type == TRAINING); drop the vLLM row and
+    chat goes offline."""
 
     def _rows(self):
         synced = [{
-            "model_name": "Llama-3.1-8B",
+            "model_name": "Llama-3.1-8B-Instruct",
             "model_type": "CHAT",
             "inference_engine": "vLLM",
-            "service_route": "/v1/completions",
+            "service_route": "/v1/chat/completions",
         }]
-        existing = {"Llama-3.1-8B": {
-            "model_name": "Llama-3.1-8B",
+        existing = {"Llama-3.1-8B-Instruct": {
+            "model_name": "Llama-3.1-8B-Instruct",
             "hand_owned": True,
             "model_type": "TRAINING",
             "inference_engine": "forge",
@@ -158,32 +181,62 @@ class TestHandOwnedCollision:
         }}
         return synced, existing
 
-    def test_hand_owned_row_survives_name_collision(self):
+    def test_training_and_chat_rows_coexist(self):
         synced, existing = self._rows()
         merged, _, retained = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["model_type"] == "TRAINING"
-        assert by_name["Llama-3.1-8B"]["inference_engine"] == "forge"
-        assert by_name["Llama-3.1-8B"]["service_route"] == "/v1/jobs"
-        assert by_name["Llama-3.1-8B"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
-        assert retained == ["Llama-3.1-8B"]
+        by_engine = {m["inference_engine"]: m for m in merged}
+        # The synced vLLM chat row is untouched...
+        assert by_engine["vLLM"]["model_type"] == "CHAT"
+        # ...and the hand-added forge training row survives intact.
+        assert by_engine["forge"]["model_type"] == "TRAINING"
+        assert by_engine["forge"]["service_route"] == "/v1/jobs"
+        assert by_engine["forge"]["env_vars"] == {"MODEL_RUNNER": "training-lora"}
+        # The forge row is absent from source, so it comes back via retention.
+        assert retained == ["Llama-3.1-8B-Instruct"]
 
-    def test_collision_does_not_duplicate_the_name(self):
-        """model_name must stay unique: get_model_impl and the deployment->impl
-        mapping both take the first name match, so a duplicate is ambiguous."""
+    def test_identity_stays_unique(self):
+        """Rows may share a model_name but never a (model_name, engine) identity:
+        model_id and the deployment->impl mapping rely on that pair being unique."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        assert [m["model_name"] for m in merged].count("Llama-3.1-8B") == 1
+        idents = [_entry_identity(m) for m in merged]
+        assert len(idents) == len(set(idents))
+        assert ("Llama-3.1-8B-Instruct", "vllm") in idents
+        assert ("Llama-3.1-8B-Instruct", "forge") in idents
 
     def test_marker_itself_survives_the_resync(self):
         """hand_owned is in HAND_OWNED_KEYS, so the protection is not one-shot."""
         synced, existing = self._rows()
         merged, _, _ = merge_hand_owned(synced, existing)
 
-        by_name = {m["model_name"]: m for m in merged}
-        assert by_name["Llama-3.1-8B"]["hand_owned"] is True
+        forge = next(m for m in merged if m["inference_engine"] == "forge")
+        assert forge["hand_owned"] is True
+
+    def test_true_duplicate_same_engine_is_displaced(self):
+        """When a hand-owned row shares BOTH name and engine with a synced row (a
+        genuine duplicate), the hand-owned row still wins outright and the synced
+        one is dropped, so the identity stays unique."""
+        synced = [{
+            "model_name": "Qwen3.5-9B",
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/completions",
+        }]
+        existing = {"Qwen3.5-9B": {
+            "model_name": "Qwen3.5-9B",
+            "hand_owned": True,
+            "model_type": "CHAT",
+            "inference_engine": "vLLM",
+            "service_route": "/v1/chat/completions",
+        }}
+
+        merged, _, retained = merge_hand_owned(synced, existing)
+
+        assert len(merged) == 1
+        assert merged[0]["service_route"] == "/v1/chat/completions"
+        assert retained == ["Qwen3.5-9B"]
 
     def test_unmarked_existing_row_still_yields_to_source(self):
         """Only marked rows win. An ordinary catalog entry is still rebuilt from
@@ -362,6 +415,87 @@ class TestImplAmbiguity:
         assert by_name["some-model"]["impl"] is None
 
 
+class TestEngineSplit:
+    """One model_name can span engines (vLLM CHAT + forge TRAINING both named
+    "Llama-3.1-8B-Instruct"); normalize() emits one entry per engine. Merging by
+    name let the higher-versioned training spec clobber the chat image."""
+
+    def _spec(self, model_name, engine, model_type, version, image, impl_id):
+        leaf = _leaf(model_name, impl_id, model_type=model_type, engine=engine)
+        leaf["version"] = version
+        leaf["docker_image"] = image
+        return leaf
+
+    def test_chat_and_training_stay_separate_entries(self, tmp_path):
+        # Training version is higher: a name-only merge would give the chat row
+        # the training image.
+        model_specs = {
+            "org/Llama-3.1-8B-Instruct": {
+                "P150": {
+                    "vLLM": {
+                        "tt_transformers": self._spec(
+                            "Llama-3.1-8B-Instruct", "vLLM", "LLM",
+                            "0.19.0", "ghcr.io/x/vllm:0.19.0", "tt_transformers",
+                        )
+                    },
+                    "forge": {
+                        "trainer_training_lora": self._spec(
+                            "Llama-3.1-8B-Instruct", "forge", "TRAINING",
+                            "0.22.0", "ghcr.io/x/forge:0.22.0", "trainer_training_lora",
+                        )
+                    },
+                }
+            }
+        }
+        src = tmp_path / "model_spec.json"
+        for by_device in model_specs.values():
+            for device_type, by_engine in by_device.items():
+                for by_impl in by_engine.values():
+                    for leaf in by_impl.values():
+                        leaf.setdefault("device_type", device_type)
+        src.write_text(json.dumps({"schema_version": "0.1.0", "model_specs": model_specs}))
+
+        entries = [m for m in normalize(src) if m["model_name"] == "Llama-3.1-8B-Instruct"]
+        by_engine = {m["inference_engine"]: m for m in entries}
+
+        assert set(by_engine) == {"vLLM", "forge"}, "one entry per engine, not merged"
+
+        chat = by_engine["vLLM"]
+        assert chat["model_type"] == "CHAT"
+        assert chat["docker_image"] == "ghcr.io/x/vllm:0.19.0"
+        assert chat["service_route"] == "/v1/chat/completions"
+
+        training = by_engine["forge"]
+        assert training["model_type"] == "TRAINING"
+        assert training["docker_image"] == "ghcr.io/x/forge:0.22.0"
+        assert training["service_route"] == "/v1/jobs"
+
+        # Each entry keeps its own impl so deploy resolves the right spec.
+        assert chat["impl"] == "tt-transformers"
+        assert training["impl"] == "trainer-training-lora"
+
+    def test_identity_is_unique_across_the_split(self, tmp_path):
+        model_specs = {
+            "org/Llama-3.1-8B-Instruct": {
+                "P150": {
+                    "vLLM": {"tt_transformers": _leaf("Llama-3.1-8B-Instruct", "tt_transformers")},
+                    "forge": {"training": _leaf("Llama-3.1-8B-Instruct", "training",
+                                                model_type="TRAINING", engine="forge")},
+                }
+            }
+        }
+        for by_device in model_specs.values():
+            for device_type, by_engine in by_device.items():
+                for by_impl in by_engine.values():
+                    for leaf in by_impl.values():
+                        leaf.setdefault("device_type", device_type)
+        src = tmp_path / "model_spec.json"
+        src.write_text(json.dumps({"schema_version": "0.1.0", "model_specs": model_specs}))
+
+        idents = [_entry_identity(m) for m in normalize(src)]
+        assert len(idents) == len(set(idents))
+
+
 class TestLoadExistingCatalog:
     def test_missing_file_is_not_fatal(self, tmp_path):
         assert load_existing_catalog(tmp_path / "nope.json") == {}
@@ -373,18 +507,451 @@ class TestLoadExistingCatalog:
         path.write_text("{not valid json")
         assert load_existing_catalog(path) == {}
 
-    def test_indexes_models_by_name(self, tmp_path):
+    def test_indexes_models_by_identity(self, tmp_path):
+        """Indexed by (model_name, engine) so two rows sharing a name but on
+        different engines both survive; a name-keyed index would drop one."""
         path = tmp_path / "catalog.json"
         path.write_text(json.dumps({"models": [
-            {"model_name": "A", "requires_dev_catalog": True},
-            {"model_name": "B"},
+            {"model_name": "A", "inference_engine": "vLLM", "requires_dev_catalog": True},
+            {"model_name": "A", "inference_engine": "forge"},
+            {"model_name": "B", "inference_engine": "vLLM"},
             {"no_name": "skipped"},
         ]}))
 
         loaded = load_existing_catalog(path)
 
-        assert set(loaded) == {"A", "B"}
-        assert loaded["A"]["requires_dev_catalog"] is True
+        assert set(loaded) == {("A", "vllm"), ("A", "forge"), ("B", "vllm")}
+        assert loaded[("A", "vllm")]["requires_dev_catalog"] is True
+
+
+def _catalog(generated_at, models):
+    return {
+        "source": {"artifact_version": "0.22.0", "generated_at": generated_at},
+        "total_models": len(models),
+        "models": models,
+    }
+
+
+class TestWriteCatalog:
+    def test_writes_when_missing(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        catalog = _catalog("t1", [{"model_name": "A"}])
+
+        assert write_catalog(path, catalog) is True
+        assert json.loads(path.read_text()) == catalog
+
+    def test_timestamp_only_change_leaves_file_untouched(self, tmp_path):
+        """A no-op resync must not dirty the committed catalog (it would force
+        the launcher to build images instead of pulling them)."""
+        path = tmp_path / "catalog.json"
+        write_catalog(path, _catalog("t1", [{"model_name": "A"}]))
+        before = path.read_text()
+
+        assert write_catalog(path, _catalog("t2", [{"model_name": "A"}])) is False
+        assert path.read_text() == before
+
+    def test_content_change_is_written(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        write_catalog(path, _catalog("t1", [{"model_name": "A"}]))
+        updated = _catalog("t2", [{"model_name": "A"}, {"model_name": "B"}])
+
+        assert write_catalog(path, updated) is True
+        assert json.loads(path.read_text()) == updated
+
+    def test_malformed_existing_file_is_overwritten(self, tmp_path):
+        path = tmp_path / "catalog.json"
+        path.write_text("{not valid json")
+        catalog = _catalog("t1", [])
+
+        assert write_catalog(path, catalog) is True
+        assert json.loads(path.read_text()) == catalog
+
+
+class TestStudioAvailability:
+    """Models TT-Studio won't offer are marked, never deleted."""
+
+    def test_unlisted_model_carries_no_availability_fields(self):
+        models = [{"model_name": "Llama-3.3-70B-Instruct", "model_type": "CHAT"}]
+        assert apply_studio_availability(models) == []
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+
+    def test_listed_model_is_marked_not_removed(self):
+        models = [{"model_name": "m", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "bad chat template")
+        try:
+            hidden = apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+
+        assert len(models) == 1, "the row must survive; only a mark is added"
+        assert hidden == [("m", "known_broken")]
+        assert models[0]["available_in_studio"] is False
+        assert models[0]["unavailable_details"]
+
+    def test_embeddings_are_no_longer_type_level_unsupported(self):
+        """Studio has an Embeddings UI now, so EMBEDDING carries no type-level mark;
+        only a specific STUDIO_UNAVAILABLE_MODELS/_DEVICES entry can hide one."""
+        models = [{"model_name": "some-embedder", "model_type": "EMBEDDING"}]
+        assert apply_studio_availability(models) == []
+        assert "unavailable_reason" not in models[0]
+
+    def test_per_model_override_beats_the_type_rule(self):
+        """An EMBEDDING model that is also genuinely broken reads as broken."""
+        models = [{"model_name": "m", "model_type": "EMBEDDING"}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "does not run")
+        try:
+            apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["unavailable_reason"] == "known_broken"
+
+    def test_stale_mark_is_cleared_when_model_leaves_the_table(self):
+        """Deleting a table entry must actually unhide the model on resync."""
+        models = [{
+            "model_name": "now-fixed",
+            "model_type": "CHAT",
+            "available_in_studio": False,
+            "unavailable_reason": "known_broken",
+            "unavailable_details": "stale",
+        }]
+        apply_studio_availability(models)
+        assert "available_in_studio" not in models[0]
+        assert "unavailable_reason" not in models[0]
+        assert "unavailable_details" not in models[0]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "bge-m3", "model_type": "EMBEDDING"}]
+        first = apply_studio_availability(models)
+        snapshot = dict(models[0])
+        assert apply_studio_availability(models) == first
+        assert models[0] == snapshot
+
+    def test_model_wide_entries_justify_being_board_independent(self):
+        """A model-wide mark hides a model from boards nobody tested, so each
+        entry must say why the failure is not board-specific. Prefer fixing the
+        cause (see inference-api's cache-volume ownership fix) over masking."""
+        for name, (_reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            low = details.lower()
+            assert any(k in low for k in ("not by any board", "every board", "independent")), (
+                f"{name}: model-wide entry must state why this is not "
+                f"board-specific, or move it to STUDIO_UNAVAILABLE_DEVICES"
+            )
+
+    def test_every_table_reason_is_a_known_reason(self):
+        for name, (reason, details) in STUDIO_UNAVAILABLE_MODELS.items():
+            assert reason in STUDIO_UNAVAILABLE_REASONS, name
+            assert details.strip(), f"{name} must say why"
+        for model_type, details in UNSUPPORTED_STUDIO_MODEL_TYPES.items():
+            assert details.strip(), f"{model_type} must say why"
+
+    def test_unknown_reason_is_rejected(self):
+        models = [{"model_name": "x", "model_type": "CHAT"}]
+        STUDIO_UNAVAILABLE_MODELS["x"] = ("typo_reason", "d")
+        try:
+            with pytest.raises(ValueError, match="unknown reason"):
+                apply_studio_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["x"]
+
+    def test_marks_are_script_owned_not_hand_owned(self):
+        """The tables are the single source of truth; a JSON edit must not stick."""
+        for key in ("available_in_studio", "unavailable_reason", "unavailable_details"):
+            assert key not in HAND_OWNED_KEYS
+
+
+class TestDeviceAvailability:
+    """A model can be unavailable on one board and fine on another."""
+
+    def _one(self, devices, overrides):
+        models = [{
+            "model_name": "m", "model_type": "CHAT",
+            "device_configurations": list(devices),
+        }]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = overrides
+        try:
+            return models, apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_bad_device_is_dropped_good_ones_survive(self):
+        models, removed = self._one(
+            ["N150", "P150", "P300x2"],
+            {"P300x2": ("known_broken", "hangs on Blackhole")},
+        )
+        assert models[0]["device_configurations"] == ["N150", "P150"]
+        assert removed == [("m", "P300x2", "known_broken")]
+        assert "available_in_studio" not in models[0]
+
+    def test_reason_is_recorded_for_the_dropped_device(self):
+        models, _ = self._one(
+            ["N150", "P300x2"], {"P300x2": ("known_broken", "hangs on Blackhole")}
+        )
+        assert models[0]["unavailable_devices"] == {
+            "P300x2": {"reason": "known_broken", "details": "hangs on Blackhole"}
+        }
+
+    def test_losing_every_device_hides_the_model(self):
+        """An empty device list would read as 'incompatible' with no reason."""
+        models, _ = self._one(["P300x2"], {"P300x2": ("known_broken", "hangs")})
+        assert models[0]["device_configurations"] == []
+        assert models[0]["available_in_studio"] is False
+        assert "hangs" in models[0]["unavailable_details"]
+
+    def test_untouched_model_gains_no_fields(self):
+        models = [{"model_name": "other", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        assert apply_device_availability(models) == []
+        assert "unavailable_devices" not in models[0]
+        assert models[0]["device_configurations"] == ["N150"]
+
+    def test_is_idempotent(self):
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150", "P300x2"]}]
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "x")}
+        try:
+            apply_device_availability(models)
+            snapshot = dict(models[0])
+            second = apply_device_availability(models)
+            assert models[0] == snapshot
+            assert second == [], "device already gone, nothing left to remove"
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+
+    def test_stale_table_entry_is_visible_not_silent(self):
+        """A device the artifact never claimed still shows up as a mark."""
+        models, removed = self._one(["N150"], {"P150X4": ("known_broken", "old")})
+        assert removed == []
+        assert "P150X4" in models[0]["unavailable_devices"]
+
+    def test_unknown_reason_is_rejected(self):
+        with pytest.raises(ValueError, match="unknown reason"):
+            self._one(["N150"], {"N150": ("nope", "d")})
+
+    def test_every_table_reason_is_valid(self):
+        for name, overrides in STUDIO_UNAVAILABLE_DEVICES.items():
+            for device, (reason, details) in overrides.items():
+                assert reason in STUDIO_UNAVAILABLE_REASONS, f"{name}/{device}"
+                assert details.strip(), f"{name}/{device} must say why"
+
+    def test_model_wide_mark_survives_the_device_pass(self):
+        """main() runs the device pass second; it must not clobber the mark."""
+        models = [{"model_name": "m", "model_type": "CHAT",
+                   "device_configurations": ["N150"]}]
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "everywhere")
+        try:
+            apply_studio_availability(models)
+            apply_device_availability(models)
+        finally:
+            del STUDIO_UNAVAILABLE_MODELS["m"]
+        assert models[0]["available_in_studio"] is False
+
+
+def _spec_device(**overrides):
+    entry = {
+        "engines": ["vLLM"], "status": "FUNCTIONAL", "supported": True,
+        "docker_image": "img:1.0.0", "version": "1.0.0",
+        "tool_call_parser": None, "reasoning_parser": None,
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _spec(devices, name="m", model_type="llm"):
+    return {"release_version": "0.22.0", "models": [{
+        "name": name, "hf_repo": f"org/{name}-Instruct", "model_type": model_type,
+        "engines": ["vLLM"], "param_count": 8, "devices": devices,
+    }]}
+
+
+class TestApplyModelSupport:
+    """The spec decides the model list and devices; the artifact row supplies the rest."""
+
+    def test_native_devices_only(self):
+        spec = _spec({
+            "p300x2": _spec_device(),
+            "p150x4": _spec_device(serve_as="p300x2", support_source="mesh-equivalent"),
+            "gpu": _spec_device(),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["device_configurations"] == ["P300x2"]
+
+    def test_unsupported_device_becomes_a_mark(self):
+        spec = _spec({
+            "n150": _spec_device(),
+            "p300x2": _spec_device(supported=False, unsupported={"reason": "broken", "details": "hangs"}),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["device_configurations"] == ["N150"]
+        apply_device_availability([row])
+        assert row["unavailable_devices"] == {"P300x2": {"reason": "known_broken", "details": "hangs"}}
+        assert "_spec_unavailable" not in row
+
+    def test_parsers_come_from_the_spec(self):
+        spec = _spec({"n150": _spec_device(tool_call_parser="hermes", reasoning_parser="qwen3")})
+        [row] = apply_model_support([], spec)
+        assert (row["tool_call_parser"], row["reasoning_parser"]) == ("hermes", "qwen3")
+
+    def test_spec_fields_win_and_the_artifact_fills_env_and_impl(self):
+        artifact = [{
+            "model_name": "m", "inference_engine": "vLLM", "version": "0.9.0",
+            "docker_image": "artifact:0.9.0", "env_vars": {"A": "1"}, "impl": "tt-transformers",
+            "device_configurations": ["N150", "P300x2"],
+        }]
+        [row] = apply_model_support(artifact, _spec({"n150": _spec_device(version="2.0.0", docker_image="img:2.0.0")}))
+        assert (row["version"], row["docker_image"]) == ("2.0.0", "img:2.0.0")
+        assert row["env_vars"] == {"A": "1"} and row["impl"] == "tt-transformers"
+        assert row["device_configurations"] == ["N150"]
+
+    def test_version_spans_every_device_so_model_id_matches_the_artifact(self):
+        spec = _spec({
+            "n150": _spec_device(version="1.0.0"),
+            "p300x2": _spec_device(version="3.0.0", supported=False),
+        })
+        [row] = apply_model_support([], spec)
+        assert row["version"] == "3.0.0"
+
+    def test_engine_with_only_shared_devices_keeps_the_artifact_status_and_image(self):
+        """A multi-engine device entry describes its vLLM spec, not the forge one."""
+        artifact = [{
+            "model_name": "m", "inference_engine": "forge", "status": "EXPERIMENTAL",
+            "version": "0.12.0", "docker_image": "forge:0.12.0",
+        }]
+        spec = _spec({"n150": _spec_device(engines=["vLLM", "forge"], version="0.3.0")})
+        rows = {r["inference_engine"]: r for r in apply_model_support(artifact, spec)}
+        assert (rows["forge"]["status"], rows["forge"]["version"]) == ("EXPERIMENTAL", "0.12.0")
+        assert rows["forge"]["docker_image"] == "forge:0.12.0"
+        assert rows["vLLM"]["version"] == "0.3.0"
+
+    def test_model_missing_from_artifact_is_built_from_the_spec(self):
+        [row] = apply_model_support([], _spec({"n150": _spec_device()}))
+        assert row["model_type"] == "CHAT"
+        assert row["service_route"] == "/v1/chat/completions"
+        assert (row["version"], row["docker_image"]) == ("1.0.0", "img:1.0.0")
+
+    def test_artifact_model_absent_from_spec_is_dropped(self):
+        artifact = [{"model_name": "gone", "inference_engine": "vLLM"}]
+        rows = apply_model_support(artifact, _spec({"n150": _spec_device()}))
+        assert [r["model_name"] for r in rows] == ["m"]
+
+    def test_multi_engine_device_yields_a_row_per_engine(self):
+        spec = _spec({"p150": _spec_device(engines=["vLLM", "forge"], tool_call_parser="hermes")})
+        rows = {r["inference_engine"]: r for r in apply_model_support([], spec)}
+        assert sorted(rows) == ["forge", "vLLM"]
+        assert rows["vLLM"]["tool_call_parser"] == "hermes"
+        assert "tool_call_parser" not in rows["forge"], "parsers are vLLM flags"
+
+    def test_spec_clears_a_stale_artifact_parser(self):
+        artifact = [{"model_name": "m", "inference_engine": "vLLM", "tool_call_parser": "old"}]
+        [row] = apply_model_support(artifact, _spec({"n150": _spec_device()}))
+        assert "tool_call_parser" not in row
+
+    def test_device_with_no_mapping_and_no_mark_yields_no_row(self):
+        assert apply_model_support([], _spec({"gpu": _spec_device()})) == []
+
+    def test_spec_marked_device_repeated_in_the_table_does_not_warn(self, capsys):
+        spec = _spec({"n150": _spec_device(), "p300x2": _spec_device(supported=False)})
+        [row] = apply_model_support([], spec)
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "local")}
+        try:
+            apply_device_availability([row])
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+        assert "WARNING" not in capsys.readouterr().out
+        assert row["unavailable_devices"]["P300x2"]["details"] != "local", "the spec's reason stands"
+
+    def test_serve_as_device_in_the_table_does_not_warn(self, capsys):
+        """The table keeps it for spec-less rebuilds, where it is a native device."""
+        spec = _spec({"p300x2": _spec_device(), "p150x4": _spec_device(serve_as="p300x2")})
+        [row] = apply_model_support([], spec)
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P150X4": ("known_broken", "local")}
+        try:
+            apply_device_availability([row])
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"]
+        assert "WARNING" not in capsys.readouterr().out
+        assert "_spec_devices" not in row
+
+
+class TestArtifactParsers:
+    def test_reads_parser_names_from_metadata(self):
+        entries = [
+            {"metadata": {}},
+            {"metadata": {"tool_call_parser_name": "openai", "reasoning_parser_name": "openai_gptoss"}},
+        ]
+        assert artifact_parsers(entries) == {
+            "tool_call_parser": "openai", "reasoning_parser": "openai_gptoss",
+        }
+
+    def test_no_metadata_means_no_parsers(self):
+        assert artifact_parsers([{}, {"metadata": None}]) == {}
+
+
+class TestLoadModelSupport:
+    def test_missing_file_is_none(self, tmp_path):
+        assert load_model_support(tmp_path / "nope.json") is None
+
+    def test_non_spec_json_is_none(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps({"models": {}}))
+        assert load_model_support(path) is None
+
+    def test_spec_without_release_is_none(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps({"models": []}))
+        assert load_model_support(path) is None
+
+    def test_valid_spec_loads(self, tmp_path):
+        path = tmp_path / "s.json"
+        path.write_text(json.dumps(_spec({})))
+        assert load_model_support(path)["release_version"] == "0.22.0"
+
+
+class TestParserOverrides:
+    def test_override_fills_missing_parsers_on_vllm_rows_only(self):
+        rows = [
+            {"model_name": "m", "inference_engine": "vLLM", "tool_call_parser": "x"},
+            {"model_name": "m", "inference_engine": "forge"},
+        ]
+        PARSER_OVERRIDES["m"] = {"tool_call_parser": "hermes", "reasoning_parser": "qwen3"}
+        try:
+            assert apply_parser_overrides(rows) == ["m"]
+        finally:
+            del PARSER_OVERRIDES["m"]
+        assert (rows[0]["tool_call_parser"], rows[0]["reasoning_parser"]) == ("x", "qwen3")
+        assert "tool_call_parser" not in rows[1]
+
+
+class TestSpecAdditions:
+    def test_reports_only_marks_the_spec_does_not_make(self):
+        [row] = apply_model_support([], _spec({
+            "n150": _spec_device(), "p300x2": _spec_device(supported=False),
+        }))
+        STUDIO_UNAVAILABLE_DEVICES["m"] = {"P300x2": ("known_broken", "x"), "N150": ("known_broken", "y")}
+        STUDIO_UNAVAILABLE_MODELS["m"] = ("known_broken", "z")
+        try:
+            assert table_marks_beyond_spec([row]) == ["m", "m/N150"]
+        finally:
+            del STUDIO_UNAVAILABLE_DEVICES["m"], STUDIO_UNAVAILABLE_MODELS["m"]
+
+
+class TestSpecMatches:
+    def test_same_release_with_or_without_v_prefix(self):
+        assert spec_matches({"release_version": "0.22.0"}, "v0.22.0")
+        assert spec_matches({"release_version": "v0.22.0"}, "0.22.0")
+
+    def test_other_release_or_branch_does_not_match(self):
+        assert not spec_matches({"release_version": "0.22.0"}, "0.23.0")
+        assert not spec_matches({"release_version": "0.22.0"}, "main")
+
+    def test_artifact_version_prefers_the_version_file(self, tmp_path):
+        (tmp_path / "VERSION").write_text("0.22.0\n")
+        assert resolve_artifact_version(tmp_path / "release_model_spec.json", {}) == "0.22.0"
+
+    def test_artifact_version_falls_back_to_the_last_recorded_one(self, tmp_path, monkeypatch):
+        for var in ("TT_INFERENCE_ARTIFACT_VERSION", "TT_INFERENCE_ARTIFACT_BRANCH"):
+            monkeypatch.delenv(var, raising=False)
+        assert resolve_artifact_version(None, {"artifact_version": "0.21.0"}) == "0.21.0"
 
 
 if __name__ == "__main__":
