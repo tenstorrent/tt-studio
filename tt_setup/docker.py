@@ -78,16 +78,24 @@ def prepare_container_user():
 
     Non-root services read host files (e.g. the LiteLLM config), so they run as
     the caller instead of a hard-coded 1000 and can read them as owner even at
-    the 0660 a umask-0007 clone leaves. Root runs (e.g. sudo) use the checkout's
-    owner instead; a root-owned checkout falls back to 1000 so the containers
-    never run as root.
+    the 0660 a umask-0007 clone leaves. Root runs (e.g. sudo) use the
+    checkout's owner instead. Root-owned checkouts are rejected because
+    containers never run as root and would not be able to read restrictive
+    checkout files.
     """
     uid, gid = os.getuid(), os.getgid()
     if uid == 0:
         st = os.stat(TT_STUDIO_ROOT)
+        if st.st_uid == 0:
+            console.print("[error]⛔ Cannot run TT Studio from a root-owned checkout.[/error]")
+            console.print(
+                "[warning]   Run it as the checkout owner, or change the checkout "
+                "ownership before retrying.[/warning]"
+            )
+            raise SystemExit(1)
         uid, gid = st.st_uid, st.st_gid
-    os.environ["TT_STUDIO_UID"] = str(uid or 1000)
-    os.environ["TT_STUDIO_GID"] = str(gid or 1000)
+    os.environ["TT_STUDIO_UID"] = str(uid)
+    os.environ["TT_STUDIO_GID"] = str(gid)
 
 
 def _docker_compose_v2_available():

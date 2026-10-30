@@ -201,8 +201,9 @@ class TestPrepareContainerUser(unittest.TestCase):
     def test_root_runs_as_the_checkout_owner(self):
         self.assertEqual(self._run(0, 0, owner=(1001, 1002)), ("1001", "1002"))
 
-    def test_root_owned_checkout_never_runs_containers_as_root(self):
-        self.assertEqual(self._run(0, 0), ("1000", "1000"))
+    def test_root_owned_checkout_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self._run(0, 0)
 
 
 if __name__ == "__main__":
