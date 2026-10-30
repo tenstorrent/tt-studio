@@ -1083,7 +1083,13 @@ def _run(args):
             ph.set(f"pulling prebuilt images ({image_tag})")
             startup_log.step("image_pull", "START", image_tag)
             pull_cmd = docker_compose_cmd + ["pull"]
-            pull_cmd = (["sudo"] + pull_cmd) if use_sudo else pull_cmd
+            if use_sudo:
+                pull_cmd = [
+                    "sudo", "env",
+                    f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                    f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                    *pull_cmd,
+                ]
             pull_rc, _pull_output = run_docker_compose_with_progress(
                 pull_cmd, cwd=app_dir, dev_mode=args.dev,
             )
@@ -1127,7 +1133,15 @@ def _run(args):
         )
 
         # Stream the build; per-service events fold into the active Build row.
-        compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
+        if use_sudo:
+            compose_cmd = [
+                "sudo", "env",
+                f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                *docker_compose_cmd,
+            ]
+        else:
+            compose_cmd = docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
             cwd=app_dir,
