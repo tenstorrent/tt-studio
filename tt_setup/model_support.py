@@ -28,6 +28,7 @@ COMMUNITY_CATALOG_CACHE = os.path.join(_SHARED_CONFIG, "community_catalog.json")
 COMMUNITY_CATALOG_BUNDLED = os.path.join(_SHARED_CONFIG, "community_catalog_bundled.json")
 COMMUNITY_CATALOG_ENRICHED = os.path.join(_SHARED_CONFIG, "community_catalog_enriched.json")
 COMMUNITY_CATALOG_SCHEMA_VERSION = 1
+MIN_COMMUNITY_CATALOG_RATIO = 0.2  # to check 20% of the last known valid cache or bundled catalog.
 
 # Where this run's lists came from, by cache path: "live" (fetched now), "cached" (the
 # last fetched spec) or "bundled" (the catalog committed in the repo).
@@ -60,11 +61,22 @@ def _is_valid(spec):
 
 
 def _is_valid_community_catalog(doc):
+    bundles = doc.get("bundles") if isinstance(doc, dict) else None
     return (
         isinstance(doc, dict)
         and doc.get("schema_version") == COMMUNITY_CATALOG_SCHEMA_VERSION
-        and isinstance(doc.get("bundles"), list)
+        and isinstance(bundles, list)
+        and len(bundles) > 0
     )
+
+
+def _current_community_bundle_count():
+    """Count of bundles in the last known valid cache or bundled catalog."""
+    for path in (COMMUNITY_CATALOG_CACHE, COMMUNITY_CATALOG_BUNDLED):
+        doc = _load(path, _is_valid_community_catalog)
+        if doc and isinstance(doc.get("bundles"), list):
+            return len(doc["bundles"])
+    return 0
 
 
 def _read(url, timeout):
@@ -166,11 +178,30 @@ def save_model_support(body):
 
 def refresh_community_catalog(timeout=10):
     """Download tt-cli's verified community bundle list into the cache."""
+    url = community_catalog_url()
     body = _fetch(
-        "TT_COMMUNITY_CATALOG_URL", community_catalog_url(), COMMUNITY_CATALOG_CACHE,
+        "TT_COMMUNITY_CATALOG_URL", url, COMMUNITY_CATALOG_CACHE,
         _is_valid_community_catalog, "community catalog", "community model list", timeout,
     )
-    return bool(body) and _save(COMMUNITY_CATALOG_CACHE, body)
+    if not body:
+        return False
+
+    try:
+        doc = json.loads(body)
+        new_count = len(doc.get("bundles", []))
+        baseline_count = _current_community_bundle_count()
+        min_expected = max(1, int(baseline_count * MIN_COMMUNITY_CATALOG_RATIO))
+
+        if baseline_count > 0 and new_count < min_expected:
+            console.print(
+                f"[warning]⚠️  Community catalog from {url} has only {new_count} "
+                f"bundles (expected at least {min_expected}); keeping the existing community model list[/warning]"
+            )
+            return False
+    except (ValueError, TypeError):
+        return False
+
+    return _save(COMMUNITY_CATALOG_CACHE, body)
 
 
 def enrich_community_catalog(timeout=300):
