@@ -219,6 +219,30 @@ def get_model_name_from_container(internal_url: str, fallback: str, auth_token: 
 _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
+_probe_failures: dict[str, float] = {}
+_PROBE_FAILURE_COOLDOWN_SECONDS: float = 30.0
+
+
+def is_probe_in_cooldown(con_id: str) -> bool:
+    """Return True if container probe failed recently and is still within cooldown."""
+    last_failed = _probe_failures.get(con_id)
+    if last_failed is None:
+        return False
+    if time.monotonic() - last_failed < _PROBE_FAILURE_COOLDOWN_SECONDS:
+        return True
+    _probe_failures.pop(con_id, None)
+    return False
+
+
+def record_probe_failure(con_id: str) -> None:
+    """Mark container probe as failed with current timestamp."""
+    _probe_failures[con_id] = time.monotonic()
+
+
+def clear_probe_failure(con_id: str) -> None:
+    """Clear recorded failure for container."""
+    _probe_failures.pop(con_id, None)
+
 
 def get_deploy_cache(canonical=None):
     """Running deployments keyed by container id.
@@ -244,21 +268,40 @@ def get_deploy_cache(canonical=None):
     # Lazily enrich entries with max_model_len from the running vLLM container.
     # Once fetched it is persisted back into the cache so subsequent calls are free.
     cache = caches[backend_config.django_deploy_cache_name]
+    for failed_cid in list(_probe_failures.keys()):
+        if failed_cid not in data:
+            _probe_failures.pop(failed_cid, None)
+
     for con_id, entry in data.items():
         tok = token_for(entry.get("jwt_secret"))
+        cooldown = is_probe_in_cooldown(con_id)
+
         if "max_model_len" not in entry and entry.get("internal_url"):
-            max_len = get_model_context_length(entry["internal_url"], auth_token=tok)
-            if max_len is not None:
-                entry["max_model_len"] = max_len
-                cache.set(con_id, entry, timeout=None)
-                logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
+            if not cooldown:
+                max_len = get_model_context_length(entry["internal_url"], auth_token=tok)
+                if max_len is not None:
+                    entry["max_model_len"] = max_len
+                    cache.set(con_id, entry, timeout=None)
+                    clear_probe_failure(con_id)
+                    logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
+                else:
+                    record_probe_failure(con_id)
+                    cooldown = True
+                    logger.debug(
+                        f"Failed to probe max_model_len for {con_id[:12]}; "
+                        f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
+                    )
+
         if "cached_model_name" not in entry and entry.get("internal_url"):
-            name = get_model_name_from_container(
-                entry["internal_url"], fallback=entry["model_impl"].hf_model_id, auth_token=tok
-            )
-            entry["cached_model_name"] = name
-            cache.set(con_id, entry, timeout=None)
-            logger.info(f"Cached model_name={name!r} for container {con_id[:12]}")
+            if not cooldown:
+                impl = entry.get("model_impl")
+                fallback_name = getattr(impl, "hf_model_id", None) if impl is not None else None
+                name = get_model_name_from_container(
+                    entry["internal_url"], fallback=fallback_name, auth_token=tok
+                )
+                entry["cached_model_name"] = name
+                cache.set(con_id, entry, timeout=None)
+                logger.info(f"Cached model_name={name!r} for container {con_id[:12]}")
 
     return data
 
