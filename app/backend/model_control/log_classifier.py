@@ -500,6 +500,25 @@ def _now() -> float:
     return time.time()
 
 
+# tt-media-server logs one of these when a device worker dies during startup.
+# Init-time deaths are never restarted (its worker health monitor only runs once
+# the model is ready), so /health keeps answering "not ready" forever and these
+# lines are the only sign the deploy has failed. Worker id -1 is the server's
+# sentinel for an init failure.
+_WORKER_INIT_FAILURE_RE = re.compile(
+    r"Worker \d+ device init failed:|Failed to get device runner:|Error in worker -1:"
+)
+
+
+def find_worker_init_failure(lines: Iterable[str]) -> Optional[str]:
+    """Return the first media-server worker init failure in `lines`, or None."""
+    for line in lines:
+        match = _WORKER_INIT_FAILURE_RE.search(line)
+        if match:
+            return line[match.start():].strip()[:300]
+    return None
+
+
 def classify_startup_phase(
     lines: Iterable[str],
     now: Optional[float] = None,
@@ -522,6 +541,7 @@ def classify_startup_phase(
         weights_target_path, weights_cached, phases, phase_labels,
         phase_base_pct, category ('llm', 'media' or 'training').
     """
+    lines = list(lines)  # read twice: phase pass + worker init failure check
     current_now = now if now is not None else _now()
     category = category_for_model(model_type=model_type, model_name=model_name)
     phases, phase_labels, phase_base_pct, substring_markers = _template_for(category)
@@ -692,6 +712,7 @@ def classify_startup_phase(
         "weights_target_path": weights_target_path,
         "weights_cached": weights_cached,
         "download_in_container": download_in_container,
+        "worker_init_failure": find_worker_init_failure(lines),
         # Category-aware template embedded so the frontend renders only the phases for this model type.
         "category": category,
         "phases": list(phases),

@@ -11,6 +11,7 @@ interface ImageInputAreaProps {
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   handleGenerate: (input: string) => void;
   isGenerating: boolean;
+  waitingForModel?: boolean;
 }
 
 export default function ImageInputArea({
@@ -18,7 +19,9 @@ export default function ImageInputArea({
   setTextInput,
   handleGenerate,
   isGenerating,
+  waitingForModel = false,
 }: ImageInputAreaProps) {
+  const cannotGenerate = isGenerating || waitingForModel || !textInput.trim();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -45,7 +48,7 @@ export default function ImageInputArea({
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleGenerate(textInput);
+      if (!waitingForModel) handleGenerate(textInput);
     }
   };
 
@@ -85,14 +88,18 @@ export default function ImageInputArea({
           </div>
           <Button
             onClick={() => handleGenerate(textInput)}
-            disabled={isGenerating || !textInput.trim()}
+            disabled={cannotGenerate}
             className={`${
-              isGenerating || !textInput.trim()
+              cannotGenerate
                 ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
                 : "bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold cursor-pointer"
             } px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300`}
           >
-            {isGenerating ? "Generating..." : "Generate"}
+            {isGenerating
+              ? "Generating..."
+              : waitingForModel
+                ? "Waiting for model..."
+                : "Generate"}
             {isGenerating ? (
               <ImageIcon className="h-4 w-4 animate-pulse" />
             ) : (

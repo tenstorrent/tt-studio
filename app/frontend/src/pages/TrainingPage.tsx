@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, type ElementType } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Plus,
@@ -13,6 +13,7 @@ import {
   Clock,
   Ban,
   ServerOff,
+  Trash2,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -20,17 +21,26 @@ import { Button } from "../components/ui/button";
 import {
   fetchTrainingJobs,
   cancelTrainingJob,
+  deleteTrainingJob,
   formatTrainingTimestamp,
+  trainingTimestampToMs,
+  getApiErrorMessage,
   getJobDataset,
   type TrainingJob,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
 import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
+import { useTour } from "../hooks/useTour";
+import {
+  FINE_TUNE_TOUR_ID,
+  TRAINING_DIALOG_TOUR_PREFIX,
+} from "../components/tour/tours/fineTuneModel";
 
 const STATUS_STYLES: Record<
   string,
-  { label: string; color: string; bg: string; icon: React.ElementType }
+  { label: string; color: string; bg: string; icon: ElementType }
 > = {
   queued: {
     label: "Queued",
@@ -70,6 +80,9 @@ const STATUS_STYLES: Record<
   },
 };
 
+// A cancelling job can be deleted too: the container force-stops its worker first.
+const DELETABLE_STATUSES = ["completed", "failed", "cancelled", "cancelling"];
+
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_STYLES[status] ?? STATUS_STYLES.queued;
   const Icon = cfg.icon;
@@ -92,11 +105,54 @@ export default function TrainingPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [noContainer, setNoContainer] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+
+  // Guided tour: the "New Fine-tuning Job" dialog must be open while the active
+  // step points at something inside it, and closed again afterwards.
+  const {
+    run: tourRun,
+    activeTourId,
+    steps: tourSteps,
+    stepIndex: tourStepIndex,
+  } = useTour();
+  const isFineTuneTour = tourRun && activeTourId === FINE_TUNE_TOUR_ID;
+  const wasFineTuneTourRef = useRef(false);
+
+  useEffect(() => {
+    if (isFineTuneTour) {
+      wasFineTuneTourRef.current = true;
+      const target = tourSteps[tourStepIndex]?.target;
+      const wantsDialog =
+        typeof target === "string" &&
+        target.startsWith(TRAINING_DIALOG_TOUR_PREFIX);
+      setDialogOpen(wantsDialog);
+      if (typeof target === "string" && target !== "body") {
+        // Joyride's own scrolling is disabled for these steps (see the tour
+        // definition), so bring the highlighted element into view here. A
+        // tooltip placed above a tall target needs the room above it.
+        const placement = tourSteps[tourStepIndex]?.placement ?? "";
+        const block = placement.startsWith("top") ? "end" : "center";
+        const scrollToTarget = () =>
+          document
+            .querySelector(target)
+            ?.scrollIntoView({ block, behavior: "instant" });
+        // A dialog step's target only mounts once the dialog has opened.
+        if (document.querySelector(target)) scrollToTarget();
+        else requestAnimationFrame(scrollToTarget);
+      }
+    } else if (wasFineTuneTourRef.current) {
+      // Tour finished, skipped, or closed: never leave the dialog dangling.
+      wasFineTuneTourRef.current = false;
+      setDialogOpen(false);
+    }
+  }, [isFineTuneTour, tourSteps, tourStepIndex]);
 
   const loadJobs = useCallback(async () => {
     try {
       const data = await fetchTrainingJobs();
-      setJobs(data);
+      const createdMs = (job: TrainingJob) =>
+        trainingTimestampToMs(job.created_at) ?? 0;
+      setJobs([...data].sort((a, b) => createdMs(b) - createdMs(a)));
       setNoContainer(false);
       setApiError(null);
     } catch (err: any) {
@@ -133,12 +189,28 @@ export default function TrainingPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelTrainingJob(jobId);
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: "cancelling" } : j)),
+      );
       customToast.success(
         "Cancellation requested. If the job is still compiling, it may take a few minutes to take effect.",
       );
       loadJobs();
     } catch {
       customToast.error("Failed to cancel job");
+    }
+  };
+
+  const handleDelete = async (jobId: string) => {
+    setDeletingJobId(jobId);
+    try {
+      await deleteTrainingJob(jobId);
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      customToast.success("Fine-tuning job deleted");
+    } catch (err) {
+      customToast.error(getApiErrorMessage(err, "Failed to delete job"));
+    } finally {
+      setDeletingJobId(null);
     }
   };
 
@@ -153,7 +225,7 @@ export default function TrainingPage() {
       <div className="mx-auto max-w-6xl space-y-6 bg-white dark:bg-black rounded-2xl border border-gray-200/80 dark:border-gray-800/70 p-6 sm:p-8 shadow-sm dark:shadow-none">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
+          <div data-tour="training-page-header">
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
                 Fine-tuning Jobs
@@ -171,7 +243,11 @@ export default function TrainingPage() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => setDialogOpen(true)}
+              data-tour="training-new-job-button"
+            >
               <Plus className="mr-2 h-4 w-4" />
               New Fine-tuning Job
             </Button>
@@ -219,7 +295,7 @@ export default function TrainingPage() {
         )}
 
         {/* Jobs table */}
-        <Card>
+        <Card data-tour="training-jobs-table">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Jobs</CardTitle>
           </CardHeader>
@@ -240,55 +316,78 @@ export default function TrainingPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                      <th className="py-3 pr-4">Job ID</th>
-                      <th className="py-3 pr-4">Model</th>
-                      <th className="py-3 pr-4">Dataset</th>
-                      <th className="py-3 pr-4">Status</th>
-                      <th className="py-3 pr-4">Created</th>
-                      <th className="py-3 pr-4">Progress</th>
-                      <th className="py-3 text-right">Actions</th>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 text-center text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      <th className="px-2 py-3">Job ID</th>
+                      <th className="px-2 py-3">Model</th>
+                      <th className="px-2 py-3">Dataset</th>
+                      <th className="px-2 py-3">Status</th>
+                      <th className="px-2 py-3">Created</th>
+                      <th className="px-2 py-3">Progress</th>
+                      <th className="px-2 py-3">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-center">
                     {jobs.map((job) => (
                       <tr
                         key={job.id}
-                        className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        className={`cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 ${deletingJobId === job.id ? "opacity-50" : ""}`}
                         onClick={() => navigate(`/training/${job.id}`)}
                       >
-                        <td className="py-3 pr-4 font-mono text-xs">
+                        <td className="px-2 py-3 font-mono text-xs">
                           {job.id.slice(0, 8)}
                         </td>
-                        <td className="py-3 pr-4 font-medium">
+                        <td className="px-2 py-3 font-medium">
                           {job.model}
                         </td>
-                        <td className="py-3 pr-4">{getJobDataset(job)}</td>
-                        <td className="py-3 pr-4">
+                        <td className="px-2 py-3">{getJobDataset(job)}</td>
+                        <td className="px-2 py-3">
                           <StatusBadge status={job.status} />
                         </td>
-                        <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
+                        <td className="px-2 py-3 text-gray-500 dark:text-gray-400">
                           {formatTrainingTimestamp(job.created_at)}
                         </td>
-                        <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
+                        <td className="px-2 py-3 text-gray-500 dark:text-gray-400">
                           {job.progress
                             ? `${job.progress.current_step} / ${job.progress.total_steps}`
                             : "-"}
                         </td>
-                        <td className="py-3 text-right">
+                        {/* Clicks here (including inside the portaled dialog) must not open the job. */}
+                        <td
+                          className="px-2 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {(job.status === "queued" ||
                             job.status === "in_progress") && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCancel(job.id);
-                              }}
+                              onClick={() => handleCancel(job.id)}
                             >
                               <XCircle className="mr-1 h-4 w-4" />
                               Cancel
                             </Button>
+                          )}
+                          {DELETABLE_STATUSES.includes(job.status) && (
+                            <ConfirmDialog
+                              dialogTitle="Delete fine-tuning job?"
+                              dialogDescription="This permanently deletes the job, its checkpoints, and any models promoted from it."
+                              confirmText="Delete"
+                              onConfirm={() => handleDelete(job.id)}
+                              alertTrigger={
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={deletingJobId !== null}
+                                >
+                                  {deletingJobId === job.id ? (
+                                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="mr-1 h-4 w-4" />
+                                  )}
+                                  {deletingJobId === job.id ? "Deleting…" : "Delete"}
+                                </Button>
+                              }
+                            />
                           )}
                         </td>
                       </tr>

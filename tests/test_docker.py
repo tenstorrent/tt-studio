@@ -183,5 +183,28 @@ class TestDockerSocketPath(unittest.TestCase):
         )
 
 
+class TestPrepareContainerUser(unittest.TestCase):
+    """LiteLLM and the agent read bind-mounted checkout files, so they run as
+    the files' owner rather than relying on the files being world-readable."""
+
+    def _run(self, uid, gid, owner=(0, 0)):
+        st = MagicMock(st_uid=owner[0], st_gid=owner[1])
+        with patch("os.getuid", return_value=uid), patch(
+            "os.getgid", return_value=gid
+        ), patch("os.stat", return_value=st), patch.dict(os.environ, {}):
+            M.prepare_container_user()
+            return os.environ["TT_STUDIO_UID"], os.environ["TT_STUDIO_GID"]
+
+    def test_non_root_runs_as_the_caller(self):
+        self.assertEqual(self._run(1001, 1002, owner=(1500, 1500)), ("1001", "1002"))
+
+    def test_root_runs_as_the_checkout_owner(self):
+        self.assertEqual(self._run(0, 0, owner=(1001, 1002)), ("1001", "1002"))
+
+    def test_root_owned_checkout_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self._run(0, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

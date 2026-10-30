@@ -63,6 +63,28 @@ class CleanupAllTests(unittest.TestCase):
             patch.object(_cl_rops, "BROWSER_CLEANUP_SENTINEL", str(sentinel)),
         )
 
+    def test_preserved_summary_uses_install_mode_cleanup_command(self):
+        for is_pip_install, expected_command in (
+            (True, "tt-studio --purge-all"),
+            (False, "python run.py --purge-all"),
+        ):
+            with self.subTest(is_pip_install=is_pip_install):
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(patch.object(
+                        _cl_orch.install_mode, "is_pip_install", return_value=is_pip_install,
+                    ))
+                    stack.enter_context(patch.object(
+                        _cl_orch, "LAUNCH_CMD", _cl_orch.install_mode.launch_cmd(),
+                    ))
+                    stack.enter_context(patch.object(_cl_orch, "_docker_daemon_status", return_value="down"))
+                    panel = stack.enter_context(patch.object(_cl_orch, "kept_panel", return_value="panel"))
+                    stack.enter_context(patch.object(_cl_orch.console, "print"))
+
+                    _cl_orch._print_preserved_summary(has_docker_access=False)
+
+                footer = panel.call_args.args[2]
+                self.assertIn(f"[accent]{expected_command}[/accent]", footer[0])
+
     def test_cleanup_helpers_handle_sizes_and_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             nested = Path(tmp) / "nested"
@@ -480,6 +502,10 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
             order.append("deployments")
             return 2
 
+        def record_apps(*a, **kwargs):
+            order.append("apps")
+            return 1, []
+
         def record_run_docker(cmd, **kwargs):
             if "down" in cmd:
                 order.append("compose_down")
@@ -489,6 +515,7 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
 
         with patch.object(_cl_runt, "_docker_daemon_status", return_value="ok"), \
              patch.object(_cl_runt, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
+             patch.object(_cl_runt, "_remove_marketplace_app_containers", side_effect=record_apps), \
              patch.object(_cl_runt, "run_docker_command", side_effect=record_run_docker), \
              patch.object(_cl_runt, "cleanup_fastapi_server"), \
              patch.object(_cl_runt, "cleanup_docker_control_service"), \
@@ -513,7 +540,40 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         # remove it.
         args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=True)
         order = self._record_runtime_order(args)
-        self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
+        self.assertEqual(order[:4], ["apps", "deployments", "compose_down", "network_rm"])
+
+    def test_cleanup_runtime_stops_marketplace_apps_on_plain_stop(self):
+        # Apps (Open WebUI on :3080, …) are started by the backend, not compose,
+        # and cannot reach a model once the backend/gateway are down.
+        args = SimpleNamespace(dev=False, no_sudo=True, cleanup_all=False)
+        order = self._record_runtime_order(args)
+        self.assertEqual(order[:2], ["apps", "compose_down"])
+
+    def test_marketplace_app_removal_keeps_their_volumes(self):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            out = "abc123\ndef456\n" if cmd[:3] == ["docker", "ps", "-aq"] else "abc123\ndef456\n"
+            return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+        with patch.object(_cl_rops.subprocess, "run", side_effect=fake_run):
+            removed, left = _cl_rops._remove_marketplace_app_containers(has_docker_access=True)
+
+        self.assertEqual((removed, left), (2, []))
+        self.assertEqual(calls[0], ["docker", "ps", "-aq", "--filter", "name=^tt_studio_app_"])
+        self.assertEqual(calls[1], ["docker", "rm", "-f", "abc123", "def456"])
+
+    def test_marketplace_app_removal_reports_containers_docker_kept(self):
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["docker", "ps", "-aq"]:
+                return SimpleNamespace(returncode=0, stdout="abc123\ndef456\n", stderr="")
+            return SimpleNamespace(returncode=1, stdout="abc123\n", stderr="Error: cannot remove def456")
+
+        with patch.object(_cl_rops.subprocess, "run", side_effect=fake_run):
+            removed, left = _cl_rops._remove_marketplace_app_containers(has_docker_access=True)
+
+        self.assertEqual((removed, left), (1, ["def456"]))
 
     def test_host_service_cleanup_steps_never_hide_sudo_prompts(self):
         """Host cleanup may discover sudo is needed after the preflight probe.

@@ -17,6 +17,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   modelID,
   modelName,
   initialPrompt = "",
+  modelReady = true,
 }) => {
   const {
     messages,
@@ -163,6 +164,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
             setTextInput={setTextInput}
             handleGenerate={sendMessage}
             isGenerating={isGenerating}
+            waitingForModel={!modelReady}
           />
         </div>
       </div>

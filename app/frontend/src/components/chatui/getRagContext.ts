@@ -15,7 +15,7 @@ const MAX_HISTORY_CHARS = 500;
 // The trailing turn duplicating the current query is dropped.
 const buildChatHistory = (
   chatHistory: Pick<ChatMessage, "sender" | "text">[] | undefined,
-  currentText: string,
+  currentText: string
 ) => {
   if (!chatHistory?.length) return undefined;
   const turns = chatHistory
@@ -24,7 +24,10 @@ const buildChatHistory = (
       role: m.sender === "user" ? "user" : "assistant",
       content: m.text.slice(0, MAX_HISTORY_CHARS),
     }));
-  if (turns.length && turns[turns.length - 1].content === currentText.slice(0, MAX_HISTORY_CHARS)) {
+  if (
+    turns.length &&
+    turns[turns.length - 1].content === currentText.slice(0, MAX_HISTORY_CHARS)
+  ) {
     turns.pop();
   }
   const recent = turns.slice(-MAX_HISTORY_TURNS);
@@ -34,7 +37,7 @@ const buildChatHistory = (
 export const getRagContext = async (
   request: InferenceRequest,
   ragDatasource: RagDataSource | undefined,
-  chatHistory?: Pick<ChatMessage, "sender" | "text">[],
+  chatHistory?: Pick<ChatMessage, "sender" | "text">[]
 ): Promise<{ documents: string[] }> => {
   const ragContext: { documents: string[] } = { documents: [] };
 
@@ -43,7 +46,6 @@ export const getRagContext = async (
   // This must never throw: the voice pipeline advances on this call resolving,
   // so any retrieval failure degrades to an ungrounded answer instead.
   try {
-    const browserId = localStorage.getItem("tt_studio_browser_id");
     const response = await axios.post<RetrieveResponse>(
       "/collections-api/retrieve",
       {
@@ -52,14 +54,13 @@ export const getRagContext = async (
         collection:
           ragDatasource.id === "special-all" ? null : ragDatasource.name,
         chat_history: buildChatHistory(chatHistory, request.text),
-      },
-      { headers: { "X-Browser-ID": browserId } },
+      }
     );
 
     const data = response?.data;
     if (Array.isArray(data?.documents)) {
       ragContext.documents = data.documents.filter(
-        (d): d is string => typeof d === "string",
+        (d): d is string => typeof d === "string"
       );
     } else if (Array.isArray(data?.results)) {
       ragContext.documents = data.results
@@ -68,7 +69,7 @@ export const getRagContext = async (
     }
     if (data?.query?.rewritten) {
       console.log(
-        `RAG query rewritten: "${data.query.original}" -> "${data.query.effective}"`,
+        `RAG query rewritten: "${data.query.original}" -> "${data.query.effective}"`
       );
     }
   } catch (error) {
