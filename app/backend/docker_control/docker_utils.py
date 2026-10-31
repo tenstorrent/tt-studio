@@ -1854,6 +1854,13 @@ def update_deploy_cache(canonical=None):
     for con_id, entry in canonical.items():
         if con_id not in keepable_ids:
             continue
+        # Preserve already-probed attributes so healthy models aren't re-queried every 5s
+        existing = cache.get(con_id)
+        if isinstance(existing, dict):
+            if "max_model_len" in existing and "max_model_len" not in entry:
+                entry["max_model_len"] = existing["max_model_len"]
+            if "cached_model_name" in existing and "cached_model_name" not in entry:
+                entry["cached_model_name"] = existing["cached_model_name"]
         cache.set(con_id, entry, timeout=None)
         logger.info(
             f"Added container {entry.get('name')} (ID: {con_id[:12]}) to deploy cache"

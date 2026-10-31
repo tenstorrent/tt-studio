@@ -276,32 +276,43 @@ def get_deploy_cache(canonical=None):
         tok = token_for(entry.get("jwt_secret"))
         cooldown = is_probe_in_cooldown(con_id)
 
-        if "max_model_len" not in entry and entry.get("internal_url"):
-            if not cooldown:
-                max_len = get_model_context_length(entry["internal_url"], auth_token=tok)
-                if max_len is not None:
-                    entry["max_model_len"] = max_len
+        needs_len = "max_model_len" not in entry and entry.get("internal_url")
+        needs_name = "cached_model_name" not in entry and entry.get("internal_url")
+
+        if (needs_len or needs_name) and not cooldown:
+            base = entry["internal_url"].split("/")[0]
+            models_url = f"http://{base}/v1/models"
+            headers = {"Authorization": f"Bearer {tok or encoded_jwt}"}
+            try:
+                resp = requests.get(models_url, headers=headers, timeout=3)
+                if resp.status_code == 200:
+                    models_data = resp.json().get("data", [])
+                    if models_data:
+                        first_model = models_data[0]
+                        if needs_len and "max_model_len" in first_model:
+                            entry["max_model_len"] = first_model["max_model_len"]
+                            logger.info(f"Cached max_model_len={entry['max_model_len']} for container {con_id[:12]}")
+                        if needs_name and "id" in first_model:
+                            entry["cached_model_name"] = first_model["id"]
+                            logger.info(f"Cached model_name={entry['cached_model_name']!r} for container {con_id[:12]}")
                     cache.set(con_id, entry, timeout=None)
                     clear_probe_failure(con_id)
-                    logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
                 else:
                     record_probe_failure(con_id)
-                    cooldown = True
                     logger.debug(
-                        f"Failed to probe max_model_len for {con_id[:12]}; "
+                        f"GET {models_url} returned {resp.status_code} for {con_id[:12]}; "
                         f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
                     )
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, Exception) as e:
+                record_probe_failure(con_id)
+                logger.debug(
+                    f"Failed to probe container {con_id[:12]} at {models_url}: {e}; "
+                    f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
+                )
 
         if "cached_model_name" not in entry and entry.get("internal_url"):
-            if not cooldown:
-                impl = entry.get("model_impl")
-                fallback_name = getattr(impl, "hf_model_id", None) if impl is not None else None
-                name = get_model_name_from_container(
-                    entry["internal_url"], fallback=fallback_name, auth_token=tok
-                )
-                entry["cached_model_name"] = name
-                cache.set(con_id, entry, timeout=None)
-                logger.info(f"Cached model_name={name!r} for container {con_id[:12]}")
+            impl = entry.get("model_impl")
+            entry["cached_model_name"] = getattr(impl, "hf_model_id", None) if impl is not None else None
 
     return data
 

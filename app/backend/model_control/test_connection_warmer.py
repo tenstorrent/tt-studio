@@ -6,8 +6,14 @@
 
 import asyncio
 import concurrent.futures
+import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "api.settings")
+import django
+
+django.setup()
 
 from model_control import connection_warmer
 from model_control import model_utils
@@ -78,24 +84,16 @@ class TestConnectionWarmerFilters:
         call_url = mock_client.post.call_args[0][0]
         assert call_url == "http://managed_host:8000/v1/chat/completions"
 
-    def test_warmer_loop_tick_guard_prevents_pileup(self):
-        """If previous ping is not done, _warmer_loop should skip scheduling a new one."""
+    def test_warmer_tick_prevents_pileup_when_previous_ping_pending(self):
+        """_warmer_tick should skip scheduling when previous ping future is still running."""
         unfinished_future = concurrent.futures.Future()
         connection_warmer._ping_future = unfinished_future
 
         mock_loop = MagicMock()
         mock_loop.is_running.return_value = True
 
-        with patch.object(connection_warmer, "_loop", mock_loop), \
-             patch("asyncio.run_coroutine_threadsafe") as mock_schedule:
-            # Check the condition as evaluated in _warmer_loop
-            if connection_warmer._ping_future is not None and not connection_warmer._ping_future.done():
-                skipped = True
-            else:
-                skipped = False
-                mock_schedule(connection_warmer._ping_all(), mock_loop)
-
-            assert skipped is True
+        with patch("asyncio.run_coroutine_threadsafe") as mock_schedule:
+            connection_warmer._warmer_tick(mock_loop)
             mock_schedule.assert_not_called()
 
         # Clean up
@@ -136,8 +134,8 @@ class TestNegativeCaching:
         assert not model_utils.is_probe_in_cooldown(cid)
         assert cid not in model_utils._probe_failures
 
-    def test_get_deploy_cache_respects_negative_cooldown(self):
-        """When a probe fails once, subsequent get_deploy_cache calls skip probing."""
+    def test_get_deploy_cache_respects_negative_cooldown_on_failure(self):
+        """When /v1/models fails once, subsequent calls skip probing."""
         cid = "frozen_con_456"
         entry = {
             "internal_url": "frozen_host:7000/v1/chat/completions",
@@ -148,18 +146,17 @@ class TestNegativeCaching:
 
         with patch("model_control.model_utils.caches", {"deploy_cache": mock_cache}), \
              patch("model_control.model_utils.update_deploy_cache"), \
-             patch("model_control.model_utils.get_model_context_length", return_value=None) as mock_probe_len, \
-             patch("model_control.model_utils.get_model_name_from_container") as mock_probe_name:
+             patch("model_control.model_utils.requests.get", side_effect=Exception("Connection refused")) as mock_get:
 
             # Inject record into cache simulation
             with patch("model_control.model_utils.pickle.loads", return_value=dict(entry)):
                 with patch.object(model_utils, "_last_deploy_cache_update", time.monotonic()):
-                    # Call 1: probe fails
+                    # Call 1: probe fails and triggers cooldown
                     res1 = model_utils.get_deploy_cache()
-                    assert mock_probe_len.call_count == 1
+                    assert mock_get.call_count == 1
                     assert model_utils.is_probe_in_cooldown(cid)
+                    assert res1[cid]["cached_model_name"] == "fallback-model"
 
-                    # Call 2: should be in cooldown, zero probe calls made!
+                    # Call 2: in cooldown -> 0 additional HTTP calls!
                     res2 = model_utils.get_deploy_cache()
-                    assert mock_probe_len.call_count == 1  # Still 1, NOT called again
-                    mock_probe_name.assert_not_called()
+                    assert mock_get.call_count == 1

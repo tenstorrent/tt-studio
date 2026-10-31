@@ -193,7 +193,8 @@ class InferenceView(View):
             return JsonResponse(serializer.errors, status=400)
 
         deploy_id = data.pop("deploy_id")
-        deploy = get_deploy_cache()[deploy_id]
+        deploy_cache = await asyncio.to_thread(get_deploy_cache)
+        deploy = deploy_cache[deploy_id]
         # A registered container whose model we could not identify has no known
         # request shape — never guess one at it.
         if getattr(deploy.get("model_impl"), "model_type", None) == ModelTypes.UNKNOWN:
@@ -262,7 +263,7 @@ class AgentView(View):
         deploy_id = data.get("deploy_id", "")
         logger.info(f"Deploy ID: {deploy_id}")
 
-        deploy_cache = get_deploy_cache()
+        deploy_cache = await asyncio.to_thread(get_deploy_cache)
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
