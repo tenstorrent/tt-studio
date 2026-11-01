@@ -160,3 +160,65 @@ class TestNegativeCaching:
                     # Call 2: in cooldown -> 0 additional HTTP calls!
                     res2 = model_utils.get_deploy_cache()
                     assert mock_get.call_count == 1
+
+    def test_get_deploy_cache_sets_none_max_model_len_without_infinite_loop(self):
+        """When /v1/models returns no max_model_len, it is cached as None and not re-probed."""
+        cid = "con_no_len_789"
+        entry = {
+            "internal_url": "host:7000/v1/chat/completions",
+            "model_impl": MagicMock(hf_model_id="fallback-model"),
+        }
+        mock_cache = MagicMock()
+        mock_cache._cache = {f":version:{cid}": b"dummy_data"}
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"data": [{"id": "engine-model"}]}  # No max_model_len!
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": mock_cache}), \
+             patch("model_control.model_utils.update_deploy_cache"), \
+             patch("model_control.model_utils.requests.get", return_value=mock_resp) as mock_get:
+
+            with patch("model_control.model_utils.pickle.loads", return_value=dict(entry)):
+                with patch.object(model_utils, "_last_deploy_cache_update", time.monotonic()):
+                    # Call 1: probes, gets id but None max_model_len
+                    res1 = model_utils.get_deploy_cache()
+                    assert mock_get.call_count == 1
+                    assert res1[cid]["cached_model_name"] == "engine-model"
+                    assert "max_model_len" in res1[cid]
+                    assert res1[cid]["max_model_len"] is None
+
+                    # Simulate cache.set persisting the dict with max_model_len=None
+                    with patch("model_control.model_utils.pickle.loads", return_value=dict(res1[cid])):
+                        # Call 2: max_model_len is in entry (as None), so 0 additional HTTP calls!
+                        res2 = model_utils.get_deploy_cache()
+                        assert mock_get.call_count == 1
+
+    def test_get_deploy_cache_records_cooldown_on_empty_data(self):
+        """When /v1/models returns 200 with data=[], cooldown is triggered."""
+        cid = "con_empty_data_101"
+        entry = {
+            "internal_url": "host:7000/v1/chat/completions",
+            "model_impl": MagicMock(hf_model_id="fallback-model"),
+        }
+        mock_cache = MagicMock()
+        mock_cache._cache = {f":version:{cid}": b"dummy_data"}
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"data": []}
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": mock_cache}), \
+             patch("model_control.model_utils.update_deploy_cache"), \
+             patch("model_control.model_utils.requests.get", return_value=mock_resp) as mock_get:
+
+            with patch("model_control.model_utils.pickle.loads", return_value=dict(entry)):
+                with patch.object(model_utils, "_last_deploy_cache_update", time.monotonic()):
+                    res1 = model_utils.get_deploy_cache()
+                    assert mock_get.call_count == 1
+                    assert model_utils.is_probe_in_cooldown(cid)
+                    assert res1[cid]["cached_model_name"] == "fallback-model"
+
+                    # Call 2: in cooldown -> 0 additional calls!
+                    res2 = model_utils.get_deploy_cache()
+                    assert mock_get.call_count == 1

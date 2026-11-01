@@ -133,7 +133,6 @@ from model_control.model_utils import (
     auth_headers,
     _vllm_client,
     get_deploy_cache,
-    get_model_name_from_container,
     get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
@@ -206,9 +205,9 @@ class InferenceView(View):
         auth_token = token_for(deploy.get("jwt_secret"))
         logger.info(f"internal_url:= {internal_url}")
         logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
-            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id, auth_token=auth_token
-        )
+        impl = deploy.get("model_impl")
+        fallback_model = getattr(impl, "hf_model_id", None) or getattr(impl, "model_name", None)
+        data["model"] = deploy.get("cached_model_name") or fallback_model
 
         # Clamp max_tokens to 75% of the model's context window so there is
         # always headroom for input tokens (conversation history, system prompt, etc).
@@ -267,10 +266,9 @@ class AgentView(View):
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-            data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
-                deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id,
-                auth_token=token_for(deploy.get("jwt_secret"))
-            )
+            impl = deploy.get("model_impl")
+            fallback_model = getattr(impl, "hf_model_id", None) or getattr(impl, "model_name", None)
+            data["model"] = deploy.get("cached_model_name") or fallback_model
         else:
             logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
             data.pop("deploy_id", None)
@@ -2044,9 +2042,9 @@ class OpenAIChatCompletionsView(View):
 
         internal_url = "http://" + deploy["internal_url"]
         auth_token = token_for(deploy.get("jwt_secret"))
-        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
-            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id, auth_token=auth_token
-        )
+        impl = deploy.get("model_impl")
+        fallback_model = getattr(impl, "hf_model_id", None) or getattr(impl, "model_name", None)
+        data["model"] = deploy.get("cached_model_name") or fallback_model
 
         # Clamp max_tokens to 75% of the context window (same policy as InferenceView).
         raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(
