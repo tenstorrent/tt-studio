@@ -187,12 +187,12 @@ class InferenceView(View):
     async def post(self, request, *args, **kwargs):
         data = json.loads(request.body)
         logger.info(f"InferenceView data:={data}")
-        serializer = InferenceSerializer(data=data)
+        deploy_cache = await asyncio.to_thread(get_deploy_cache)
+        serializer = InferenceSerializer(data=data, context={"deploy_cache": deploy_cache})
         if not serializer.is_valid():
             return JsonResponse(serializer.errors, status=400)
 
         deploy_id = data.pop("deploy_id")
-        deploy_cache = await asyncio.to_thread(get_deploy_cache)
         deploy = deploy_cache[deploy_id]
         # A registered container whose model we could not identify has no known
         # request shape — never guess one at it.

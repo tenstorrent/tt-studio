@@ -106,9 +106,11 @@ class TestNegativeCaching:
 
     def setup_method(self):
         model_utils._probe_failures.clear()
+        model_utils._active_probes.clear()
 
     def teardown_method(self):
         model_utils._probe_failures.clear()
+        model_utils._active_probes.clear()
 
     def test_cooldown_lifecycle(self):
         """Verify recording failure, cooldown active, and clearing failure."""
@@ -222,3 +224,108 @@ class TestNegativeCaching:
                     # Call 2: in cooldown -> 0 additional calls!
                     res2 = model_utils.get_deploy_cache()
                     assert mock_get.call_count == 1
+
+    def test_try_start_probe_lifecycle(self):
+        """try_start_probe atomically claims in-flight status and respects cooldown."""
+        cid = "con_claim_test"
+        assert model_utils.try_start_probe(cid)
+        # Second attempt while in flight returns False
+        assert not model_utils.try_start_probe(cid)
+
+        # Release and record failure
+        model_utils.record_probe_failure(cid)
+        assert not model_utils.is_probe_in_flight(cid)
+        assert model_utils.is_probe_in_cooldown(cid)
+        # Attempt while in cooldown returns False
+        assert not model_utils.try_start_probe(cid)
+
+    def test_single_flight_deduplicates_concurrent_probes(self):
+        """When two calls to get_deploy_cache happen simultaneously for the same unprobed container, only one HTTP call is made."""
+        import threading
+        cid = "con_concurrent_1"
+        entry = {
+            "internal_url": "host:7000/v1/chat/completions",
+            "model_impl": MagicMock(hf_model_id="fallback-model"),
+        }
+        mock_cache = MagicMock()
+        mock_cache._cache = {f":version:{cid}": b"dummy_data"}
+
+        probe_started = threading.Event()
+        probe_may_finish = threading.Event()
+
+        def slow_get(*args, **kwargs):
+            probe_started.set()
+            probe_may_finish.wait(timeout=2.0)
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {"data": [{"id": "model-1", "max_model_len": 4096}]}
+            return mock_resp
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": mock_cache}), \
+             patch("model_control.model_utils.update_deploy_cache"), \
+             patch("model_control.model_utils.requests.get", side_effect=slow_get) as mock_get, \
+             patch("model_control.model_utils.pickle.loads", return_value=dict(entry)), \
+             patch.object(model_utils, "_last_deploy_cache_update", time.monotonic()):
+
+            # Thread 1 starts probe
+            t1 = threading.Thread(target=model_utils.get_deploy_cache)
+            t1.start()
+            probe_started.wait(timeout=2.0)
+
+            # Thread 2 calls get_deploy_cache while Thread 1 is in-flight
+            res2 = model_utils.get_deploy_cache()
+            # Thread 2 should return immediately with fallback, without making an additional HTTP call
+            assert res2[cid]["cached_model_name"] == "fallback-model"
+
+            # Let Thread 1 finish
+            probe_may_finish.set()
+            t1.join()
+
+            # Exactly 1 HTTP probe was made across both threads!
+            assert mock_get.call_count == 1
+
+
+class TestInferenceSerializerValidation:
+    """Test that InferenceSerializer does not trigger synchronous get_deploy_cache when context provides it."""
+
+    def test_serializer_uses_context_deploy_cache_without_calling_get_deploy_cache(self):
+        from model_control.serializers import InferenceSerializer
+
+        mock_cache = {"valid_deploy_1": {"name": "test_model"}}
+        with patch("model_control.serializers.get_deploy_cache") as mock_get_cache:
+            serializer = InferenceSerializer(
+                data={"deploy_id": "valid_deploy_1"},
+                context={"deploy_cache": mock_cache},
+            )
+            assert serializer.is_valid()
+            mock_get_cache.assert_not_called()
+
+    def test_serializer_falls_back_to_get_deploy_cache_when_context_missing(self):
+        from model_control.serializers import InferenceSerializer
+
+        mock_cache = {"valid_deploy_2": {"name": "test_model"}}
+        with patch("model_control.serializers.get_deploy_cache", return_value=mock_cache) as mock_get_cache:
+            serializer = InferenceSerializer(data={"deploy_id": "valid_deploy_2"})
+            assert serializer.is_valid()
+            mock_get_cache.assert_called_once()
+
+
+class TestWorkflowHandlers:
+    """Test that workflow node handlers offload blocking calls."""
+
+    def test_handle_llm_offloads_get_deploy_cache(self):
+        from workflow_control.handlers import handle_llm
+
+        async def run():
+            with patch("workflow_control.handlers.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                mock_to_thread.return_value = {}
+                gen = handle_llm("node_1", {}, {}, "run_1")
+                events = [e async for e in gen]
+                mock_to_thread.assert_called_once()
+                from model_control.model_utils import get_deploy_cache
+                assert mock_to_thread.call_args[0][0] == get_deploy_cache
+                assert any(e.get("event") == "node_error" for e in events)
+
+        asyncio.run(run())
+
+

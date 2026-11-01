@@ -198,6 +198,7 @@ _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
 _probe_failures: dict[str, float] = {}
+_active_probes: set[str] = set()
 _probe_failures_lock = threading.Lock()
 _PROBE_FAILURE_COOLDOWN_SECONDS: float = 30.0
 
@@ -214,15 +215,43 @@ def is_probe_in_cooldown(con_id: str) -> bool:
         return False
 
 
+def is_probe_in_flight(con_id: str) -> bool:
+    """Return True if container probe is currently in flight in another thread."""
+    with _probe_failures_lock:
+        return con_id in _active_probes
+
+
+def try_start_probe(con_id: str) -> bool:
+    """Check cooldown and claim in-flight probe status atomically.
+
+    Returns True if caller claimed the right to probe the container, False if
+    the container is in cooldown or already being probed by another thread.
+    """
+    with _probe_failures_lock:
+        last_failed = _probe_failures.get(con_id)
+        if last_failed is not None:
+            if time.monotonic() - last_failed < _PROBE_FAILURE_COOLDOWN_SECONDS:
+                return False
+            _probe_failures.pop(con_id, None)
+
+        if con_id in _active_probes:
+            return False
+
+        _active_probes.add(con_id)
+        return True
+
+
 def record_probe_failure(con_id: str) -> None:
     """Mark container probe as failed with current timestamp."""
     with _probe_failures_lock:
+        _active_probes.discard(con_id)
         _probe_failures[con_id] = time.monotonic()
 
 
 def clear_probe_failure(con_id: str) -> None:
     """Clear recorded failure for container."""
     with _probe_failures_lock:
+        _active_probes.discard(con_id)
         _probe_failures.pop(con_id, None)
 
 
@@ -254,15 +283,17 @@ def get_deploy_cache(canonical=None):
         for failed_cid in list(_probe_failures.keys()):
             if failed_cid not in data:
                 _probe_failures.pop(failed_cid, None)
+        for active_cid in list(_active_probes):
+            if active_cid not in data:
+                _active_probes.discard(active_cid)
 
     for con_id, entry in data.items():
         tok = token_for(entry.get("jwt_secret"))
-        cooldown = is_probe_in_cooldown(con_id)
 
         needs_len = "max_model_len" not in entry and entry.get("internal_url")
         needs_name = "cached_model_name" not in entry and entry.get("internal_url")
 
-        if (needs_len or needs_name) and not cooldown:
+        if (needs_len or needs_name) and try_start_probe(con_id):
             base = entry["internal_url"].split("/")[0]
             models_url = f"http://{base}/v1/models"
             headers = {"Authorization": f"Bearer {tok or encoded_jwt}"}
@@ -300,6 +331,9 @@ def get_deploy_cache(canonical=None):
                     f"Failed to probe container {con_id[:12]} at {models_url}: {e}; "
                     f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
                 )
+            finally:
+                with _probe_failures_lock:
+                    _active_probes.discard(con_id)
 
         if "cached_model_name" not in entry and entry.get("internal_url"):
             impl = entry.get("model_impl")
