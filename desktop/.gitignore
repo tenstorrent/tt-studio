@@ -1,0 +1,9 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+
+# The root .gitignore treats *.json/*.txt as build outputs; here they are
+# source (package.json, tauri.conf.json, capabilities). Re-include them.
+!*.json
+!**/*.json
