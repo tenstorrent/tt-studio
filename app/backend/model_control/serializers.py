@@ -17,7 +17,11 @@ class InferenceSerializer(serializers.Serializer):
     def validate(self, data):
         deploy_id = data.get("deploy_id")
         # check if model_id has impl
-        deploy_cache = get_deploy_cache()
+        deploy_cache = (
+            self.context.get("deploy_cache")
+            if (self.context and "deploy_cache" in self.context)
+            else get_deploy_cache()
+        )
         if deploy_id not in deploy_cache.keys():
             raise serializers.ValidationError(
                 f"Invalid deploy_id={deploy_id}. Deployed ids are: {list(deploy_cache.keys())}"
