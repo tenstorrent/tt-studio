@@ -39,9 +39,12 @@ def hugging_face_access_refusal(hf_repo: Optional[str]) -> Refusal:
     code = _check_repo(token or "", hf_repo)
     # diffusers repos (FLUX/Wan) have no root config.json and 404; retry with
     # model_index.json so a gated diffusers repo still surfaces denied/auth_failed
-    # instead of a false "error".
+    # instead of a false "error". Community weights repos (moge-2, gaze-lle,
+    # hamer) have neither file, so fall back to the HF model-info API.
     if code == 404:
         code = _check_repo(token or "", hf_repo, "model_index.json")
+    if code == 404:
+        code = _check_repo(token or "", hf_repo, None)
     status_str = _status_from_code(code)
 
     if status_str in ("denied", "auth_failed"):
