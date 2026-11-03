@@ -387,6 +387,22 @@ class TestDeploymentsServingJob:
         monkeypatch.setattr(views_module.requests, "get", lambda *_a, **_k: pytest.fail("scanned"))
         assert views_module._deployments_serving_job("t1") == []
 
+    def test_includes_starting_model_deployment_not_yet_in_cache(self, monkeypatch, serving_setup):
+        monkeypatch.setattr(serving_setup, "get_deploy_cache", lambda: {})
+        models_mod = ModuleType("docker_control.models")
+        dep = SimpleNamespace(
+            status="starting",
+            host_weights_dir="/vol/merged_models/a-m2/",
+            container_name="llama-starting",
+            model_name="llama-starting",
+        )
+        models_mod.ModelDeployment = SimpleNamespace(
+            objects=SimpleNamespace(filter=lambda **_kw: [dep])
+        )
+        monkeypatch.setitem(sys.modules, "docker_control.models", models_mod)
+        assert serving_setup._deployments_serving_job("m2") == ["llama-starting"]
+        assert serving_setup._deployments_serving_job("t1") == ["llama-starting"]
+
 
 class TestTrainingJobDelete:
     def test_blocks_delete_while_merged_model_is_deployed(self, monkeypatch, serving_setup):
