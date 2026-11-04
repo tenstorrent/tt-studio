@@ -16,8 +16,9 @@ except ImportError:  # pre-refactor
 try:
     from tt_setup.env_config import _configure as _ecfg_configure
     from tt_setup.env_config import _dotenv as _ecfg_dotenv
+    from tt_setup.env_config import _hf_access as _ecfg_hf_access
 except ImportError:
-    _ecfg_dotenv = _ecfg_configure = M
+    _ecfg_dotenv = _ecfg_configure = _ecfg_hf_access = M
 
 
 class TestPlaceholderAndBoolean(unittest.TestCase):
@@ -401,3 +402,167 @@ class TestAdoptHfTokenFromEnvironment(unittest.TestCase):
             with patch.dict(os.environ, self._no_shell_token_env(HF_TOKEN_PATH=store), clear=True):
                 self.assertFalse(_ecfg_configure.adopt_hf_token_from_environment(quiet=True))
         self.assertIsNone(self._env_file_token())
+
+
+class TestHfAccess(unittest.TestCase):
+    def test_hf_check_repo_with_requests(self):
+        with patch.object(_ecfg_hf_access, "HAS_REQUESTS", True):
+            with patch.object(_ecfg_hf_access, "requests", create=True) as mock_requests:
+                mock_requests.get.return_value.status_code = 200
+                res = _ecfg_hf_access._hf_check_repo("tok123", "meta-llama/test", "config.json")
+                self.assertEqual(res, 200)
+                mock_requests.get.assert_called_once()
+                call_kwargs = mock_requests.get.call_args[1]
+                self.assertEqual(call_kwargs["headers"]["Authorization"], "Bearer tok123")
+
+    def test_hf_check_repo_without_token(self):
+        with patch.object(_ecfg_hf_access, "HAS_REQUESTS", True):
+            with patch.object(_ecfg_hf_access, "requests", create=True) as mock_requests:
+                mock_requests.get.return_value.status_code = 200
+                _ecfg_hf_access._hf_check_repo(None, "meta-llama/test")
+                call_kwargs = mock_requests.get.call_args[1]
+                self.assertNotIn("Authorization", call_kwargs["headers"])
+
+    def test_hf_check_repo_requests_exception(self):
+        with patch.object(_ecfg_hf_access, "HAS_REQUESTS", True):
+            with patch.object(_ecfg_hf_access, "requests", create=True) as mock_requests:
+                mock_requests.get.side_effect = Exception("network down")
+                res = _ecfg_hf_access._hf_check_repo("tok123", "meta-llama/test")
+                self.assertIsNone(res)
+
+    def test_hf_check_repo_urllib_fallback(self):
+        import urllib.error
+        with patch.object(_ecfg_hf_access, "HAS_REQUESTS", False):
+            with patch("urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.return_value = None
+                self.assertEqual(_ecfg_hf_access._hf_check_repo("tok123", "meta-llama/test"), 200)
+
+            with patch("urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.side_effect = urllib.error.HTTPError("url", 401, "msg", {}, None)
+                self.assertEqual(_ecfg_hf_access._hf_check_repo("tok123", "meta-llama/test"), 401)
+
+            with patch("urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.side_effect = Exception("error")
+                self.assertIsNone(_ecfg_hf_access._hf_check_repo("tok123", "meta-llama/test"))
+
+    def test_check_hf_access_branches(self):
+        with patch.object(_ecfg_hf_access, "_hf_check_repo", return_value=None):
+            status, results = _ecfg_hf_access.check_hf_access("token")
+            self.assertIsNone(status)
+
+        with patch.object(_ecfg_hf_access, "_hf_check_repo", side_effect=[200, 401, 200, 200, 200]):
+            status, results = _ecfg_hf_access.check_hf_access("token")
+            self.assertFalse(status)
+
+        with patch.object(_ecfg_hf_access, "_hf_check_repo", side_effect=[200, 403, 200, 200, 200]):
+            status, results = _ecfg_hf_access.check_hf_access("token")
+            self.assertFalse(status)
+
+        with patch.object(_ecfg_hf_access, "_hf_check_repo", return_value=200):
+            status, results = _ecfg_hf_access.check_hf_access("token")
+            self.assertTrue(status)
+
+        with patch.object(_ecfg_hf_access, "_hf_check_repo", return_value=500):
+            status, results = _ecfg_hf_access.check_hf_access("token")
+            self.assertIsNone(status)
+
+    def test_render_hf_access_all_unreachable(self):
+        results = [("Model", "repo", None)]
+        with patch.object(_ecfg_hf_access.console, "print") as mock_print:
+            _ecfg_hf_access.render_hf_access(None, results)
+            mock_print.assert_called_once()
+            self.assertIn("couldn't reach", mock_print.call_args[0][0])
+
+    def test_render_hf_access_success_quiet(self):
+        results = [("Model", "repo", 200)]
+        with patch.object(_ecfg_hf_access, "is_verbose", return_value=False), \
+             patch.object(_ecfg_hf_access, "in_phase", return_value=False), \
+             patch.object(_ecfg_hf_access.console, "print") as mock_print:
+            _ecfg_hf_access.render_hf_access(True, results)
+            mock_print.assert_called_once()
+            self.assertIn("HuggingFace access", mock_print.call_args[0][0])
+
+        with patch.object(_ecfg_hf_access, "is_verbose", return_value=False), \
+             patch.object(_ecfg_hf_access, "in_phase", return_value=True), \
+             patch.object(_ecfg_hf_access.console, "print") as mock_print:
+            _ecfg_hf_access.render_hf_access(True, results)
+            mock_print.assert_not_called()
+
+    def test_render_hf_access_verbose_and_blocked(self):
+        results = [
+            ("Llama", "meta-llama/test", 200),
+            ("Qwen", "qwen/test", 401),
+            ("Wan", "wan/test", 403),
+            ("Flux", "flux/test", None),
+            ("Other", "other/test", 500),
+        ]
+        with patch.object(_ecfg_hf_access, "is_verbose", return_value=True), \
+             patch.object(_ecfg_hf_access.console, "print") as mock_print, \
+             patch.object(_ecfg_hf_access, "add_note") as mock_add_note:
+            _ecfg_hf_access.render_hf_access(False, results)
+            self.assertTrue(mock_print.called)
+            self.assertTrue(mock_add_note.called)
+
+
+class TestConfigureEnvironment(unittest.TestCase):
+    def test_should_configure_var(self):
+        with patch.object(_ecfg_configure, "FORCE_OVERWRITE", False):
+            self.assertTrue(_ecfg_configure.should_configure_var("FOO", ""))
+            self.assertTrue(_ecfg_configure.should_configure_var("FOO", "hf_***"))
+            self.assertFalse(_ecfg_configure.should_configure_var("FOO", "actual_value"))
+
+        with patch.object(_ecfg_configure, "FORCE_OVERWRITE", True):
+            self.assertTrue(_ecfg_configure.should_configure_var("FOO", "actual_value"))
+
+    def test_display_first_time_welcome_accepted(self):
+        with patch.object(_ecfg_configure, "save_preference") as mock_save, \
+             patch.object(_ecfg_configure.console, "print"):
+            _ecfg_configure.display_first_time_welcome(accept_terms=True)
+            mock_save.assert_called_once_with("terms_accepted", True)
+
+    def test_display_first_time_welcome_rejected(self):
+        with patch.object(_ecfg_configure, "confirm", return_value=False), \
+             patch.object(_ecfg_configure.console, "print"), \
+             self.assertRaises(SystemExit):
+            _ecfg_configure.display_first_time_welcome(accept_terms=False)
+
+    def test_ask_overwrite_preference_saved_preference(self):
+        with patch.object(_ecfg_configure, "get_preference", return_value="keep_existing"):
+            self.assertFalse(_ecfg_configure.ask_overwrite_preference({"A": "val"}))
+
+        with patch.object(_ecfg_configure, "get_preference", return_value="reconfigure_everything"):
+            self.assertTrue(_ecfg_configure.ask_overwrite_preference({"A": "val"}))
+
+    def test_ask_overwrite_preference_prompt_choices(self):
+        with patch.object(_ecfg_configure, "get_preference", return_value=None), \
+             patch.object(_ecfg_configure, "save_preference") as mock_save, \
+             patch.object(_ecfg_configure.console, "print"):
+            # Choice: reconfigure
+            with patch.object(_ecfg_configure, "confirm", return_value=True):
+                self.assertTrue(_ecfg_configure.ask_overwrite_preference({"KEY": "val"}))
+                mock_save.assert_called_with("configuration_mode", "reconfigure_everything")
+
+            # Choice: keep existing
+            with patch.object(_ecfg_configure, "confirm", return_value=False):
+                self.assertFalse(_ecfg_configure.ask_overwrite_preference({"KEY": "val"}))
+                mock_save.assert_called_with("configuration_mode", "keep_existing")
+
+    def test_migrate_legacy_app_title(self):
+        with patch.object(_ecfg_configure, "get_env_var", return_value="Tenstorrent | TT Studio"), \
+             patch.object(_ecfg_configure, "write_env_var") as mock_write:
+            res = _ecfg_configure.migrate_legacy_app_title()
+            self.assertEqual(res, _ecfg_configure.STOCK_APP_TITLE)
+            mock_write.assert_called_once_with("VITE_APP_TITLE", _ecfg_configure.STOCK_APP_TITLE)
+
+        with patch.object(_ecfg_configure, "get_env_var", return_value="Custom Title"):
+            res = _ecfg_configure.migrate_legacy_app_title()
+            self.assertEqual(res, "Custom Title")
+
+    def test_configure_environment_sequentially_scoped_inference(self):
+        with patch.object(_ecfg_configure, "is_first_time_setup", return_value=False), \
+             patch.object(_ecfg_configure, "configure_inference_server_artifact") as mock_inf, \
+             patch.object(_ecfg_configure.console, "print"):
+            _ecfg_configure.configure_environment_sequentially(reconfigure_inference=True, force_reconfigure=False)
+            mock_inf.assert_called_once()
+
+
