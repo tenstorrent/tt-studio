@@ -6,6 +6,13 @@ import { customToast } from "../CustomToaster";
 import { Card } from "../ui/card";
 import ShowcaseGallery from "./ShowcaseGallery";
 import StableDiffusionChat from "./StableDiffusionChat";
+import { imageChatStore, useImageChatState } from "./imageChatStore";
+
+const setShowChat = (showChat: boolean) =>
+  imageChatStore.update(() => ({ showChat }));
+
+// Deployed mode routes to the cloud endpoint and needs no local model.
+const useCloud = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
 interface ImageGenParentComponentProps {
   /** Deploy id of the image generation model picked on the page */
@@ -17,7 +24,7 @@ const ImageGenParentComponent: React.FC<ImageGenParentComponentProps> = ({
   modelID,
   modelName,
 }) => {
-  const [showChat, setShowChat] = useState(false);
+  const { showChat } = useImageChatState();
   const [initialPrompt, setInitialPrompt] = useState<string>("");
 
   const handleImageClick = (prompt: string) => {
@@ -37,6 +44,7 @@ const ImageGenParentComponent: React.FC<ImageGenParentComponentProps> = ({
               onBack={() => setShowChat(false)}
               modelID={modelID ?? ""}
               modelName={modelName}
+              modelReady={useCloud || !!modelID}
               initialPrompt={initialPrompt}
             />
           ) : (
