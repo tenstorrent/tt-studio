@@ -49,7 +49,7 @@ jobs:
       - name: Run the tt_setup test suite with coverage
         run: |
           coverage run --source=tt_setup -m pytest tests/ -q
-          coverage report -m --fail-under=50
+          coverage report -m --fail-under=55
           # Render a coverage table on the run's Summary tab (not just the log).
           {
             echo "### Launcher test coverage"
