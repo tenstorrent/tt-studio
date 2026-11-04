@@ -6,7 +6,7 @@ import {
   BackendHealthContext,
   type BackendStatus,
 } from "../contexts/BackendHealthContext";
-import { BackendDisconnectedOverlay } from "../components/BackendDisconnectedOverlay";
+import { BackendDisconnectedOverlay } from "@/src/vesper/components/backend-disconnected-overlay";
 
 // Poll the backend's bare liveness endpoint. It returns an empty 200 and does no
 // work, so it is cheap to hit frequently.

@@ -23,6 +23,11 @@ export interface ModelsContextType {
   models: Model[];
   setModels: React.Dispatch<React.SetStateAction<Model[]>>;
   refreshModels: () => Promise<void>;
+  /**
+   * Whether the first fetch of deployed models has finished. Until it has,
+   * `models` is empty, which would otherwise read as nothing being deployed.
+   */
+  modelsLoaded: boolean;
   hasDeployedModels: boolean;
   userStoppedModel: boolean;
   setUserStoppedModel: React.Dispatch<React.SetStateAction<boolean>>;

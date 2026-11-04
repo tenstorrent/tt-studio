@@ -1,27 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mockBackend, collectPageErrors } from "./helpers";
 
+/**
+ * The app layout is mounted (its sidebar brand link is visible) and the page
+ * inside it rendered instead of falling back to the page error boundary, which
+ * would otherwise hide a crash from these tests.
+ */
+async function expectPageInLayout(page: Page) {
+  await expect(
+    page.getByRole("navigation").getByRole("link", { name: "TT-Studio" })
+  ).toBeVisible();
+  // a page that crashes on its data does so once its first requests are back
+  await page.waitForLoadState("networkidle");
+  await expect(
+    page.getByText("Something went wrong on this page")
+  ).toHaveCount(0);
+}
+
 test.describe("home page", () => {
-  test("renders the navbar and model deployment stepper", async ({ page }) => {
+  test("renders the app layout and the hardware overview", async ({ page }) => {
     const errors = collectPageErrors(page);
     await mockBackend(page);
     await page.goto("/");
 
+    await expectPageInLayout(page);
+    await expect(page.getByText("Hardware", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Re-scan" })).toBeVisible();
     await expect(
-      page.getByAltText("Tenstorrent Logo").first()
+      page.getByText("No Tenstorrent hardware detected")
     ).toBeVisible();
-    await expect(page.getByText("Model Selection").first()).toBeVisible();
-    await expect(page.getByText("Deploy Model").first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
 });
 
-// Shallow render checks: every public route must mount inside MainLayout
-// (navbar present) without a blank page or an uncaught exception.
+// Shallow render checks: every public route must mount inside the app layout
+// without a blank page, an uncaught exception, or the page error fallback.
 const ROUTES = [
   "/",
   "/models-deployed",
@@ -38,6 +55,7 @@ const ROUTES = [
   "/deployment-history",
   "/tts",
   "/video-generation",
+  "/settings",
   "/coding-agents",
 ];
 
@@ -48,9 +66,7 @@ test.describe("route smoke tests", () => {
       await mockBackend(page);
       await page.goto(route);
 
-      await expect(
-        page.getByAltText("Tenstorrent Logo").first()
-      ).toBeVisible();
+      await expectPageInLayout(page);
       await expect(page.locator("#root")).not.toBeEmpty();
 
       expect(
@@ -69,7 +85,7 @@ test.describe("routing edge cases", () => {
 
     await expect(page.getByRole("heading", { name: "404" })).toBeVisible();
     await expect(page.getByText("Page Not Found")).toBeVisible();
-    await expect(page.getByAltText("Tenstorrent Logo").first()).toBeVisible();
+    await expectPageInLayout(page);
   });
 
   test("/voice-pipeline redirects to /voice-agent", async ({ page }) => {

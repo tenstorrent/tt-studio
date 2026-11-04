@@ -1,32 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { customToast } from "../CustomToaster";
+import React, { useState } from "react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Video } from "lucide-react";
 import VideoGenChat from "./VideoGenChat";
 
-const VideoGenParentComponent: React.FC = () => {
-  const [showChat, setShowChat] = useState(false);
-  const location = useLocation();
-  const [modelID, setModelID] = useState<string>("");
-  const [modelName, setModelName] = useState<string | null>(null);
+interface VideoGenParentComponentProps {
+  /** Deploy id of the video generation model picked on the page */
+  modelID: string | null;
+  modelName: string | null;
+}
 
-  useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
-      setModelID(location.state.containerID);
-      setModelName(location.state.modelName);
-    }
-  }, [location.state]);
+const VideoGenParentComponent: React.FC<VideoGenParentComponentProps> = ({
+  modelID,
+  modelName,
+}) => {
+  const [showChat, setShowChat] = useState(false);
 
   return (
     <div
@@ -38,7 +29,7 @@ const VideoGenParentComponent: React.FC = () => {
           {showChat ? (
             <VideoGenChat
               onBack={() => setShowChat(false)}
-              modelID={modelID}
+              modelID={modelID ?? ""}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">

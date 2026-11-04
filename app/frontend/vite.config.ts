@@ -1,12 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { defineConfig, HttpProxy, ProxyOptions } from "vite";
+import { defineConfig, HttpProxy, Plugin, ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { ClientRequest, IncomingMessage, ServerResponse } from "http";
 import tailwindcss from "@tailwindcss/vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ThemePersistenceScript } from "@tenstorrent/vesper/theme-switcher";
+
+// Vesper's <ThemePersistenceScript /> is an inline script meant for
+// server-rendered HTML: it applies the saved theme before first paint and
+// keeps localStorage in sync. React never executes inline scripts rendered on
+// the client, so mounting it inside <App /> does nothing. index.html is this
+// SPA's server-rendered document, so render the script into its <head> here.
+const vesperThemePersistence = (): Plugin => ({
+  name: "vesper-theme-persistence",
+  transformIndexHtml: (html) =>
+    html.replace(
+      "</head>",
+      `    ${renderToStaticMarkup(createElement(ThemePersistenceScript))}\n  </head>`
+    ),
+});
 
 const VITE_BACKEND_URL = "http://tt-studio-backend-api:8000";
 // define mapping of backend apis proxy strings -> routes
@@ -137,6 +154,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    vesperThemePersistence(),
     // Serve Silero VAD assets (ONNX model, audio worklet, ort wasms) from
     // the dev/build root so MicVAD's default fetch paths resolve. stripBase:true
     // flattens the src node_modules/.../dist/ tree to flat filenames at "/".

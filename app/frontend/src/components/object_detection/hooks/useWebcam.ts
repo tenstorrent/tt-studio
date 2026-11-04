@@ -20,6 +20,9 @@ export const useWebcam = (
   const isLiveRef = useRef(false);
   const processingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // read by the frame loop, so picking another model takes effect mid-stream
+  const modelIDRef = useRef(modelID);
+  modelIDRef.current = modelID;
 
   const processFrame = useCallback(async () => {
     if (!isLiveRef.current || processingRef.current || !videoRef.current)
@@ -27,7 +30,7 @@ export const useWebcam = (
 
     processingRef.current = true;
     try {
-      await sendSnapshot(videoRef, setDetections, modelID);
+      await sendSnapshot(videoRef, setDetections, modelIDRef.current);
     } catch (error) {
       console.error("Error sending snapshot:", error);
     } finally {
@@ -36,7 +39,7 @@ export const useWebcam = (
         requestAnimationFrame(processFrame);
       }
     }
-  }, [setDetections, modelID]);
+  }, [setDetections]);
 
   const handleStartCapture = useCallback(async () => {
     setIsCapturing(true);

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import axios from "axios";
-import { customToast } from "../CustomToaster";
 
 const collectionsAPIURL = "/collections-api";
 
@@ -41,12 +40,11 @@ export const createCollection = async ({
     return response.data;
   } catch (error) {
     console.error("Error creating collection:", error);
-    // Extract error message from the response if available
     // Surface the backend's actual reason (name collision, or -- new -- the
     // chosen TT embedding model isn't currently deployed) instead of a fixed
-    // "already exists" message that would be wrong for the latter.
+    // "already exists" message that would be wrong for the latter. Callers
+    // show it (inline or as a toast), so it isn't toasted here as well.
     if (axios.isAxiosError(error) && error.response?.data?.error) {
-      customToast.error(error.response.data.error);
       throw new Error(error.response.data.error);
     }
     throw error;

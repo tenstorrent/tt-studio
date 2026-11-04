@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-import { useLocation } from "react-router-dom";
-import { customToast } from "../CustomToaster";
 import React, {
   useState,
   useCallback,
@@ -61,9 +59,10 @@ const ModifiedAnimatedTabs = React.forwardRef<
   );
 });
 
-export const ObjectDetectionComponent: React.FC = () => {
-  const location = useLocation();
-  const [modelID, setModelID] = useState<string | null>(null);
+export const ObjectDetectionComponent: React.FC<{
+  /** Deploy id of the object detection model picked on the page */
+  modelID: string | null;
+}> = ({ modelID }) => {
   const [selectedTab, setSelectedTab] = useState("webcam");
   const [isDesktopView, setIsDesktopView] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -98,19 +97,6 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // State for expandable rows in detection table
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-
-  // Get model ID from location state
-  useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
-      setModelID(location.state.containerID);
-    }
-  }, [location.state]);
 
   // Handle responsive layout
   useEffect(() => {
