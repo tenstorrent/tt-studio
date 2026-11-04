@@ -26,8 +26,10 @@ WORKDIR /app
 COPY ./requirements.txt /app
 RUN pip install -r requirements.txt --no-cache-dir 
 
-# Copy files
+# Copy files. The container runs as a non-root uid, so make them readable even
+# when the checkout was made under a restrictive umask (files at 0660).
 COPY . /app
+RUN chmod -R a+rX /app
 
 # Command to run when the container starts
 CMD ["uvicorn", "agent:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]

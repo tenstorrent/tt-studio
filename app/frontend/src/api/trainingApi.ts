@@ -94,8 +94,11 @@ export interface CreateTrainingJobParams {
   steps_freq?: number;
   val_steps_freq?: number;
   save_interval?: number;
+  seed?: number;
   [key: string]: unknown;
 }
+
+export const MAX_TRAINING_SEED = 2 ** 32;
 
 // ---------------------------------------------------------------------------
 // API functions
@@ -225,35 +228,44 @@ export async function fetchTrainingCatalogFull(): Promise<TrainingCatalog> {
 // The training container returns timestamps as epoch *seconds* (int), but other
 // fields elsewhere may be ISO strings or epoch milliseconds. `new Date(seconds)`
 // would interpret the value as milliseconds and render a 1970 date, so normalize
-// here before formatting.
+// here before formatting. Returns null when the value can't be parsed.
+export function trainingTimestampToMs(
+  value: number | string | null | undefined,
+): number | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number") {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  const asNumber = Number(value);
+  if (value.trim() !== "" && !Number.isNaN(asNumber)) {
+    return asNumber < 1e12 ? asNumber * 1000 : asNumber;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 export function formatTrainingTimestamp(
   value: number | string | null | undefined,
 ): string {
-  if (value === null || value === undefined || value === "") return "-";
-
-  let ms: number;
-  if (typeof value === "number") {
-    ms = value < 1e12 ? value * 1000 : value;
-  } else {
-    const asNumber = Number(value);
-    if (value.trim() !== "" && !Number.isNaN(asNumber)) {
-      ms = asNumber < 1e12 ? asNumber * 1000 : asNumber;
-    } else {
-      const parsed = Date.parse(value);
-      if (Number.isNaN(parsed)) return "-";
-      ms = parsed;
-    }
-  }
-
+  const ms = trainingTimestampToMs(value);
+  if (ms === null) return "-";
   const date = new Date(ms);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
 }
 
 // The dataset is stored inside the job's `request_parameters.dataset_loader`,
 // not as a top-level field, so read it from there with a sensible fallback.
+// Custom jobs only carry the loader name "Custom"; their staged
+// `train_dataset_path` keeps the uploaded file name, so show that instead.
 export function getJobDataset(job: TrainingJob): string {
   if (job.dataset) return job.dataset;
-  const loader = job.request_parameters?.dataset_loader;
+  const params = job.request_parameters;
+  const trainPath = params?.train_dataset_path;
+  if (typeof trainPath === "string" && trainPath) {
+    return trainPath.split("/").pop() || trainPath;
+  }
+  const loader = params?.dataset_loader;
   return typeof loader === "string" && loader ? loader : "-";
 }
 
@@ -358,6 +370,22 @@ export async function cancelTrainingJob(
     `${TRAINING_API}/jobs/${jobId}/cancel/`,
   );
   return data;
+}
+
+// Permanently delete a finished job and its results. Deleting a training job
+// also deletes every adapter merge (promoted model) made from it.
+export async function deleteTrainingJob(jobId: string): Promise<void> {
+  await axios.delete(`${TRAINING_API}/jobs/${jobId}/`);
+}
+
+// A merged model is the result of an adapter merge job, deleted like any job.
+export const deleteMergedModel = (mergeId: string) => deleteTrainingJob(mergeId);
+
+// The server's reason for a failed request (e.g. job still running or deployed).
+export function getApiErrorMessage(err: unknown, fallback: string): string {
+  const message = (err as { response?: { data?: { error?: unknown } } })
+    ?.response?.data?.error;
+  return typeof message === "string" && message ? message : fallback;
 }
 
 export function getCheckpointDownloadUrl(

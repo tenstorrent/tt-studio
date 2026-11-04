@@ -73,6 +73,31 @@ def prepare_docker_socket_path():
     return socket_path
 
 
+def prepare_container_user():
+    """Expose the invoking user's uid:gid to Compose interpolation for this run.
+
+    Non-root services read host files (e.g. the LiteLLM config), so they run as
+    the caller instead of a hard-coded 1000 and can read them as owner even at
+    the 0660 a umask-0007 clone leaves. Root runs (e.g. sudo) use the
+    checkout's owner instead. Root-owned checkouts are rejected because
+    containers never run as root and would not be able to read restrictive
+    checkout files.
+    """
+    uid, gid = os.getuid(), os.getgid()
+    if uid == 0:
+        st = os.stat(TT_STUDIO_ROOT)
+        if st.st_uid == 0:
+            console.print("[error]⛔ Cannot run TT Studio from a root-owned checkout.[/error]")
+            console.print(
+                "[warning]   Run it as the checkout owner, or change the checkout "
+                "ownership before retrying.[/warning]"
+            )
+            raise SystemExit(1)
+        uid, gid = st.st_uid, st.st_gid
+    os.environ["TT_STUDIO_UID"] = str(uid)
+    os.environ["TT_STUDIO_GID"] = str(gid)
+
+
 def _docker_compose_v2_available():
     """True if the `docker compose` (v2) plugin runs — with a sudo fallback for
     660 sockets. The space form (`docker compose`) only succeeds on v2; legacy
@@ -388,6 +413,7 @@ def build_docker_compose_command(
     Returns:
         list: Docker Compose command with appropriate files
     """
+    prepare_container_user()
     compose_files = ["docker", "compose"]
     # The canonical env file now lives at the repo root, so point compose at it
     # explicitly. --env-file only changes variable resolution; the compose project

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import stat
+from urllib.parse import quote
 
 import requests
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -186,6 +187,56 @@ def _proxy_post(url, body=None):
     except Exception as e:
         logger.exception("Unexpected error proxying POST %s", url)
         return JsonResponse({"error": str(e)}, status=500)
+
+
+def _proxy_delete(url):
+    """Issue a DELETE to the training container and return a Django response."""
+    try:
+        resp = requests.delete(url, headers=_auth_headers(), timeout=PROXY_TIMEOUT)
+    except requests.ConnectionError:
+        return JsonResponse(
+            {"error": "Fine-tuning container is not reachable."}, status=502
+        )
+    except requests.Timeout:
+        return JsonResponse(
+            {"error": "Fine-tuning container request timed out."}, status=504
+        )
+    if resp.ok:
+        return HttpResponse(status=resp.status_code)
+    # FastAPI reports failures as `{"detail": ...}`; the UI reads `error`.
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return JsonResponse({"error": detail or resp.reason}, status=resp.status_code)
+
+
+def _deployments_serving_job(job_id):
+    """Names of running deployments that serve weights merged by *job_id*,
+    which is either a training job (covering all its merges) or a merge job."""
+    served = {
+        os.path.normpath(entry["host_weights_dir"]): entry.get("name")
+        for entry in get_deploy_cache().values()
+        if entry.get("host_weights_dir")
+    }
+    if not served:
+        return []
+
+    from docker_control.docker_utils import get_training_host_volume
+
+    resp = requests.get(
+        f"{backend_config.tt_inference_api_url}/merged_checkpoints",
+        params={"host_volume": get_training_host_volume()},
+        timeout=PROXY_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return [
+        served[os.path.normpath(ckpt["path"])]
+        for ckpt in resp.json().get("merged_checkpoints", [])
+        if job_id in (ckpt.get("merge_id"), ckpt.get("source_job_id"))
+        and os.path.normpath(ckpt.get("path") or "") in served
+    ]
 
 
 def _custom_datasets_dir():
@@ -881,21 +932,57 @@ class TrainingJobsListView(View):
         return _proxy_post(url, body=body)
 
 
+class _JobView(View):
+    """Rejects "." / ".." ids: quote() leaves them intact and requests collapses
+    them (job_id=".." would become DELETE /v1/)."""
+
+    def dispatch(self, request, *args, **kwargs):
+        for key in ("job_id", "ckpt_id"):
+            if kwargs.get(key) in (".", ".."):
+                return JsonResponse({"error": f"Invalid {key}."}, status=400)
+        return super().dispatch(request, *args, **kwargs)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingJobDetailView(View):
-    """GET /training/jobs/<job_id>/ → Container /v1/jobs/{job_id}"""
+class TrainingJobDetailView(_JobView):
+    """GET    /training/jobs/<job_id>/ → Container /v1/jobs/{job_id}
+    DELETE /training/jobs/<job_id>/ → Container /v1/jobs/{job_id}
+
+    DELETE takes a training job (the server also deletes its merge jobs) or an
+    adapter merge job, and removes their results from disk.
+    """
 
     def get(self, request, job_id, *args, **kwargs):
         deploy_id = request.GET.get("deploy_id")
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}"
         return _proxy_get(url, params=request.GET)
+
+    def delete(self, request, job_id, *args, **kwargs):
+        entry, err = _find_training_container(request.GET.get("deploy_id"))
+        if err:
+            return err
+        # Deleting merged weights out from under a running inference container breaks it.
+        try:
+            in_use = _deployments_serving_job(job_id)
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("Could not check deployments before deleting job %s: %s", job_id, e)
+            return JsonResponse(
+                {"error": "Could not verify that the merged models are not deployed."},
+                status=502,
+            )
+        if in_use:
+            return JsonResponse(
+                {"error": f"Merged model is in use by {', '.join(in_use)}. Stop the deployment first."},
+                status=409,
+            )
+        return _proxy_delete(f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}")
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingJobMetricsView(View):
+class TrainingJobMetricsView(_JobView):
     """GET /training/jobs/<job_id>/metrics/ → Container /v1/jobs/{job_id}/metrics"""
 
     def get(self, request, job_id, *args, **kwargs):
@@ -903,12 +990,12 @@ class TrainingJobMetricsView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/metrics"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/metrics"
         return _proxy_get(url, params=request.GET)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingJobLogsView(View):
+class TrainingJobLogsView(_JobView):
     """GET /training/jobs/<job_id>/logs/ → Container /v1/jobs/{job_id}/logs"""
 
     def get(self, request, job_id, *args, **kwargs):
@@ -916,12 +1003,12 @@ class TrainingJobLogsView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/logs"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/logs"
         return _proxy_get(url, params=request.GET)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingJobCheckpointsView(View):
+class TrainingJobCheckpointsView(_JobView):
     """GET /training/jobs/<job_id>/checkpoints/ → Container /v1/jobs/{job_id}/checkpoints"""
 
     def get(self, request, job_id, *args, **kwargs):
@@ -929,12 +1016,12 @@ class TrainingJobCheckpointsView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/checkpoints"
         return _proxy_get(url, params=request.GET)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingJobCancelView(View):
+class TrainingJobCancelView(_JobView):
     """POST /training/jobs/<job_id>/cancel/ → Container /v1/jobs/{job_id}/cancel"""
 
     def post(self, request, job_id, *args, **kwargs):
@@ -947,12 +1034,12 @@ class TrainingJobCancelView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/cancel"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/cancel"
         return _proxy_post(url, body=body)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingCheckpointDownloadView(View):
+class TrainingCheckpointDownloadView(_JobView):
     """GET /training/jobs/<job_id>/checkpoints/<ckpt_id>/ → Container download (streamed)"""
 
     def get(self, request, job_id, ckpt_id, *args, **kwargs):
@@ -960,12 +1047,12 @@ class TrainingCheckpointDownloadView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints/{ckpt_id}"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/checkpoints/{quote(ckpt_id, safe='')}"
         return _proxy_get(url, params=request.GET, stream=True)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class TrainingCheckpointMergeView(View):
+class TrainingCheckpointMergeView(_JobView):
     """POST /training/jobs/<job_id>/checkpoints/<ckpt_id>/merge/ → Container merge.
 
     Promotes a LoRA adapter checkpoint into a full HF checkpoint the inference
@@ -981,7 +1068,7 @@ class TrainingCheckpointMergeView(View):
         entry, err = _find_training_container(deploy_id)
         if err:
             return err
-        url = f"{_base_url(entry)}/v1/jobs/{job_id}/checkpoints/{ckpt_id}/merge"
+        url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}/checkpoints/{quote(ckpt_id, safe='')}/merge"
         return _proxy_post(url, body=body)
 
 

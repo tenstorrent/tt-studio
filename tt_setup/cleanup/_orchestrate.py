@@ -56,7 +56,7 @@ def _print_preserved_summary(has_docker_access):
         ("Config & secrets", ".env, saved settings (Welcome setup)"),
         ("Saved data", "model weights, chat history, RAG"),
     ]
-    footer = ["[muted]Remove these too →[/muted]  [accent]python run.py --purge-all[/accent]"]
+    footer = [f"[muted]Remove these too →[/muted]  [accent]{LAUNCH_CMD} --purge-all[/accent]"]
     console.print()
     console.print(kept_panel("[bold]Preserved[/bold]", rows, footer))
 

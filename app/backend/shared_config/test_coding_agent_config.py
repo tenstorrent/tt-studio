@@ -98,14 +98,44 @@ class ThinkingToggleTests(SimpleTestCase):
             get_gateway_model_names(impl),
             ["org/some-reasoner", "org/some-reasoner-thinking"],
         )
+        find = _find(impl)
         self.assertEqual(
-            resolve_thinking_variant("org/some-reasoner-thinking", _find(impl)),
+            resolve_thinking_variant("org/some-reasoner-thinking", find),
             ({"model_impl": impl}, True),
+        )
+        # Plain name defaults to thinking False (opt-in)
+        self.assertEqual(
+            resolve_thinking_variant("org/some-reasoner", find),
+            ({"model_impl": impl}, False),
         )
 
     def test_community_model_without_reasoning_parser_has_none(self):
         impl = _community_impl(None)
+        self.assertFalse(has_thinking_toggle(impl))
         self.assertEqual(get_gateway_model_names(impl), ["org/some-reasoner"])
+        self.assertEqual(
+            resolve_thinking_variant("org/some-reasoner", _find(impl)),
+            ({"model_impl": impl}, None),
+        )
+
+    def test_gemma4_community_model_has_thinking_toggle_and_defaults_off(self):
+        impl = CommunityModelImpl(
+            model_name="tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4",
+            model_id="community-tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4",
+            repo_id="tt-hous/gemma-4-26B-A4B-it_p150_p150x2_p150x4",
+            profile="p150x2",
+            reasoning_parser="gemma4",
+        )
+        self.assertTrue(has_thinking_toggle(impl))
+        find = _find(impl)
+        self.assertEqual(
+            resolve_thinking_variant(impl.model_name, find),
+            ({"model_impl": impl}, False),
+        )
+        self.assertEqual(
+            resolve_thinking_variant(f"{impl.model_name}-thinking", find),
+            ({"model_impl": impl}, True),
+        )
 
     def test_unknown_model_resolves_to_no_deploy(self):
         self.assertEqual(resolve_thinking_variant("nope-thinking", _find()), (None, None))

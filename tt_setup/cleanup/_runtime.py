@@ -12,6 +12,7 @@ from tt_setup.services import cleanup_docker_control_service, cleanup_fastapi_se
 from tt_setup.cleanup._resource_ops import (
     _docker_daemon_status,
     _port_owned_by_root,
+    _remove_marketplace_app_containers,
     _remove_tt_studio_network_containers,
 )
 
@@ -36,6 +37,17 @@ def _cleanup_runtime(args, has_docker_access):
 
     if docker_up:
         prepare_docker_socket_path()
+        # Apps need the backend and gateway that are about to go down, so they
+        # stop too (their data volumes stay); models are what --stop preserves.
+        with step("Stopping apps", spinner=False) as s:
+            removed, left = _remove_marketplace_app_containers(has_docker_access)
+            if left:
+                s.fail()
+                s.detail(f"{len(left)} could not be removed: docker rm -f {' '.join(left)}")
+            elif removed:
+                s.detail(f"{removed} stopped")
+            else:
+                s.skip("none running")
         # Plain --stop preserves deployments (summarised in the Preserved panel
         # afterwards); --purge-all removes them first so the later network removal
         # / weight deletion isn't blocked by running processes.

@@ -107,14 +107,7 @@ def _split_image_version(image_version: str):
         return name, tag
     return image_version, "latest"
 
-# Build model_name → status lookup from catalog JSON
 _CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
-try:
-    _catalog = json.loads(_CATALOG_PATH.read_text())
-    _status_lookup: dict[str, str | None] = {m["model_name"]: m.get("status") for m in _catalog["models"]}
-except Exception:
-    logger.warning(f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models")
-    _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
 # HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for P300x2
@@ -406,7 +399,7 @@ class ContainersView(APIView):
                 "model_type": impl.model_type.value,
                 "display_model_type": impl.display_model_type,
                 "current_board": current_board,
-                "status": _status_lookup.get(impl.model_name),
+                "status": impl.status,
                 "chips_required": chips_required,
                 # Lets the UI pre-flight the HF gate before attempting a deploy.
                 "hf_model_id": impl.hf_model_id,
@@ -1299,7 +1292,8 @@ class DeployView(APIView):
                     try:
                         ModelDeployment.objects.create(
                             container_id=pull_id,
-                            container_name=impl.model_name,
+                            container_name=impl.deployment_container_name,
+                            model_id=impl.model_id,
                             model_name=impl.model_name,
                             device=media_device,
                             device_id=device_id,
