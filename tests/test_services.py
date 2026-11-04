@@ -694,6 +694,153 @@ class TestZombieProcessesAreTreatedAsDead(unittest.TestCase):
                          "a zombie must be reported dead on the first poll, without kill -9")
 
 
+class TestFastApiLifecycle(unittest.TestCase):
+    def test_setup_fastapi_environment_missing_dir(self):
+        with patch("os.path.exists", return_value=False), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_missing_requirements(self):
+        def fake_exists(path):
+            if path == _fa_mod.INFERENCE_API_DIR:
+                return True
+            if path == "requirements.txt":
+                return False
+            return False
+
+        with patch("os.path.exists", side_effect=fake_exists), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_venv_creation_failure(self):
+        def fake_exists(path):
+            if path in (_fa_mod.INFERENCE_API_DIR, "requirements.txt"):
+                return True
+            if path == ".venv":
+                return False
+            return False
+
+        import subprocess
+        err = subprocess.CalledProcessError(1, ["python3", "-m", "venv", ".venv"])
+        with patch("os.path.exists", side_effect=fake_exists), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod, "recreate_venv_if_stale", return_value=False), \
+             patch.object(_fa_mod, "run_command", side_effect=err), \
+             patch.object(_fa_mod, "print_manual_fix_steps"), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_pip_missing(self):
+        def fake_exists(path):
+            if path in (_fa_mod.INFERENCE_API_DIR, "requirements.txt", ".venv"):
+                return True
+            if "pip" in str(path):
+                return False
+            return False
+
+        with patch("os.path.exists", side_effect=fake_exists), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod, "recreate_venv_if_stale", return_value=False), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_install_requirements_failure(self):
+        def fake_exists(path):
+            return True
+
+        import subprocess
+        err = subprocess.CalledProcessError(1, ["pip", "install", "-r", "requirements.txt"])
+        with patch("os.path.exists", side_effect=fake_exists), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod, "recreate_venv_if_stale", return_value=False), \
+             patch.object(_fa_mod, "run_command", side_effect=[None, err]), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_uvicorn_missing(self):
+        def fake_exists(path):
+            if "uvicorn" in str(path):
+                return False
+            return True
+
+        import subprocess
+        err = subprocess.CalledProcessError(1, ["python", "-c", "import uvicorn"])
+        with patch("os.path.exists", side_effect=fake_exists), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod, "recreate_venv_if_stale", return_value=False), \
+             patch.object(_fa_mod, "run_command", side_effect=[None, None, err]), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.setup_fastapi_environment())
+
+    def test_setup_fastapi_environment_success(self):
+        with patch("os.path.exists", return_value=True), \
+             patch("os.chdir"), \
+             patch.object(_fa_mod, "recreate_venv_if_stale", return_value=False), \
+             patch.object(_fa_mod, "run_command", return_value=None), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertTrue(_fa_mod.setup_fastapi_environment())
+
+    def test_start_fastapi_server_port_in_use_cannot_free(self):
+        with patch.object(_fa_mod, "check_port_available", return_value=False), \
+             patch.object(_fa_mod, "kill_process_on_port", return_value=False), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.start_fastapi_server())
+
+    def test_start_fastapi_server_uvicorn_missing_in_venv(self):
+        def fake_exists(path):
+            if "uvicorn" in str(path):
+                return False
+            return True
+
+        with patch.object(_fa_mod, "check_port_available", return_value=True), \
+             patch("builtins.open", mock_open()), \
+             patch("os.chmod"), \
+             patch("os.path.exists", side_effect=fake_exists), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.start_fastapi_server())
+
+    def test_start_fastapi_server_process_dies_immediately(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1
+
+        with patch.object(_fa_mod, "check_port_available", return_value=True), \
+             patch("builtins.open", mock_open()), \
+             patch("os.chmod"), \
+             patch("os.path.exists", return_value=True), \
+             patch("subprocess.Popen", return_value=mock_proc), \
+             patch.object(_fa_mod, "progress_status"), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertFalse(_fa_mod.start_fastapi_server())
+
+    def test_start_fastapi_server_becomes_healthy(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_curl_res = MagicMock(stdout="200\n")
+
+        with patch.object(_fa_mod, "check_port_available", return_value=True), \
+             patch("builtins.open", mock_open()), \
+             patch("os.chmod"), \
+             patch("os.path.exists", return_value=True), \
+             patch("subprocess.Popen", return_value=mock_proc), \
+             patch("subprocess.run", return_value=mock_curl_res), \
+             patch.object(_fa_mod, "progress_status"), \
+             patch.object(_fa_mod.console, "print"):
+            self.assertTrue(_fa_mod.start_fastapi_server())
+
+    def test_cleanup_fastapi_server(self):
+        with patch("os.path.exists", return_value=True), \
+             patch("builtins.open", mock_open(read_data="12345\n")), \
+             patch.object(_fa_mod, "_pid_is_zombie", return_value=False), \
+             patch("os.kill") as mock_kill, \
+             patch.object(_fa_mod, "kill_process_on_port") as mock_port_kill, \
+             patch("os.remove") as mock_rm:
+            _fa_mod.cleanup_fastapi_server()
+            mock_kill.assert_called()
+            mock_port_kill.assert_called_once_with(8001, no_sudo=False, quiet=True)
+            self.assertTrue(mock_rm.called)
+
+
 if __name__ == "__main__":
     unittest.main()
 
