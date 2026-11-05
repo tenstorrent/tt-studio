@@ -107,3 +107,7 @@ speech.wav
 
 # Superpowers brainstorming mockups
 .superpowers/
+
+# gh-aw docs-review workflow files
+!.docs-review.json
+!.github/aw/actions-lock.json
