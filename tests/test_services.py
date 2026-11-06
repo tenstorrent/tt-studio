@@ -832,13 +832,163 @@ class TestFastApiLifecycle(unittest.TestCase):
         with patch("os.path.exists", return_value=True), \
              patch("builtins.open", mock_open(read_data="12345\n")), \
              patch.object(_fa_mod, "_pid_is_zombie", return_value=False), \
-             patch("os.kill") as mock_kill, \
+             patch("os.kill", side_effect=[None, None, ProcessLookupError]) as mock_kill, \
              patch.object(_fa_mod, "kill_process_on_port") as mock_port_kill, \
              patch("os.remove") as mock_rm:
             _fa_mod.cleanup_fastapi_server()
             mock_kill.assert_called()
             mock_port_kill.assert_called_once_with(8001, no_sudo=False, quiet=True)
             self.assertTrue(mock_rm.called)
+
+
+class TestHealthHelpers(unittest.TestCase):
+    def test_probe_service_requests_success_and_failure(self):
+        mock_resp = MagicMock(status_code=200)
+        with patch.object(_health_mod, "HAS_REQUESTS", True), \
+             patch("requests.get") as mock_get:
+            mock_get.return_value.__enter__.return_value = mock_resp
+            self.assertTrue(_health_mod.probe_service("http://test"))
+
+            mock_resp.status_code = 500
+            self.assertFalse(_health_mod.probe_service("http://test"))
+
+            mock_get.side_effect = Exception("network down")
+            self.assertFalse(_health_mod.probe_service("http://test"))
+
+    def test_probe_service_urllib_fallback(self):
+        mock_resp = MagicMock()
+        mock_resp.getcode.return_value = 200
+        with patch.object(_health_mod, "HAS_REQUESTS", False), \
+             patch("urllib.request.urlopen") as mock_url:
+            mock_url.return_value.__enter__.return_value = mock_resp
+            self.assertTrue(_health_mod.probe_service("http://test"))
+
+            mock_url.side_effect = Exception("error")
+            self.assertFalse(_health_mod.probe_service("http://test"))
+
+    def test_snapshot_health(self):
+        self.assertEqual(_health_mod.snapshot_health([]), {})
+        with patch.object(_health_mod, "probe_service", side_effect=lambda u, timeout=2: u == "http://ok"):
+            res = _health_mod.snapshot_health(["http://ok", "http://bad"])
+            self.assertEqual(res, {"http://ok": True, "http://bad": False})
+
+    def test_container_health_status(self):
+        mock_res = MagicMock(returncode=0, stdout="healthy\n")
+        with patch("subprocess.run", return_value=mock_res):
+            self.assertEqual(_health_mod._container_health_status("c1"), "healthy")
+
+        with patch("subprocess.run", side_effect=Exception("error")):
+            self.assertEqual(_health_mod._container_health_status("c1"), "")
+
+    def test_probe_and_snapshot_container_health(self):
+        with patch.object(_health_mod, "_container_health_status", return_value="running"):
+            self.assertTrue(_health_mod.probe_container_health("c1"))
+
+        with patch.object(_health_mod, "_container_health_status", return_value="exited"):
+            self.assertFalse(_health_mod.probe_container_health("c1"))
+
+        self.assertEqual(_health_mod.snapshot_container_health([]), {})
+        with patch.object(_health_mod, "probe_container_health", side_effect=lambda c: c == "c1"):
+            res = _health_mod.snapshot_container_health(["c1", "c2"])
+            self.assertEqual(res, {"c1": True, "c2": False})
+
+    def test_read_log_tail(self):
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            f.write("line 1\n\nline 2\nline 3\n")
+            f_path = f.name
+        try:
+            self.assertEqual(_health_mod.read_log_tail(f_path, lines=2), "line 2\nline 3")
+        finally:
+            os.remove(f_path)
+
+        self.assertEqual(_health_mod.read_log_tail("/nonexistent/file.log"), "")
+
+    def test_diagnose_service_log(self):
+        d1 = _health_mod.diagnose_service_log("Error: Address already in use", port=8000)
+        self.assertIn("port 8000 is still taken", d1["cause"])
+
+        d2 = _health_mod.diagnose_service_log("ModuleNotFoundError: No module named 'foo'")
+        self.assertIn("Python dependency is missing", d2["cause"])
+
+        d3 = _health_mod.diagnose_service_log("Permission denied: /var/run/docker.sock")
+        self.assertEqual(d3["cause"], "permission denied")
+
+        d4 = _health_mod.diagnose_service_log("OSError: [Errno 28] No space left on device")
+        self.assertEqual(d4["cause"], "the disk is full")
+
+        d5 = _health_mod.diagnose_service_log("Some unexpected timeout output", log_file="srv.log")
+        self.assertIn("didn't answer its health check", d5["cause"])
+
+    def test_report_service_failure(self):
+        with patch.object(_health_mod, "read_log_tail", return_value="Error: address already in use"), \
+             patch.object(_health_mod.console, "print") as mock_print:
+            diag = _health_mod.report_service_failure("test-srv", "test.log", port=8001, consequence="fatal")
+            self.assertIn("port 8001 is still taken", diag["cause"])
+            mock_print.assert_called_once()
+
+    def test_wait_for_service_health_success(self):
+        mock_resp = MagicMock(status_code=200)
+        with patch.object(_health_mod, "HAS_REQUESTS", True), \
+             patch("requests.get") as mock_get, \
+             patch.object(_health_mod, "progress_status"):
+            mock_get.return_value.__enter__.return_value = mock_resp
+            self.assertTrue(_health_mod.wait_for_service_health("svc", "http://ok", timeout=1, interval=0.01))
+
+    def test_wait_for_service_health_timeout(self):
+        mock_resp = MagicMock(status_code=500)
+        with patch.object(_health_mod, "HAS_REQUESTS", True), \
+             patch("requests.get") as mock_get, \
+             patch.object(_health_mod, "progress_status"), \
+             patch.object(_health_mod.console, "print"), \
+             patch("subprocess.run") as mock_subproc:
+            mock_get.return_value.__enter__.return_value = mock_resp
+            mock_subproc.return_value = MagicMock(stdout="log 1\n", stderr="")
+            self.assertFalse(_health_mod.wait_for_service_health("svc", "http://localhost:8000/up/", timeout=0.05, interval=0.01))
+
+    def test_wait_for_container_health(self):
+        with patch.object(_health_mod, "_container_health_status", return_value="healthy"), \
+             patch.object(_health_mod, "progress_status"):
+            self.assertTrue(_health_mod.wait_for_container_health("c1", timeout=1, interval=0.01))
+
+        with patch.object(_health_mod, "_container_health_status", return_value="starting"), \
+             patch.object(_health_mod, "progress_status"), \
+             patch.object(_health_mod, "run_docker_command", return_value=MagicMock(stdout="log", stderr="")), \
+             patch.object(_health_mod.console, "print"):
+            self.assertFalse(_health_mod.wait_for_container_health("c1", timeout=0.05, interval=0.01))
+
+    def test_wait_for_all_services(self):
+        with patch.object(_health_mod, "wait_for_container_health", return_value=True), \
+             patch.object(_health_mod, "wait_for_service_health", return_value=True), \
+             patch.object(_health_mod.console, "print"):
+            self.assertTrue(_health_mod.wait_for_all_services())
+
+        with patch.object(_health_mod, "wait_for_container_health", return_value=False), \
+             patch.object(_health_mod, "wait_for_service_health", return_value=True), \
+             patch.object(_health_mod.console, "print"):
+            self.assertFalse(_health_mod.wait_for_all_services())
+
+
+class TestDockerControlHelpers(unittest.TestCase):
+    def test_legacy_pid_command(self):
+        mock_proc = MagicMock(stdout="python start_docker_control.py\n")
+        with patch("subprocess.run", return_value=mock_proc):
+            self.assertEqual(_docker_control_mod._legacy_pid_command(123), "python start_docker_control.py")
+
+        with patch("subprocess.run", side_effect=Exception("error")):
+            self.assertEqual(_docker_control_mod._legacy_pid_command(123), "")
+
+    def test_is_legacy_docker_control_process(self):
+        with patch.object(_docker_control_mod, "_legacy_pid_command", return_value="python docker-control-service/main.py"), \
+             patch.object(_docker_control_mod, "_find_supervisor_wrapper_pid", return_value=None):
+            self.assertTrue(_docker_control_mod._is_legacy_docker_control_process(123))
+
+        with patch.object(_docker_control_mod, "_legacy_pid_command", return_value="bash"), \
+             patch.object(_docker_control_mod, "_find_supervisor_wrapper_pid", return_value=999):
+            self.assertTrue(_docker_control_mod._is_legacy_docker_control_process(123))
+
+        with patch.object(_docker_control_mod, "_legacy_pid_command", return_value="nginx: master process"), \
+             patch.object(_docker_control_mod, "_find_supervisor_wrapper_pid", return_value=None):
+            self.assertFalse(_docker_control_mod._is_legacy_docker_control_process(123))
 
 
 if __name__ == "__main__":

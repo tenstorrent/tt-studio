@@ -404,8 +404,10 @@ class TestInferenceServerOrchestrator(unittest.TestCase):
                     f.write("# utils")
                 with open(os.path.join(art_dir, "VERSION"), "w") as f:
                     f.write("0.8.0")
-                with open(os.path.join(d, "artifact-info.txt"), "w") as f:
-                    f.write("artifact_type=branch\nartifact_value=main\ncommit_sha=abcdef123456\n")
+                art_info_dir = os.path.join(d, ".artifacts")
+                os.makedirs(art_info_dir, exist_ok=True)
+                with open(os.path.join(art_info_dir, "artifact-info.txt"), "w") as f:
+                    f.write("     artifact_type=branch\n     artifact_value=main\n     commit_sha=abcdef123456\n")
 
                 with patch.object(_orch, "fetch_branch_commit_sha", return_value="abcdef123456"):
                     res = _orch.setup_tt_inference_server()
@@ -431,8 +433,10 @@ class TestInferenceServerOrchestrator(unittest.TestCase):
                     f.write("# utils")
                 with open(os.path.join(art_dir, "VERSION"), "w") as f:
                     f.write("0.8.0")
-                with open(os.path.join(d, "artifact-info.txt"), "w") as f:
-                    f.write("artifact_type=version\nartifact_value=v0.8.0\n")
+                art_info_dir = os.path.join(d, ".artifacts")
+                os.makedirs(art_info_dir, exist_ok=True)
+                with open(os.path.join(art_info_dir, "artifact-info.txt"), "w") as f:
+                    f.write("     artifact_type=version\n     artifact_value=v0.8.0\n")
 
                 res = _orch.setup_tt_inference_server()
                 self.assertTrue(res)
@@ -454,8 +458,10 @@ class TestInferenceServerOrchestrator(unittest.TestCase):
                     f.write("# ok")
                 with open(os.path.join(art_dir, "VERSION"), "w") as f:
                     f.write("0.8.0")
-                with open(os.path.join(d, "artifact-info.txt"), "w") as f:
-                    f.write("artifact_type=version\nartifact_value=v0.8.0\n")
+                art_info_dir = os.path.join(d, ".artifacts")
+                os.makedirs(art_info_dir, exist_ok=True)
+                with open(os.path.join(art_info_dir, "artifact-info.txt"), "w") as f:
+                    f.write("     artifact_type=version\n     artifact_value=v0.8.0\n")
 
                 res = _orch.setup_tt_inference_server()
                 self.assertTrue(res)

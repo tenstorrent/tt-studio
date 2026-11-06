@@ -5,7 +5,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 try:
     from tt_setup import shortcut as M
@@ -137,6 +137,104 @@ class TestMaybeRepairShortcut(_RcFileCase):
     def test_maybe_repair_never_raises(self):
         with patch.object(M, "_detect_shell_rc", side_effect=RuntimeError("boom")):
             M.maybe_repair_shortcut()  # must swallow, not raise
+
+
+class TestDetectShellRc(unittest.TestCase):
+    def test_zsh_detection(self):
+        with patch.dict(os.environ, {"SHELL": "/bin/zsh"}):
+            shell, rc = M._detect_shell_rc()
+            self.assertEqual(shell, "zsh")
+            self.assertTrue(rc.endswith(".zshrc"))
+
+    def test_bash_detection(self):
+        with patch.dict(os.environ, {"SHELL": "/bin/bash"}), patch.object(M, "OS_NAME", "Darwin"):
+            shell, rc = M._detect_shell_rc()
+            self.assertEqual(shell, "bash")
+            self.assertTrue(rc.endswith(".bash_profile"))
+
+        with patch.dict(os.environ, {"SHELL": "/bin/bash"}), patch.object(M, "OS_NAME", "Linux"):
+            shell, rc = M._detect_shell_rc()
+            self.assertEqual(shell, "bash")
+            self.assertTrue(rc.endswith(".bashrc"))
+
+    def test_unsupported_shell(self):
+        with patch.dict(os.environ, {"SHELL": "/usr/bin/fish"}):
+            shell, rc = M._detect_shell_rc()
+            self.assertEqual(shell, "fish")
+            self.assertIsNone(rc)
+
+        with patch.dict(os.environ, {"SHELL": ""}):
+            shell, rc = M._detect_shell_rc()
+            self.assertEqual(shell, "unknown")
+            self.assertIsNone(rc)
+
+
+class TestInstallAndOfferShortcut(_RcFileCase):
+    def test_install_shortcut_pip_install(self):
+        with patch.object(M.install_mode, "is_pip_install", return_value=True), \
+             patch.object(M.console, "print") as mock_print:
+            self.assertTrue(M.install_shortcut())
+            mock_print.assert_called_once()
+
+    def test_install_shortcut_unsupported_shell(self):
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             patch.object(M, "_detect_shell_rc", return_value=("tcsh", None)), \
+             patch.object(M.console, "print") as mock_print:
+            self.assertFalse(M.install_shortcut())
+            mock_print.assert_called_once()
+
+    def test_install_shortcut_success(self):
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             self._patch_shell(), \
+             patch.object(M.console, "print"):
+            self.assertTrue(M.install_shortcut())
+            self.assertTrue(M.is_shortcut_installed(self.rc_path))
+
+    def test_maybe_offer_shortcut_skipped_conditions(self):
+        # 1. Pip install
+        with patch.object(M.install_mode, "is_pip_install", return_value=True), \
+             patch.object(M, "confirm") as mock_confirm:
+            M.maybe_offer_shortcut(None)
+            mock_confirm.assert_not_called()
+
+        # 2. Non-terminal
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             patch.object(M, "console", MagicMock(is_terminal=False)), \
+             patch.object(M, "confirm") as mock_confirm:
+            M.maybe_offer_shortcut(None)
+            mock_confirm.assert_not_called()
+
+        # 3. Already installed
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             patch.object(M, "console", MagicMock(is_terminal=True)), \
+             self._patch_shell(), \
+             patch.object(M, "is_shortcut_installed", return_value=True), \
+             patch.object(M, "confirm") as mock_confirm:
+            M.maybe_offer_shortcut(None)
+            mock_confirm.assert_not_called()
+
+        # 4. Already offered
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             patch.object(M, "console", MagicMock(is_terminal=True)), \
+             self._patch_shell(), \
+             patch.object(M, "is_shortcut_installed", return_value=False), \
+             patch.object(M, "get_preference", return_value=True), \
+             patch.object(M, "confirm") as mock_confirm:
+            M.maybe_offer_shortcut(None)
+            mock_confirm.assert_not_called()
+
+    def test_maybe_offer_shortcut_accepted(self):
+        with patch.object(M.install_mode, "is_pip_install", return_value=False), \
+             patch.object(M, "console", MagicMock(is_terminal=True)), \
+             self._patch_shell(), \
+             patch.object(M, "is_shortcut_installed", return_value=False), \
+             patch.object(M, "get_preference", return_value=False), \
+             patch.object(M, "save_preference") as mock_save, \
+             patch.object(M, "confirm", return_value=True), \
+             patch.object(M, "install_shortcut") as mock_install:
+            M.maybe_offer_shortcut(None)
+            mock_save.assert_called_once_with(M._PREF_PROMPT_SEEN, True)
+            mock_install.assert_called_once()
 
 
 if __name__ == "__main__":
