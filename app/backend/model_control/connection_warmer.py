@@ -56,7 +56,7 @@ def note_inference_loop() -> None:
 async def _ping_all() -> None:
     from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
-        entries = get_deploy_cache()
+        entries = await asyncio.to_thread(get_deploy_cache)
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
@@ -80,7 +80,7 @@ async def _warmup_inference_all() -> None:
     scheduler / allocator / kernel state, not just the TCP socket."""
     from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
-        entries = get_deploy_cache()
+        entries = await asyncio.to_thread(get_deploy_cache)
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
