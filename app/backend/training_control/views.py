@@ -213,13 +213,28 @@ def _proxy_delete(url):
 
 
 def _deployments_serving_job(job_id):
-    """Names of running deployments that serve weights merged by *job_id*,
+    """Names of running or starting deployments that serve weights merged by *job_id*,
     which is either a training job (covering all its merges) or a merge job."""
     served = {
         os.path.normpath(entry["host_weights_dir"]): entry.get("name")
         for entry in get_deploy_cache().values()
         if entry.get("host_weights_dir")
     }
+    try:
+        from docker_control.models import ModelDeployment
+
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            weights_dir = getattr(dep, "host_weights_dir", None)
+            if weights_dir:
+                norm_dir = os.path.normpath(weights_dir)
+                served.setdefault(
+                    norm_dir,
+                    getattr(dep, "container_name", None)
+                    or getattr(dep, "model_name", None)
+                    or "deployment",
+                )
+    except Exception:
+        pass
     if not served:
         return []
 
