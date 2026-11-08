@@ -43,6 +43,11 @@ export const generateImage = async (
         "/models-api/image-generation-cloud/"
       );
     }
+    if (!modelID) {
+      throw new Error(
+        "No image generation model is ready yet. Deploy one or wait for it to finish warming up."
+      );
+    }
     return generateImageLocal(prompt, modelID, localModelUrl);
   } else {
     ///* this is currently using Stability AI, but you can modify this to use any local server
