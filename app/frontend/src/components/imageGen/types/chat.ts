@@ -12,4 +12,6 @@ export interface StableDiffusionChatProps {
   modelID: string;
   modelName?: string | null;
   initialPrompt?: string;
+  // False while no image model has been resolved yet; generating is disabled.
+  modelReady?: boolean;
 }

@@ -113,6 +113,11 @@ class ModelImpl:
     # STUDIO_CHIP_TIER_MODELS/apply_chip_tier_overrides, which generate the spec
     # files and populate this, and docker_utils.run_container, which consumes it.
     runtime_model_spec_overrides: Optional[Dict[str, str]] = None
+    # Catalog readiness (COMPLETE/FUNCTIONAL/EXPERIMENTAL) of this impl's own
+    # catalog row. Kept per impl, not per model_name: one model can have rows
+    # on several engines (e.g. a vLLM chat row and a forge training row) with
+    # different statuses.
+    status: Optional[str] = None
     # vLLM --tool-call-parser / --reasoning-parser, from the model support spec.
     tool_call_parser: Optional[str] = None
     reasoning_parser: Optional[str] = None
@@ -404,6 +409,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             requires_dev_catalog=entry.get("requires_dev_catalog", False),
             inference_artifact_ref=entry.get("inference_artifact_ref"),
             runtime_model_spec_overrides=entry.get("runtime_model_spec_overrides"),
+            status=entry.get("status"),
             tool_call_parser=entry.get("tool_call_parser"),
             reasoning_parser=entry.get("reasoning_parser"),
         )
