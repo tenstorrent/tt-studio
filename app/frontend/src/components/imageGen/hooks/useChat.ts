@@ -4,63 +4,57 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Message } from "../types/chat";
 import { generateImage } from "../api/imageGeneration";
+import { imageChatStore, useImageChatState } from "../imageChatStore";
+
+const addMessage = (message: Message) =>
+  imageChatStore.update((s) => ({ messages: [...s.messages, message] }));
 
 export const useChat = (modelID: string) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      sender: "bot",
-      text: "Hello! I can generate images based on your descriptions. What would you like me to create?",
-    },
-  ]);
+  const { messages, isGenerating } = useImageChatState();
   const [textInput, setTextInput] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const lastMessageRef = useRef<HTMLDivElement | null>(null);
 
   const sendMessage = useCallback(
     async (textInput: string) => {
-      if (textInput.trim() !== "" && !isGenerating) {
-        const userMessage: Message = {
+      if (textInput.trim() !== "" && !imageChatStore.get().isGenerating) {
+        addMessage({
           id: Date.now().toString(),
           sender: "user",
           text: textInput,
-        };
-        setMessages((prev) => [...prev, userMessage]);
+        });
         setTextInput("");
 
-        const botMessage: Message = {
+        addMessage({
           id: (Date.now() + 1).toString(),
           sender: "bot",
           text: "Generating your image...",
-        };
-        setMessages((prev) => [...prev, botMessage]);
+        });
 
-        setIsGenerating(true);
+        // Written to the store, not component state, so the result still shows
+        // if the page was unmounted and remounted while the request ran.
+        imageChatStore.update(() => ({ isGenerating: true }));
         try {
           const generatedImageUrl = await generateImage(textInput, modelID);
-
-          const imageMessage: Message = {
+          addMessage({
             id: (Date.now() + 2).toString(),
             sender: "bot",
             text: "Here's the generated image:",
             image: generatedImageUrl,
-          };
-          setMessages((prev) => [...prev, imageMessage]);
+          });
         } catch (error) {
-          const errorMessage: Message = {
+          addMessage({
             id: (Date.now() + 2).toString(),
             sender: "bot",
             text: `Error: ${error instanceof Error ? error.message : "Failed to generate image"}`,
-          };
-          setMessages((prev) => [...prev, errorMessage]);
+          });
         } finally {
-          setIsGenerating(false);
+          imageChatStore.update(() => ({ isGenerating: false }));
         }
       }
     },
-    [isGenerating]
+    [modelID]
   );
 
   const scrollToBottom = useCallback(() => {

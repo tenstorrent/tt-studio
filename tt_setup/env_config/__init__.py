@@ -37,6 +37,7 @@ from tt_setup.env_config._configure import (
     configure_environment_sequentially,
     configure_inference_server_artifact,
     display_first_time_welcome,
+    migrate_legacy_app_title,
     should_configure_var,
 )
 
