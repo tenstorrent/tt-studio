@@ -13,9 +13,10 @@ try:
     # INFERENCE_ARTIFACT_DIR from the _metadata submodule's namespace, so patches
     # of that constant must target _metadata (not the re-export on the package).
     from tt_setup.inference_server import _metadata as _version_mod
+    from tt_setup.inference_server import _orchestrator as _orch
 except ImportError:  # pre-refactor
     import run as M
-    _version_mod = M
+    _version_mod = _orch = M
 
 
 class TestValidateArtifactStructure(unittest.TestCase):
@@ -98,3 +99,27 @@ class TestSyncModelCatalog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArtifactMountStub(unittest.TestCase):
+    """Before the first download the artifact dir holds only the empty
+    workflow_logs/ bind-mount source; that must not read as a broken download,
+    but anything else must."""
+
+    def test_empty_workflow_logs_stub_is_recognised(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "workflow_logs", "run_logs"))
+            self.assertTrue(_orch._is_mount_stub(root))
+
+    def test_partial_download_is_not_a_stub(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "workflow_logs"))
+            with open(os.path.join(root, "VERSION"), "w") as f:
+                f.write("0.22.0")
+            self.assertFalse(_orch._is_mount_stub(root))
+
+    def test_extraction_that_left_only_directories_is_not_a_stub(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "workflow_logs"))
+            os.makedirs(os.path.join(root, "workflows", "utils"))
+            self.assertFalse(_orch._is_mount_stub(root))

@@ -53,6 +53,9 @@ DOCKER_COMPOSE_SKIP_DOCKER_CONTROL_FILE = os.path.join(
 )
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, ".env.default")
+# Stock frontend settings baked into CI-published images (.github/workflows/publish-images.yml).
+# Drift against these triggers a local frontend image build.
+STOCK_APP_TITLE = "TT Studio"
 # Legacy location (pre-consolidation). Migrated to the repo-root .env on first run.
 LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
@@ -129,6 +132,9 @@ _RC_BUMP_PICKER = "__bump-picker__"
 # marketplace are cleaned up too.
 _CLEANUP_APP_VOLUME_PREFIX = "tt_studio_"
 _CLEANUP_APP_VOLUME_SUFFIX = "_data"
+# Marketplace app containers; keep in sync with CONTAINER_NAME_PREFIX in
+# app/backend/shared_config/marketplace_config.py.
+_APP_CONTAINER_PREFIX = "tt_studio_app_"
 
 # Having this compose label helps identify the containers that belong to the tt_studio stack vs marketplace apps,
 # and it is also used to give the containers mode-independent names in the diagnostics.
