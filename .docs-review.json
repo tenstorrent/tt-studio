@@ -1,0 +1,4 @@
+{
+  "include": ["dev-docs/**", "docs/**", "**/README*", "*.md"],
+  "comment_only": ["CODE_OF_CONDUCT.md"]
+}
