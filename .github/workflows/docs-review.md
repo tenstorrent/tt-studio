@@ -3,6 +3,8 @@ description: Reviews the documentation a pull request changes with the doc-skill
 engine:
   id: copilot
 model: claude-sonnet-5.5
+# Cost cap: stop the agent job once the workflow has used this many AI credits in 24 hours (same value as the tt-metal reference).
+max-daily-ai-credits: 10000
 on:
   pull_request:
     types: [opened, synchronize, reopened]
