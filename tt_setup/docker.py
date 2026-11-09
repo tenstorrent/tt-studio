@@ -3,7 +3,6 @@
 
 """Docker installation, access, command execution, and compose-command building."""
 
-import fnmatch
 import os
 import sys
 import subprocess
@@ -72,6 +71,31 @@ def prepare_docker_socket_path():
     socket_path = resolve_docker_socket_path()
     os.environ["DOCKER_SOCKET_PATH"] = socket_path
     return socket_path
+
+
+def prepare_container_user():
+    """Expose the invoking user's uid:gid to Compose interpolation for this run.
+
+    Non-root services read host files (e.g. the LiteLLM config), so they run as
+    the caller instead of a hard-coded 1000 and can read them as owner even at
+    the 0660 a umask-0007 clone leaves. Root runs (e.g. sudo) use the
+    checkout's owner instead. Root-owned checkouts are rejected because
+    containers never run as root and would not be able to read restrictive
+    checkout files.
+    """
+    uid, gid = os.getuid(), os.getgid()
+    if uid == 0:
+        st = os.stat(TT_STUDIO_ROOT)
+        if st.st_uid == 0:
+            console.print("[error]⛔ Cannot run TT Studio from a root-owned checkout.[/error]")
+            console.print(
+                "[warning]   Run it as the checkout owner, or change the checkout "
+                "ownership before retrying.[/warning]"
+            )
+            raise SystemExit(1)
+        uid, gid = st.st_uid, st.st_gid
+    os.environ["TT_STUDIO_UID"] = str(uid)
+    os.environ["TT_STUDIO_GID"] = str(gid)
 
 
 def _docker_compose_v2_available():
@@ -310,53 +334,6 @@ def ensure_docker_group_membership():
         return False
 
 
-# Never made world-readable: secrets a developer may keep next to the code (the
-# agent's .dockerignore keeps the same .env files out of its image), and trees
-# no container reads.
-_KEEP_PRIVATE_FILES = (".env*", "*.pem", "*.key")
-_SKIP_DIRS = {".git", ".venv", "venv", "env", "__pycache__"}
-
-
-def grant_container_read(paths):
-    """Make *paths* readable by everyone, recursing into directories.
-
-    LiteLLM and the agent run as a fixed non-root uid (1000), so they read their
-    bind-mounted files as "other". A clone made under umask 0007 leaves tracked
-    files at 0660, which those containers cannot open: LiteLLM crash-loops on its
-    config. Only read (and directory/executable search) bits are added, never
-    removed, and git tracks only the exec bit, so the checkout stays clean.
-    Returns the paths that could not be changed (e.g. owned by another user).
-    """
-    failed = []
-
-    def _grant(path, is_dir):
-        try:
-            mode = os.stat(path).st_mode
-            wanted = mode | 0o444
-            if is_dir or mode & 0o111:
-                wanted |= 0o111
-            if wanted != mode:
-                os.chmod(path, wanted & 0o7777)
-        except OSError:
-            failed.append(path)
-
-    for root in paths:
-        if not os.path.exists(root) or os.path.islink(root):
-            continue
-        if not os.path.isdir(root):
-            _grant(root, False)
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            _grant(dirpath, True)
-            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-            for name in filenames:
-                path = os.path.join(dirpath, name)
-                private = any(fnmatch.fnmatch(name, p) for p in _KEEP_PRIVATE_FILES)
-                if not private and not os.path.islink(path):
-                    _grant(path, False)
-    return failed
-
-
 def detect_tt_hardware():
     """Detect if Tenstorrent hardware is available."""
     return os.path.exists("/dev/tenstorrent") or os.path.isdir("/dev/tenstorrent")
@@ -436,6 +413,7 @@ def build_docker_compose_command(
     Returns:
         list: Docker Compose command with appropriate files
     """
+    prepare_container_user()
     compose_files = ["docker", "compose"]
     # The canonical env file now lives at the repo root, so point compose at it
     # explicitly. --env-file only changes variable resolution; the compose project

@@ -132,6 +132,9 @@ _RC_BUMP_PICKER = "__bump-picker__"
 # marketplace are cleaned up too.
 _CLEANUP_APP_VOLUME_PREFIX = "tt_studio_"
 _CLEANUP_APP_VOLUME_SUFFIX = "_data"
+# Marketplace app containers; keep in sync with CONTAINER_NAME_PREFIX in
+# app/backend/shared_config/marketplace_config.py.
+_APP_CONTAINER_PREFIX = "tt_studio_app_"
 
 # Having this compose label helps identify the containers that belong to the tt_studio stack vs marketplace apps,
 # and it is also used to give the containers mode-independent names in the diagnostics.

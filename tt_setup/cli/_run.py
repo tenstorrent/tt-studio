@@ -23,7 +23,6 @@ from tt_setup.docker import (
     detect_foreign_tt_studio_stacks,
     detect_tt_hardware,
     fix_docker_issues,
-    grant_container_read,
     prepare_docker_socket_path,
     remove_docker_control_container,
     stop_tt_studio_stack,
@@ -334,6 +333,9 @@ def _run(args):
 {C_YELLOW}{C_BOLD}Optional Services:{C_RESET}
 {'=' * 80}
   {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
+  {C_YELLOW}TT_STUDIO_DISABLE_HF_XET{C_RESET}            Set true to disable Hugging Face Xet
+                                      transfer for weight downloads and use
+                                      plain HTTPS instead (slower; default off)
 
 {C_ORANGE}{C_BOLD}Hardware:{C_RESET}
 {'=' * 80}
@@ -1027,19 +1029,6 @@ def _run(args):
                     check=False,
                 )
 
-        # Files mounted into containers that run as a fixed non-root uid must be
-        # world-readable, which a clone made under umask 0007 (files at 0660) is not.
-        unreadable = grant_container_read([
-            os.path.join(TT_STUDIO_ROOT, "app", "litellm", "config.yaml"),
-            os.path.join(TT_STUDIO_ROOT, "app", "agent"),
-        ])
-        if unreadable:
-            console.print(
-                f"[warning]⚠️  Couldn't make {len(unreadable)} file(s) readable for the "
-                f"LiteLLM/agent containers (first: {unreadable[0]}). If those containers "
-                "keep restarting, run: chmod -R a+rX app/litellm app/agent[/warning]"
-            )
-
         # Stamp the frontend build with the current git version (official tag or
         # branch name) so the footer shows what's actually running.
         set_app_version_env()
@@ -1094,7 +1083,13 @@ def _run(args):
             ph.set(f"pulling prebuilt images ({image_tag})")
             startup_log.step("image_pull", "START", image_tag)
             pull_cmd = docker_compose_cmd + ["pull"]
-            pull_cmd = (["sudo"] + pull_cmd) if use_sudo else pull_cmd
+            if use_sudo:
+                pull_cmd = [
+                    "sudo", "env",
+                    f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                    f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                    *pull_cmd,
+                ]
             pull_rc, _pull_output = run_docker_compose_with_progress(
                 pull_cmd, cwd=app_dir, dev_mode=args.dev,
             )
@@ -1138,7 +1133,15 @@ def _run(args):
         )
 
         # Stream the build; per-service events fold into the active Build row.
-        compose_cmd = (["sudo"] + docker_compose_cmd) if use_sudo else docker_compose_cmd
+        if use_sudo:
+            compose_cmd = [
+                "sudo", "env",
+                f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
+                f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                *docker_compose_cmd,
+            ]
+        else:
+            compose_cmd = docker_compose_cmd
         returncode, full_output = run_docker_compose_with_progress(
             compose_cmd,
             cwd=app_dir,
