@@ -117,6 +117,17 @@ class TrainingModelIdTests(SimpleTestCase):
             "forge": "Llama-3.1-8B-Instruct-training",
         })
 
+    def test_same_name_rows_keep_their_own_status(self):
+        """A later same-name row must not overwrite an earlier row's status."""
+        impls = self._load([
+            _catalog_row("Llama-3.1-8B-Instruct", "vLLM", status="COMPLETE"),
+            _catalog_row("Llama-3.1-8B-Instruct", "forge", model_type="TRAINING",
+                         status="EXPERIMENTAL"),
+        ])
+
+        statuses = {impl.inference_engine: impl.status for impl in impls}
+        self.assertEqual(statuses, {"vLLM": "COMPLETE", "forge": "EXPERIMENTAL"})
+
     def test_non_training_models_keep_legacy_id(self):
         """Ids name the volume_{model_id} dir holding a model's weights."""
         impls = self._load([
