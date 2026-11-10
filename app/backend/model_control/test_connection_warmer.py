@@ -7,7 +7,9 @@
 import asyncio
 import concurrent.futures
 import os
+import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "api.settings")
@@ -15,6 +17,9 @@ import django
 
 django.setup()
 
+from django.core.cache.backends.locmem import LocMemCache
+
+from docker_control import docker_utils
 from model_control import connection_warmer
 from model_control import model_utils
 
@@ -327,5 +332,184 @@ class TestWorkflowHandlers:
                 assert any(e.get("event") == "node_error" for e in events)
 
         asyncio.run(run())
+
+
+def _make_locmem_cache(name: str) -> LocMemCache:
+    """Create a fresh isolated Django LocMemCache matching deploy_cache settings."""
+    cache = LocMemCache(name, {"KEY_PREFIX": "", "VERSION": "version"})
+    cache.clear()
+    return cache
+
+
+def _make_blocking_probe(model_id: str, max_model_len: int):
+    """Return (probe_started, probe_may_finish, side_effect) to pause requests.get mid-flight."""
+    probe_started = threading.Event()
+    probe_may_finish = threading.Event()
+
+    def slow_get(*args, **kwargs):
+        probe_started.set()
+        probe_may_finish.wait(timeout=2.0)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [{"id": model_id, "max_model_len": max_model_len}]
+        }
+        return mock_resp
+
+    return probe_started, probe_may_finish, slow_get
+
+
+class TestDeployCacheConcurrency:
+    """Thread-safety tests using a real Django LocMemCache instance."""
+
+    def setup_method(self):
+        model_utils._probe_failures.clear()
+        model_utils._active_probes.clear()
+
+    def teardown_method(self):
+        model_utils._probe_failures.clear()
+        model_utils._active_probes.clear()
+
+    def test_concurrent_reads_gets_and_refreshes_do_not_raise_runtime_error(self):
+        """Concurrent get_deploy_cache, cache.get (move_to_end), and update_deploy_cache never raise."""
+        real_cache = _make_locmem_cache("test_concurrency_iter")
+        impl = SimpleNamespace(hf_model_id="fallback-model")
+
+        def make_canonical(count: int) -> dict:
+            return {
+                f"con_{i}": {
+                    "name": f"model-{i}",
+                    "source": "managed",
+                    "internal_url": f"host-{i}:7000/v1/chat/completions",
+                    "model_impl": impl,
+                    "max_model_len": 4096,
+                    "cached_model_name": f"m-{i}",
+                }
+                for i in range(count)
+            }
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": real_cache}), \
+             patch("docker_control.docker_utils.caches", {"deploy_cache": real_cache}), \
+             patch.object(model_utils, "_last_deploy_cache_update", time.monotonic() + 60.0):
+            docker_utils.update_deploy_cache(canonical=make_canonical(6))
+
+            errors = []
+
+            def run_readers():
+                try:
+                    for _ in range(80):
+                        res = model_utils.get_deploy_cache()
+                        assert isinstance(res, dict)
+                except Exception as exc:
+                    errors.append(exc)
+
+            def run_cache_gets():
+                try:
+                    for i in range(120):
+                        real_cache.get(f"con_{i % 6}")
+                except Exception as exc:
+                    errors.append(exc)
+
+            def run_refreshes():
+                try:
+                    for i in range(60):
+                        count = 6 if i % 2 == 0 else 4
+                        docker_utils.update_deploy_cache(canonical=make_canonical(count))
+                except Exception as exc:
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=run_readers),
+                threading.Thread(target=run_readers),
+                threading.Thread(target=run_cache_gets),
+                threading.Thread(target=run_refreshes),
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=5.0)
+                assert not t.is_alive(), f"Thread {t.name} timed out (possible deadlock)"
+
+            assert errors == []
+
+    def test_probe_result_survives_overlapping_update_deploy_cache(self):
+        """A concurrent refresh does not overwrite fresh probe metadata, and stale probe writes keep newer canonical fields."""
+        real_cache = _make_locmem_cache("test_concurrency_probe_merge")
+        cid = "con_merge_1"
+        impl = SimpleNamespace(hf_model_id="fallback-model")
+
+        def make_entry(health: str) -> dict:
+            return {
+                "name": "llama-test",
+                "source": "managed",
+                "internal_url": "host:7000/v1/chat/completions",
+                "model_impl": impl,
+                "health": health,
+            }
+
+        probe_started, probe_may_finish, slow_get = _make_blocking_probe("engine-model", 8192)
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": real_cache}), \
+             patch("docker_control.docker_utils.caches", {"deploy_cache": real_cache}), \
+             patch("model_control.model_utils.requests.get", side_effect=slow_get), \
+             patch.object(model_utils, "_last_deploy_cache_update", time.monotonic() + 60.0):
+            docker_utils.update_deploy_cache(canonical={cid: make_entry("starting")})
+
+            t_probe = threading.Thread(target=model_utils.get_deploy_cache)
+            t_probe.start()
+            assert probe_started.wait(timeout=2.0)
+
+            # Refresh runs while /v1/models HTTP request is in flight
+            docker_utils.update_deploy_cache(canonical={cid: make_entry("healthy")})
+
+            probe_may_finish.set()
+            t_probe.join(timeout=2.0)
+            assert not t_probe.is_alive()
+
+            # Subsequent refresh preserves probed fields too
+            docker_utils.update_deploy_cache(canonical={cid: make_entry("healthy-v2")})
+
+            stored = real_cache.get(cid)
+            assert stored is not None
+            assert stored["max_model_len"] == 8192
+            assert stored["cached_model_name"] == "engine-model"
+            assert stored["health"] == "healthy-v2"
+
+    def test_stopped_container_is_not_resurrected_by_late_probe(self):
+        """If update_deploy_cache deletes a stopped container mid-probe, late probe completion does not re-add it."""
+        real_cache = _make_locmem_cache("test_concurrency_no_zombie")
+        cid = "con_zombie_1"
+        impl = SimpleNamespace(hf_model_id="fallback-model")
+        canonical = {
+            cid: {
+                "name": "stopping-model",
+                "source": "managed",
+                "internal_url": "host:7000/v1/chat/completions",
+                "model_impl": impl,
+            }
+        }
+
+        probe_started, probe_may_finish, slow_get = _make_blocking_probe("engine-model", 4096)
+
+        with patch("model_control.model_utils.caches", {"deploy_cache": real_cache}), \
+             patch("docker_control.docker_utils.caches", {"deploy_cache": real_cache}), \
+             patch("model_control.model_utils.requests.get", side_effect=slow_get), \
+             patch.object(model_utils, "_last_deploy_cache_update", time.monotonic() + 60.0):
+            docker_utils.update_deploy_cache(canonical=canonical)
+
+            t_probe = threading.Thread(target=model_utils.get_deploy_cache)
+            t_probe.start()
+            assert probe_started.wait(timeout=2.0)
+
+            # Container stops and gets evicted while HTTP probe is still blocked
+            docker_utils.update_deploy_cache(canonical={})
+            assert real_cache.get(cid) is None
+
+            probe_may_finish.set()
+            t_probe.join(timeout=2.0)
+            assert not t_probe.is_alive()
+
+            assert real_cache.get(cid) is None
+
 
 

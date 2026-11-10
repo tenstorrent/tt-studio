@@ -15,12 +15,18 @@ import requests
 import jwt
 
 from django.core.cache import caches
+from django.core.cache.backends.locmem import LocMemCache
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tts_api_key
-from docker_control.docker_utils import update_deploy_cache
+from docker_control.docker_utils import (
+    deploy_cache_lock,
+    read_locmem_entry,
+    update_deploy_cache,
+    write_locmem_entry,
+)
 from model_control.metrics_tracker import InferenceMetricsTracker
 
 logger = get_logger(__name__)
@@ -255,6 +261,23 @@ def clear_probe_failure(con_id: str) -> None:
         _probe_failures.pop(con_id, None)
 
 
+def _persist_probe_updates(cache, con_id: str, probed_updates: dict) -> None:
+    """Merge probed metadata into the live cached entry without resurrecting deleted entries."""
+    if not probed_updates:
+        return
+    with deploy_cache_lock(cache):
+        if isinstance(cache, LocMemCache):
+            latest = read_locmem_entry(cache, con_id)
+            if isinstance(latest, dict):
+                latest.update(probed_updates)
+                write_locmem_entry(cache, con_id, latest)
+        else:
+            latest = cache.get(con_id)
+            if isinstance(latest, dict):
+                latest.update(probed_updates)
+                cache.set(con_id, latest, timeout=None)
+
+
 def get_deploy_cache(canonical=None):
     """Running deployments keyed by container id.
 
@@ -263,10 +286,20 @@ def get_deploy_cache(canonical=None):
     """
     # the cache is initialized when by docker_control is imported
     def get_all_records():
-        # need to strip out the key version tag
+        cache = caches[backend_config.django_deploy_cache_name]
+        with deploy_cache_lock(cache):
+            if isinstance(cache, LocMemCache):
+                raw_items = [
+                    (k, v)
+                    for k, v in cache._cache.items()
+                    if not cache._has_expired(k)
+                ]
+            else:
+                raw_items = list(cache._cache.items())
+        # need to strip out the key version tag; unpickle outside cache._lock
         return {
             k.replace(":version:", ""): pickle.loads(v)
-            for k, v in caches[backend_config.django_deploy_cache_name]._cache.items()
+            for k, v in raw_items
         }
 
     global _last_deploy_cache_update
@@ -303,15 +336,21 @@ def get_deploy_cache(canonical=None):
                     models_data = resp.json().get("data", [])
                     if models_data:
                         first_model = models_data[0]
+                        probed_updates = {}
                         if needs_len:
-                            entry["max_model_len"] = first_model.get("max_model_len")
-                            logger.info(f"Cached max_model_len={entry['max_model_len']} for container {con_id[:12]}")
+                            probed_updates["max_model_len"] = first_model.get("max_model_len")
+                            logger.info(
+                                f"Cached max_model_len={probed_updates['max_model_len']} for container {con_id[:12]}"
+                            )
                         if needs_name:
-                            entry["cached_model_name"] = first_model.get("id") or getattr(
+                            probed_updates["cached_model_name"] = first_model.get("id") or getattr(
                                 entry.get("model_impl"), "hf_model_id", None
                             )
-                            logger.info(f"Cached model_name={entry['cached_model_name']!r} for container {con_id[:12]}")
-                        cache.set(con_id, entry, timeout=None)
+                            logger.info(
+                                f"Cached model_name={probed_updates['cached_model_name']!r} for container {con_id[:12]}"
+                            )
+                        entry.update(probed_updates)
+                        _persist_probe_updates(cache, con_id, probed_updates)
                         clear_probe_failure(con_id)
                     else:
                         record_probe_failure(con_id)
