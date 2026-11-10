@@ -3,11 +3,12 @@
 
 """HuggingFace token gated-model access probing + rendering."""
 
+import urllib.request
+import urllib.error
 try:
     import requests  # noqa: F401
     HAS_REQUESTS = True
 except ImportError:
-    import urllib.request  # noqa: F401
     HAS_REQUESTS = False
 from tt_setup.constants import *
 from tt_setup.console import add_note, console, in_phase, is_verbose

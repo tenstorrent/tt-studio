@@ -1111,3 +1111,58 @@ class TestStopModels(unittest.TestCase):
              patch.object(_cli_stop, "ask", return_value=""):
             rc = _cli_stop.stop_models(args, base="http://x", fetch=lambda b: _DEPLOYED_PAYLOAD, stream=None)
         self.assertEqual(rc, 0)
+
+
+class TestRunBranchDecisions(unittest.TestCase):
+    def test_checkout_only_flags_detection(self):
+        for flag_attr, expected_flag in (
+            ("dev", "--dev"),
+            ("switch", "--switch"),
+            ("make_rc_branch", "--make-rc-branch"),
+            ("update_rc_branch", "--update-rc-branch"),
+            ("merge_rc_branch", "--merge-rc-branch"),
+            ("check_headers", "--check-headers"),
+            ("add_headers", "--add-headers"),
+        ):
+            val = "target" if flag_attr in ("switch", "make_rc_branch") else True
+            args = _cli_args._build_args(**{flag_attr: val})
+            self.assertEqual(_cli_run._checkout_only_flag(args), expected_flag)
+
+        args_normal = _cli_args._build_args()
+        self.assertIsNone(_cli_run._checkout_only_flag(args_normal))
+
+    def test_refuse_checkout_only_flag(self):
+        with patch.object(_cli_run.console, "print") as mock_print:
+            self.assertEqual(_cli_run._refuse_checkout_only_flag("--switch"), 1)
+            self.assertTrue(mock_print.called)
+
+        with patch.object(_cli_run.console, "print") as mock_print:
+            self.assertEqual(_cli_run._refuse_checkout_only_flag("--dev"), 1)
+            self.assertTrue(mock_print.called)
+
+    def test_finish_pip_uninstall(self):
+        with tempfile.TemporaryDirectory() as root:
+            # Case 1: with marker -> unlinks directory
+            with patch.object(_cli_run, "TT_STUDIO_ROOT", root), \
+                 patch.object(_cli_run.install_mode, "read_marker", return_value="1.0.0"), \
+                 patch.object(_cli_run.console, "print"):
+                _cli_run._finish_pip_uninstall()
+                self.assertFalse(os.path.exists(root))
+
+        with tempfile.TemporaryDirectory() as root:
+            # Case 2: without marker -> does not unlink directory
+            with patch.object(_cli_run, "TT_STUDIO_ROOT", root), \
+                 patch.object(_cli_run.install_mode, "read_marker", return_value=None), \
+                 patch.object(_cli_run.console, "print"):
+                _cli_run._finish_pip_uninstall()
+                self.assertTrue(os.path.exists(root))
+
+    def test_run_pip_install_refuses_checkout_only_flag(self):
+        args = _cli_args._build_args(dev=True)
+        with patch.object(_cli_run.install_mode, "is_pip_install", return_value=True), \
+             patch.object(_cli_run, "_refuse_checkout_only_flag", return_value=1) as mock_refuse, \
+             self.assertRaises(SystemExit) as cm:
+            _cli_run._run(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_refuse.assert_called_once_with("--dev")
+
