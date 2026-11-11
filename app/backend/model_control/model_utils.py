@@ -5,6 +5,7 @@
 import json
 import os
 import pickle
+import threading
 import time
 import traceback
 from typing import Optional
@@ -12,15 +13,20 @@ from typing import Optional
 import httpx
 import requests
 import jwt
-import json
 
 from django.core.cache import caches
+from django.core.cache.backends.locmem import LocMemCache
 
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 from shared_config.model_type_config import ModelTypes
 from shared_config.user_config import get_tts_api_key
-from docker_control.docker_utils import update_deploy_cache
+from docker_control.docker_utils import (
+    deploy_cache_lock,
+    read_locmem_entry,
+    update_deploy_cache,
+    write_locmem_entry,
+)
 from model_control.metrics_tracker import InferenceMetricsTracker
 
 logger = get_logger(__name__)
@@ -158,28 +164,6 @@ def messages_to_prompt(messages: list) -> str:
     return "\n\n".join(parts)
 
 
-def get_model_context_length(internal_url: str, auth_token: str = None):
-    """Fetch max_model_len from vLLM /v1/models. Returns int or None if unavailable."""
-    try:
-        base = internal_url.split("/")[0]
-        models_url = f"http://{base}/v1/models"
-        headers = {"Authorization": f"Bearer {auth_token or encoded_jwt}"}
-        response = requests.get(models_url, headers=headers, timeout=3)
-        if response.status_code == 200:
-            data = response.json().get("data", [])
-            if data:
-                return data[0].get("max_model_len")
-    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-        # A model that is still starting refuses connections until vLLM binds its
-        # port — minutes on a large model. That is the expected state during a
-        # healthy deploy, not a fault; at WARNING it produced hundreds of
-        # connection-refused lines that read like the deploy was broken.
-        logger.debug(f"max_model_len not available yet from {internal_url}: {e}")
-    except Exception as e:
-        logger.warning(f"Failed to fetch max_model_len from {internal_url}: {e}")
-    return None
-
-
 def get_model_name_from_container(internal_url: str, fallback: str, auth_token: str = None) -> str:
     """Query vLLM /v1/models to get the exact model name loaded in the container.
 
@@ -219,6 +203,80 @@ def get_model_name_from_container(internal_url: str, fallback: str, auth_token: 
 _last_deploy_cache_update: float = 0.0
 _DEPLOY_CACHE_TTL: float = 5.0  # seconds — avoid hitting Docker API on every request
 
+_probe_failures: dict[str, float] = {}
+_active_probes: set[str] = set()
+_probe_failures_lock = threading.Lock()
+_PROBE_FAILURE_COOLDOWN_SECONDS: float = 30.0
+
+
+def is_probe_in_cooldown(con_id: str) -> bool:
+    """Return True if container probe failed recently and is still within cooldown."""
+    with _probe_failures_lock:
+        last_failed = _probe_failures.get(con_id)
+        if last_failed is None:
+            return False
+        if time.monotonic() - last_failed < _PROBE_FAILURE_COOLDOWN_SECONDS:
+            return True
+        _probe_failures.pop(con_id, None)
+        return False
+
+
+def is_probe_in_flight(con_id: str) -> bool:
+    """Return True if container probe is currently in flight in another thread."""
+    with _probe_failures_lock:
+        return con_id in _active_probes
+
+
+def try_start_probe(con_id: str) -> bool:
+    """Check cooldown and claim in-flight probe status atomically.
+
+    Returns True if caller claimed the right to probe the container, False if
+    the container is in cooldown or already being probed by another thread.
+    """
+    with _probe_failures_lock:
+        last_failed = _probe_failures.get(con_id)
+        if last_failed is not None:
+            if time.monotonic() - last_failed < _PROBE_FAILURE_COOLDOWN_SECONDS:
+                return False
+            _probe_failures.pop(con_id, None)
+
+        if con_id in _active_probes:
+            return False
+
+        _active_probes.add(con_id)
+        return True
+
+
+def record_probe_failure(con_id: str) -> None:
+    """Mark container probe as failed with current timestamp."""
+    with _probe_failures_lock:
+        _active_probes.discard(con_id)
+        _probe_failures[con_id] = time.monotonic()
+
+
+def clear_probe_failure(con_id: str) -> None:
+    """Clear recorded failure for container."""
+    with _probe_failures_lock:
+        _active_probes.discard(con_id)
+        _probe_failures.pop(con_id, None)
+
+
+def _persist_probe_updates(cache, con_id: str, probed_updates: dict) -> None:
+    """Merge probed metadata into the live cached entry without resurrecting deleted entries."""
+    if not probed_updates:
+        return
+    with deploy_cache_lock(cache):
+        if isinstance(cache, LocMemCache):
+            latest = read_locmem_entry(cache, con_id)
+            if isinstance(latest, dict):
+                latest.update(probed_updates)
+                write_locmem_entry(cache, con_id, latest)
+        else:
+            latest = cache.get(con_id)
+            if isinstance(latest, dict):
+                latest.update(probed_updates)
+                cache.set(con_id, latest, timeout=None)
+
 
 def get_deploy_cache(canonical=None):
     """Running deployments keyed by container id.
@@ -228,10 +286,20 @@ def get_deploy_cache(canonical=None):
     """
     # the cache is initialized when by docker_control is imported
     def get_all_records():
-        # need to strip out the key version tag
+        cache = caches[backend_config.django_deploy_cache_name]
+        with deploy_cache_lock(cache):
+            if isinstance(cache, LocMemCache):
+                raw_items = [
+                    (k, v)
+                    for k, v in cache._cache.items()
+                    if not cache._has_expired(k)
+                ]
+            else:
+                raw_items = list(cache._cache.items())
+        # need to strip out the key version tag; unpickle outside cache._lock
         return {
             k.replace(":version:", ""): pickle.loads(v)
-            for k, v in caches[backend_config.django_deploy_cache_name]._cache.items()
+            for k, v in raw_items
         }
 
     global _last_deploy_cache_update
@@ -244,21 +312,71 @@ def get_deploy_cache(canonical=None):
     # Lazily enrich entries with max_model_len from the running vLLM container.
     # Once fetched it is persisted back into the cache so subsequent calls are free.
     cache = caches[backend_config.django_deploy_cache_name]
+    with _probe_failures_lock:
+        for failed_cid in list(_probe_failures.keys()):
+            if failed_cid not in data:
+                _probe_failures.pop(failed_cid, None)
+        for active_cid in list(_active_probes):
+            if active_cid not in data:
+                _active_probes.discard(active_cid)
+
     for con_id, entry in data.items():
         tok = token_for(entry.get("jwt_secret"))
-        if "max_model_len" not in entry and entry.get("internal_url"):
-            max_len = get_model_context_length(entry["internal_url"], auth_token=tok)
-            if max_len is not None:
-                entry["max_model_len"] = max_len
-                cache.set(con_id, entry, timeout=None)
-                logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
+
+        needs_len = "max_model_len" not in entry and entry.get("internal_url")
+        needs_name = "cached_model_name" not in entry and entry.get("internal_url")
+
+        if (needs_len or needs_name) and try_start_probe(con_id):
+            base = entry["internal_url"].split("/")[0]
+            models_url = f"http://{base}/v1/models"
+            headers = {"Authorization": f"Bearer {tok or encoded_jwt}"}
+            try:
+                resp = requests.get(models_url, headers=headers, timeout=3)
+                if resp.status_code == 200:
+                    models_data = resp.json().get("data", [])
+                    if models_data:
+                        first_model = models_data[0]
+                        probed_updates = {}
+                        if needs_len:
+                            probed_updates["max_model_len"] = first_model.get("max_model_len")
+                            logger.info(
+                                f"Cached max_model_len={probed_updates['max_model_len']} for container {con_id[:12]}"
+                            )
+                        if needs_name:
+                            probed_updates["cached_model_name"] = first_model.get("id") or getattr(
+                                entry.get("model_impl"), "hf_model_id", None
+                            )
+                            logger.info(
+                                f"Cached model_name={probed_updates['cached_model_name']!r} for container {con_id[:12]}"
+                            )
+                        entry.update(probed_updates)
+                        _persist_probe_updates(cache, con_id, probed_updates)
+                        clear_probe_failure(con_id)
+                    else:
+                        record_probe_failure(con_id)
+                        logger.debug(
+                            f"GET {models_url} returned empty models data for {con_id[:12]}; "
+                            f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
+                        )
+                else:
+                    record_probe_failure(con_id)
+                    logger.debug(
+                        f"GET {models_url} returned {resp.status_code} for {con_id[:12]}; "
+                        f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
+                    )
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, Exception) as e:
+                record_probe_failure(con_id)
+                logger.debug(
+                    f"Failed to probe container {con_id[:12]} at {models_url}: {e}; "
+                    f"cooling down for {_PROBE_FAILURE_COOLDOWN_SECONDS}s"
+                )
+            finally:
+                with _probe_failures_lock:
+                    _active_probes.discard(con_id)
+
         if "cached_model_name" not in entry and entry.get("internal_url"):
-            name = get_model_name_from_container(
-                entry["internal_url"], fallback=entry["model_impl"].hf_model_id, auth_token=tok
-            )
-            entry["cached_model_name"] = name
-            cache.set(con_id, entry, timeout=None)
-            logger.info(f"Cached model_name={name!r} for container {con_id[:12]}")
+            impl = entry.get("model_impl")
+            entry["cached_model_name"] = getattr(impl, "hf_model_id", None) if impl is not None else None
 
     return data
 

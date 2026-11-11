@@ -17,6 +17,7 @@ the captured ASGI loop via run_coroutine_threadsafe.
 """
 
 import asyncio
+import concurrent.futures
 import threading
 import time
 from typing import Optional
@@ -36,6 +37,8 @@ _loop_lock = threading.Lock()
 _warmer_thread: Optional[threading.Thread] = None
 _stop = False
 _last_inference_warmup: float = 0.0
+_ping_future: Optional[concurrent.futures.Future] = None
+_inference_future: Optional[concurrent.futures.Future] = None
 
 
 def note_inference_loop() -> None:
@@ -56,11 +59,13 @@ def note_inference_loop() -> None:
 async def _ping_all() -> None:
     from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
-        entries = get_deploy_cache()
+        entries = await asyncio.to_thread(get_deploy_cache)
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
     for con_id, entry in entries.items():
+        if entry.get("source") != "managed":
+            continue
         health_url = entry.get("health_url")
         if not health_url:
             continue
@@ -80,11 +85,13 @@ async def _warmup_inference_all() -> None:
     scheduler / allocator / kernel state, not just the TCP socket."""
     from model_control.model_utils import _vllm_client, auth_headers, get_deploy_cache
     try:
-        entries = get_deploy_cache()
+        entries = await asyncio.to_thread(get_deploy_cache)
     except Exception as e:
         logger.debug(f"connection_warmer: deploy cache unavailable: {e}")
         return
     for con_id, entry in entries.items():
+        if entry.get("source") != "managed":
+            continue
         internal_url = entry.get("internal_url")
         if not internal_url:
             continue
@@ -128,8 +135,38 @@ async def _warmup_inference_all() -> None:
             )
 
 
+def _warmer_tick(loop: Optional[asyncio.AbstractEventLoop], now: Optional[float] = None) -> None:
+    """Execute a single keepalive/warmup tick. Extracted for testability."""
+    global _last_inference_warmup, _ping_future, _inference_future
+    if loop is None or not loop.is_running():
+        return
+
+    if _ping_future is not None and not _ping_future.done():
+        # Previous ping is still awaiting response; skip tick to prevent pileup
+        return
+
+    try:
+        _ping_future = asyncio.run_coroutine_threadsafe(_ping_all(), loop)
+        _ping_future.result(timeout=_WARMUP_INTERVAL_SECONDS + 2.0)
+    except Exception as e:
+        logger.debug(f"connection_warmer: tick failed: {e}")
+
+    if now is None:
+        now = time.monotonic()
+    if now - _last_inference_warmup >= _INFERENCE_WARMUP_INTERVAL_SECONDS:
+        if _inference_future is None or _inference_future.done():
+            _last_inference_warmup = now
+            # Fire and forget so a slow inference warmup never starves the
+            # 500ms /health cadence — the coroutine logs its own errors.
+            try:
+                _inference_future = asyncio.run_coroutine_threadsafe(_warmup_inference_all(), loop)
+            except Exception as e:
+                logger.debug(
+                    f"connection_warmer: inference warmup schedule failed: {e}"
+                )
+
+
 def _warmer_loop() -> None:
-    global _last_inference_warmup
     logger.info(
         "connection_warmer: thread started (health_interval=%ss, inference_interval=%ss)",
         _WARMUP_INTERVAL_SECONDS,
@@ -137,26 +174,7 @@ def _warmer_loop() -> None:
     )
     while not _stop:
         time.sleep(_WARMUP_INTERVAL_SECONDS)
-        loop = _loop
-        if loop is None or not loop.is_running():
-            continue
-        try:
-            fut = asyncio.run_coroutine_threadsafe(_ping_all(), loop)
-            fut.result(timeout=_WARMUP_INTERVAL_SECONDS + 2.0)
-        except Exception as e:
-            logger.debug(f"connection_warmer: tick failed: {e}")
-
-        now = time.monotonic()
-        if now - _last_inference_warmup >= _INFERENCE_WARMUP_INTERVAL_SECONDS:
-            _last_inference_warmup = now
-            # Fire and forget so a slow inference warmup never starves the
-            # 500ms /health cadence — the coroutine logs its own errors.
-            try:
-                asyncio.run_coroutine_threadsafe(_warmup_inference_all(), loop)
-            except Exception as e:
-                logger.debug(
-                    f"connection_warmer: inference warmup schedule failed: {e}"
-                )
+        _warmer_tick(_loop)
 
 
 def start_connection_warmer() -> None:

@@ -10,6 +10,7 @@ Each handler is an async generator that:
   3. Returns the node's final output text via a final ``node_done`` event.
 """
 
+import asyncio
 import json
 import uuid
 from typing import AsyncGenerator
@@ -85,7 +86,7 @@ async def handle_llm(
     upstream_text = " ".join(str(v) for v in inputs.values())
     user_content = prompt_template.replace("{input}", upstream_text)
 
-    deploy_cache = get_deploy_cache()
+    deploy_cache = await asyncio.to_thread(get_deploy_cache)
     entry = deploy_cache.get(deploy_id)
     if not entry:
         for _cid, e in deploy_cache.items():

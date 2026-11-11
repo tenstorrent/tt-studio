@@ -3,9 +3,11 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
+import contextlib
 import copy
 import json
 import os
+import pickle
 import re
 import signal
 import socket
@@ -18,6 +20,7 @@ from typing import Optional
 import requests
 from board_control.services import SystemResourceService
 from django.core.cache import caches
+from django.core.cache.backends.locmem import LocMemCache
 from shared_config.backend_config import backend_config
 from shared_config.coding_agent_config import has_thinking_toggle, is_coding_agent_eligible
 from shared_config.device_config import DeviceConfigurations
@@ -1825,6 +1828,49 @@ def serialize_canonical_entry_for_http(entry):
     return out
 
 
+def deploy_cache_lock(cache):
+    """Return the cache's own lock when present, else a no-op context manager."""
+    lock = getattr(cache, "_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def read_locmem_entry(cache, con_id):
+    """Read and unpickle an entry while the caller holds ``cache._lock``.
+
+    Returns None if the key is missing or expired. Avoids calling ``cache.get()``
+    because ``LocMemCache._lock`` is a non-reentrant ``threading.Lock``.
+    """
+    cache_key = cache.make_and_validate_key(con_id)
+    raw = cache._cache.get(cache_key)
+    if raw is None:
+        return None
+    if cache._has_expired(cache_key):
+        cache._delete(cache_key)
+        return None
+    return pickle.loads(raw)
+
+
+def write_locmem_entry(cache, con_id, entry):
+    """Pickle and store an entry while the caller holds ``cache._lock``.
+
+    Calls ``cache._set()`` directly instead of ``cache.set()`` to avoid
+    deadlocking on ``LocMemCache``'s non-reentrant ``threading.Lock``.
+    """
+    cache_key = cache.make_and_validate_key(con_id)
+    protocol = getattr(cache, "pickle_protocol", pickle.HIGHEST_PROTOCOL)
+    if not isinstance(protocol, int):
+        protocol = pickle.HIGHEST_PROTOCOL
+    cache._set(cache_key, pickle.dumps(entry, protocol), timeout=None)
+
+
+def _merge_probed_fields(entry, existing):
+    """Preserve already-probed metadata across cache refreshes."""
+    if isinstance(existing, dict):
+        for field in ("max_model_len", "cached_model_name"):
+            if field in existing and field not in entry:
+                entry[field] = existing[field]
+
+
 def update_deploy_cache(canonical=None):
     """Materialize get_canonical_deployments() into the LocMemCache.
 
@@ -1835,11 +1881,6 @@ def update_deploy_cache(canonical=None):
         canonical = get_canonical_deployments()
     cache = caches[backend_config.django_deploy_cache_name]
 
-    cached_container_ids = set()
-    for key in cache._cache.keys():
-        clean_key = key.replace(":version:", "")
-        cached_container_ids.add(clean_key)
-
     keepable_ids = {
         con_id for con_id, entry in canonical.items()
         if entry.get("source") == "managed"
@@ -1847,16 +1888,41 @@ def update_deploy_cache(canonical=None):
         and entry.get("internal_url")
     }
 
-    for stale_id in cached_container_ids - keepable_ids:
-        logger.info(f"Removing stopped container from deploy cache: {stale_id}")
-        cache.delete(stale_id)
+    removed_ids = []
+    added_entries = []
+    with deploy_cache_lock(cache):
+        is_locmem = isinstance(cache, LocMemCache)
+        raw_cache = cache._cache if is_locmem else getattr(cache, "_cache", None)
+        cached_container_ids = (
+            {key.replace(":version:", "") for key in list(raw_cache.keys())}
+            if isinstance(raw_cache, dict)
+            else set()
+        )
 
-    for con_id, entry in canonical.items():
-        if con_id not in keepable_ids:
-            continue
-        cache.set(con_id, entry, timeout=None)
+        for stale_id in cached_container_ids - keepable_ids:
+            if is_locmem:
+                cache._delete(cache.make_and_validate_key(stale_id))
+            else:
+                cache.delete(stale_id)
+            removed_ids.append(stale_id)
+
+        for con_id, entry in canonical.items():
+            if con_id not in keepable_ids:
+                continue
+            # Preserve already-probed attributes so healthy models aren't re-queried every 5s
+            existing = read_locmem_entry(cache, con_id) if is_locmem else cache.get(con_id)
+            _merge_probed_fields(entry, existing)
+            if is_locmem:
+                write_locmem_entry(cache, con_id, entry)
+            else:
+                cache.set(con_id, entry, timeout=None)
+            added_entries.append((entry.get("name"), con_id))
+
+    for stale_id in removed_ids:
+        logger.info(f"Removing stopped container from deploy cache: {stale_id}")
+    for name, con_id in added_entries:
         logger.info(
-            f"Added container {entry.get('name')} (ID: {con_id[:12]}) to deploy cache"
+            f"Added container {name} (ID: {con_id[:12]}) to deploy cache"
         )
 
 
