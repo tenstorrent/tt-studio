@@ -4,6 +4,8 @@
 """Tests for moving to a new default artifact version (tt_setup/inference_server/_upgrade.py)."""
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -133,10 +135,35 @@ class TestSetupArtifactWithFallback(unittest.TestCase):
         self.assertFalse(os.path.exists(self.previous))
         self.assertEqual(os.environ["TT_INFERENCE_ARTIFACT_PATH"], self.artifact)
 
-    def test_invalid_external_copy_fails_setup(self):
-        with patch.object(U, "EXTERNAL_INFERENCE_ARTIFACT_DIR", self.artifact):
-            self.assertIsNone(self._run())
-        self.assertEqual(self._version(), "0.22.0")
+    def test_unusable_external_copy_falls_back_to_our_own(self):
+        with patch.object(U, "UNUSABLE_INFERENCE_ARTIFACT_DIR", "/not/a/checkout"):
+            self.assertIs(self._run(), True)
+        self.assertEqual(self.calls, ["v0.23.0"])
+        self.assertEqual(self._version(), "0.23.0")
+
+
+class TestExternalCopyCheck(unittest.TestCase):
+    def _constants(self, path):
+        script = (
+            "import os, tt_setup.constants as c; "
+            "print(c.EXTERNAL_INFERENCE_ARTIFACT_DIR, c.UNUSABLE_INFERENCE_ARTIFACT_DIR, "
+            "c.INFERENCE_ARTIFACT_DIR == os.path.join(c.TT_STUDIO_ROOT, '.artifacts', 'tt-inference-server'), "
+            "'TT_INFERENCE_SERVER_DIR' in os.environ)"
+        )
+        env = {**os.environ, "TT_INFERENCE_SERVER_DIR": path}
+        result = subprocess.run([sys.executable, "-c", script], env=env,
+                                capture_output=True, text=True, check=True)
+        return result.stdout.split()
+
+    def test_a_checkout_is_used(self):
+        with tempfile.TemporaryDirectory() as path:
+            os.makedirs(os.path.join(path, "workflows"))
+            open(os.path.join(path, "workflows", "utils.py"), "w").close()
+            self.assertEqual(self._constants(path), [path, "None", "False", "True"])
+
+    def test_anything_else_is_ignored(self):
+        with tempfile.TemporaryDirectory() as path:
+            self.assertEqual(self._constants(path), ["None", path, "True", "False"])
 
 
 if __name__ == "__main__":

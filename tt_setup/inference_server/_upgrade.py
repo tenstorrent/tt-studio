@@ -7,7 +7,12 @@ import os
 import shutil
 
 from tt_setup.console import console, show_detail
-from tt_setup.constants import EXTERNAL_INFERENCE_ARTIFACT_DIR, INFERENCE_ARTIFACT_DIR, TT_STUDIO_ROOT
+from tt_setup.constants import (
+    EXTERNAL_INFERENCE_ARTIFACT_DIR,
+    INFERENCE_ARTIFACT_DIR,
+    TT_STUDIO_ROOT,
+    UNUSABLE_INFERENCE_ARTIFACT_DIR,
+)
 from tt_setup.env_config import get_env_var
 from tt_setup.inference_server._env import _set_artifact_environment_variables
 from tt_setup.inference_server._orchestrator import setup_tt_inference_server
@@ -63,9 +68,6 @@ def _discard(version):
 
 def _use_external_artifact(target_version):
     """Adopt the TT_INFERENCE_SERVER_DIR copy as is, never fetching or replacing it."""
-    if not os.path.isfile(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
-        console.print(f"[error]⛔ TT_INFERENCE_SERVER_DIR is not a tt-inference-server checkout: {INFERENCE_ARTIFACT_DIR}[/error]")
-        return None
     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
     installed = _installed_version()
     if show_detail():  # the ready panel always says which copy is in use
@@ -90,6 +92,11 @@ def setup_artifact_with_fallback(target_version, pull_branch=False):
     """
     if EXTERNAL_INFERENCE_ARTIFACT_DIR:
         return _use_external_artifact(target_version)
+    if UNUSABLE_INFERENCE_ARTIFACT_DIR:
+        console.print(
+            f"[warning]⚠️  TT_INFERENCE_SERVER_DIR is not a tt-inference-server checkout: "
+            f"{UNUSABLE_INFERENCE_ARTIFACT_DIR}; using TT Studio's own instead[/warning]"
+        )
     if os.path.isdir(PREVIOUS_ARTIFACT) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
         _restore()  # an earlier upgrade was killed mid-download
 
