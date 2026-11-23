@@ -24,6 +24,10 @@ def configure_inference_server_artifact(dev_mode=False, quick_setup=False, force
         force_reconfigure: Force reconfiguration of all options
         reconfigure_inference: Force reconfiguration of inference server artifact only
     """
+    # The copy at TT_INFERENCE_SERVER_DIR is pinned by whoever installed it.
+    if EXTERNAL_INFERENCE_ARTIFACT_DIR:
+        return
+
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
 

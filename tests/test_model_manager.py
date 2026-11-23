@@ -3,6 +3,7 @@
 
 """Tests for the tt-model-manager artifact setup (tt_setup/model_manager/_orchestrator.py)."""
 
+import ast
 import os
 import subprocess
 import tempfile
@@ -129,6 +130,67 @@ class TestInstallPackage(unittest.TestCase):
             self.assertTrue(os.path.exists(marker))
             self.assertEqual(O._installed_ref(artifact), "abc")
             self.assertFalse(os.path.exists(os.path.join(artifact, O._PREVIOUS_VENV)))
+
+
+class TestExternalInterpreter(unittest.TestCase):
+    """TT_MODEL_MANAGER_PYTHON: an interpreter installed and owned by someone else."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.python = os.path.join(self._dir.name, "python")
+        open(self.python, "w").close()
+        self.own = os.path.join(self._dir.name, "own")
+        for name, value in (("_external_python", self.python), ("MODEL_MANAGER_ARTIFACT_DIR", self.own)):
+            patcher = patch.object(O, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _setup(self, returncode=0):
+        result = subprocess.CompletedProcess([], returncode, "", "ImportError: cannot import name 'hub'")
+        with patch.object(O.subprocess, "run", return_value=result) as run, \
+                patch.object(O, "_install", return_value=None) as install:
+            ok = O.setup_tt_model_manager()
+        return ok, run, install
+
+    def test_is_used_instead_of_the_artifact(self):
+        self.assertEqual(O.model_manager_python(), self.python)
+        status = O.model_manager_status()
+        self.assertTrue(status["available"])
+        self.assertIsNone(status["ref"])
+
+    def test_is_checked_not_installed_into(self):
+        ok, run, install = self._setup()
+        self.assertTrue(ok)
+        self.assertEqual(run.call_args.args[0], [self.python, "-c", O._REQUIRED_IMPORTS])
+        install.assert_not_called()
+
+    def test_incompatible_tt_kernel_falls_back_to_our_own(self):
+        ok, _, install = self._setup(returncode=1)
+        self.assertTrue(ok)
+        install.assert_called_once()
+        self.assertTrue(O.model_manager_python().startswith(self.own))
+        self.assertFalse(O.model_manager_status()["external"])
+
+    def test_missing_interpreter_falls_back_to_our_own(self):
+        os.remove(self.python)
+        ok, run, install = self._setup()
+        self.assertTrue(ok)
+        run.assert_not_called()
+        install.assert_called_once()
+
+    def test_an_explicit_artifact_dir_still_wins(self):
+        with tempfile.TemporaryDirectory() as artifact:
+            self.assertTrue(O.model_manager_python(artifact).startswith(artifact))
+
+    def test_checks_everything_the_runner_imports(self):
+        runner = os.path.join(os.path.dirname(__file__), "..", "inference-api", "tt_model_runner.py")
+        with open(runner) as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tt_kernel"):
+                for alias in node.names:
+                    self.assertIn(alias.name, O._REQUIRED_IMPORTS, f"{node.module}.{alias.name}")
 
 
 if __name__ == "__main__":

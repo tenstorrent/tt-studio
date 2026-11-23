@@ -4,6 +4,8 @@
 """Tests for moving to a new default artifact version (tt_setup/inference_server/_upgrade.py)."""
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -121,6 +123,57 @@ class TestSetupArtifactWithFallback(unittest.TestCase):
         self.env["TT_INFERENCE_ARTIFACT_VERSION"] = "v0.21.0"
         self.assertIsNone(self._run(fail={"v0.23.0"}))
         self.assertEqual(self.calls, ["v0.23.0"])
+
+    def test_external_copy_is_used_as_is(self):
+        os.makedirs(os.path.join(self.artifact, "workflows"))
+        open(os.path.join(self.artifact, "workflows", "utils.py"), "w").close()
+        with patch.object(U, "EXTERNAL_INFERENCE_ARTIFACT_DIR", self.artifact):
+            self.assertIs(self._run(), False)  # 0.22.0 is not the target, but is kept
+            self._install("0.23.0")
+            self.assertIs(self._run(), True)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(os.path.exists(self.previous))
+        self.assertEqual(os.environ["TT_INFERENCE_ARTIFACT_PATH"], self.artifact)
+
+    def test_unusable_external_copy_falls_back_to_our_own(self):
+        with patch.object(U, "UNUSABLE_INFERENCE_ARTIFACT_DIR", "/not/a/checkout"):
+            self.assertIs(self._run(), True)
+        self.assertEqual(self.calls, ["v0.23.0"])
+        self.assertEqual(self._version(), "0.23.0")
+
+
+class TestExternalCopyCheck(unittest.TestCase):
+    def _constants(self, path, cwd=None):
+        script = (
+            "import os, tt_setup.constants as c; "
+            "print(c.EXTERNAL_INFERENCE_ARTIFACT_DIR, c.UNUSABLE_INFERENCE_ARTIFACT_DIR, "
+            "c.INFERENCE_ARTIFACT_DIR == os.path.join(c.TT_STUDIO_ROOT, '.artifacts', 'tt-inference-server'), "
+            "os.environ.get('TT_INFERENCE_SERVER_DIR'))"
+        )
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = {**os.environ, "TT_INFERENCE_SERVER_DIR": path, "PYTHONPATH": root}
+        result = subprocess.run([sys.executable, "-c", script], env=env, cwd=cwd or root,
+                                capture_output=True, text=True, check=True)
+        return result.stdout.split()
+
+    def _checkout(self, path):
+        os.makedirs(os.path.join(path, "workflows"))
+        open(os.path.join(path, "workflows", "utils.py"), "w").close()
+
+    def test_a_checkout_is_used(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._checkout(path)
+            self.assertEqual(self._constants(path), [path, "None", "False", path])
+
+    def test_a_relative_path_is_exported_resolved(self):
+        with tempfile.TemporaryDirectory() as parent:
+            path = os.path.join(parent, "tt-inference-server")
+            self._checkout(path)
+            self.assertEqual(self._constants("tt-inference-server", cwd=parent), [path, "None", "False", path])
+
+    def test_anything_else_is_ignored(self):
+        with tempfile.TemporaryDirectory() as path:
+            self.assertEqual(self._constants(path), ["None", path, "True", "None"])
 
 
 if __name__ == "__main__":

@@ -137,8 +137,9 @@ services:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
       - ./backend:/backend
-      # Mount tt-inference-server workflow logs for viewing deployment logs
-      - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
+      # Mount tt-inference-server workflow logs for viewing deployment logs. A copy
+      # at TT_INFERENCE_SERVER_DIR writes them there; the backend reads one path.
+      - ${TT_INFERENCE_SERVER_DIR:-${TT_STUDIO_ROOT}/.artifacts/tt-inference-server}/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
       # Per-model artifact refs (e.g. Qwen3.5-9B) write logs under .artifacts/refs/<ref>/
       - ${TT_STUDIO_ROOT}/.artifacts/refs:${TT_STUDIO_ROOT}/.artifacts/refs:ro
       # Mount logs/model_run_logs/ directory so the backend can read per-deployment logs

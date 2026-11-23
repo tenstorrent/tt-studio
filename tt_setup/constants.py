@@ -60,7 +60,33 @@ STOCK_APP_TITLE = "TT Studio"
 LEGACY_ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 LEGACY_ENV_BACKUP_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env-old")
 INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
-INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
+
+
+def _external_path(var_name):
+    """An absolute path from the process environment, or None when unset."""
+    value = os.environ.get(var_name, "").strip()
+    return os.path.abspath(os.path.expanduser(value)) if value else None
+
+
+# Copies of the two artifacts that something else installed and owns.
+# When set, the launcher uses that copy as is and never downloads, upgrades, patches, or removes it.
+#   TT_INFERENCE_SERVER_DIR  - a tt-inference-server checkout (has workflows/, VERSION)
+#   TT_MODEL_MANAGER_PYTHON  - an interpreter that can import tt_kernel (tt-model-manager)
+EXTERNAL_INFERENCE_ARTIFACT_DIR = _external_path("TT_INFERENCE_SERVER_DIR")
+# One that isn't a checkout is ignored, and TT Studio installs its own instead.
+UNUSABLE_INFERENCE_ARTIFACT_DIR = None
+if EXTERNAL_INFERENCE_ARTIFACT_DIR and not os.path.isfile(
+    os.path.join(EXTERNAL_INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")
+):
+    UNUSABLE_INFERENCE_ARTIFACT_DIR, EXTERNAL_INFERENCE_ARTIFACT_DIR = EXTERNAL_INFERENCE_ARTIFACT_DIR, None
+    os.environ.pop("TT_INFERENCE_SERVER_DIR")
+elif EXTERNAL_INFERENCE_ARTIFACT_DIR:
+    # docker compose mounts its logs from this variable, so it must be absolute.
+    os.environ["TT_INFERENCE_SERVER_DIR"] = EXTERNAL_INFERENCE_ARTIFACT_DIR
+EXTERNAL_MODEL_MANAGER_PYTHON = _external_path("TT_MODEL_MANAGER_PYTHON")
+INFERENCE_ARTIFACT_DIR = EXTERNAL_INFERENCE_ARTIFACT_DIR or os.path.join(
+    TT_STUDIO_ROOT, ".artifacts", "tt-inference-server"
+)
 MODEL_MANAGER_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-model-manager")
 MODEL_MANAGER_REPO_URL = "https://github.com/tenstorrent/tt-model-manager"
 # Pin used when TT_MODEL_MANAGER_REF is unset. Kept in sync with .env.default.

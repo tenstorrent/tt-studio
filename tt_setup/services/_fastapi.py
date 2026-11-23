@@ -144,6 +144,8 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         mm_ref = model_manager_status()["ref"]
         if mm_ref:
             env["TT_MODEL_MANAGER_REF"] = mm_ref
+    else:
+        env.pop("TT_MODEL_MANAGER_PYTHON", None)  # e.g. a rejected TT_MODEL_MANAGER_PYTHON
 
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
