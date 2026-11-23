@@ -131,5 +131,51 @@ class TestInstallPackage(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(artifact, O._PREVIOUS_VENV)))
 
 
+class TestExternalInterpreter(unittest.TestCase):
+    """TT_MODEL_MANAGER_PYTHON: an interpreter installed and owned by someone else."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.python = os.path.join(self._dir.name, "python")
+        open(self.python, "w").close()
+        patcher = patch.object(O, "EXTERNAL_MODEL_MANAGER_PYTHON", self.python)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _setup(self, returncode=0):
+        result = subprocess.CompletedProcess([], returncode, "", "ModuleNotFoundError: tt_kernel")
+        with patch.object(O.subprocess, "run", return_value=result) as run, \
+                patch.object(O, "_install") as install:
+            ok = O.setup_tt_model_manager()
+        install.assert_not_called()
+        return ok, run
+
+    def test_is_used_instead_of_the_artifact(self):
+        self.assertEqual(O.model_manager_python(), self.python)
+        status = O.model_manager_status()
+        self.assertTrue(status["available"])
+        self.assertIsNone(status["ref"])
+
+    def test_is_checked_not_installed_into(self):
+        ok, run = self._setup()
+        self.assertTrue(ok)
+        self.assertEqual(run.call_args.args[0], [self.python, "-c", "import tt_kernel"])
+
+    def test_without_tt_kernel_is_unusable(self):
+        ok, _ = self._setup(returncode=1)
+        self.assertFalse(ok)
+
+    def test_missing_interpreter_is_unusable(self):
+        os.remove(self.python)
+        ok, run = self._setup()
+        self.assertFalse(ok)
+        run.assert_not_called()
+
+    def test_an_explicit_artifact_dir_still_wins(self):
+        with tempfile.TemporaryDirectory() as artifact:
+            self.assertTrue(O.model_manager_python(artifact).startswith(artifact))
+
+
 if __name__ == "__main__":
     unittest.main()

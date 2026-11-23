@@ -61,6 +61,7 @@ from tt_setup.inference_server import (
     setup_artifact_with_fallback,
 )
 from tt_setup.model_manager import setup_tt_model_manager
+from tt_setup.artifact_sources import artifact_rows, load_artifact_sources, record_artifact_sources
 from tt_setup.model_support import (
     default_artifact_version,
     describe_community_source,
@@ -130,6 +131,9 @@ def show_ready_panel(args, run_start=None, hardware_label=None, is_deployed_mode
         mode_parts.append("TT Hardware")
     rows.append(("Mode", " + ".join(mode_parts)))
     rows.append(("Hardware", hardware_label or "No accelerator (remote/cloud mode)"))
+    # Which inference server / model manager copy is in use, and whose it is.
+    if fastapi_enabled:
+        rows.extend(artifact_rows(load_artifact_sources()))
 
     # Search Agent (Tavily) status — enabled only when a real key is set.
     tavily = get_env_var("TAVILY_API_KEY", "")
@@ -358,6 +362,13 @@ def _run(args):
                                       governed by IS_QB2, not this)
   {C_YELLOW}TT_COMMUNITY_CATALOG_URL{C_RESET}            Verified community bundles (tt-cli
                                       community_catalog.json); URL or local path
+  {C_YELLOW}TT_INFERENCE_SERVER_DIR{C_RESET}             Use this tt-inference-server checkout as
+                                      is instead of .artifacts/ (ignores the
+                                      pins above; never downloaded or upgraded).
+                                      Environment only, not .env
+  {C_YELLOW}TT_MODEL_MANAGER_PYTHON{C_RESET}             Use this interpreter's tt-model-manager
+                                      instead of installing TT_MODEL_MANAGER_REF.
+                                      Environment only, not .env
 
 {C_ORANGE}{C_BOLD}Container Images (prebuilt pulls vs local builds):{C_RESET}
 {'=' * 80}
@@ -989,6 +1000,8 @@ def _run(args):
                 with step("tt-model-manager artifact", spinner=True) as handle:
                     if not setup_tt_model_manager():
                         handle.fail()
+                # Shown in the ready panel, and kept for --info.
+                record_artifact_sources()
                 refresh_community_catalog()
                 enrich_community_catalog()
                 if show_detail():
@@ -1138,6 +1151,8 @@ def _run(args):
                 "sudo", "env",
                 f"TT_STUDIO_UID={os.environ['TT_STUDIO_UID']}",
                 f"TT_STUDIO_GID={os.environ['TT_STUDIO_GID']}",
+                *([f"TT_INFERENCE_SERVER_DIR={EXTERNAL_INFERENCE_ARTIFACT_DIR}"]
+                  if EXTERNAL_INFERENCE_ARTIFACT_DIR else []),
                 *docker_compose_cmd,
             ]
         else:

@@ -6,8 +6,8 @@
 import os
 import shutil
 
-from tt_setup.console import console
-from tt_setup.constants import INFERENCE_ARTIFACT_DIR, TT_STUDIO_ROOT
+from tt_setup.console import console, show_detail
+from tt_setup.constants import EXTERNAL_INFERENCE_ARTIFACT_DIR, INFERENCE_ARTIFACT_DIR, TT_STUDIO_ROOT
 from tt_setup.env_config import get_env_var
 from tt_setup.inference_server._env import _set_artifact_environment_variables
 from tt_setup.inference_server._orchestrator import setup_tt_inference_server
@@ -61,12 +61,35 @@ def _discard(version):
         _remove(os.path.join(ARTIFACTS_DIR, name))
 
 
+def _use_external_artifact(target_version):
+    """Adopt the TT_INFERENCE_SERVER_DIR copy as is, never fetching or replacing it."""
+    if not os.path.isfile(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
+        console.print(f"[error]⛔ TT_INFERENCE_SERVER_DIR is not a tt-inference-server checkout: {INFERENCE_ARTIFACT_DIR}[/error]")
+        return None
+    _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+    installed = _installed_version()
+    if show_detail():  # the ready panel always says which copy is in use
+        console.print(f"[muted]Using TT Inference Server v{installed or '?'} from {INFERENCE_ARTIFACT_DIR}[/muted]")
+    if not target_version or installed == target_version.lstrip("v"):
+        return True
+    # A different version is still used, like a fallback: the model support spec
+    # isn't cached, so the model list stays the one built from this copy.
+    console.print(
+        f"[warning]⚠️  The model list targets TT Inference Server {target_version}; showing the "
+        f"models v{installed or '?'} supports. Update the copy at TT_INFERENCE_SERVER_DIR "
+        "(with tt-cli: tt update) to get the rest.[/warning]"
+    )
+    return False
+
+
 def setup_artifact_with_fallback(target_version, pull_branch=False):
     """Set up the artifact, keeping the installed one if `target_version` can't be installed.
 
     Returns True when `target_version` is in use, False when it fell back to the
     installed version, and None when setup failed.
     """
+    if EXTERNAL_INFERENCE_ARTIFACT_DIR:
+        return _use_external_artifact(target_version)
     if os.path.isdir(PREVIOUS_ARTIFACT) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
         _restore()  # an earlier upgrade was killed mid-download
 

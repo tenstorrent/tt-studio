@@ -13,11 +13,14 @@ Failure here is never fatal: the inference-server deploy path is unaffected, and
 backend hides community models when the artifact is absent.
 """
 
+import functools
 import json
 import os
 import shutil
+import subprocess
 
 from tt_setup.constants import (
+    EXTERNAL_MODEL_MANAGER_PYTHON,
     MODEL_MANAGER_ARTIFACT_DIR,
     MODEL_MANAGER_DEFAULT_REF,
     MODEL_MANAGER_REPO_URL,
@@ -35,8 +38,15 @@ _PREVIOUS_VENV = ".venv.previous"
 _DISCARDED_VENV = ".venv.discarded"
 
 
-def model_manager_python(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR):
-    """Path to the artifact venv's interpreter, whether or not it exists yet."""
+def model_manager_python(artifact_dir=None):
+    """Path to the artifact venv's interpreter, whether or not it exists yet.
+
+    Without ``artifact_dir``, an interpreter given in TT_MODEL_MANAGER_PYTHON wins.
+    """
+    if artifact_dir is None:
+        if EXTERNAL_MODEL_MANAGER_PYTHON:
+            return EXTERNAL_MODEL_MANAGER_PYTHON
+        artifact_dir = MODEL_MANAGER_ARTIFACT_DIR
     if os.name == "nt":
         return os.path.join(artifact_dir, ".venv", "Scripts", "python.exe")
     return os.path.join(artifact_dir, ".venv", "bin", "python")
@@ -106,12 +116,41 @@ def _install(venv_dir, python, ref):
     return None if ok else detail
 
 
-def setup_tt_model_manager(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR, force=False):
+def _check_external():
+    """Whether the TT_MODEL_MANAGER_PYTHON interpreter can import tt_kernel."""
+    python = EXTERNAL_MODEL_MANAGER_PYTHON
+    error = None
+    if not os.path.isfile(python):
+        error = "no such interpreter"
+    else:
+        try:
+            result = subprocess.run([python, "-c", "import tt_kernel"],
+                                    capture_output=True, text=True, timeout=60, check=False)
+            if result.returncode != 0:
+                lines = (result.stderr or "").strip().splitlines()
+                error = lines[-1] if lines else f"exit code {result.returncode}"
+        except (OSError, subprocess.SubprocessError) as e:
+            error = str(e)
+    if error:
+        console.print(f"[warning]⚠️  TT_MODEL_MANAGER_PYTHON={python} cannot run tt-model-manager "
+                      f"({error}) — community models will be unavailable[/warning]")
+        return False
+    if show_detail():
+        console.print(f"[muted]Using tt-model-manager from {python}[/muted]")
+    return True
+
+
+def setup_tt_model_manager(artifact_dir=None, force=False):
     """Ensure the pinned tt-model-manager venv exists. Returns True when usable.
 
     Idempotent: an install already at the requested ref is left alone, so a normal
-    start costs one file read.
+    start costs one file read. Without ``artifact_dir``, an interpreter given in
+    TT_MODEL_MANAGER_PYTHON is checked and used as is, never installed into.
     """
+    if artifact_dir is None:
+        if EXTERNAL_MODEL_MANAGER_PYTHON:
+            return _check_external()
+        artifact_dir = MODEL_MANAGER_ARTIFACT_DIR
     ref = _resolve_ref()
     python = model_manager_python(artifact_dir)
     venv_dir = os.path.join(artifact_dir, ".venv")
@@ -158,12 +197,39 @@ def setup_tt_model_manager(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR, force=False)
     return True
 
 
-def model_manager_status(artifact_dir=MODEL_MANAGER_ARTIFACT_DIR):
-    """What the launcher knows about the artifact, for --info and diagnostics."""
+@functools.cache
+def _external_version(python):
+    """The commit tt-model was installed from for ``python`` (its package version
+    when not installed from git), or None."""
+    script = (
+        "import importlib.metadata as m, json; d = m.distribution('tt-model'); "
+        "u = json.loads(d.read_text('direct_url.json') or '{}'); "
+        "print(u.get('vcs_info', {}).get('commit_id', '')[:8] or d.version)"
+    )
+    try:
+        result = subprocess.run([python, "-c", script],
+                                capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def model_manager_status(artifact_dir=None):
+    """What the launcher knows about the artifact, for --info and diagnostics.
+
+    The refs are None for a TT_MODEL_MANAGER_PYTHON interpreter: its installer owns the
+    pin, so ``version`` says what it has instead.
+    """
     python = model_manager_python(artifact_dir)
+    external = artifact_dir is None and bool(EXTERNAL_MODEL_MANAGER_PYTHON)
+    artifact_dir = artifact_dir or MODEL_MANAGER_ARTIFACT_DIR
     return {
         "available": os.path.exists(python),
         "python": python,
-        "ref": _installed_ref(artifact_dir),
-        "requested_ref": _resolve_ref(),
+        "ref": None if external else _installed_ref(artifact_dir),
+        "requested_ref": None if external else _resolve_ref(),
+        "external": external,
+        "version": _external_version(python) if external and os.path.exists(python) else None,
     }

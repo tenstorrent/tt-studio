@@ -122,6 +122,22 @@ class TestSetupArtifactWithFallback(unittest.TestCase):
         self.assertIsNone(self._run(fail={"v0.23.0"}))
         self.assertEqual(self.calls, ["v0.23.0"])
 
+    def test_external_copy_is_used_as_is(self):
+        os.makedirs(os.path.join(self.artifact, "workflows"))
+        open(os.path.join(self.artifact, "workflows", "utils.py"), "w").close()
+        with patch.object(U, "EXTERNAL_INFERENCE_ARTIFACT_DIR", self.artifact):
+            self.assertIs(self._run(), False)  # 0.22.0 is not the target, but is kept
+            self._install("0.23.0")
+            self.assertIs(self._run(), True)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(os.path.exists(self.previous))
+        self.assertEqual(os.environ["TT_INFERENCE_ARTIFACT_PATH"], self.artifact)
+
+    def test_invalid_external_copy_fails_setup(self):
+        with patch.object(U, "EXTERNAL_INFERENCE_ARTIFACT_DIR", self.artifact):
+            self.assertIsNone(self._run())
+        self.assertEqual(self._version(), "0.22.0")
+
 
 if __name__ == "__main__":
     unittest.main()

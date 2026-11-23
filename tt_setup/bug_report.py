@@ -32,6 +32,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from tt_setup import install_mode, support_email
+from tt_setup.artifact_sources import load_artifact_sources
 from tt_setup.console import console, notice_panel
 from tt_setup.constants import (
     DOCKER_CONTROL_LOG_FILE,
@@ -83,6 +84,8 @@ def _system_info(exc, args):
         "tt_hardware_present": os.path.exists("/dev/tenstorrent"),
         "env_file_present": os.path.exists(ENV_FILE_PATH),
         "argv": sys.argv,
+        # Which artifact copies the last startup used: TT Studio's own or external.
+        "artifact_sources": load_artifact_sources(),
     }
     if exc is not None:
         info["error_type"] = type(exc).__name__

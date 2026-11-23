@@ -19,6 +19,7 @@ import json
 import urllib.request
 
 from tt_setup import install_mode
+from tt_setup.constants import EXTERNAL_INFERENCE_ARTIFACT_DIR
 from tt_setup.console import console, is_verbose
 
 
@@ -267,8 +268,9 @@ def check_startup_freshness(
         )
     result["artifact_branch"] = artifact_branch or None
 
-    # A version-pinned artifact (no branch) simply skips the remote check.
-    if artifact_branch:
+    # A version-pinned artifact (no branch) simply skips the remote check, as does
+    # one at TT_INFERENCE_SERVER_DIR: its branch pin doesn't describe that copy.
+    if artifact_branch and not EXTERNAL_INFERENCE_ARTIFACT_DIR:
         stored_sha = _read_artifact_commit_sha(tt_studio_root)
         remote_sha = _fetch_github_sha("tenstorrent", "tt-inference-server", artifact_branch)
 
