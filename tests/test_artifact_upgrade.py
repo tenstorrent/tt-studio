@@ -143,27 +143,37 @@ class TestSetupArtifactWithFallback(unittest.TestCase):
 
 
 class TestExternalCopyCheck(unittest.TestCase):
-    def _constants(self, path):
+    def _constants(self, path, cwd=None):
         script = (
             "import os, tt_setup.constants as c; "
             "print(c.EXTERNAL_INFERENCE_ARTIFACT_DIR, c.UNUSABLE_INFERENCE_ARTIFACT_DIR, "
             "c.INFERENCE_ARTIFACT_DIR == os.path.join(c.TT_STUDIO_ROOT, '.artifacts', 'tt-inference-server'), "
-            "'TT_INFERENCE_SERVER_DIR' in os.environ)"
+            "os.environ.get('TT_INFERENCE_SERVER_DIR'))"
         )
-        env = {**os.environ, "TT_INFERENCE_SERVER_DIR": path}
-        result = subprocess.run([sys.executable, "-c", script], env=env,
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = {**os.environ, "TT_INFERENCE_SERVER_DIR": path, "PYTHONPATH": root}
+        result = subprocess.run([sys.executable, "-c", script], env=env, cwd=cwd or root,
                                 capture_output=True, text=True, check=True)
         return result.stdout.split()
 
+    def _checkout(self, path):
+        os.makedirs(os.path.join(path, "workflows"))
+        open(os.path.join(path, "workflows", "utils.py"), "w").close()
+
     def test_a_checkout_is_used(self):
         with tempfile.TemporaryDirectory() as path:
-            os.makedirs(os.path.join(path, "workflows"))
-            open(os.path.join(path, "workflows", "utils.py"), "w").close()
-            self.assertEqual(self._constants(path), [path, "None", "False", "True"])
+            self._checkout(path)
+            self.assertEqual(self._constants(path), [path, "None", "False", path])
+
+    def test_a_relative_path_is_exported_resolved(self):
+        with tempfile.TemporaryDirectory() as parent:
+            path = os.path.join(parent, "tt-inference-server")
+            self._checkout(path)
+            self.assertEqual(self._constants("tt-inference-server", cwd=parent), [path, "None", "False", path])
 
     def test_anything_else_is_ignored(self):
         with tempfile.TemporaryDirectory() as path:
-            self.assertEqual(self._constants(path), ["None", path, "True", "False"])
+            self.assertEqual(self._constants(path), ["None", path, "True", "None"])
 
 
 if __name__ == "__main__":

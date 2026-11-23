@@ -870,7 +870,7 @@ def _run(args):
                 os.makedirs(workflow_logs_dir, mode=0o755, exist_ok=True)
             except Exception as e:
                 print(f"{C_YELLOW}⚠️  Could not create workflow_logs directory: {e}{C_RESET}")
-        else:
+        elif not EXTERNAL_INFERENCE_ARTIFACT_DIR:  # someone else's copy is not ours to chown
             # Ensure existing directory has correct permissions (Unix/Linux only)
             if OS_NAME != "Windows":
                 current_stat = os.stat(workflow_logs_dir)
@@ -1028,6 +1028,13 @@ def _run(args):
             # ref download fails with EACCES before the model ever reaches hardware.
             os.path.join(TT_STUDIO_ROOT, ".artifacts", "refs"),
         ]:
+            if EXTERNAL_INFERENCE_ARTIFACT_DIR and _mount_dir.startswith(EXTERNAL_INFERENCE_ARTIFACT_DIR + os.sep):
+                # Not ours to chown; the mount only needs it to exist.
+                try:
+                    os.makedirs(_mount_dir, exist_ok=True)
+                except OSError as e:
+                    console.print(f"[warning]⚠️  Could not create {_mount_dir}: {e}[/warning]")
+                continue
             try:
                 os.makedirs(_mount_dir, exist_ok=True)
             except PermissionError:

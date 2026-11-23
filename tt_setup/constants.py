@@ -80,6 +80,9 @@ if EXTERNAL_INFERENCE_ARTIFACT_DIR and not os.path.isfile(
 ):
     UNUSABLE_INFERENCE_ARTIFACT_DIR, EXTERNAL_INFERENCE_ARTIFACT_DIR = EXTERNAL_INFERENCE_ARTIFACT_DIR, None
     os.environ.pop("TT_INFERENCE_SERVER_DIR")
+elif EXTERNAL_INFERENCE_ARTIFACT_DIR:
+    # docker compose mounts its logs from this variable, so it must be absolute.
+    os.environ["TT_INFERENCE_SERVER_DIR"] = EXTERNAL_INFERENCE_ARTIFACT_DIR
 EXTERNAL_MODEL_MANAGER_PYTHON = _external_path("TT_MODEL_MANAGER_PYTHON")
 INFERENCE_ARTIFACT_DIR = EXTERNAL_INFERENCE_ARTIFACT_DIR or os.path.join(
     TT_STUDIO_ROOT, ".artifacts", "tt-inference-server"
