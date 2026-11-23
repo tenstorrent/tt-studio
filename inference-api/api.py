@@ -4,7 +4,7 @@
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, Iterable, Tuple
+from typing import Optional, Dict, Any, Iterable, List, Tuple
 import asyncio
 import sys
 import os
@@ -2335,6 +2335,31 @@ class RunRequest(BaseModel):
     # Name to give the container once it's up; defaults to the model name. Lets a
     # training and a chat deploy of the same model hold distinct Docker names.
     container_name: Optional[str] = None
+    # Models to serve on the same chips as `model`, from the same container
+    # (run.py --cohost-with): `model` on service_port, each of these on the next port.
+    cohost_with: Optional[List[str]] = None
+
+
+def cohost_with_argv(cohost_with: Optional[List[str]], run_py: Path) -> List[str]:
+    """run.py arguments that serve `cohost_with` on the same chips as the request's model.
+
+    Raises ValueError when a name is not a plain model name, or when the
+    tt-inference-server artifact predates --cohost-with (run.py would only say
+    "unrecognized arguments").
+    """
+    if not cohost_with:
+        return []
+    for name in cohost_with:
+        if not name or name.startswith("-") or "," in name:
+            raise ValueError(f"cohost_with: {name!r} is not a model name")
+    if "--cohost-with" not in run_py.read_text(errors="replace"):
+        raise ValueError(
+            f"The tt-inference-server build at {run_py.parent} cannot serve several "
+            "models on the same chips (its run.py has no --cohost-with). Point "
+            "TT_INFERENCE_ARTIFACT_BRANCH or TT_INFERENCE_ARTIFACT_VERSION at a build "
+            "that has it."
+        )
+    return ["--cohost-with", ",".join(cohost_with)]
 
 def normalize_device_alias(device: str) -> str:
     """Normalize device aliases to supported device names"""
@@ -2891,6 +2916,7 @@ async def run_inference(request: RunRequest):
             base_argv.extend(["--runtime-model-spec-json", str(spec_path)])
         if request.disable_metal_timeout:
             base_argv.append("--disable-metal-timeout")
+        base_argv.extend(cohost_with_argv(request.cohost_with, _artifact_root / "run.py"))
 
         # Explicit host-mount flags from the deploy request (LoRA merge workflow)
         # take precedence over the model-name-based auto host-volume / host-hf-cache

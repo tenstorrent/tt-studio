@@ -52,6 +52,7 @@ export function DeployModelStep({
   registerDeployment,
   activeDeployment,
   activeProgress,
+  cohostCandidates = [],
 }: {
   selectedModel: string | null;
   selectedModelName?: string | null;
@@ -59,6 +60,7 @@ export function DeployModelStep({
     device_id?: number | string;
     host_port?: number | null;
     host_weights_dir?: string;
+    cohost_with?: string[];
   }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceIds?: number[];
   chipsRequired?: number;
@@ -87,6 +89,8 @@ export function DeployModelStep({
   // progress bar here instead of offering the deploy button again.
   activeDeployment?: ActiveDeployment;
   activeProgress?: DeploymentProgressData | null;
+  // Models that could be served on the same chips as this one.
+  cohostCandidates?: { id: string; name: string }[];
 }) {
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
@@ -107,6 +111,9 @@ export function DeployModelStep({
   const [mergedCheckpoints, setMergedCheckpoints] = useState<MergedCheckpoint[]>([]);
   // Selected merged-checkpoint host path, or BASE_MODEL_VALUE for the base model.
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>(BASE_MODEL_VALUE);
+  // Model ids to serve on the same chips (empty: this model gets its chips alone).
+  const [cohostWith, setCohostWith] = useState<string[]>([]);
+  useEffect(() => setCohostWith([]), [selectedModel]);
   // A missing HF token is the most common reason a deploy of a gated model
   // stalls at 0% — warn up front and sharpen the stall message in the progress
   // card. On lookup failure stay silent rather than warn spuriously.
@@ -280,6 +287,7 @@ export function DeployModelStep({
       device_id?: number | string;
       host_port?: number | null;
       host_weights_dir?: string;
+      cohost_with?: string[];
     } = {};
     if (selectedDeviceIds !== undefined && selectedDeviceIds.length > 0) {
       const sorted = selectedDeviceIds.slice().sort((a, b) => a - b);
@@ -290,8 +298,11 @@ export function DeployModelStep({
     if (selectedCheckpoint && selectedCheckpoint !== BASE_MODEL_VALUE) {
       deployOptions.host_weights_dir = selectedCheckpoint;
     }
+    if (cohostWith.length > 0) {
+      deployOptions.cohost_with = cohostWith;
+    }
     return handleDeploy(deployOptions);
-  }, [handleDeploy, isDeployDisabled, selectedDeviceIds, selectedCheckpoint]);
+  }, [handleDeploy, isDeployDisabled, selectedDeviceIds, selectedCheckpoint, cohostWith]);
 
   // Hand a fired deploy to the session tracker, then let refresh hooks update
   // the rest of the app (models list / hardware view) in the background.
@@ -656,6 +667,44 @@ export function DeployModelStep({
             </Select>
             <p className="mt-2 text-xs text-muted-foreground">
               Deploy the base model, or a checkpoint promoted from a fine-tuning job.
+            </p>
+          </div>
+        )}
+
+        {/* Serve further models on the same chips, from the same container. */}
+        {cohostCandidates.length > 0 && (
+          <div className="mt-6 w-full max-w-md" data-testid="cohost-picker">
+            <div className="flex items-center gap-2 mb-2">
+              <Cpu className="h-4 w-4 text-TT-purple-accent" />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                Share these chips with (optional)
+              </span>
+            </div>
+            <div className="max-h-40 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-700 p-2 space-y-1">
+              {cohostCandidates.map((candidate) => (
+                <label
+                  key={candidate.id}
+                  className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-300"
+                >
+                  <input
+                    type="checkbox"
+                    checked={cohostWith.includes(candidate.id)}
+                    disabled={isDeployDisabled}
+                    onChange={(e) =>
+                      setCohostWith((prev) =>
+                        e.target.checked
+                          ? [...prev, candidate.id]
+                          : prev.filter((id) => id !== candidate.id),
+                      )
+                    }
+                  />
+                  {candidate.name}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Each model gets its own endpoint. They take turns on the chips, must
+              fit together, and stop together.
             </p>
           </div>
         )}

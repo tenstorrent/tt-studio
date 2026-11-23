@@ -110,14 +110,14 @@ def deploy_in_flight_refusal(model_name: str) -> Refusal:
     )
 
 
-def claim_service_port(model_name: str) -> Tuple[Optional[int], Refusal]:
+def claim_service_port(model_name: str, count: int = 1) -> Tuple[Optional[int], Refusal]:
     """The host port a new deployment publishes on, whichever backend runs it.
-    First free port from 20000. Returns ``(port, None)``, or ``(None, refusal)`` 
-    when the block is exhausted.
+    First free port from 20000 (the first of ``count`` consecutive free ports).
+    Returns ``(port, None)``, or ``(None, refusal)`` when the block is exhausted.
     """
     from docker_control.docker_utils import get_next_service_port
 
-    port = get_next_service_port()
+    port = get_next_service_port(count=count)
     if port is not None:
         return port, None
     logger.error(f"No free service port available for {model_name}")

@@ -20,6 +20,11 @@ class DeploymentSerializer(serializers.Serializer):
     host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
     force_full_board = serializers.BooleanField(required=False, default=False)
     host_weights_dir = serializers.CharField(required=False, allow_blank=True, default="")
+    # Catalog model_ids to serve on the same chips as model_id, in one container
+    # (see docker_control.cohost).
+    cohost_with = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list
+    )
 
     def validate_device_id(self, value):
         parts = str(value).split(",")

@@ -44,6 +44,7 @@ from docker_control.docker_control_client import (
     get_docker_client,
     is_service_unreachable,
 )
+from docker_control.cohost import enrich_member_entry, group_model_names, member_key
 from docker_control.models import ModelDeployment
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
@@ -908,9 +909,11 @@ def get_host_port(impl):
 _service_port_lock = threading.Lock()
 
 
-def get_next_service_port(start_port=20000, max_tries=1000):
+def get_next_service_port(start_port=20000, max_tries=1000, count=1):
     """First free host port at/after start_port, across all currently running
-    managed containers and any deployment still starting up.
+    managed containers and any deployment still starting up. With ``count`` > 1,
+    the first port of ``count`` consecutive free ones (a co-host group serves
+    each of its models, and its status endpoint, on consecutive ports).
 
     Deliberately independent of chip/device_id: a model still needs only one
     port no matter how many chip slots it occupies, and scanning live usage
@@ -937,7 +940,7 @@ def get_next_service_port(start_port=20000, max_tries=1000):
         }
         used_host_ports |= in_flight_ports
         for port in range(start_port, start_port + max_tries):
-            if str(port) not in used_host_ports:
+            if all(str(p) not in used_host_ports for p in range(port, port + count)):
                 return port
         logger.warning(
             f"Could not find an unused port in block: {start_port}-{start_port + max_tries - 1}"
@@ -1594,6 +1597,14 @@ def _last_known_good_deployments(exc):
     return result
 
 
+def _deployment_key(dep, container_id):
+    """A deployment's key: its container id, or "<container id>@<port>" for the
+    models after the first of a co-host group, which share that container."""
+    if getattr(dep, "cohost_member", False):
+        return member_key(container_id, dep.port)
+    return container_id
+
+
 def get_canonical_deployments():
     """Single source of truth for current deployed models.
 
@@ -1670,7 +1681,14 @@ def get_canonical_deployments():
             matched_live_ids.add(match_id)
             _running_missing_since.pop(dep.id, None)
             entry = dict(match_data)  # shallow copy so we don't mutate the original
-            enriched = _enrich_container_with_model_impl(entry, match_id)
+            if getattr(dep, "cohost_group", None):
+                # One container serves the whole group: the record says which model.
+                enriched = enrich_member_entry(
+                    entry, dep, model_implmentations, backend_config.docker_bridge_network_name
+                )
+                entry["cohost_models"] = group_model_names(active_deployments, dep.cohost_group)
+            else:
+                enriched = _enrich_container_with_model_impl(entry, match_id)
             entry["source"] = "managed"
             entry["is_pending"] = False
             entry["deployed_at"] = dep.deployed_at.isoformat() if dep.deployed_at else None
@@ -1685,7 +1703,7 @@ def get_canonical_deployments():
             if not enriched:
                 # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
-            result[match_id] = entry
+            result[_deployment_key(dep, match_id)] = entry
             continue
 
         # No live container — placeholder window or ghost?
@@ -1710,7 +1728,7 @@ def get_canonical_deployments():
             )
             if age < _grace:
                 # Legitimate placeholder window — surface but flag as pending.
-                result[full_id or f"pending-{dep.id}"] = {
+                result[_deployment_key(dep, full_id) if full_id else f"pending-{dep.id}"] = {
                     "name": dep.container_name,
                     "status": "starting",
                     "health": "unknown",
@@ -1749,6 +1767,7 @@ def get_canonical_deployments():
             if (now_utc - first_missed).total_seconds() < _CANONICAL_RUNNING_GRACE_SECONDS:
                 cache = caches[backend_config.django_deploy_cache_name]
                 for key in (full_id, short_id):
+                    key = _deployment_key(dep, key) if key else key
                     cached = cache.get(key) if key else None
                     if cached is not None:
                         result[key] = cached

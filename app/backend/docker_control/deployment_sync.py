@@ -96,6 +96,18 @@ def _warn_if_resurrecting_reaped(dep, job_id: str) -> None:
 
 
 def _do_sync(job_id: str, progress_data: dict) -> None:
+    """Apply a progress update to the job's record, then to the rest of its
+    co-host group (several models in one container: one record each)."""
+    _do_sync_record(job_id, progress_data)
+    try:
+        from docker_control.cohost import follow_group_records
+
+        follow_group_records(job_id)
+    except Exception as e:
+        logger.warning(f"[deployment_sync] co-host group sync failed for job {job_id}: {e}")
+
+
+def _do_sync_record(job_id: str, progress_data: dict) -> None:
     """Apply a FastAPI progress update to the corresponding ModelDeployment record.
 
     On 'completed': swap the job_id placeholder container_id for the real Docker

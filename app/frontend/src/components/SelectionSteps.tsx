@@ -51,6 +51,19 @@ export interface Model {
   profile?: string;
   /** Why no TT Studio page drives the model, when none does (deploy only). */
   no_page_reason?: string | null;
+  /** Serving engine ("vLLM", "media", ...); only vLLM chat models can share chips. */
+  inference_engine?: string;
+}
+
+// Chat models served by vLLM can share chips with another such model (one container
+// serves them all; see the backend's docker_control/cohost.py).
+function canShareChips(m: Model): boolean {
+  return (
+    m.model_type === "chat" &&
+    m.is_compatible === true &&
+    (m.inference_engine ?? "").toLowerCase() === "vllm" &&
+    !(m.profiles?.length)
+  );
 }
 
 // P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
@@ -214,6 +227,16 @@ export default function StepperDemo() {
   }, [resumeModelId]);
 
   const selectedModelRow = models?.find((m) => m.id === selectedModel);
+  // Other catalog models that could be served on the selected model's chips.
+  const cohostCandidates = useMemo(
+    () =>
+      selectedModelRow && canShareChips(selectedModelRow)
+        ? (models ?? [])
+            .filter((m) => m.id !== selectedModelRow.id && canShareChips(m))
+            .map((m) => ({ id: m.id, name: m.name }))
+        : [],
+    [models, selectedModelRow],
+  );
   // Chip requirement of the currently selected model (selectedModel holds the id).
   const selectedModelChips = selectedModelRow?.chips_required ?? 1;
   // Model type gates placement (e.g. training builds claim the whole board).
@@ -733,6 +756,7 @@ export default function StepperDemo() {
     device_id?: number | string;
     host_port?: number | null;
     host_weights_dir?: string;
+    cohost_with?: string[];
   }): Promise<{
     success: boolean;
     job_id?: string;
@@ -779,6 +803,10 @@ export default function StepperDemo() {
     // Merged LoRA checkpoint selected in the deploy step → load via --host-weights-dir.
     if (options?.host_weights_dir) {
       payloadObj.host_weights_dir = options.host_weights_dir;
+    }
+    // Further models served on the same chips, from the same container.
+    if (options?.cohost_with?.length) {
+      payloadObj.cohost_with = options.cohost_with;
     }
     const payload = JSON.stringify(payloadObj);
 
@@ -1186,6 +1214,7 @@ export default function StepperDemo() {
                     registerDeployment={(d) => addDeployment({ ...d, startedAt: Date.now() })}
                     activeDeployment={deploymentForSelected}
                     activeProgress={progressForSelected}
+                    cohostCandidates={cohostCandidates}
                   />
                 </>
               )}
