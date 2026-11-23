@@ -36,6 +36,14 @@ _STAMP_NAME = "artifact-info.json"
 # _DISCARDED_VENV once the new one works, so a half-deleted venv is never restored.
 _PREVIOUS_VENV = ".venv.previous"
 _DISCARDED_VENV = ".venv.discarded"
+# What inference-api/tt_model_runner.py imports from tt_kernel.
+_REQUIRED_IMPORTS = (
+    "from tt_kernel import container, container_cli, hub, launchers, localdb; "
+    "from tt_kernel.container_manifest import hardware_chip_count, parse_mesh_device; "
+    "from tt_kernel.launchers import KINDS"
+)
+# TT_MODEL_MANAGER_PYTHON, until setup finds it unusable and installs our own instead.
+_external_python = EXTERNAL_MODEL_MANAGER_PYTHON
 
 
 def model_manager_python(artifact_dir=None):
@@ -44,8 +52,8 @@ def model_manager_python(artifact_dir=None):
     Without ``artifact_dir``, an interpreter given in TT_MODEL_MANAGER_PYTHON wins.
     """
     if artifact_dir is None:
-        if EXTERNAL_MODEL_MANAGER_PYTHON:
-            return EXTERNAL_MODEL_MANAGER_PYTHON
+        if _external_python:
+            return _external_python
         artifact_dir = MODEL_MANAGER_ARTIFACT_DIR
     if os.name == "nt":
         return os.path.join(artifact_dir, ".venv", "Scripts", "python.exe")
@@ -117,14 +125,15 @@ def _install(venv_dir, python, ref):
 
 
 def _check_external():
-    """Whether the TT_MODEL_MANAGER_PYTHON interpreter can import tt_kernel."""
-    python = EXTERNAL_MODEL_MANAGER_PYTHON
+    """Whether the TT_MODEL_MANAGER_PYTHON interpreter has the tt_kernel we use."""
+    global _external_python
+    python = _external_python
     error = None
     if not os.path.isfile(python):
         error = "no such interpreter"
     else:
         try:
-            result = subprocess.run([python, "-c", "import tt_kernel"],
+            result = subprocess.run([python, "-c", _REQUIRED_IMPORTS],
                                     capture_output=True, text=True, timeout=60, check=False)
             if result.returncode != 0:
                 lines = (result.stderr or "").strip().splitlines()
@@ -133,7 +142,8 @@ def _check_external():
             error = str(e)
     if error:
         console.print(f"[warning]⚠️  TT_MODEL_MANAGER_PYTHON={python} cannot run tt-model-manager "
-                      f"({error}) — community models will be unavailable[/warning]")
+                      f"({error}); using TT Studio's own instead[/warning]")
+        _external_python = None
         return False
     if show_detail():
         console.print(f"[muted]Using tt-model-manager from {python}[/muted]")
@@ -145,11 +155,12 @@ def setup_tt_model_manager(artifact_dir=None, force=False):
 
     Idempotent: an install already at the requested ref is left alone, so a normal
     start costs one file read. Without ``artifact_dir``, an interpreter given in
-    TT_MODEL_MANAGER_PYTHON is checked and used as is, never installed into.
+    TT_MODEL_MANAGER_PYTHON is checked and used as is, never installed into; if it
+    is unusable, our own is installed instead.
     """
     if artifact_dir is None:
-        if EXTERNAL_MODEL_MANAGER_PYTHON:
-            return _check_external()
+        if _external_python and _check_external():
+            return True
         artifact_dir = MODEL_MANAGER_ARTIFACT_DIR
     ref = _resolve_ref()
     python = model_manager_python(artifact_dir)
@@ -223,7 +234,7 @@ def model_manager_status(artifact_dir=None):
     pin, so ``version`` says what it has instead.
     """
     python = model_manager_python(artifact_dir)
-    external = artifact_dir is None and bool(EXTERNAL_MODEL_MANAGER_PYTHON)
+    external = artifact_dir is None and bool(_external_python)
     artifact_dir = artifact_dir or MODEL_MANAGER_ARTIFACT_DIR
     return {
         "available": os.path.exists(python),
