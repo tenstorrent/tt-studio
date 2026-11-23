@@ -1546,6 +1546,10 @@ class ContainerLogsView(View):
     async def get(self, request, container_id, *args, **kwargs):
         """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
+        # A co-host group's models ("<container id>@<port>") share one container's log.
+        from docker_control.cohost import split_member_key
+
+        container_id, _ = split_member_key(container_id)
 
         try:
             logger.info("Getting docker-control-service client")

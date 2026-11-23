@@ -212,6 +212,8 @@ class _Manager:
                 "host_weights_dir": kwargs.get("host_weights_dir", None),
                 "community_model_id": kwargs.get("community_model_id", None),
                 "reasoning_parser": kwargs.get("reasoning_parser", None),
+                "cohost_group": kwargs.get("cohost_group", None),
+                "cohost_member": kwargs.get("cohost_member", False),
             }
             data["next_id"] += 1
             data["records"].append(record)
@@ -279,6 +281,11 @@ class ModelDeployment:
         # Community deployments only: the manifest's reasoning parser, which decides
         # whether the gateway offers a thinking toggle for the model.
         self.reasoning_parser: Optional[str] = None
+        # Models deployed onto the same chips share one container. Every record of
+        # such a group carries the group's id; the models after the first are
+        # members, listed under "<container id>@<port>" (see docker_control.cohost).
+        self.cohost_group: Optional[str] = None
+        self.cohost_member: bool = False
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -311,6 +318,8 @@ class ModelDeployment:
         obj.host_weights_dir = d.get("host_weights_dir")
         obj.community_model_id = d.get("community_model_id")
         obj.reasoning_parser = d.get("reasoning_parser")
+        obj.cohost_group = d.get("cohost_group")
+        obj.cohost_member = d.get("cohost_member", False)
         return obj
 
     def _to_dict(self) -> dict:
@@ -339,6 +348,8 @@ class ModelDeployment:
             "host_weights_dir": self.host_weights_dir,
             "community_model_id": self.community_model_id,
             "reasoning_parser": self.reasoning_parser,
+            "cohost_group": self.cohost_group,
+            "cohost_member": self.cohost_member,
         }
 
     def save(self) -> None:

@@ -74,6 +74,15 @@ from shared_config.community_model_config import (
 )
 from docker_control import launchers
 from docker_control.community_deploy import deploy_community_model
+from docker_control.cohost import (
+    CohostError,
+    check_same_image,
+    create_member_records,
+    new_group_id,
+    resolve_cohost_members,
+    split_member_key,
+    stop_group_records,
+)
 from docker_control.deploy_guards import (
     claim_service_port,
     deploy_in_flight_refusal,
@@ -398,6 +407,7 @@ class ContainersView(APIView):
                 "compatible_boards": compatible_boards,
                 "model_type": impl.model_type.value,
                 "display_model_type": impl.display_model_type,
+                "inference_engine": impl.inference_engine,
                 "current_board": current_board,
                 "status": impl.status,
                 "chips_required": chips_required,
@@ -862,6 +872,21 @@ class DeployView(APIView):
             if refusal:
                 return Response(refusal[0], status=refusal[1])
 
+            # Models to serve on the same chips, in the same container.
+            try:
+                cohost_members = resolve_cohost_members(
+                    impl, serializer.validated_data.get("cohost_with") or [], model_implmentations
+                )
+            except CohostError as e:
+                return Response(
+                    {"status": "error", "error_type": "cohost_refused", "message": str(e)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            for member in cohost_members:
+                refusal = hugging_face_access_refusal(getattr(member, "hf_model_id", None))
+                if refusal:
+                    return Response(refusal[0], status=refusal[1])
+
             # On Wormhole mesh boards a single-chip-capable model deploys across the whole
             # board by default; only an explicit slot selection ("1 Device") pins it to a
             # single constituent chip. Per-chip-default boards (e.g. P300x2) are excluded.
@@ -985,7 +1010,9 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            service_port, refusal = claim_service_port(impl.model_name)
+            service_port, refusal = claim_service_port(
+                impl.model_name, count=len(cohost_members) + 2 if cohost_members else 1
+            )
             if refusal:
                 return Response(refusal[0], status=refusal[1])
 
@@ -1063,6 +1090,20 @@ class DeployView(APIView):
                     vllm_override_args = json.dumps(overrides)
                 override_docker_image = _resolve_override_docker_image(impl)
                 artifact_ref = _resolve_artifact_ref(impl, device, board_type)
+                cohost_group_id = None
+                if cohost_members:
+                    try:
+                        check_same_image(
+                            impl,
+                            cohost_members,
+                            lambda m: resolve_deploy_image(m.model_name, device, impl=m.inference_impl),
+                        )
+                    except CohostError as e:
+                        return Response(
+                            {"status": "error", "error_type": "cohost_refused", "message": str(e)},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    cohost_group_id = new_group_id()
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -1081,7 +1122,21 @@ class DeployView(APIView):
                     disable_metal_timeout=bool(
                         impl.requires_dev_catalog or artifact_ref
                     ),
+                    cohost_with=[m.model_name for m in cohost_members] or None,
                 )
+
+                def _create_cohost_member_records(container_id):
+                    if cohost_members:
+                        create_member_records(
+                            cohost_members,
+                            service_port,
+                            cohost_group_id,
+                            container_id=container_id,
+                            device=device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                        )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
                 # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
@@ -1124,7 +1179,9 @@ class DeployView(APIView):
                             port=service_port,
                             tool_calling_enabled=tool_calling_supported,
                             host_weights_dir=host_weights_dir,
+                            cohost_group=cohost_group_id,
                         )
+                        _create_cohost_member_records(pull_id)
                     except Exception as e:
                         logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
@@ -1132,10 +1189,10 @@ class DeployView(APIView):
                         # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
                         from datetime import datetime, timezone
                         from docker_control.models import ModelDeployment
-                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
-                        if dep and dep.status == "starting":
-                            dep.deployed_at = datetime.now(timezone.utc)
-                            dep.save()
+                        for dep in ModelDeployment.objects.filter(container_id=_pull_id):
+                            if dep.status == "starting":
+                                dep.deployed_at = datetime.now(timezone.utc)
+                                dep.save()
 
                     def deploy_fn(_pull_id=pull_id, _kwargs=chat_deploy_kwargs):
                         from datetime import datetime, timezone
@@ -1145,8 +1202,7 @@ class DeployView(APIView):
                         if result.status != "success" or not result.job_id:
                             # Free the chip slot: mark the placeholder stopped.
                             try:
-                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
-                                if dep:
+                                for dep in ModelDeployment.objects.filter(container_id=_pull_id):
                                     dep.status = "stopped"
                                     dep.save()
                             except Exception:
@@ -1154,8 +1210,7 @@ class DeployView(APIView):
                             return None, (result.message or "TT Inference Server did not return a job_id")
                         # Repoint the placeholder record at the real inference job_id so the record is equivalent to a fresh non-pre-pull deploy from here on.
                         try:
-                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
-                            if dep:
+                            for dep in ModelDeployment.objects.filter(container_id=_pull_id):
                                 dep.container_id = result.job_id
                                 dep.status = "starting"
                                 dep.deployed_at = datetime.now(timezone.utc)
@@ -1223,7 +1278,9 @@ class DeployView(APIView):
                         port=service_port,
                         tool_calling_enabled=tool_calling_supported,
                         host_weights_dir=host_weights_dir,
+                        cohost_group=cohost_group_id,
                     )
+                    _create_cohost_member_records(result.job_id)
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
                 # Spawn a background thread to poll FastAPI and transition the
@@ -1244,6 +1301,11 @@ class DeployView(APIView):
                     "allocated_device_id": device_id,
                     "service_port": service_port,
                 }
+                if cohost_members:
+                    response["cohost_members"] = [
+                        {"model_name": m.model_name, "service_port": service_port + i}
+                        for i, m in enumerate(cohost_members, start=1)
+                    ]
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
@@ -3687,6 +3749,9 @@ async def _astream_stop_remove_container(container_id, truncated):
 
     try:
         yield await asyncio.to_thread(_mark_stopped)
+        group_note = await asyncio.to_thread(stop_group_records, container_id)
+        if group_note:
+            yield group_note
     except Exception as e:
         yield f"Warning: failed to update deployment record: {e}"
 
@@ -3827,6 +3892,9 @@ class StopStreamView(View):
 
     async def get(self, request, container_id, *args, **kwargs):
         skip_device_reset = request.GET.get("skip_device_reset", "false").lower() == "true"
+        # A co-host group's models are listed as "<container id>@<port>"; any of
+        # them stops the one container they share.
+        container_id, _ = split_member_key(container_id)
 
         async def generate():
             yield "retry: 1000\n\n"

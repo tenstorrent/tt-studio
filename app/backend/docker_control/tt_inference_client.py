@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 
@@ -127,6 +127,7 @@ def start_chat_deployment(
     host_weights_dir: Optional[str] = None,
     artifact_ref: Optional[str] = None,
     disable_metal_timeout: bool = False,
+    cohost_with: Optional[List[str]] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -163,6 +164,9 @@ def start_chat_deployment(
         payload["artifact_ref"] = artifact_ref
     if disable_metal_timeout:
         payload["disable_metal_timeout"] = True
+    if cohost_with:
+        # Served on the same chips, from the same container (run.py --cohost-with).
+        payload["cohost_with"] = list(cohost_with)
 
     # Pass UI-managed secrets explicitly. The inference server runs on the host
     # and cannot read user_config.env in the persistent volume when the backend
