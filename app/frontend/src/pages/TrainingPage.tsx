@@ -22,6 +22,9 @@ import {
   fetchTrainingJobs,
   cancelTrainingJob,
   deleteTrainingJob,
+  FORCE_DELETE_DIALOG_TITLE,
+  FORCE_DELETE_DIALOG_DESCRIPTION,
+  getDeleteJobSuccessMessage,
   formatTrainingTimestamp,
   trainingTimestampToMs,
   getApiErrorMessage,
@@ -132,8 +135,8 @@ function CancellingActionCell({
         </Button>
       ) : (
         <ConfirmDialog
-          dialogTitle="Force delete stuck fine-tuning job?"
-          dialogDescription="The container has not finished stopping this job (the worker may have stopped or hung). Force delete will clean up checkpoints and remove the job from TT Studio immediately."
+          dialogTitle={FORCE_DELETE_DIALOG_TITLE}
+          dialogDescription={FORCE_DELETE_DIALOG_DESCRIPTION}
           confirmText="Force Delete"
           onConfirm={() => onForceDelete(jobId)}
           alertTrigger={
@@ -266,12 +269,10 @@ export default function TrainingPage() {
   const handleDelete = async (jobId: string, force = false) => {
     setDeletingJobId(jobId);
     try {
-      await deleteTrainingJob(jobId, force);
+      const { reconciled } = await deleteTrainingJob(jobId, force);
       clearCancellingSince(jobId);
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      customToast.success(
-        force ? "Stuck fine-tuning job force-deleted" : "Fine-tuning job deleted",
-      );
+      customToast.success(getDeleteJobSuccessMessage(force, reconciled));
     } catch (err) {
       customToast.error(getApiErrorMessage(err, "Failed to delete job"));
     } finally {

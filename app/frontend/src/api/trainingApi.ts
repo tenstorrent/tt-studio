@@ -372,15 +372,41 @@ export async function cancelTrainingJob(
   return data;
 }
 
+export interface DeleteTrainingJobResult {
+  reconciled: boolean;
+}
+
+export const FORCE_DELETE_DIALOG_TITLE = "Force delete stuck fine-tuning job?";
+export const FORCE_DELETE_DIALOG_DESCRIPTION =
+  "The container has not finished stopping this job (the worker may still be compiling, or may have stopped or hung). Force delete asks the container to remove the job and its checkpoints; if the container rejects deletion, the job is hidden from TT Studio immediately while checkpoints on disk remain.";
+
+export function getDeleteJobSuccessMessage(
+  force: boolean,
+  reconciled: boolean
+): string {
+  if (reconciled) {
+    return "Job hidden from TT Studio (container rejected deletion; checkpoints on disk remain)";
+  }
+  return force
+    ? "Stuck fine-tuning job force-deleted"
+    : "Fine-tuning job deleted";
+}
+
 // Permanently delete a finished job and its results. Deleting a training job
 // also deletes every adapter merge (promoted model) made from it.
 export async function deleteTrainingJob(
   jobId: string,
-  force = false,
-): Promise<void> {
-  await axios.delete(`${TRAINING_API}/jobs/${encodeURIComponent(jobId)}/`, {
-    params: force ? { force: "true" } : undefined,
-  });
+  force = false
+): Promise<DeleteTrainingJobResult> {
+  const { data } = await axios.delete<{ reconciled?: boolean } | string>(
+    `${TRAINING_API}/jobs/${encodeURIComponent(jobId)}/`,
+    {
+      params: force ? { force: "true" } : undefined,
+    }
+  );
+  const reconciled =
+    typeof data === "object" && data !== null && Boolean(data.reconciled);
+  return { reconciled };
 }
 
 // A merged model is the result of an adapter merge job, deleted like any job.

@@ -45,6 +45,9 @@ import {
   cancelTrainingJob,
   deleteTrainingJob,
   deleteMergedModel,
+  FORCE_DELETE_DIALOG_TITLE,
+  FORCE_DELETE_DIALOG_DESCRIPTION,
+  getDeleteJobSuccessMessage,
   promoteCheckpoint,
   normalizeMergedCheckpoint,
   getCheckpointDownloadUrl,
@@ -306,8 +309,8 @@ export default function TrainingJobDetailPage() {
       );
       loadAll();
     } catch {
-      clearCancellingSince(jobId);
       setCancelRequested(false);
+      clearCancellingSince(jobId);
       customToast.error("Failed to cancel job");
     }
   };
@@ -400,11 +403,9 @@ export default function TrainingJobDetailPage() {
     if (!jobId) return;
     setDeletingJob(true);
     try {
-      await deleteTrainingJob(jobId, force);
+      const { reconciled } = await deleteTrainingJob(jobId, force);
       clearCancellingSince(jobId);
-      customToast.success(
-        force ? "Stuck fine-tuning job force-deleted" : "Fine-tuning job deleted",
-      );
+      customToast.success(getDeleteJobSuccessMessage(force, reconciled));
       navigate("/training");
     } catch (err) {
       setDeletingJob(false);
@@ -537,8 +538,8 @@ export default function TrainingJobDetailPage() {
               </Button>
             ) : (
               <ConfirmDialog
-                dialogTitle="Force delete stuck fine-tuning job?"
-                dialogDescription="The container has not finished stopping this job (the worker may have stopped or hung). Force delete will clean up checkpoints and remove the job from TT Studio immediately."
+                dialogTitle={FORCE_DELETE_DIALOG_TITLE}
+                dialogDescription={FORCE_DELETE_DIALOG_DESCRIPTION}
                 confirmText="Force Delete"
                 onConfirm={() => handleDeleteJob(true)}
                 alertTrigger={
