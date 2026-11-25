@@ -78,6 +78,8 @@ _TRANSFER_FIELDS = ("downloaded_bytes", "total_bytes", "speed_bps", "eta_seconds
 
 # Deploy-log lines read for the failure message when the runner exits without one.
 _ERROR_TAIL_LINES = 40
+# Grace period after SIGTERM before cancel_serve escalates to SIGKILL.
+_CANCEL_GRACE_SECONDS = 30
 
 # Serves still running, by job id, so a cancel can end one before it starts a container.
 _serves: Dict[str, Dict[str, Any]] = {}
@@ -272,7 +274,7 @@ def cancel_serve(job_id: str) -> bool:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
-            process.wait(timeout=30)
+            process.wait(timeout=_CANCEL_GRACE_SECONDS)
             break
         except ProcessLookupError:
             break

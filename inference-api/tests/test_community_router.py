@@ -281,6 +281,82 @@ time.sleep(60)
         assert job_id not in community._serves
         assert progress_store[job_id]["status"] == "starting"
 
+    SIGKILL_STUB = """
+import json, os, signal, sys, time
+from pathlib import Path
+if sys.argv[1] == "stop":
+    print(json.dumps({"event": "result", "status": "success"}), flush=True)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+staging = Path(os.environ["STUB_STAGING"])
+staging.mkdir(parents=True, exist_ok=True)
+(staging / "partial.bin").write_bytes(b"data")
+print(json.dumps({"event": "staging", "path": str(staging)}), flush=True)
+print(json.dumps({"event": "stage", "stage": "model_preparation", "progress": 10, "message": "Installing…"}), flush=True)
+time.sleep(60)
+"""
+
+    CRASH_STUB = """
+import json, os, sys
+from pathlib import Path
+staging = Path(os.environ["STUB_STAGING"])
+staging.mkdir(parents=True, exist_ok=True)
+(staging / "partial.bin").write_bytes(b"data")
+print(json.dumps({"event": "staging", "path": str(staging)}), flush=True)
+sys.exit(1)
+"""
+
+    def test_cancel_cleans_staging_even_if_runner_needs_sigkill(self, tmp_path, monkeypatch):
+        staging = tmp_path / "tt-studio-bundle-stuck"
+        monkeypatch.setenv("STUB_STAGING", str(staging))
+        monkeypatch.setattr(community, "_CANCEL_GRACE_SECONDS", 0.1)
+        runner = tmp_path / "stub_runner.py"
+        runner.write_text(self.SIGKILL_STUB)
+        monkeypatch.setattr(community, "RUNNER", str(runner))
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+
+        progress_store: dict = {}
+        router = community.create_community_router(
+            progress_store=progress_store, log_store={},
+            progress_lock=threading.Lock(), max_log_messages=50,
+        )
+        job_id = asyncio.run(_run_route(router).endpoint(
+            community.CommunityRunRequest(repo_id="ns/name")
+        ))["job_id"]
+
+        deadline = time.monotonic() + 10
+        while progress_store[job_id].get("progress") != 10 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert staging.exists()
+
+        assert community.cancel_serve(job_id) is True
+        assert not staging.exists()
+
+    def test_drive_serve_cleans_staging_after_uncancelled_crash(self, tmp_path, monkeypatch):
+        staging = tmp_path / "tt-studio-bundle-crash"
+        monkeypatch.setenv("STUB_STAGING", str(staging))
+        runner = tmp_path / "stub_runner.py"
+        runner.write_text(self.CRASH_STUB)
+        monkeypatch.setattr(community, "RUNNER", str(runner))
+        monkeypatch.setattr(community, "runner_python", lambda: sys.executable)
+
+        progress_store: dict = {}
+        router = community.create_community_router(
+            progress_store=progress_store, log_store={},
+            progress_lock=threading.Lock(), max_log_messages=50,
+        )
+        job_id = asyncio.run(_run_route(router).endpoint(
+            community.CommunityRunRequest(repo_id="ns/name")
+        ))["job_id"]
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if progress_store[job_id].get("status") == "error" and job_id not in community._serves:
+                break
+            time.sleep(0.02)
+        assert progress_store[job_id].get("status") == "error"
+        assert not staging.exists()
+
 
 class _NoStart:
     def start(self):
