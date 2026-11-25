@@ -430,3 +430,74 @@ class TestTrainingJobDelete:
         request = SimpleNamespace(method="POST", GET={}, body=b"")
         resp = views.TrainingCheckpointMergeView().dispatch(request, job_id="t1", ckpt_id="..")
         assert resp.status_code == 400
+
+    def test_delete_cancelling_without_force_relays_409(self, monkeypatch, serving_setup):
+        views = serving_setup
+        monkeypatch.setattr(
+            views, "_find_training_container", lambda _id: ({"internal_url": "c:7000"}, None)
+        )
+        conflict = _FakeHttpResponse(
+            409, {"detail": "Only terminal jobs can be deleted; job 'j1' is cancelling"}
+        )
+        monkeypatch.setattr(views.requests, "delete", lambda *_a, **_k: conflict)
+        request = SimpleNamespace(GET={})
+        resp = views.TrainingJobDetailView().delete(request, "j1")
+        assert resp.status_code == 409
+        assert "Only terminal jobs can be deleted" in resp.data["error"]
+
+    def test_delete_cancelling_with_force_records_tombstone(
+        self, monkeypatch, serving_setup, tmp_path
+    ):
+        views = serving_setup
+        monkeypatch.setattr(views.backend_config, "persistent_storage_volume", str(tmp_path))
+        monkeypatch.setattr(
+            views, "_find_training_container", lambda _id: ({"internal_url": "c:7000"}, None)
+        )
+        conflict = _FakeHttpResponse(
+            409, {"detail": "Only terminal jobs can be deleted; job 'j1' is cancelling"}
+        )
+        monkeypatch.setattr(views.requests, "delete", lambda *_a, **_k: conflict)
+        request = SimpleNamespace(GET={"force": "true"})
+        resp = views.TrainingJobDetailView().delete(request, "j1")
+        assert resp.status_code == 200
+        assert resp.data == {"status": "deleted", "reconciled": True}
+        assert views._read_tombstoned_jobs() == {"j1"}
+
+    def test_jobs_list_filters_tombstoned_jobs(
+        self, monkeypatch, serving_setup, tmp_path
+    ):
+        views = serving_setup
+        monkeypatch.setattr(views.backend_config, "persistent_storage_volume", str(tmp_path))
+        views._tombstone_job("j1")
+        monkeypatch.setattr(
+            views, "_find_training_container", lambda _id: ({"internal_url": "c:7000"}, None)
+        )
+        jobs_payload = [
+            {"id": "j1", "status": "cancelling"},
+            {"id": "j2", "status": "completed"},
+        ]
+        monkeypatch.setattr(
+            views.requests, "get", lambda *_a, **_k: _FakeHttpResponse(200, jobs_payload)
+        )
+        request = SimpleNamespace(GET={})
+        resp = views.TrainingJobsListView().get(request)
+        assert resp.status_code == 200
+        assert resp.data == [{"id": "j2", "status": "completed"}]
+
+    def test_job_detail_get_returns_404_for_tombstoned_job(
+        self, monkeypatch, serving_setup, tmp_path
+    ):
+        views = serving_setup
+        monkeypatch.setattr(views.backend_config, "persistent_storage_volume", str(tmp_path))
+        views._tombstone_job("j1")
+        request = SimpleNamespace(GET={})
+        resp = views.TrainingJobDetailView().get(request, "j1")
+        assert resp.status_code == 404
+        assert "not found" in resp.data["error"]
+
+    def test_tombstone_prunes_at_cap(self, monkeypatch, serving_setup, tmp_path):
+        views = serving_setup
+        monkeypatch.setattr(views.backend_config, "persistent_storage_volume", str(tmp_path))
+        for i in range(5):
+            views._tombstone_job(f"job-{i}", max_entries=3)
+        assert views._read_tombstoned_jobs() == {"job-2", "job-3", "job-4"}

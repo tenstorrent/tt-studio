@@ -374,8 +374,13 @@ export async function cancelTrainingJob(
 
 // Permanently delete a finished job and its results. Deleting a training job
 // also deletes every adapter merge (promoted model) made from it.
-export async function deleteTrainingJob(jobId: string): Promise<void> {
-  await axios.delete(`${TRAINING_API}/jobs/${jobId}/`);
+export async function deleteTrainingJob(
+  jobId: string,
+  force = false,
+): Promise<void> {
+  await axios.delete(`${TRAINING_API}/jobs/${encodeURIComponent(jobId)}/`, {
+    params: force ? { force: "true" } : undefined,
+  });
 }
 
 // A merged model is the result of an adapter merge job, deleted like any job.
