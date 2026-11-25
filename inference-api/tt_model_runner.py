@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import sys
 import tempfile
 import threading
@@ -660,6 +661,55 @@ class _DownloadMonitor(threading.Thread):
                 emit("download", **active.fields(expects_weights))
 
 
+class _Cancelled(BaseException):
+    """Raised on SIGTERM/SIGINT so finally blocks unwind and clean up staging."""
+
+    def __init__(self, signum: int):
+        super().__init__(f"cancelled by signal {signum}")
+        self.signum = signum
+
+
+class _SignalGuard:
+    """Restores prior signal handlers when disarmed or exited."""
+
+    def __init__(self, previous: Dict[int, Any]):
+        self._previous = previous
+        self._disarmed = False
+
+    def disarm(self) -> None:
+        if self._disarmed:
+            return
+        self._disarmed = True
+        for sig, handler in self._previous.items():
+            signal.signal(sig, handler)
+
+
+@contextlib.contextmanager
+def _cancel_on_signal():
+    """Convert SIGTERM/SIGINT into _Cancelled, ignoring repeat signals during cleanup."""
+    cancelling = False
+    previous: Dict[int, Any] = {}
+
+    def _handle(signum, _frame):
+        nonlocal cancelling
+        if cancelling:
+            return
+        cancelling = True
+        raise _Cancelled(signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, _handle)
+        except ValueError:
+            # signal.signal only works from the main thread.
+            pass
+    guard = _SignalGuard(previous)
+    try:
+        yield guard
+    finally:
+        guard.disarm()
+
+
 @contextlib.contextmanager
 def _download_progress(repo_id: str, manifest):
     """Report download progress for the block that installs the bundle.
@@ -668,12 +718,13 @@ def _download_progress(repo_id: str, manifest):
     we own for the duration is what lets its size be measured.
     """
     staging = Path(tempfile.mkdtemp(prefix="tt-studio-bundle-"))
+    emit("staging", path=str(staging))
     previous = tempfile.tempdir
     tempfile.tempdir = str(staging)
     monitor = _DownloadMonitor(repo_id, manifest, staging)
     monitor.start()
     try:
-        yield
+        yield staging
     finally:
         monitor.stop()
         tempfile.tempdir = previous
@@ -938,6 +989,8 @@ def main(raw_args: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(raw_args)
     try:
         return args.func(args)
+    except _Cancelled as exc:
+        return 128 + exc.signum
     except Exception as exc:  # noqa: BLE001 - the boundary: every failure is one event
         # tt_kernel classifies Hub failures (404/gated/offline) into
         # {cause, detail, evidence, actions} — a message the UI can act on rather
