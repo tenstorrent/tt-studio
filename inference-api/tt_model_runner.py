@@ -20,6 +20,7 @@ Commands (all emit JSON objects, one per line, on stdout):
     enrich  --catalog F --out F [--previous F ...]
                                               write F's rows plus each bundle's manifest
     inspect <repo_id>                         deployable metadata for one bundle
+    pull    <repo_id> [options]               pull and load one bundle image
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
 """
@@ -810,6 +811,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pull(args: argparse.Namespace) -> int:
+    """Pull and load one bundle image in a dedicated subprocess so cancel can kill it."""
+    if args.manifest_stdin:
+        from tt_kernel.manifest import Manifest
+
+        manifest = Manifest.from_json(sys.stdin.read())
+        installed = args.installed
+    else:
+        manifest, installed = _load_manifest(args.repo_id, allow_fetch=True)
+        installed = installed or args.installed
+    if manifest is None:
+        raise RuntimeError(f"{args.repo_id} could not be resolved")
+    _ensure_installed(args.repo_id, manifest, installed, no_weights=args.no_weights)
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
     """Stop through tt_kernel so the mesh is closed (and reset) correctly.
 
@@ -872,6 +889,13 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect")
     inspect.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
     inspect.set_defaults(func=cmd_inspect)
+
+    pull = sub.add_parser("pull")
+    pull.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    pull.add_argument("--installed", action="store_true")
+    pull.add_argument("--no-weights", action="store_true")
+    pull.add_argument("--manifest-stdin", action="store_true")
+    pull.set_defaults(func=cmd_pull)
 
     serve = sub.add_parser("serve")
     serve.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
