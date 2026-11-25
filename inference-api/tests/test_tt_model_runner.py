@@ -9,8 +9,11 @@ lets a second model land on devices already in use.
 """
 
 import json
+import os
+import signal
 import subprocess
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -414,6 +417,20 @@ class TestDownloadProgress:
         assert runner.tempfile.tempdir == before
         assert not staging.exists()
 
+    def test_release_staging_restores_tempdir_before_deleting_directory(self, monkeypatch):
+        monkeypatch.setattr(runner, "_DownloadMonitor", _IdleMonitor)
+        before = runner.tempfile.tempdir
+        with runner._download_progress("ns/bundle", object()) as release_staging:
+            staging = Path(runner.tempfile.gettempdir())
+            assert staging.exists()
+            assert runner.tempfile.tempdir == str(staging)
+            release_staging()
+            assert not staging.exists()
+            assert runner.tempfile.tempdir == before
+            # Verify temp files can be created without FileNotFoundError
+            with runner.tempfile.NamedTemporaryFile() as tf:
+                assert Path(tf.name).exists()
+
 
 class _IdleMonitor:
     def __init__(self, *args):
@@ -494,3 +511,211 @@ def test_parser_accepts_hub_names():
 def test_serve_joins_studio_network_at_creation():
     argv = runner._on_studio_network(["docker", "run", "--detach", "image"])
     assert argv == ["docker", "run", "--network", runner.STUDIO_NETWORK, "--detach", "image"]
+
+
+class TestCancelStagingCleanup:
+    """Cancelling a serve mid-pull kills the download child and deletes /tmp staging."""
+
+    @staticmethod
+    def _write_stub_tt_kernel(root: Path, *, mode: str) -> Path:
+        pkg = root / "tt_kernel"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "manifest.py").write_text(
+            "import json\n"
+            "from types import SimpleNamespace\n"
+            "class Manifest:\n"
+            "    def __init__(self, data=None):\n"
+            "        self.name = 'bundle'\n"
+            "        self.arch = 'blackhole'\n"
+            "        self.weights = None\n"
+            "        self.is_container = True\n"
+            "        self.container = SimpleNamespace(\n"
+            "            kind='vllm-plugin',\n"
+            "            resolve_profile=lambda name=None: SimpleNamespace(\n"
+            "                name=name or 'default', hardware='p150', mesh_device='P150',\n"
+            "                port=8000, model_copy=lambda update=None: SimpleNamespace(\n"
+            "                    name=name or 'default', hardware='p150', mesh_device='P150',\n"
+            "                    port=(update or {}).get('port', 8000),\n"
+            "                ),\n"
+            "            ),\n"
+            "        )\n"
+            "    def to_json(self):\n"
+            "        return json.dumps({'name': self.name})\n"
+            "    @classmethod\n"
+            "    def from_json(cls, raw):\n"
+            "        return cls(json.loads(raw))\n"
+        )
+        (pkg / "container_manifest.py").write_text(
+            "hardware_chip_count = lambda hw: 1\n"
+        )
+        (pkg / "launchers.py").write_text(
+            "KINDS = {'vllm-plugin': object()}\n"
+        )
+        (pkg / "container.py").write_text(
+            "from pathlib import Path\n"
+            "import os\n"
+            "preflight = lambda need_devices=True: []\n"
+            "pick_free_devices = lambda count: [0]\n"
+            "ensure_devices_free = lambda ids: None\n"
+            "image_ref = lambda m: 'tt-model/bundle:tag'\n"
+            "image_present = lambda ref: False\n"
+            "hf_home = lambda: Path(os.environ['TMPDIR']) / 'hf'\n"
+        )
+        (pkg / "hub.py").write_text(
+            "from .manifest import Manifest\n"
+            "_REPO_TYPE = 'model'\n"
+            "fetch_manifest = lambda repo_id, rev=None: Manifest()\n"
+            "def classify_hub_error(exc, repo_id):\n"
+            "    return {\n"
+            "        'cause': 'gated repo',\n"
+            "        'detail': 'request access',\n"
+            "        'evidence': '403',\n"
+            "        'actions': ['accept terms'],\n"
+            "    }\n"
+        )
+        if mode == "hang":
+            pull_body = (
+                "    with ThreadPoolExecutor(max_workers=2) as pool:\n"
+                "        def _worker():\n"
+                "            pid_file = os.environ.get('STUB_PULL_PID_FILE')\n"
+                "            if pid_file:\n"
+                "                Path(pid_file).write_text(str(os.getpid()))\n"
+                "            part = Path(tempfile.gettempdir()) / 'nested' / 'partial.bin'\n"
+                "            part.parent.mkdir(parents=True, exist_ok=True)\n"
+                "            part.write_bytes(b'x' * 1024)\n"
+                "            for _ in range(600):\n"
+                "                time.sleep(0.05)\n"
+                "        fut = pool.submit(_worker)\n"
+                "        fut.result()\n"
+            )
+        else:
+            pull_body = (
+                "    err = type('GatedRepoError', (Exception,), "
+                "{'__module__': 'huggingface_hub.errors'})('403')\n"
+                "    raise err\n"
+            )
+        (pkg / "container_cli.py").write_text(
+            "import os, tempfile, time\n"
+            "from concurrent.futures import ThreadPoolExecutor\n"
+            "from pathlib import Path\n"
+            "parse_device_id = lambda raw, *, chip_count, profile_name: None\n"
+            "load_pulled = lambda repo_id: None\n"
+            "def pull_container(repo_id, rev, manifest, *, no_weights=False):\n"
+            + pull_body
+        )
+        return root
+
+    @staticmethod
+    def _spawn_serve(stub_root: Path, tmp_root: Path, *, extra_env=None):
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(stub_root)
+        env["TMPDIR"] = str(tmp_root)
+        env["TEMP"] = str(tmp_root)
+        env["TMP"] = str(tmp_root)
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.Popen(
+            [sys.executable, str(runner.__file__), "serve", "ns/bundle"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            start_new_session=True,
+        )
+
+    @staticmethod
+    def _wait_for_staging(proc: subprocess.Popen, *, require_file: bool = True):
+        staging: Path | None = None
+        events = []
+        deadline = time.monotonic() + 10
+        assert proc.stdout is not None
+        while time.monotonic() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                if proc.poll() is not None:
+                    break
+                continue
+            event = json.loads(line)
+            events.append(event)
+            if event.get("event") == "staging":
+                staging = Path(event["path"])
+                if not require_file:
+                    return staging, events
+                break
+        assert staging is not None, f"staging event missing; events={events}"
+        part = staging / "nested" / "partial.bin"
+        while time.monotonic() < deadline:
+            if part.exists():
+                return staging, events
+            assert proc.poll() is None, "serve exited prematurely while waiting for partial.bin"
+            time.sleep(0.02)
+        raise AssertionError(f"{part} was not created before deadline")
+
+    def test_sigterm_process_group_cleans_staging_without_waiting_on_threads(self, tmp_path):
+        stub_root = self._write_stub_tt_kernel(tmp_path / "stubs", mode="hang")
+        tmp_root = tmp_path / "tmp"
+        tmp_root.mkdir()
+        proc = self._spawn_serve(stub_root, tmp_root)
+        try:
+            staging, events = self._wait_for_staging(proc)
+            assert staging.parent == tmp_root
+            assert staging.name.startswith("tt-studio-bundle-")
+
+            os.killpg(proc.pid, signal.SIGTERM)
+            rc = proc.wait(timeout=5)
+            remaining = [json.loads(ln) for ln in proc.stdout.read().splitlines() if ln.strip()]
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+
+        assert rc == 128 + signal.SIGTERM
+        assert not staging.exists()
+        assert list(tmp_root.glob("tt-studio-bundle-*")) == []
+        assert not any(e.get("event") == "error" for e in events + remaining)
+
+    def test_sigterm_parent_pid_terminates_pull_child_and_cleans_staging(self, tmp_path):
+        stub_root = self._write_stub_tt_kernel(tmp_path / "stubs", mode="hang")
+        tmp_root = tmp_path / "tmp"
+        tmp_root.mkdir()
+        pid_file = tmp_path / "pull.pid"
+        proc = self._spawn_serve(
+            stub_root, tmp_root, extra_env={"STUB_PULL_PID_FILE": str(pid_file)}
+        )
+        try:
+            staging, _ = self._wait_for_staging(proc)
+            child_pid = int(pid_file.read_text())
+
+            proc.terminate()
+            rc = proc.wait(timeout=5)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+
+        assert rc == 128 + signal.SIGTERM
+        assert not staging.exists()
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+
+    def test_pull_subprocess_preserves_classified_hub_error_and_cleans_staging(self, tmp_path):
+        stub_root = self._write_stub_tt_kernel(tmp_path / "stubs", mode="hub_error")
+        tmp_root = tmp_path / "tmp"
+        tmp_root.mkdir()
+        proc = self._spawn_serve(stub_root, tmp_root)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+
+        assert proc.returncode == 1, stderr
+        events = [json.loads(ln) for ln in stdout.splitlines() if ln.strip()]
+        staging_event = next(e for e in events if e.get("event") == "staging")
+        error_event = next(e for e in events if e.get("event") == "error")
+        assert error_event["message"] == "gated repo"
+        assert error_event["detail"] == "request access"
+        assert error_event["actions"] == ["accept terms"]
+        assert not Path(staging_event["path"]).exists()

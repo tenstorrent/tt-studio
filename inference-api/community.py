@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -77,6 +78,8 @@ _TRANSFER_FIELDS = ("downloaded_bytes", "total_bytes", "speed_bps", "eta_seconds
 
 # Deploy-log lines read for the failure message when the runner exits without one.
 _ERROR_TAIL_LINES = 40
+# Grace period after SIGTERM before cancel_serve escalates to SIGKILL.
+_CANCEL_GRACE_SECONDS = 30
 
 # Serves still running, by job id, so a cancel can end one before it starts a container.
 _serves: Dict[str, Dict[str, Any]] = {}
@@ -238,6 +241,16 @@ def _error_detail(event: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _cleanup_staging(path: Optional[str]) -> None:
+    """Best-effort fallback removal of a runner staging dir after process exit."""
+    if not path:
+        return
+    candidate = Path(path)
+    if not candidate.name.startswith("tt-studio-bundle-"):
+        return
+    shutil.rmtree(candidate, ignore_errors=True)
+
+
 def stop_bundle(repo_id: str, profile: Optional[str] = None) -> Dict[str, Any]:
     """Stop a bundle through tt-model-manager so the mesh is closed (and reset) properly."""
     args = ["stop", repo_id, *(["--profile", profile] if profile else [])]
@@ -261,12 +274,15 @@ def cancel_serve(job_id: str) -> bool:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
-            process.wait(timeout=30)
+            process.wait(timeout=_CANCEL_GRACE_SECONDS)
             break
         except ProcessLookupError:
             break
         except subprocess.TimeoutExpired:
             continue
+    with _serves_lock:
+        staging_dir = serve.get("staging_dir")
+    _cleanup_staging(staging_dir)
     request = serve["request"]
     try:
         stop_bundle(request.repo_id, request.profile)
@@ -367,7 +383,11 @@ def create_community_router(
         # Registered before the job id is returned, so an immediate cancel finds it.
         with _serves_lock:
             _serves[job_id] = {
-                "process": None, "request": request, "started": False, "cancelled": False,
+                "process": None,
+                "request": request,
+                "started": False,
+                "cancelled": False,
+                "staging_dir": None,
             }
         with progress_lock:
             progress_store[job_id] = {
@@ -474,6 +494,12 @@ def create_community_router(
                         container_id=event.get("container_id"),
                         **fields,
                     )
+                elif kind == "staging":
+                    path = event.get("path")
+                    if isinstance(path, str) and path:
+                        with _serves_lock:
+                            if job_id in _serves:
+                                _serves[job_id]["staging_dir"] = path
                 elif kind == "result":
                     result = event
                 elif kind == "error":
@@ -490,6 +516,7 @@ def create_community_router(
 
         with _serves_lock:
             serve = _serves.pop(job_id, None)
+        _cleanup_staging(serve.get("staging_dir") if serve else None)
         if serve and serve["cancelled"]:
             _append_log(job_id, "INFO", "Deployment cancelled by user")
             _close_deploy_log(job_id)

@@ -20,6 +20,7 @@ Commands (all emit JSON objects, one per line, on stdout):
     enrich  --catalog F --out F [--previous F ...]
                                               write F's rows plus each bundle's manifest
     inspect <repo_id>                         deployable metadata for one bundle
+    pull    <repo_id> [options]               pull and load one bundle image
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
 """
@@ -32,6 +33,8 @@ import json
 import os
 import re
 import shutil
+import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -459,6 +462,106 @@ def _ensure_installed(repo_id: str, manifest, installed: bool, *, no_weights: bo
     return manifest
 
 
+class _SubprocessError(RuntimeError):
+    """Carries a pre-classified error event from a child runner invocation."""
+
+    def __init__(self, event: Dict[str, Any]):
+        super().__init__(event.get("message") or "bundle install failed")
+        self.event = event
+
+
+def _terminate_process(proc: subprocess.Popen, timeout: float = 5.0) -> None:
+    """Ensure a child process and its threads are dead before touching its tempdir."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _install_in_subprocess(repo_id: str, manifest, installed: bool, *, no_weights: bool):
+    """Run bundle download + docker load in a child process so SIGTERM kills it fast.
+
+    huggingface_hub's ThreadPoolExecutor blocks SystemExit until active transfers
+    finish; isolating pull_container in a child lets cancel terminate the OS process
+    before _download_progress removes the staging directory.
+    """
+    from tt_kernel import container, container_cli
+
+    if installed and container.image_present(container.image_ref(manifest)):
+        return manifest
+
+    env = os.environ.copy()
+    staging = tempfile.gettempdir()
+    env["TMPDIR"] = staging
+    env["TEMP"] = staging
+    env["TMP"] = staging
+
+    argv = [sys.executable, __file__, "pull", repo_id]
+    if installed:
+        argv.append("--installed")
+    if no_weights:
+        argv.append("--no-weights")
+
+    manifest_json = manifest.to_json() if not installed and hasattr(manifest, "to_json") else None
+    if manifest_json is not None:
+        argv.append("--manifest-stdin")
+
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.PIPE if manifest_json is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=True,
+        env=env,
+    )
+    last_error: Optional[Dict[str, Any]] = None
+    try:
+        if proc.stdin is not None:
+            try:
+                proc.stdin.write(manifest_json)
+            except BrokenPipeError:
+                pass
+            finally:
+                proc.stdin.close()
+
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict) or "event" not in event:
+                    continue
+                kind = event["event"]
+                if kind == "error":
+                    last_error = event
+                elif kind != "staging":
+                    emit(kind, **{k: v for k, v in event.items() if k != "event"})
+        rc = proc.wait()
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        _terminate_process(proc)
+
+    if rc != 0:
+        if last_error is not None:
+            raise _SubprocessError(last_error)
+        raise RuntimeError(f"installing {repo_id} failed with exit code {rc}")
+
+    manifest = container_cli.load_pulled(repo_id) or manifest
+    ref = container.image_ref(manifest)
+    if not container.image_present(ref):
+        raise RuntimeError(f"installing {repo_id} did not load its image {ref}")
+    return manifest
+
+
 def _ensure_weights(repo_id: str, manifest, *, no_weights: bool) -> None:
     """Have tt-model-manager fetch or resume the pinned weights before launch.
 
@@ -659,6 +762,55 @@ class _DownloadMonitor(threading.Thread):
                 emit("download", **active.fields(expects_weights))
 
 
+class _Cancelled(BaseException):
+    """Raised on SIGTERM/SIGINT so finally blocks unwind and clean up staging."""
+
+    def __init__(self, signum: int):
+        super().__init__(f"cancelled by signal {signum}")
+        self.signum = signum
+
+
+class _SignalGuard:
+    """Restores prior signal handlers when disarmed or exited."""
+
+    def __init__(self, previous: Dict[int, Any]):
+        self._previous = previous
+        self._disarmed = False
+
+    def disarm(self) -> None:
+        if self._disarmed:
+            return
+        self._disarmed = True
+        for sig, handler in self._previous.items():
+            signal.signal(sig, handler)
+
+
+@contextlib.contextmanager
+def _cancel_on_signal():
+    """Convert SIGTERM/SIGINT into _Cancelled, ignoring repeat signals during cleanup."""
+    cancelling = False
+    previous: Dict[int, Any] = {}
+
+    def _handle(signum, _frame):
+        nonlocal cancelling
+        if cancelling:
+            return
+        cancelling = True
+        raise _Cancelled(signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, _handle)
+        except ValueError:
+            # signal.signal only works from the main thread.
+            pass
+    guard = _SignalGuard(previous)
+    try:
+        yield guard
+    finally:
+        guard.disarm()
+
+
 @contextlib.contextmanager
 def _download_progress(repo_id: str, manifest):
     """Report download progress for the block that installs the bundle.
@@ -667,16 +819,23 @@ def _download_progress(repo_id: str, manifest):
     we own for the duration is what lets its size be measured.
     """
     staging = Path(tempfile.mkdtemp(prefix="tt-studio-bundle-"))
+    emit("staging", path=str(staging))
     previous = tempfile.tempdir
     tempfile.tempdir = str(staging)
     monitor = _DownloadMonitor(repo_id, manifest, staging)
     monitor.start()
+
+    def release_staging() -> None:
+        nonlocal previous
+        if tempfile.tempdir == str(staging):
+            tempfile.tempdir = previous
+        shutil.rmtree(staging, ignore_errors=True)
+
     try:
-        yield
+        yield release_staging
     finally:
         monitor.stop()
-        tempfile.tempdir = previous
-        shutil.rmtree(staging, ignore_errors=True)
+        release_staging()
 
 
 def _ensure_hf_modules_dir() -> None:
@@ -730,11 +889,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # bad pin or a full board should be reported now rather than after the download.
     _resolve_device_ids(args.device_id, chip_count, profile.name)
 
-    with _download_progress(args.repo_id, manifest):
-        manifest = _ensure_installed(
-            args.repo_id, manifest, installed, no_weights=args.no_weights
-        )
-        _ensure_weights(args.repo_id, manifest, no_weights=args.no_weights)
+    with _cancel_on_signal() as cancel_guard:
+        with _download_progress(args.repo_id, manifest) as release_staging:
+            manifest = _install_in_subprocess(
+                args.repo_id, manifest, installed, no_weights=args.no_weights
+            )
+            release_staging()
+            cancel_guard.disarm()
+            _ensure_weights(args.repo_id, manifest, no_weights=args.no_weights)
     profile = _resolve_profile(manifest, args.profile, args.port)
     chip_count = _chips_for(profile.mesh_device, profile.hardware)
     launcher = launchers.launcher_for(spec.kind)
@@ -810,6 +972,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pull(args: argparse.Namespace) -> int:
+    """Pull and load one bundle image in a dedicated subprocess so cancel can kill it."""
+    if args.manifest_stdin:
+        from tt_kernel.manifest import Manifest
+
+        manifest = Manifest.from_json(sys.stdin.read())
+        installed = args.installed
+    else:
+        manifest, installed = _load_manifest(args.repo_id, allow_fetch=True)
+        installed = installed or args.installed
+    if manifest is None:
+        raise RuntimeError(f"{args.repo_id} could not be resolved")
+    _ensure_installed(args.repo_id, manifest, installed, no_weights=args.no_weights)
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
     """Stop through tt_kernel so the mesh is closed (and reset) correctly.
 
@@ -873,6 +1051,13 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
     inspect.set_defaults(func=cmd_inspect)
 
+    pull = sub.add_parser("pull")
+    pull.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    pull.add_argument("--installed", action="store_true")
+    pull.add_argument("--no-weights", action="store_true")
+    pull.add_argument("--manifest-stdin", action="store_true")
+    pull.set_defaults(func=cmd_pull)
+
     serve = sub.add_parser("serve")
     serve.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
     serve.add_argument("--profile", type=_matching(_NAME, "profile name"))
@@ -914,6 +1099,19 @@ def main(raw_args: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(raw_args)
     try:
         return args.func(args)
+    except _Cancelled as exc:
+        return 128 + exc.signum
+    except _SubprocessError as exc:
+        event = exc.event
+        emit(
+            "error",
+            message=event.get("message") or str(exc),
+            detail=event.get("detail"),
+            evidence=event.get("evidence"),
+            actions=event.get("actions") or [],
+            kind=event.get("kind") or "RuntimeError",
+        )
+        return 1
     except Exception as exc:  # noqa: BLE001 - the boundary: every failure is one event
         # tt_kernel classifies Hub failures (404/gated/offline) into
         # {cause, detail, evidence, actions} — a message the UI can act on rather
